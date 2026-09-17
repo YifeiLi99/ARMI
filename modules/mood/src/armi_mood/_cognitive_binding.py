@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -20,6 +21,15 @@ if TYPE_CHECKING:
         SemanticAppraisalEvent,
     )
 from ._cognitive_contract import MoodState
+
+
+def preview_appraisal(event: SemanticAppraisalEvent) -> dict[str, object]:
+    """Use the production policy without writing facts in isolated experiments."""
+    from ._domain import derive_semantic_appraisal
+
+    if event.previous_episode_id is not None:
+        raise ValueError("MOOD-PREVIEW-PREVIOUS-REQUIRED")
+    return asdict(derive_semantic_appraisal(event))
 
 
 def semantic_appraisal_from_command(

@@ -461,7 +461,8 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
         "invalid json",
     ],
 )
-def test_returned_output_is_saved_before_local_rejection(output):
+@pytest.mark.parametrize("provider_status", ["completed", "incomplete", "failed", None])
+def test_returned_output_is_saved_before_local_rejection(output, provider_status):
     binding = replace(
         load_active_binding(),
         response_contract_version="armi.creator-cognitive-act-candidate.v5",
@@ -483,11 +484,24 @@ def test_returned_output_is_saved_before_local_rejection(output):
             "model_id": "doubao-seed-evolving",
             "output_text": output,
             "usage": {"input_tokens": 10, "output_tokens": 5, "cached_input_tokens": 0},
-            "raw": {"output": [{"type": "message"}]},
+            "raw": {
+                "status": provider_status,
+                "output": []
+                if provider_status == "incomplete"
+                else [{"type": "message"}],
+            },
         },
         cast(Any, SimpleNamespace(canonical_bytes=b'{"available_refs":[]}')),
     )
     assert result.status is ModelResultStatus.SUCCEEDED
+    assert result.usage is not None
+    assert result.usage.input_tokens == 10
+    if provider_status != "completed":
+        assert result.response_error_code == (
+            "MODEL-RESPONSE-INCOMPLETE"
+            if provider_status == "incomplete"
+            else "MODEL-PROVIDER-STATUS"
+        )
     assert result.response_bytes is not None
     saved = json.loads(result.response_bytes)
     assert saved["output_text"] == output

@@ -19,6 +19,7 @@ from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransa
 from ._cognitive_binding import (
     bind_appraisal_draft,
     bind_appraisal_event,
+    preview_appraisal,
     semantic_appraisal_from_command,
 )
 from ._cognitive_contract import (
@@ -721,5 +722,6 @@ __all__ = (
     "mood_context_items",
     "mood_dialogue_text",
     "mood_snapshot_bytes",
+    "preview_appraisal",
     "semantic_appraisal_from_command",
 )

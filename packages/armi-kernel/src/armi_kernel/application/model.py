@@ -153,9 +153,17 @@ class ModelInvocationResult:
     response_bytes: bytes | None
     usage: ModelUsage | None
     error_code: str | None = None
+    # A returned, billable response can still be incomplete. Preserve
+    # its body before ending cognition; this is distinct from transport failure.
+    response_error_code: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.status) is not ModelResultStatus:
+            raise ModelViolation("MODEL-RESULT")
+        if self.response_error_code is not None and (
+            self.status is not ModelResultStatus.SUCCEEDED
+            or _CODE.fullmatch(self.response_error_code) is None
+        ):
             raise ModelViolation("MODEL-RESULT")
         success = self.status is ModelResultStatus.SUCCEEDED
         if success:

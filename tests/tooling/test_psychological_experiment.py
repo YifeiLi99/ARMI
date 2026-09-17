@@ -58,6 +58,50 @@ def test_live_requires_explicit_credential_source(experiment, tmp_path):
         asyncio.run(experiment["run"](tmp_path / "probe", None, live=True))
 
 
+def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experiment):
+    def evaluate(candidate):
+        return experiment["validate_appraisal_response"](
+            {},
+            json.dumps(
+                {
+                    "schema_version": "armi.model-response-artifact.v3",
+                    "output_text": json.dumps({"candidate": candidate}),
+                }
+            ).encode(),
+        )
+
+    assert evaluate({"mind": [], "mood": None})["validation"] == "accepted"
+    assessment = dict(
+        object_ref="ctx:1",
+        basis_refs=["ctx:1"],
+        desired_outcome="understand",
+        significance="important",
+        discrepancy="substantial",
+        understanding="unexplained",
+        progress="stalled",
+        opportunity="available",
+        resolution="open",
+        explanation="观察到尚不理解的现象",
+    )
+    result = evaluate({"mind": [assessment], "mood": None})
+    assert result["validation"] == "accepted"
+    assert result["mind"][0]["trajectory"][-1]["level"] > 0
+    assert (
+        evaluate({"mind": [assessment | {"curiosity": 2}], "mood": None})["validation"]
+        == "rejected"
+    )
+    assert (
+        evaluate({"mind": [assessment | {"object_ref": "ctx:2"}], "mood": None})[
+            "validation"
+        ]
+        == "rejected"
+    )
+    assert (
+        evaluate({"mind": [assessment, assessment], "mood": None})["validation"]
+        == "rejected"
+    )
+
+
 def test_autonomous_mind_change_can_coexist_with_silence_and_rejects_unknown_basis(
     experiment,
 ):

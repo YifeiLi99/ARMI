@@ -15,6 +15,14 @@ from armi_kernel.application import (
 from armi_runtime_foundation import AdminContentPort as MindAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
+from ._appraisal import (
+    MIND_APPRAISAL_INSTRUCTIONS,
+    MindAppraisal,
+    MotivationalProjection,
+    MotivationalState,
+    evaluate_motivation,
+    project_motivation,
+)
 from ._cognitive_binding import bind_concern_changes, bind_mind_change
 from ._cognitive_contract import (
     MIND_COGNITIVE_INSTRUCTIONS,
@@ -241,6 +249,7 @@ class MindAdminCorrectionPort(Protocol):
 __all__ = (
     "CONCERN_CHANGES",
     "CONCERN_RECORDS",
+    "MIND_APPRAISAL_INSTRUCTIONS",
     "MIND_COGNITIVE_INSTRUCTIONS",
     "MIND_CONTEXT_REFERENCES",
     "ActivityReview",
@@ -256,6 +265,7 @@ __all__ = (
     "MindAdminCorrectionPort",
     "MindAdminReadPort",
     "MindAdminState",
+    "MindAppraisal",
     "MindBirthContinuity",
     "MindBirthPort",
     "MindCognitionPort",
@@ -266,16 +276,20 @@ __all__ = (
     "MindRevision",
     "MindState",
     "MindViolation",
+    "MotivationalProjection",
+    "MotivationalState",
     "TimedReview",
     "UpdateConcern",
     "apply_mind_text_change",
     "bind_concern_changes",
     "bind_mind_change",
     "concern_attention_status",
+    "evaluate_motivation",
     "initial_mind_state",
     "mind_attention_projection",
     "mind_context_items",
     "mind_editable_state",
     "mind_signals",
     "prepare_mind_change",
+    "project_motivation",
 )

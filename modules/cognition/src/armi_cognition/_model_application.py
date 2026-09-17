@@ -714,6 +714,11 @@ class ModelPipeline:
                 response_saved = True
                 if self._stop.is_set():
                     return
+                if result.response_error_code is not None:
+                    await self._fail_finalization(
+                        lease, snapshot, result.response_error_code
+                    )
+                    return
                 await self._finalization.finalize(
                     record, attempt_id, cast(bytes, result.response_bytes)
                 )

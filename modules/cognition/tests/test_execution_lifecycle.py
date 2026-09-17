@@ -124,18 +124,25 @@ class _Execution(model.ModelPipeline):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reject", [False, True, "schema"])
+@pytest.mark.parametrize("reject", [False, True, "schema", "incomplete"])
 async def test_model_success_survives_finalization_failure(monkeypatch, reject) -> None:
     finalization = AsyncMock(
         side_effect=(
             ModelViolation("MODEL-RESPONSE-SCHEMA")
             if reject == "schema"
             else CandidateViolation("CANDIDATE-CONTRACT")
-            if reject
+            if reject is True
             else None
         )
     )
     pipeline = _Execution(finalization)
+    if reject == "incomplete":
+        from dataclasses import replace
+
+        pipeline.adapter.invoke.return_value = replace(
+            pipeline.adapter.invoke.return_value,
+            response_error_code="MODEL-RESPONSE-INCOMPLETE",
+        )
     monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"{}")
     monkeypatch.setattr(
         model,
@@ -155,10 +162,17 @@ async def test_model_success_survives_finalization_failure(monkeypatch, reject) 
     ]
     pipeline._repository.settle_success.assert_awaited_once()
     pipeline._repository.finalize_primary_success.assert_awaited_once()
-    finalization.assert_awaited_once()
-    assert finalization.await_args is not None
-    assert finalization.await_args.args[0] is record
-    assert finalization.await_args.args[2] is pipeline.result_bytes
+    if reject == "incomplete":
+        finalization.assert_not_awaited()
+        assert (
+            pipeline._repository.fail_episode.await_args.kwargs["code"]
+            == "MODEL-RESPONSE-INCOMPLETE"
+        )
+    else:
+        finalization.assert_awaited_once()
+        assert finalization.await_args is not None
+        assert finalization.await_args.args[0] is record
+        assert finalization.await_args.args[2] is pipeline.result_bytes
     pipeline._repository.settle_failure.assert_not_awaited()
     assert pipeline._repository.fail_episode.await_count == int(bool(reject))
 

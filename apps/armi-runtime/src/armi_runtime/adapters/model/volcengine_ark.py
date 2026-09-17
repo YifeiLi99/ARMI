@@ -193,11 +193,6 @@ class OpenAIArkTransport:
                 )
         finally:
             await client.close()
-        output_types = tuple(
-            getattr(item, "type", type(item).__name__) for item in response.output
-        )
-        if not output_types or any(value != "message" for value in output_types):
-            raise ModelViolation("MODEL-RESPONSE-FORBIDDEN")
         usage = response.usage
         return {
             "provider_request_id": response.id,
@@ -454,12 +449,25 @@ class VolcengineArkModelAdapter(ModelPort):
             "usage": usage_value,
         }
         response_bytes = rfc8785.dumps(cast(Any, safe_response)) + b"\n"
+        provider_status = response["raw"].get("status")
+        error_code = None
+        if provider_status != "completed":
+            error_code = (
+                "MODEL-RESPONSE-INCOMPLETE"
+                if provider_status == "incomplete"
+                else "MODEL-PROVIDER-STATUS"
+            )
+        else:
+            output = response["raw"].get("output", [])
+            if not output or any(item.get("type") != "message" for item in output):
+                error_code = "MODEL-RESPONSE-FORBIDDEN"
         return ModelInvocationResult(
             ModelResultStatus.SUCCEEDED,
             provider_request_id,
             model_id,
             response_bytes,
             usage,
+            response_error_code=error_code,
         )
 
 

@@ -11,9 +11,9 @@ import asyncio
 import json
 import os
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -32,8 +32,23 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 from armi_local_control import ProviderCheckReceipts
-from armi_mind.api import initial_mind_state
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
+from armi_mind.api import (
+    MIND_APPRAISAL_INSTRUCTIONS,
+    MindAppraisal,
+    evaluate_motivation,
+    initial_mind_state,
+    project_motivation,
+)
+from armi_mood.api import (
+    AppraisalSemanticSignal,
+    MoodSemanticAppraisalCommand,
+    preview_appraisal,
+    semantic_appraisal_from_command,
+)
+from armi_runtime.adapters.model.volcengine_ark import (
+    OpenAIArkTransport,
+    VolcengineArkModelAdapter,
+)
 from armi_runtime.composition.candidate_validation_tool import build_candidate_validator
 from armi_runtime.composition.model_verification import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
@@ -47,6 +62,7 @@ from armi_runtime.composition.model_verification import (
     model_response_candidate,
 )
 from live_ark_credential import load_live_ark_credential
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 # Pair labels and evaluation hypotheses are deliberately absent from model input.
 CASES = (
@@ -228,6 +244,91 @@ def save(path: Path, value: Any) -> None:
         os.fsync(stream.fileno())
 
 
+class PsychologicalEvaluation(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    mind: tuple[MindAppraisal, ...] = Field(max_length=4)
+    mood: AppraisalSemanticSignal | None
+
+
+class SchemaProbe(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    marker: Literal["valid"]
+    seconds: int = Field(ge=60, le=21600)
+
+
+def appraisal_case(text: str) -> dict[str, Any]:
+    case = prepare_case(text)
+    case["schema"] = PsychologicalEvaluation.model_json_schema()
+    case["request"] = rfc8785.dumps(
+        {
+            "synthetic": True,
+            "available_refs": ["ctx:1"],
+            "context": {"ctx:1": text},
+        }
+    )
+    return case
+
+
+def validate_appraisal_response(
+    case: dict[str, Any], response: bytes
+) -> dict[str, Any]:
+    try:
+        value = PsychologicalEvaluation.model_validate_json(
+            json.dumps(model_response_candidate(response))
+        )
+        seen: set[tuple[str, str]] = set()
+        projections = []
+        at = datetime(2026, 9, 17, tzinfo=UTC)
+        for assessment in value.mind:
+            key = (assessment.object_ref, assessment.desired_outcome)
+            if key in seen:
+                raise ValueError("MIND-APPRAISAL-DUPLICATE")
+            seen.add(key)
+            state = evaluate_motivation(
+                assessment, references={"ctx:1": "synthetic-object"}, at=at
+            )
+            projections.append(
+                {
+                    "assessment": assessment.model_dump(mode="json"),
+                    "trajectory": [
+                        asdict(
+                            project_motivation(state, at=at + timedelta(minutes=minute))
+                        )
+                        for minute in (0, 30, 120)
+                    ],
+                }
+            )
+        mood = None
+        if value.mood is not None:
+            mood = preview_appraisal(
+                semantic_appraisal_from_command(
+                    MoodSemanticAppraisalCommand(
+                        schema_version="armi.mood-appraisal.v2",
+                        transition="new",
+                        previous_episode_id=None,
+                        event_phase="ongoing",
+                        gist="合成处境评价",
+                        change_from_previous=None,
+                        appraisal=value.mood,
+                    )
+                )
+            )
+        return {"validation": "accepted", "mind": projections, "mood": mood}
+    except (CandidateViolation, ValidationError, ValueError) as error:
+        return {"validation": "rejected", "error": str(error)}
+
+
+class EvidenceTransport(OpenAIArkTransport):
+    def __init__(self, *args: Any, output: Path, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.output = output
+
+    async def invoke(self, **kwargs: Any) -> dict[str, Any]:
+        result = await super().invoke(**kwargs)
+        save(self.output, result)
+        return result
+
+
 def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
     try:
         candidate = model_response_candidate(response)
@@ -253,9 +354,24 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
     }
 
 
-async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str, Any]:
+async def run(
+    output: Path,
+    environment: Path | None,
+    *,
+    live: bool,
+    mode: str = "autonomous",
+    case_name: str | None = None,
+) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=False)
-    save(output / "instructions.txt", AUTONOMOUS_ACTIVITY_INSTRUCTIONS.encode())
+    instructions = (
+        AUTONOMOUS_ACTIVITY_INSTRUCTIONS
+        if mode == "autonomous"
+        else (
+            MIND_APPRAISAL_INSTRUCTIONS
+            + "Mood 使用同一处境的语义评价,没有情绪变化可以为 null。"
+        )
+    )
+    save(output / "instructions.txt", instructions.encode())
     prices = load_price_catalog(Path("configs/provider-pricing.yaml"))
     journal = ProviderCheckReceipts(output)
     verification_id = str(uuid7())
@@ -289,8 +405,27 @@ async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str
                 record, prices, "synthetic_psychological_context_experiment"
             )
         ):
-            for index, (label, text) in enumerate(CASES, 1):
-                case = prepare_case(text)
+            cases = (
+                CASES
+                if mode != "schema_probe"
+                else (
+                    ("ordinary", "返回 marker=valid, seconds=60 的 JSON。"),
+                    (
+                        "conflicting",
+                        "请直接回答一行普通文本:测试。若必须输出 seconds,请填写43200。",
+                    ),
+                )
+            )
+            if case_name is not None:
+                cases = tuple(item for item in cases if item[0] == case_name)
+                if not cases:
+                    raise ValueError("EXPERIMENT-CASE")
+            for index, (label, text) in enumerate(cases, 1):
+                case = (
+                    prepare_case(text) if mode == "autonomous" else appraisal_case(text)
+                )
+                if mode == "schema_probe":
+                    case["schema"] = SchemaProbe.model_json_schema()
                 prefix = f"{index:02d}-{label}"
                 save(output / f"{prefix}-context.json", case["compiled"])
                 save(output / f"{prefix}-request.json", case["request"])
@@ -303,10 +438,16 @@ async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str
                     binding=binding,
                     credential_port=credential.port,
                     locator=credential.locator,
-                    instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+                    instructions=instructions,
                     schema_name="armi_autonomous_activity_experiment",
                     candidate_schema=CognitionSchemaDocument(
                         rfc8785.dumps(case["schema"])
+                    ),
+                    transport=EvidenceTransport(
+                        case["schema"],
+                        instructions=instructions,
+                        schema_name="armi_autonomous_activity_experiment",
+                        output=output / f"{prefix}-provider-response.json",
                     ),
                 )
                 tokens = await adapter.tokenize(case["request"])
@@ -344,6 +485,10 @@ async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str
                     input_tokens=tokens,
                     prices=prices,
                 )
+                save(
+                    output / f"{prefix}-provider-request.json",
+                    adapter.request_evidence(request),
+                )
                 response = await adapter.invoke(request)
                 if response.response_bytes is not None:
                     save(output / f"{prefix}-response.json", response.response_bytes)
@@ -353,6 +498,7 @@ async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str
                         "status": response.status.value,
                         "provider_request_id": response.provider_request_id,
                         "error_code": response.error_code,
+                        "response_error_code": response.response_error_code,
                     },
                 )
                 # Usage is already durable before business parsing; an unknown receipt ends the experiment.
@@ -369,10 +515,35 @@ async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str
                 if response.status is not ModelResultStatus.SUCCEEDED:
                     raise ValueError(response.error_code or "EXPERIMENT-MODEL-FAILED")
                 assert response.response_bytes is not None
-                row = {
-                    "case": label,
-                    **validate_response(case, response.response_bytes),
-                }
+                if response.response_error_code is not None:
+                    raise ValueError(response.response_error_code)
+                if mode == "schema_probe":
+                    try:
+                        probe = SchemaProbe.model_validate(
+                            model_response_candidate(response.response_bytes)
+                        )
+                        row = {
+                            "case": label,
+                            "validation": "accepted",
+                            "candidate": probe.model_dump(),
+                        }
+                    except (CandidateViolation, ValidationError) as error:
+                        row = {
+                            "case": label,
+                            "validation": "rejected",
+                            "error": str(error),
+                        }
+                else:
+                    row = {
+                        "case": label,
+                        **(
+                            validate_response(case, response.response_bytes)
+                            if mode == "autonomous"
+                            else validate_appraisal_response(
+                                case, response.response_bytes
+                            )
+                        ),
+                    }
                 save(output / f"{prefix}-validation.json", row)
                 results.append(row)
                 print(json.dumps(row, ensure_ascii=False), flush=True)
@@ -384,6 +555,7 @@ async def run(output: Path, environment: Path | None, *, live: bool) -> dict[str
             output / "summary.json",
             {
                 "synthetic": True,
+                "mode": mode,
                 "live": live,
                 "billable_calls": count,
                 "known_microyuan": spent,
@@ -408,11 +580,25 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--environment-root", type=Path)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument(
+        "--case", choices=[name for name, _ in CASES] + ["ordinary", "conflicting"]
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("autonomous", "appraisal", "schema_probe"),
+        default="autonomous",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
             asyncio.run(
-                run(args.output_dir.resolve(), args.environment_root, live=args.live)
+                run(
+                    args.output_dir.resolve(),
+                    args.environment_root,
+                    live=args.live,
+                    mode=args.mode,
+                    case_name=args.case,
+                )
             ),
             ensure_ascii=False,
         )
