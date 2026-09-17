@@ -13,7 +13,7 @@ from typing import Literal, cast
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactAdminPort
-from armi_attention.api import OpportunityAdminPort
+from armi_attention.api import OpportunityAdminPort, project_signal_status
 from armi_cognition.api import CognitionAdminPort
 from armi_effect.api import EffectAdminPort
 from armi_evidence.api import EvidenceAdminPort
@@ -37,9 +37,9 @@ from armi_runtime_foundation import (
 )
 from armi_sleep.api import SleepAdminReadPort
 from armi_subject_state.api import (
-    CONCERN_RECORDS,
     SubjectStateAdminReadPort,
-    concern_attention_status,
+    mind_attention_projection,
+    mind_signals,
 )
 
 from .role_session import AdminRoleBoundPool
@@ -246,6 +246,10 @@ class AdminObservationGateway:
             )
             row = uow.transaction.execute(statement, parameters).fetchone()
             result = autonomy_result(row)
+            consumed = frozenset(
+                (key[0], key[1], key[2])
+                for key in cast(list[list[str]], result.pop("consumed_signal_keys", []))
+            )
             if mode == "status" and result.get("observed_at") is not None:
                 components = self._subject_state.current_components(
                     uow.transaction, private=True
@@ -253,17 +257,46 @@ class AdminObservationGateway:
                 mind = next(
                     (item for item in components if item.kind.value == "mind"), None
                 )
+                signals = (
+                    ()
+                    if mind is None
+                    else mind_signals(json.dumps(mind.payload).encode("utf-8"))
+                )
+                mood_signals = self._mood.consideration_signals(
+                    uow.transaction,
+                    as_of=datetime.fromisoformat(str(result["observed_at"])),
+                    minimum_delay_seconds=cast(
+                        int,
+                        cast(dict[str, object], result["policy"])[
+                            "minimum_consideration_seconds"
+                        ],
+                    ),
+                )
+                own_commits = self._cognition.autonomous_commit_ids(
+                    uow.transaction,
+                    commit_ids=tuple(
+                        signal.source_commit_id
+                        for signal in mood_signals
+                        if signal.source_commit_id is not None
+                    ),
+                )
+                project_signal_status(
+                    result,
+                    (
+                        *signals,
+                        *(
+                            signal
+                            for signal in mood_signals
+                            if signal.source_commit_id not in own_commits
+                        ),
+                    ),
+                    consumed,
+                )
                 if mind is not None:
-                    records = CONCERN_RECORDS.validate_json(
-                        json.dumps(cast(dict[str, object], mind.payload)["concerns"]),
-                        strict=True,
-                    )
-                    result["concerns"] = concern_attention_status(
-                        records,
+                    result["concerns"] = mind_attention_projection(
+                        json.dumps(mind.payload).encode("utf-8"),
                         as_of=datetime.fromisoformat(str(result["observed_at"])),
-                        consumed_before=None
-                        if result["last_considered_at"] is None
-                        else datetime.fromisoformat(str(result["last_considered_at"])),
+                        consumed=consumed,
                     )
             return result
 

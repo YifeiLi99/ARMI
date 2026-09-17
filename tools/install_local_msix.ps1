@@ -90,7 +90,7 @@ try {
     $indexPath = Join-Path $dataRoot 'control/environments.yaml'
     $environments = @()
     $payloadPython = Join-Path $output 'staging/runtime/python/python.exe'
-    $supportedSourceJson = & $payloadPython -I -B -c 'import json; from armi_postgresql_contract.upgrades import upgrade_plan,verify_upgrade_resources; verify_upgrade_resources(); print(json.dumps(upgrade_plan()["source"]))'
+    $supportedSourceJson = & $payloadPython -I -B -c 'import json; from armi_postgresql_contract.upgrades import upgrade_plans,verify_upgrade_resources; verify_upgrade_resources(); print(json.dumps([plan["source"] for plan in upgrade_plans()]))'
     if ($LASTEXITCODE -ne 0) { throw 'LOCAL-MSIX-UPGRADE-RESOURCE' }
     $supportedSource = $supportedSourceJson | ConvertFrom-Json
     if (Test-Path -LiteralPath $indexPath) {
@@ -104,10 +104,16 @@ try {
             if ([IO.Path]::GetDirectoryName($resolved) -ne (Join-Path $dataRoot 'environments')) { throw 'LOCAL-MSIX-ENVIRONMENT-BOUNDARY' }
             $binding = Get-Content -LiteralPath (Join-Path $resolved '.setup/program.json') -Raw -Encoding utf8 | ConvertFrom-Json
             $sameContract = $true
-            $supportedUpgrade = $true
             foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
                 if ($binding.database.$field -ne $bundle.database.$field) { $sameContract = $false }
-                if ($binding.database.$field -ne $supportedSource.$field) { $supportedUpgrade = $false }
+            }
+            $supportedUpgrade = $false
+            foreach ($sourceContract in $supportedSource) {
+                $matches = $true
+                foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
+                    if ($binding.database.$field -ne $sourceContract.$field) { $matches = $false }
+                }
+                if ($matches) { $supportedUpgrade = $true }
             }
             if (-not $sameContract -and -not $supportedUpgrade) {
                 throw "LOCAL-MSIX-DATABASE-INCOMPATIBLE: package built at $package; no signed upgrade path matches the retained database contract."

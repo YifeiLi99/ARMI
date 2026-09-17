@@ -6,6 +6,7 @@ import json
 from typing import Annotated, Any, Literal, cast
 
 from armi_kernel.application import ModelViolation
+from armi_mood.api import AppraisalEventSignalV2
 from armi_subject_state.api import ConcernChange
 from pydantic import (
     BaseModel,
@@ -20,7 +21,6 @@ from ._activity_internal_work_contract import (
     InternalWorkNoResultDecision,
     InternalWorkProgressDecision,
 )
-from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536

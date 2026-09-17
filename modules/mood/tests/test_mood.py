@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid7
 
 import pytest
+import rfc8785
 from armi_kernel.application import CandidateFactClass
 from armi_mood._domain import (
     StoredAffectiveEvent,
     StoredEmotionComponent,
-    attention_since,
     clamp_home_base,
+    consideration_signals,
     derive_effective_snapshot,
     derive_effective_state,
     derive_semantic_appraisal,
@@ -50,6 +52,8 @@ from armi_mood.api import (
     MoodViolation,
     SemanticAppraisal,
     SemanticAppraisalEvent,
+    active_mood_episodes,
+    active_mood_gists,
 )
 from armi_mood.bootstrap import bootstrap_mood_cognition
 
@@ -493,11 +497,22 @@ def test_new_affect_can_attract_attention_without_ordering_expression(
         uuid7(),
         phase=AppraisalEventPhase.ONGOING,
     )
-    assert attention_since((event,), after=None, as_of=now) == (
-        now if attracts else None
+    event = replace(event, event_id=uuid7())
+    signals = consideration_signals((event,), minimum_delay_seconds=60, as_of=now)
+    assert bool(signals) is attracts
+    if attracts:
+        assert signals[0].eligible_at == now + timedelta(seconds=60)
+        assert signals[0].object_ref == event.episode_id
+        assert (
+            consideration_signals((event,), minimum_delay_seconds=60, as_of=now)
+            == signals
+        )
+    assert (
+        consideration_signals(
+            (event,), minimum_delay_seconds=60, as_of=now + timedelta(days=2)
+        )
+        == ()
     )
-    assert attention_since((event,), after=now, as_of=now) is None
-    assert attention_since((event,), after=None, as_of=now + timedelta(days=2)) is None
 
 
 @pytest.mark.parametrize(
@@ -525,7 +540,12 @@ def test_resolved_or_reappraised_concern_does_not_reuse_old_action_tendency(
         transition,
         AppraisalEventPhase.AVERTED,
     )
-    assert attention_since((event, later), after=None, as_of=later.occurred_at) is None
+    assert (
+        consideration_signals(
+            (event, later), minimum_delay_seconds=60, as_of=later.occurred_at
+        )
+        == ()
+    )
 
 
 def test_same_as_of_is_independent_of_poll_slices() -> None:
@@ -558,3 +578,39 @@ def test_state_contract_is_v3_and_rejects_extra_fields() -> None:
     assert state_to_wire(state)["schema_version"] == "armi.mood.v3"
     with pytest.raises(MoodViolation):
         parse_state({**state_to_wire(state), "mood": "平静"})
+
+
+def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias() -> (
+    None
+):
+    source_id = uuid7()
+    episode_ids = (uuid7(), uuid7(), uuid7())
+    mood = rfc8785.dumps(
+        {
+            "schema_version": "armi.mood-snapshot.v2",
+            "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
+            "current": {"valence": 10, "arousal": 20, "dominance": 0},
+            "active_emotions": [],
+            "active_episodes": [
+                {
+                    "episode_id": str(episode_id),
+                    "gist": gist,
+                    "event_phase": "ongoing",
+                    "intensity": intensity,
+                }
+                for episode_id, gist, intensity in zip(
+                    episode_ids,
+                    ("甲" * 64, "乙" * 64, "低强度事件"),
+                    (80, 60, 19),
+                    strict=True,
+                )
+            ],
+            "action_tendencies": [{"tendency": "explore", "intensity": 70}],
+        }
+    )
+    payloads = (("mood", source_id, 3, mood),)
+    episodes = active_mood_episodes(payloads)
+    gists = active_mood_gists(payloads)
+    assert tuple(item[0] for item in episodes) == episode_ids
+    assert len(gists) == 2
+    assert sum(map(len, gists)) == 128

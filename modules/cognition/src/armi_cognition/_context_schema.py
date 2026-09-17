@@ -3,6 +3,9 @@
 from copy import deepcopy
 from typing import Any, cast
 
+from armi_mood.api import MOOD_CONTEXT_REFERENCES
+from armi_subject_state.api import MIND_CONTEXT_REFERENCES
+
 
 def bind_context_schema(
     schema: dict[str, Any],
@@ -12,10 +15,8 @@ def bind_context_schema(
     definitions = result.get("$defs", {})
     blocked: set[str] = set()
     for name, field, kind in (
-        ("ExistingAppraisal", "episode_ref", "active_affective_episode"),
-        ("UpdateConcern", "concern_ref", "current_concern"),
-        ("CloseConcern", "concern_ref", "current_concern"),
-        ("ActivityReview", "activity_ref", "current_activity"),
+        *MOOD_CONTEXT_REFERENCES,
+        *MIND_CONTEXT_REFERENCES,
     ):
         if name not in definitions:
             continue

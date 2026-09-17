@@ -1017,6 +1017,8 @@ export interface components {
       available_after: string;
       /** Cognition Status */
       cognition_status: string | null;
+      consideration_signals:
+        components["schemas"]["ConsiderationSignals"] | null;
       /** Current Disposition */
       current_disposition: string;
       /** Effect Id */
@@ -1057,6 +1059,13 @@ export interface components {
        * @default []
        */
       concerns: components["schemas"]["ConcernAttentionStatus"][];
+      /**
+       * Consideration Signals
+       * @default []
+       */
+      consideration_signals: components["schemas"]["ConsiderationSignalItem"][];
+      /** Effective Consideration At */
+      effective_consideration_at?: string | null;
       /** Last Considered At */
       last_considered_at?: string | null;
       /** Next Consideration At */
@@ -1175,6 +1184,41 @@ export interface components {
        * @enum {string}
        */
       state: "open" | "waiting";
+    };
+    /** ConsiderationSignalItem */
+    ConsiderationSignalItem: {
+      /** Condition Version */
+      condition_version: string;
+      /** Eligible At */
+      eligible_at: string;
+      /** Object Ref */
+      object_ref: string;
+      /**
+       * Owner
+       * @enum {string}
+       */
+      owner: "mind" | "mood";
+      /**
+       * Reason
+       * @enum {string}
+       */
+      reason:
+        | "review_time_reached"
+        | "creator_input"
+        | "activity_result"
+        | "affective_change";
+    };
+    /** ConsiderationSignals */
+    ConsiderationSignals: {
+      /** Frozen At */
+      frozen_at: string | null;
+      /**
+       * Schema Version
+       * @constant
+       */
+      schema_version: "armi.consideration-signals.v1";
+      /** Signals */
+      signals: components["schemas"]["ConsiderationSignalItem"][];
     };
     /** CreatorActivityItemResponse */
     CreatorActivityItemResponse: {

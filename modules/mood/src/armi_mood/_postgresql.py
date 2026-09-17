@@ -8,29 +8,28 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import MoodApplication
 from ._domain import (
     StoredAffectiveEvent,
-    StoredEmotionComponent,
-    attention_since,
     clamp_home_base,
     component_to_wire,
+    consideration_signals,
     derive_effective_snapshot,
     derive_effective_state,
     derive_semantic_appraisal,
     initial_state,
-    parse_component,
     parse_semantic_appraisal,
     parse_state_bytes,
     semantic_appraisal_to_wire,
     semantic_features_to_wire,
     state_to_bytes,
 )
+from ._event_storage import EVENT_QUERY, parse_events
 from .api import (
     VAD,
-    AppraisalEventPhase,
     AppraisalTransition,
     CandidateMoodDraft,
     MoodBirthContinuity,
@@ -123,13 +122,13 @@ class PostgreSQLMoodOwner:
             tendencies,
         )
 
-    async def attention_since(
+    async def consideration_signals(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        after: datetime | None,
-    ) -> datetime | None:
+        minimum_delay_seconds: int,
+    ) -> tuple[ConsiderationSignal, ...]:
         clock = await (
             await transaction.execute("SELECT statement_timestamp()")
         ).fetchone()
@@ -139,7 +138,9 @@ class PostgreSQLMoodOwner:
         events = await self._load_events(
             transaction, subject_id=subject_id, as_of=as_of
         )
-        return attention_since(events, after=after, as_of=as_of)
+        return consideration_signals(
+            events, minimum_delay_seconds=minimum_delay_seconds, as_of=as_of
+        )
 
     async def _load_events(
         self,
@@ -149,59 +150,13 @@ class PostgreSQLMoodOwner:
         as_of: datetime,
         days: int = 7,
     ) -> tuple[StoredAffectiveEvent, ...]:
-        appraisal_rows = await (
+        rows = await (
             await transaction.execute(
-                """SELECT mood_episode_id,transition,event_phase,gist,
-                          derived_components,occurred_at
-                   FROM armi.mood_appraisal_events
-                   WHERE subject_id=%s AND occurred_at <= %s
-                     AND occurred_at >= %s - (%s * interval '1 day')
-                   ORDER BY occurred_at,mood_appraisal_event_id""",
-                (subject_id, as_of, as_of, days),
+                EVENT_QUERY,
+                (subject_id, subject_id, as_of, as_of, days),
             )
         ).fetchall()
-        events: list[StoredAffectiveEvent] = []
-        try:
-            for (
-                episode_id,
-                transition,
-                phase,
-                gist,
-                raw_components,
-                occurred_at,
-            ) in appraisal_rows:
-                events.append(
-                    StoredAffectiveEvent(
-                        occurred_at,
-                        self._stored_components(raw_components),
-                        episode_id,
-                        AppraisalTransition(transition),
-                        AppraisalEventPhase(phase),
-                        str(gist),
-                    )
-                )
-        except MoodViolation, TypeError, ValueError:
-            raise MoodViolation("MOOD-EVENT-STORAGE") from None
-        events.sort(key=lambda item: item.occurred_at)
-        return tuple(events)
-
-    @staticmethod
-    def _stored_components(
-        raw_components: object,
-    ) -> tuple[StoredEmotionComponent, ...]:
-        components: list[StoredEmotionComponent] = []
-        for raw in cast(list[object], raw_components):
-            item = cast(dict[str, object], raw)
-            half_life = item.get("half_life_seconds")
-            if type(half_life) is not int:
-                raise ValueError
-            semantic = {
-                key: value for key, value in item.items() if key != "half_life_seconds"
-            }
-            components.append(
-                StoredEmotionComponent(parse_component(semantic), half_life)
-            )
-        return tuple(components)
+        return parse_events(rows)
 
     async def current_head_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

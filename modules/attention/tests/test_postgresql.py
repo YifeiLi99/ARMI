@@ -140,6 +140,7 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
 ) -> None:
     facts = AsyncMock()
     facts.active_cognition_count.return_value = 0
+    facts.consideration_signals.return_value = ()
     scene, creator, subject = uuid7(), uuid7(), uuid7()
     facts.outreach.return_value = SimpleNamespace(
         scene_id=scene,
@@ -181,9 +182,10 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
             scene_id=scene,
             creator_party_id=creator,
             activity_id=None,
+            signals=(),
         )
-        owner.consider_psychological_attention.assert_awaited_once_with(
-            unit.transaction, subject_id=subject, policy=AutonomyPolicy(), facts=facts
+        facts.consideration_signals.assert_awaited_once_with(
+            unit.transaction, subject_id=subject, minimum_delay_seconds=60
         )
     facts.outreach.assert_awaited_once_with(unit, outlet="qq")
 

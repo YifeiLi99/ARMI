@@ -196,7 +196,11 @@ export function ActivityPanel({
             <h3>{AUTONOMY_LABELS[autonomy.data.state]}</h3>
             {autonomy.data.next_consideration_at ? (
               <p>
-                下次期望时间：{localTime(autonomy.data.next_consideration_at)}
+                下次期望时间：
+                {localTime(
+                  autonomy.data.effective_consideration_at ??
+                    autonomy.data.next_consideration_at,
+                )}
                 （北京时间）
               </p>
             ) : null}
@@ -264,6 +268,16 @@ export function ActivityPanel({
                                     ? "本轮决定已结算"
                                     : "正在处理"}
                     </p>
+                    {item.consideration_signals === null ? (
+                      <p>本轮未记录考虑信号明细</p>
+                    ) : item.consideration_signals ? (
+                      <p>
+                        纳入考虑的信号：
+                        {item.consideration_signals.frozen_at
+                          ? item.consideration_signals.signals.length
+                          : "尚未冻结"}
+                      </p>
+                    ) : null}
                     {item.failure_code || item.resolution_reason_code ? (
                       <p>{item.failure_code ?? item.resolution_reason_code}</p>
                     ) : null}

@@ -144,6 +144,7 @@ from .provider_usage import (
     UsageUnit,
     estimate_cost,
 )
+from .psychology import ConsiderationSignal, PsychologicalContextItem
 from .recovery import (
     RecoveryDecision,
     RecoveryFinding,
@@ -218,6 +219,7 @@ __all__: tuple[str, ...] = (
     "CognitionPurpose",
     "CognitionPurposeDefinition",
     "CognitiveEpisodeId",
+    "ConsiderationSignal",
     "CostComponent",
     "CostEstimate",
     "CostStatus",
@@ -270,6 +272,7 @@ __all__: tuple[str, ...] = (
     "PriceSnapshot",
     "ProviderCallReceipt",
     "ProviderMeterScope",
+    "PsychologicalContextItem",
     "ReceiptWriter",
     "RecoveryDecision",
     "RecoveryFinding",

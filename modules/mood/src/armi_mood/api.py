@@ -8,9 +8,37 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_kernel.application import (
+    CandidateFactClass,
+    CandidateOwnerDraft,
+    ConsiderationSignal,
+)
 from armi_runtime_foundation import AdminContentPort as MoodAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
+
+from ._cognitive_binding import (
+    bind_appraisal_draft,
+    bind_appraisal_event,
+    semantic_appraisal_from_command,
+)
+from ._cognitive_contract import (
+    MOOD_CONTEXT_REFERENCES,
+    AppraisalEventSignalV2,
+    AppraisalSemanticSignal,
+    ExistingMoodAppraisalCommand,
+    MoodAppraisalCommandWire,
+    MoodSemanticAppraisalCommand,
+    MoodVAD,
+    NewMoodAppraisalCommand,
+)
+from ._cognitive_contract import MoodState as MoodStateWire
+from ._projection import (
+    active_mood_episodes,
+    active_mood_gists,
+    mood_context_items,
+    mood_dialogue_text,
+    mood_snapshot_bytes,
+)
 
 
 class MoodViolation(RuntimeError):
@@ -495,13 +523,13 @@ class MoodCorrectionHead:
 
 @runtime_checkable
 class MoodReadPort(Protocol):
-    async def attention_since(
+    async def consideration_signals(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        after: datetime | None,
-    ) -> datetime | None: ...
+        minimum_delay_seconds: int,
+    ) -> tuple[ConsiderationSignal, ...]: ...
 
     async def current(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -561,6 +589,14 @@ class MoodBirthContinuity:
 
 @runtime_checkable
 class MoodAdminReadPort(Protocol):
+    def consideration_signals(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        as_of: datetime,
+        minimum_delay_seconds: int,
+    ) -> tuple[ConsiderationSignal, ...]: ...
+
     def current_component(
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MoodAdminComponent | None: ...
@@ -620,6 +656,7 @@ class MoodAdminCorrectionPort(Protocol):
 
 
 __all__ = (
+    "MOOD_CONTEXT_REFERENCES",
     "VAD",
     "ActionTendency",
     "ActiveAffectiveEpisode",
@@ -635,6 +672,7 @@ __all__ = (
     "AppraisalDemandLevel",
     "AppraisalDirection",
     "AppraisalEventPhase",
+    "AppraisalEventSignalV2",
     "AppraisalExpectedness",
     "AppraisalIntentionality",
     "AppraisalPowerBalance",
@@ -642,6 +680,7 @@ __all__ = (
     "AppraisalResponseAccess",
     "AppraisalSelfInvolvement",
     "AppraisalSelfScope",
+    "AppraisalSemanticSignal",
     "AppraisalSignificance",
     "AppraisalStandards",
     "AppraisalTrajectory",
@@ -652,10 +691,12 @@ __all__ = (
     "EffectiveEmotion",
     "EmotionComponent",
     "EmotionFamily",
+    "ExistingMoodAppraisalCommand",
     "MoodAdminComponent",
     "MoodAdminContentPort",
     "MoodAdminCorrectionPort",
     "MoodAdminReadPort",
+    "MoodAppraisalCommandWire",
     "MoodBirthContinuity",
     "MoodBirthPort",
     "MoodCandidateKind",
@@ -664,9 +705,21 @@ __all__ = (
     "MoodCorrectionHead",
     "MoodHead",
     "MoodReadPort",
+    "MoodSemanticAppraisalCommand",
     "MoodSnapshot",
     "MoodState",
+    "MoodStateWire",
+    "MoodVAD",
     "MoodViolation",
+    "NewMoodAppraisalCommand",
     "SemanticAppraisal",
     "SemanticAppraisalEvent",
+    "active_mood_episodes",
+    "active_mood_gists",
+    "bind_appraisal_draft",
+    "bind_appraisal_event",
+    "mood_context_items",
+    "mood_dialogue_text",
+    "mood_snapshot_bytes",
+    "semantic_appraisal_from_command",
 )

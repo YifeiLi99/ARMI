@@ -19,15 +19,29 @@ from .schema_resources import (
 )
 
 
-def upgrade_plan() -> dict[str, Any]:
+def upgrade_plans() -> tuple[dict[str, Any], ...]:
     root = schema_resource_root().parent / "upgrades"
-    plan = json.loads((root / "v21-to-v22.json").read_text(encoding="utf-8"))
-    if (
+    plans = tuple(
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(root.glob("*-to-*.json"))
+    )
+    if not plans or any(
         plan["format"] != "armi.database-upgrade.v1"
         or plan["target_baseline"] != BASELINE_IDENTITY
+        for plan in plans
     ):
         raise PostgreSQLContractError("DB-UPGRADE-RESOURCE")
-    return plan
+    return plans
+
+
+def upgrade_plan(source_baseline: str | None = None) -> dict[str, Any]:
+    plans = upgrade_plans()
+    if source_baseline is None:
+        return plans[0]
+    for plan in plans:
+        if plan["source"]["baseline"] == source_baseline:
+            return plan
+    raise PostgreSQLContractError("DB-UPGRADE-SOURCE")
 
 
 def upgrade_target() -> dict[str, str]:
@@ -42,8 +56,10 @@ def upgrade_target() -> dict[str, str]:
 
 
 def supported_upgrade(source: dict[str, Any], target: dict[str, Any]) -> bool:
-    plan = upgrade_plan()
-    return source == plan["source"] and target == upgrade_target()
+    return (
+        any(source == plan["source"] for plan in upgrade_plans())
+        and target == upgrade_target()
+    )
 
 
 def check_upgrade(connection: Any) -> dict[str, Any]:
@@ -53,7 +69,9 @@ def check_upgrade(connection: Any) -> dict[str, Any]:
     if rows == [(BASELINE_IDENTITY,)]:
         verify_postgresql_contract(connection)
         return {"state": "current", "target": upgrade_target()}
-    source = upgrade_plan()["source"]
+    if len(rows) != 1:
+        raise PostgreSQLContractError("DB-UPGRADE-SOURCE")
+    source = upgrade_plan(rows[0][0])["source"]
     verify_contract_identity(
         connection,
         expected_baseline=source["baseline"],
@@ -93,7 +111,7 @@ def apply_upgrade(connection: Any) -> dict[str, Any]:
     if status["state"] == "current":
         return status
     root = schema_resource_root()
-    for step in upgrade_plan()["steps"]:
+    for step in upgrade_plan(status["source"]["baseline"])["steps"]:
         path = (root / step).resolve()
         if not path.is_relative_to(root.parent.resolve()) or path.suffix != ".sql":
             raise PostgreSQLContractError("DB-UPGRADE-RESOURCE")
@@ -118,6 +136,7 @@ __all__ = (
     "check_upgrade",
     "supported_upgrade",
     "upgrade_plan",
+    "upgrade_plans",
     "upgrade_target",
     "verify_upgrade_resources",
 )

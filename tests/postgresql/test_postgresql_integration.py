@@ -1298,7 +1298,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         unit.transaction, subject_id=born.subject_id, policy=policy
                     )
                     outcome = await owner.admit_due(
-                        unit.transaction, subject_id=born.subject_id, policy=policy
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                        policy=policy,
+                        signals=await facts.consideration_signals(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            minimum_delay_seconds=60,
+                        ),
                     )
                     self.assertEqual(outcome.reason_code, "LIFE-AUTONOMY-NOT-DUE")
                 async with factory.unit_of_work() as unit:
@@ -1370,11 +1377,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             (born.subject_id,),
                         )
                         for _ in range(3):
-                            await owner.consider_psychological_attention(
+                            await facts.consideration_signals(
                                 unit.transaction,
                                 subject_id=born.subject_id,
-                                policy=policy,
-                                facts=facts,
+                                minimum_delay_seconds=60,
                             )
                     elif psychological:
                         # No external event/state-epoch wakeup: a six-hour plan
@@ -1383,14 +1389,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()+interval '6 hours' WHERE subject_id=%s",
                             (born.subject_id,),
                         )
-                        await owner.consider_psychological_attention(
+                        await facts.consideration_signals(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            minimum_delay_seconds=60,
+                        )
+                        quiet = await owner.admit_due(
                             unit.transaction,
                             subject_id=born.subject_id,
                             policy=policy,
-                            facts=facts,
-                        )
-                        quiet = await owner.admit_due(
-                            unit.transaction, subject_id=born.subject_id, policy=policy
+                            signals=await facts.consideration_signals(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                minimum_delay_seconds=60,
+                            ),
                         )
                         self.assertEqual(quiet.reason_code, "LIFE-AUTONOMY-NOT-DUE")
                         # Synthetic affect evidence, confined to this disposable
@@ -1433,11 +1445,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ),
                         )
                         for _ in range(3):
-                            await owner.consider_psychological_attention(
+                            await facts.consideration_signals(
                                 unit.transaction,
                                 subject_id=born.subject_id,
-                                policy=policy,
-                                facts=facts,
+                                minimum_delay_seconds=60,
                             )
                     else:
                         # Virtual elapsed time in this isolated database.
@@ -1446,14 +1457,28 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             (born.subject_id,),
                         )
                     admitted = await owner.admit_due(
-                        unit.transaction, subject_id=born.subject_id, policy=policy
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                        policy=policy,
+                        signals=await facts.consideration_signals(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            minimum_delay_seconds=60,
+                        ),
                     )
                     self.assertEqual(
                         admitted.status, OpportunityAdmissionStatus.ADMITTED
                     )
                 async with factory.unit_of_work() as unit:
                     duplicate = await owner.admit_due(
-                        unit.transaction, subject_id=born.subject_id, policy=policy
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                        policy=policy,
+                        signals=await facts.consideration_signals(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            minimum_delay_seconds=60,
+                        ),
                     )
                     self.assertEqual(
                         duplicate.status, OpportunityAdmissionStatus.DUPLICATE
@@ -1486,6 +1511,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ),
                     )
                     self.assertIsNone(exhausted)
+                    await cognition_owner.select_for_cognition(
+                        unit.transaction, opportunity_id=selected.opportunity_id
+                    )
+                    await cognition_owner.freeze_signals(
+                        unit.transaction,
+                        opportunity_id=selected.opportunity_id,
+                        signals=await facts.consideration_signals(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            minimum_delay_seconds=60,
+                        ),
+                        frozen_at=datetime.now(UTC),
+                    )
 
                 async def register(call_id: str, *, rollback: bool = False) -> bool:
                     async with factory.unit_of_work() as unit:
@@ -1533,7 +1571,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             cast(LiteralString, statement), parameters
                         )
                     ).fetchone()
-                    status = AutonomyStatus.model_validate(autonomy_result(row))
+                    raw_status = autonomy_result(row)
+                    raw_status.pop("consumed_signal_keys")
+                    status = AutonomyStatus.model_validate(raw_status)
                     self.assertEqual(
                         (status.used_requests, status.remaining_requests), (2, 0)
                     )
@@ -1557,21 +1597,27 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         unit.transaction, opportunity_ids=(admitted.opportunity_id,)
                     )
                     await owner.admit_due(
-                        unit.transaction, subject_id=born.subject_id, policy=policy
-                    )
-                    if concern:
-                        self.assertIsNone(
-                            await facts.concern_review_since(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                after=datetime.now(UTC),
-                            )
-                        )
-                        await owner.consider_psychological_attention(
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                        policy=policy,
+                        signals=await facts.consideration_signals(
                             unit.transaction,
                             subject_id=born.subject_id,
-                            policy=policy,
-                            facts=facts,
+                            minimum_delay_seconds=60,
+                        ),
+                    )
+                    if concern:
+                        self.assertEqual(
+                            await cognition_owner.unconsumed_signals(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                signals=await facts.consideration_signals(
+                                    unit.transaction,
+                                    subject_id=born.subject_id,
+                                    minimum_delay_seconds=60,
+                                ),
+                            ),
+                            (),
                         )
                         row = await (
                             await unit.transaction.execute(
@@ -1601,6 +1647,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 unit.transaction,
                                 subject_id=born.subject_id,
                                 policy=policy,
+                                signals=await facts.consideration_signals(
+                                    unit.transaction,
+                                    subject_id=born.subject_id,
+                                    minimum_delay_seconds=60,
+                                ),
                             )
                             self.assertEqual(
                                 current.status, OpportunityAdmissionStatus.ADMITTED
@@ -1656,16 +1707,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             )
                         for _ in range(3):
                             async with factory.unit_of_work() as unit:
-                                await owner.consider_psychological_attention(
+                                await facts.consideration_signals(
                                     unit.transaction,
                                     subject_id=born.subject_id,
-                                    policy=policy,
-                                    facts=facts,
+                                    minimum_delay_seconds=60,
                                 )
                                 no_loop = await owner.admit_due(
                                     unit.transaction,
                                     subject_id=born.subject_id,
                                     policy=policy,
+                                    signals=await facts.consideration_signals(
+                                        unit.transaction,
+                                        subject_id=born.subject_id,
+                                        minimum_delay_seconds=60,
+                                    ),
                                 )
                                 self.assertEqual(
                                     no_loop.reason_code, "LIFE-AUTONOMY-NOT-DUE"
@@ -1676,7 +1731,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             (born.subject_id,),
                         )
                         blocked = await owner.admit_due(
-                            unit.transaction, subject_id=born.subject_id, policy=policy
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            policy=policy,
+                            signals=await facts.consideration_signals(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                minimum_delay_seconds=60,
+                            ),
                         )
                         self.assertEqual(
                             blocked.reason_code, "LIFE-AUTONOMY-QUOTA-EXHAUSTED"
@@ -1695,6 +1757,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_supported_database_upgrade_preserves_data_and_matches_fresh_schema(
         self,
     ) -> None:
+        self._assert_supported_database_upgrade("v21")
+
+    def test_supported_v22_database_upgrade_preserves_mind_history(self) -> None:
+        self._assert_supported_database_upgrade("v22")
+
+    def _assert_supported_database_upgrade(self, source_version: str) -> None:
         from zipfile import ZipFile
 
         from armi_postgresql_contract.catalog_fingerprint import (
@@ -1731,7 +1799,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(json.loads(reference.read_text(encoding="utf-8")), evidence)
 
         old = self.create_database()
-        source = upgrade_plan()["source"]
+        source = upgrade_plan(f"armi.schema-baseline.{source_version}")["source"]
         # Synthetic historical provider bytes: no installed environment is read.
         historical = (
             Path(__file__).parent / "fixtures/v17-model-response.json"
@@ -1751,7 +1819,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v21-source.zip") as archive:
+            with ZipFile(resource / f"{source_version}-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -1829,19 +1897,33 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             historical_subject(),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
         )
+        historical_opportunity = uuid7()
         historical_call, historical_request, historical_work, historical_runtime = (
             uuid7() for _ in range(4)
         )
         with psycopg.connect(old.migrator_dsn) as connection:
             connection.execute("SET ROLE armi_owner")
-            # Construct the v21 payload in this isolated fixture, not a current birth.
-            connection.execute(
-                "UPDATE armi.subject_component_revisions SET semantic_payload=%s::jsonb "
-                "WHERE subject_id=%s AND component_kind='mind'",
-                (
-                    (Path(__file__).parent / "fixtures/v21-mind.json").read_text(
-                        encoding="utf-8"
+            if source_version == "v21":
+                # Construct the v21 payload in this isolated fixture, not a current birth.
+                connection.execute(
+                    "UPDATE armi.subject_component_revisions SET semantic_payload=%s::jsonb "
+                    "WHERE subject_id=%s AND component_kind='mind'",
+                    (
+                        (Path(__file__).parent / "fixtures/v21-mind.json").read_text(
+                            encoding="utf-8"
+                        ),
+                        born.subject_id,
                     ),
+                )
+            connection.execute(
+                """INSERT INTO armi.opportunities
+                   (opportunity_id,subject_id,purpose,eligibility_status,current_disposition,
+                    root_opportunity_id,source_kind,source_ref,source_version,selected_at,resolved_at,resolution_reason_code)
+                   VALUES (%s,%s,'consider_autonomous_life','eligible','resolved',%s,'autonomy_plan',%s,1,statement_timestamp(),statement_timestamp(),'LIFE-HISTORICAL-FIXTURE')""",
+                (
+                    historical_opportunity,
+                    born.subject_id,
+                    historical_opportunity,
                     born.subject_id,
                 ),
             )
@@ -1925,15 +2007,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "WHERE h.subject_id=%s AND h.component_kind='mind'",
                 (born.subject_id,),
             ).fetchone()
-            self.assertEqual(
-                migrated_mind,
-                (
-                    "module_migration",
-                    old_mind[0],
-                    old_mind[1] + 1,
-                    {**old_mind[2], "schema_version": "armi.mind.v3", "concerns": []},
-                ),
-            )
+            if source_version == "v21":
+                self.assertEqual(
+                    migrated_mind,
+                    (
+                        "module_migration",
+                        old_mind[0],
+                        old_mind[1] + 1,
+                        {
+                            **old_mind[2],
+                            "schema_version": "armi.mind.v3",
+                            "concerns": [],
+                        },
+                    ),
+                )
+            else:
+                assert migrated_mind is not None
+                self.assertEqual(migrated_mind[2:], old_mind[1:])
+                self.assertEqual(migrated_mind[0], "bootstrap")
             self.assertEqual(
                 connection.execute(
                     "SELECT environment_id,incarnation FROM armi.deployment_environments"
@@ -1954,6 +2045,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     len(historical),
                     locator,
                 ),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT consideration_signals,current_disposition FROM armi.opportunities WHERE opportunity_id=%s",
+                    (historical_opportunity,),
+                ).fetchone(),
+                (None, "resolved"),
             )
             self.assertEqual(historical_path.read_bytes(), historical)
             self.assertEqual(
@@ -5796,7 +5894,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone()
                 assert head is not None
                 self.assertEqual(head[0:2], (2, "admin_correction"))
-                self.assertEqual(head[2], replacement)
+                self.assertEqual(head[2], {**replacement, "concerns": []})
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     runtime.execute("DELETE FROM armi.subjects")

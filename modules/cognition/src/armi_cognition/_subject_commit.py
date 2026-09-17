@@ -26,6 +26,24 @@ from .api import (
 
 
 class PostgreSQLCognitionSubjectCommit:
+    async def autonomous_commit_ids(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        commit_ids: tuple[UUID, ...],
+    ) -> frozenset[UUID]:
+        if not commit_ids:
+            return frozenset()
+        rows = await (
+            await transaction.execute(
+                """SELECT s.subject_commit_id FROM armi.cognitive_candidate_applications s
+               JOIN armi.cognitive_episodes e ON e.cognitive_episode_id=s.cognitive_episode_id
+               WHERE s.subject_commit_id=ANY(%s::uuid[]) AND e.purpose='consider_autonomous_life'""",
+                (list(commit_ids),),
+            )
+        ).fetchall()
+        return frozenset(row[0] for row in rows)
+
     async def opportunity_episode_states(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
     ) -> tuple[tuple[UUID, str], ...]:

@@ -95,8 +95,10 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-COGNITION-CAPACITY",
             )
-        await owner.consider_psychological_attention(
-            transaction, subject_id=fence.subject_id, policy=policy, facts=self._facts
+        signals = await self._facts.consideration_signals(
+            transaction,
+            subject_id=fence.subject_id,
+            minimum_delay_seconds=policy.minimum_consideration_seconds,
         )
         heads = await self._activities.scheduling_heads(
             transaction, subject_id=fence.subject_id
@@ -139,6 +141,7 @@ class PostgreSQLLifeOpportunityRepository:
             scene_id=None if outlet is None else outlet.scene_id,
             creator_party_id=None if outlet is None else outlet.creator_party_id,
             activity_id=None if selected is None else selected.activity_id.value,
+            signals=signals,
         )
 
 

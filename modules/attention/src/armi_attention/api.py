@@ -9,7 +9,11 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import COGNITION_PURPOSES, CognitionPurpose
+from armi_kernel.application import (
+    COGNITION_PURPOSES,
+    CognitionPurpose,
+    ConsiderationSignal,
+)
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
@@ -17,6 +21,7 @@ from armi_runtime_foundation import (
 )
 
 from ._autonomy_policy import AutonomyPolicy, quota_day, quota_reset_at
+from ._signals import project_signal_status
 
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
 
@@ -45,15 +50,6 @@ class AutonomyPlan:
 
 @runtime_checkable
 class AutonomyPort(Protocol):
-    async def consider_psychological_attention(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        policy: AutonomyPolicy,
-        facts: LifeOpportunityFactsPort,
-    ) -> None: ...
-
     async def admit_due(
         self,
         transaction: PostgreSQLTransaction,
@@ -63,6 +59,7 @@ class AutonomyPort(Protocol):
         scene_id: UUID | None = None,
         creator_party_id: UUID | None = None,
         activity_id: UUID | None = None,
+        signals: tuple[ConsiderationSignal, ...] = (),
     ) -> OpportunityAdmissionOutcome: ...
 
     async def ensure_plan(
@@ -189,21 +186,13 @@ class CreatorOutreachFacts:
 
 @runtime_checkable
 class LifeOpportunityFactsPort(Protocol):
-    async def concern_review_since(
+    async def consideration_signals(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        after: datetime | None,
-    ) -> datetime | None: ...
-
-    async def psychological_attention_since(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        after: datetime | None,
-    ) -> datetime | None: ...
+        minimum_delay_seconds: int,
+    ) -> tuple[ConsiderationSignal, ...]: ...
 
     async def outlet_health(self, outlet: str) -> tuple[str, str | None]: ...
 
@@ -311,6 +300,7 @@ class OpportunityCognitionCandidate:
     expires_at: datetime | None
     activity_id: UUID | None
     autonomy_context: bytes | None = None
+    minimum_consideration_seconds: int = 60
 
     @property
     def selection_priority(self) -> int:
@@ -329,6 +319,15 @@ class OpportunityCognitionCandidate:
 
 @runtime_checkable
 class OpportunityCognitionSelectionPort(Protocol):
+    async def freeze_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+        signals: tuple[ConsiderationSignal, ...],
+        frozen_at: datetime,
+    ) -> None: ...
+
     async def can_consider_autonomy(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> bool: ...
@@ -358,6 +357,14 @@ class OpportunityCognitionSelectionPort(Protocol):
 
 @runtime_checkable
 class OpportunityContextReadPort(Protocol):
+    async def unconsumed_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        signals: tuple[ConsiderationSignal, ...],
+    ) -> tuple[ConsiderationSignal, ...]: ...
+
     async def context_snapshot(
         self,
         transaction: PostgreSQLTransaction,
@@ -546,6 +553,7 @@ __all__ = (
     "OpportunitySelectionCursor",
     "OpportunityTransitionPort",
     "OpportunityWakeupPort",
+    "project_signal_status",
     "quota_day",
     "quota_reset_at",
 )

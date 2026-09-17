@@ -491,6 +491,7 @@ async def _serve(
     material_module = None
     sleep_module = None
     subject_state_module = None
+    cognition_operation = None
     mood_module = None
     mood_display: MoodDisplayAdapter | None = None
     prompt_module = None
@@ -2572,8 +2573,20 @@ async def _serve(
         if runtime_unit_of_work_factory is None
         or sleep_module is None
         or subject_state_module is None
+        or mood_module is None
+        or cognition_operation is None
+        or interaction_module is None
         else PostgreSQLAutonomyQuery(
-            runtime_unit_of_work_factory, sleep_module.read, subject_state_module.read
+            runtime_unit_of_work_factory,
+            sleep_module.read,
+            subject_state_module.read,
+            RuntimeLifeOpportunityFacts(
+                cognition=cognition_operation,
+                interaction=interaction_module.identity,
+                mood=mood_module.read,
+                subject_state=subject_state_module.read,
+                outlet_health=autonomy_outlet_health,
+            ),
         ),
         usage_query=None
         if runtime_unit_of_work_factory is None

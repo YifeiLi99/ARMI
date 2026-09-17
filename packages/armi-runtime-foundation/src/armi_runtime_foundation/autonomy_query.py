@@ -48,6 +48,11 @@ def autonomy_statement(
           'observed_at',statement_timestamp(),
           'last_considered_at',(SELECT max(resolved_at) FROM armi.opportunities o
             WHERE o.subject_id=current.subject_id AND o.purpose='consider_autonomous_life'),
+          'consumed_signal_keys',COALESCE((
+             SELECT jsonb_agg(jsonb_build_array(entry->>'owner',entry->>'object_ref',entry->>'condition_version'))
+             FROM armi.opportunities o,LATERAL jsonb_array_elements(o.consideration_signals->'signals') entry
+             WHERE o.subject_id=current.subject_id AND o.consideration_signals->>'frozen_at' IS NOT NULL
+          ),'[]'::jsonb),
           'policy',policy,'used_requests',used,
           'outlet_state',CASE WHEN running THEN outlet_state ELSE 'unavailable' END,
           'outlet_reason_code',CASE WHEN running THEN outlet_reason_code ELSE 'LIFE-RUNTIME-STOPPED' END,
@@ -66,6 +71,7 @@ def autonomy_statement(
         """
       WITH page AS (
         SELECT o.opportunity_id AS operation_id,o.available_after,o.current_disposition,
+               o.consideration_signals,
                o.resolution_reason_code,e.cognitive_episode_id AS episode_id,e.status AS cognition_status,
                e.final_disposition,e.failure_code,delivery.effect_id,delivery.status AS effect_status
         FROM armi.opportunities o

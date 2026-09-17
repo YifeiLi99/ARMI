@@ -11,8 +11,6 @@ import pytest
 import rfc8785
 from armi_context._application import (
     ContextPipeline,
-    _active_mood_episodes,
-    _active_mood_gists,
     _context_request,
 )
 from armi_context._compiler import DeterministicContextCompiler
@@ -20,46 +18,12 @@ from armi_context._dialogue import PostgreSQLContextDialogueRead
 from armi_context._postgresql import (
     ContextEpisodeSnapshot,
     ContextMaterialSource,
+    PostgreSQLContextRepository,
 )
 from armi_context.api import ContextDialogueItem, ContextItemDisposition
 from armi_interaction.api import InteractionContextTurn
+from armi_kernel.application import ConsiderationSignal
 from armi_kernel.contracts import Digest, TraceId
-
-
-def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias() -> (
-    None
-):
-    source_id = uuid7()
-    episode_ids = (uuid7(), uuid7(), uuid7())
-    mood = rfc8785.dumps(
-        {
-            "schema_version": "armi.mood-snapshot.v2",
-            "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
-            "current": {"valence": 10, "arousal": 20, "dominance": 0},
-            "active_emotions": [],
-            "active_episodes": [
-                {
-                    "episode_id": str(episode_id),
-                    "gist": gist,
-                    "event_phase": "ongoing",
-                    "intensity": intensity,
-                }
-                for episode_id, gist, intensity in zip(
-                    episode_ids,
-                    ("甲" * 64, "乙" * 64, "低强度事件"),
-                    (80, 60, 19),
-                    strict=True,
-                )
-            ],
-            "action_tendencies": [{"tendency": "explore", "intensity": 70}],
-        }
-    )
-    payloads = (("mood", source_id, 3, mood),)
-    episodes = _active_mood_episodes(payloads)
-    gists = _active_mood_gists(payloads)
-    assert tuple(item[0] for item in episodes) == episode_ids
-    assert len(gists) == 2
-    assert sum(map(len, gists)) == 128
 
 
 def _snapshot(
@@ -114,6 +78,8 @@ def _snapshot(
             policy_version="context-policy.v1",
             mechanism_identity="armi.context-compiler.layered-v3",
             trace_id=TraceId("1" * 32),
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            consideration_signals=(),
         ),
     )
 
@@ -135,6 +101,13 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
     concern = {
         "concern_id": str(uuid7()),
         "question": "A private unresolved question",
+        "reason": "A new clue",
+        "resolution_condition": "A reliable answer",
+        "understanding": "No answer yet",
+        "review": {"kind": "review", "after_seconds": 300, "reason": "Check later"},
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "source_commit_id": str(uuid7()),
+        "basis_ordinals": [1],
         "state": "waiting",
         "updated_at": "2026-01-01T00:00:00+00:00",
         "review_at": "2026-01-01T00:05:00+00:00",
@@ -155,6 +128,7 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
         SimpleNamespace(
             **{
                 **vars(snapshot),
+                "observed_at": datetime(2026, 1, 1, 0, 10, tzinfo=UTC),
                 "autonomy_context": b'{"current_time":"2026-01-01T00:10:00+00:00","last_considered_at":null}',
             }
         ),
@@ -165,7 +139,7 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
     assert concerns[0].content is not None
     detail = json.loads(concerns[0].content)
     assert detail["elapsed_seconds"] == 600
-    assert detail["consideration_reason"] == "review_time_reached"
+    assert detail["consideration_reason"] == "ongoing_concern"
     mind_content = next(
         item.content for item in request.items if item.item_kind == "mind"
     )
@@ -1036,3 +1010,98 @@ def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:
         item for item in request.items if item.item_kind == "current_relationship_issue"
     )
     assert "问题仍未解决" in cast(str, issue.content)
+
+
+def test_context_consumes_owner_projection_without_interpreting_psychology(
+    monkeypatch,
+) -> None:
+    from armi_kernel.application import PsychologicalContextItem
+
+    source_id = uuid7()
+    snapshot = _snapshot(
+        (), component_payloads=(("mind", source_id, 7, b"owner-private-format"),)
+    )
+    projection = PsychologicalContextItem(
+        "mind",
+        "mind",
+        source_id,
+        7,
+        "Owner-defined subjective summary",
+        True,
+        90,
+    )
+    monkeypatch.setattr(
+        "armi_context._application.mind_context_items",
+        lambda *args, **kwargs: (projection,),
+    )
+    request = _context_request(snapshot, None, b"fixed prompt", web_search_active=False)
+    item = next(item for item in request.items if item.item_kind == "mind")
+    assert item.content == projection.content
+    assert item.source.reference == source_id
+    assert item.source.version == 7
+
+
+@pytest.mark.asyncio
+async def test_context_freeze_consumes_only_included_signal_objects():
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    included, omitted = (
+        ConsiderationSignal("mind", uuid7(), version, "review_time_reached", now)
+        for version in ("included-version", "omitted-version")
+    )
+    repository = object.__new__(PostgreSQLContextRepository)
+    transitions = SimpleNamespace(freeze_signals=AsyncMock())
+    episode = SimpleNamespace(trace_id=TraceId("1" * 32), subject_id=uuid7())
+    repository._opportunity_transitions = cast(Any, transitions)
+    repository._episodes = cast(
+        Any, SimpleNamespace(mark_context_prepared=AsyncMock(return_value=episode))
+    )
+    unit = SimpleNamespace(
+        transaction=SimpleNamespace(execute=AsyncMock()),
+        work=SimpleNamespace(enqueue=AsyncMock(), complete=AsyncMock()),
+        audit=SimpleNamespace(append=AsyncMock()),
+        environment_id=uuid7(),
+    )
+    items = tuple(
+        SimpleNamespace(
+            candidate=SimpleNamespace(
+                source=SimpleNamespace(
+                    kind="mind_concern", reference=signal.object_ref, version=1
+                ),
+                section=SimpleNamespace(value="subject_state"),
+                layer=SimpleNamespace(value="subject_state"),
+                item_kind="current_concern",
+                trust_class=SimpleNamespace(value="subjective"),
+            ),
+            ordinal=index,
+            disposition=SimpleNamespace(value=disposition),
+            reason_code="CTX-TEST",
+            content_bytes=1,
+        )
+        for index, (signal, disposition) in enumerate(
+            ((included, "included"), (omitted, "omitted")), start=1
+        )
+    )
+    artifact = SimpleNamespace(
+        artifact_id=SimpleNamespace(value=uuid7()),
+        content_digest=Digest("sha256:" + "1" * 64),
+    )
+    snapshot = SimpleNamespace(
+        opportunity_id=uuid7(),
+        observed_at=now,
+        consideration_signals=(included, omitted),
+    )
+    await repository.settle_prepared(
+        cast(Any, unit),
+        lease=cast(Any, object()),
+        episode_id=uuid7(),
+        result=cast(Any, SimpleNamespace(items=items)),
+        manifest_artifact=cast(Any, artifact),
+        compiled_artifact=cast(Any, artifact),
+        snapshot=cast(Any, snapshot),
+    )
+    transitions.freeze_signals.assert_awaited_once_with(
+        unit.transaction,
+        opportunity_id=snapshot.opportunity_id,
+        signals=(included,),
+        frozen_at=now,
+    )

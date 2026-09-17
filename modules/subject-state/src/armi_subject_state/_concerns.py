@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid7
 
+from armi_kernel.application import ConsiderationSignal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 Text = Annotated[str, StringConstraints(min_length=1, max_length=1024)]
@@ -44,7 +45,9 @@ class ConcernContent(_Strict):
     question: Text
     reason: Text
     resolution_condition: Text
-    understanding: Text
+    understanding: Text = Field(
+        description="Current understanding; distinguish newly learned facts from no new information. Repeated expression is not progress."
+    )
     state: Literal["open", "waiting"]
     review: ReviewCondition
 
@@ -71,7 +74,9 @@ class CloseConcern(_Strict):
     concern_ref: Reference = Field(
         description="Frozen Context ctx reference of a current_concern item, not its UUID"
     )
-    conclusion: Text
+    conclusion: Text = Field(
+        description="For resolve, explain how the cited evidence meets the existing resolution condition. For release, explain why further investment is no longer worthwhile. Delivery, failed tools and empty results are not answers."
+    )
     basis_refs: tuple[Reference, ...] = Field(min_length=1, max_length=8)
 
 
@@ -103,7 +108,7 @@ def concern_attention_status(
     records: tuple[ConcernRecord, ...],
     *,
     as_of: datetime,
-    consumed_before: datetime | None,
+    consumed: frozenset[tuple[str, str, str]],
 ) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for item in records:
@@ -113,7 +118,8 @@ def concern_attention_status(
         if item.review_at is not None:
             state = (
                 "consumed"
-                if consumed_before is not None and item.review_at <= consumed_before
+                if ("mind", str(item.concern_id), str(item.source_commit_id))
+                in consumed
                 else "due"
                 if item.review_at <= as_of
                 else "scheduled"
@@ -191,3 +197,65 @@ def apply_concern_changes(
     if sum(item.state in {"open", "waiting"} for item in records.values()) > 4:
         raise ValueError("SUBJECT-STATE-CONCERN-CAPACITY")
     return tuple(records.values())
+
+
+def concern_signals(
+    records: tuple[ConcernRecord, ...],
+    *,
+    event_purpose: str | None = None,
+    event_ref: UUID | None = None,
+    event_at: datetime | None = None,
+    activity_id: UUID | None = None,
+) -> tuple[ConsiderationSignal, ...]:
+    signals: list[ConsiderationSignal] = []
+    for item in records:
+        if item.state not in {"open", "waiting"} or item.review is None:
+            continue
+        if item.review_at is not None:
+            signals.append(
+                ConsiderationSignal(
+                    "mind",
+                    item.concern_id,
+                    str(item.source_commit_id),
+                    "review_time_reached",
+                    item.review_at,
+                    item.source_commit_id,
+                )
+            )
+        elif (
+            event_ref is not None
+            and event_at is not None
+            and event_at > item.updated_at
+        ):
+            if isinstance(item.review, CreatorInputReview) and event_purpose in {
+                "consider_creator_input",
+                "consider_creator_voice_input",
+            }:
+                reason = "creator_input"
+            elif (
+                isinstance(item.review, ActivityReview)
+                and event_purpose
+                in {
+                    "consider_codex_result",
+                    "consider_web_evidence",
+                    "consider_life_query_result",
+                    "consider_requested_visual_observation",
+                    "consider_visual_observation",
+                    "consider_activity_internal_work",
+                }
+                and item.review.activity_ref == str(activity_id)
+            ):
+                reason = "activity_result"
+            else:
+                continue
+            signals.append(
+                ConsiderationSignal(
+                    "mind",
+                    item.concern_id,
+                    f"{item.source_commit_id}:{event_ref}",
+                    reason,
+                    event_at,
+                    item.source_commit_id,
+                )
+            )
+    return tuple(signals)

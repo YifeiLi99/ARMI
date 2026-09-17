@@ -69,36 +69,14 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mood.api import (
-    AppraisalAdjustment,
-    AppraisalAgency,
-    AppraisalCausality,
-    AppraisalCertainty,
-    AppraisalCompatibility,
-    AppraisalConcern,
-    AppraisalConcernTarget,
-    AppraisalCoping,
-    AppraisalDemand,
-    AppraisalDemandLevel,
-    AppraisalDirection,
-    AppraisalEventPhase,
-    AppraisalExpectedness,
-    AppraisalIntentionality,
-    AppraisalPowerBalance,
-    AppraisalQuality,
-    AppraisalResponseAccess,
-    AppraisalSelfInvolvement,
-    AppraisalSelfScope,
-    AppraisalSignificance,
-    AppraisalStandards,
-    AppraisalTrajectory,
-    AppraisalTransition,
-    AppraisalUrgency,
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodCognitionPort,
+    MoodSemanticAppraisalCommand,
     MoodViolation,
-    SemanticAppraisal,
-    SemanticAppraisalEvent,
+    bind_appraisal_draft,
+    bind_appraisal_event,
+    semantic_appraisal_from_command,
 )
 from armi_prompt.api import (
     CandidatePromptDraft,
@@ -131,12 +109,12 @@ from armi_sleep.api import (
     SleepDecisionKind,
 )
 from armi_subject_state.api import (
-    ActivityReview,
     CandidateSubjectStateDraft,
     ConcernChange,
-    CreateConcern,
     SubjectStateCognitionPort,
     SubjectStateKind,
+    bind_concern_changes,
+    mind_editable_state,
 )
 from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import BaseModel, ValidationError
@@ -159,9 +137,6 @@ from ._autonomous_activity_contract import (
     AutonomousWaitDecision,
     AutonomousWebResearchDecision,
     StartActivityDecision,
-)
-from ._creator_appraisal_contract import (
-    AppraisalEventSignalV2,
 )
 from ._creator_changes import translate_creator_changes
 from ._creator_cognitive_act_contract import CreatorCognitiveActCandidate
@@ -201,8 +176,6 @@ from ._model_contract import (
     MemoryChangePayload,
     MemoryChangeProposal,
     MindState,
-    MoodSemanticAppraisalCommand,
-    MoodState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
     VisualObservationRequestPayload,
@@ -653,48 +626,14 @@ class DeterministicCandidateValidator:
         mind_basis = next((item for item in bases if item.item_kind == "mind"), None)
         if current is None or mind_basis is None:
             return _rejected("CANDIDATE-CONCERN-MIND", field_path=("concern_changes",))
-        ordinals = {mind_basis.ordinal}
-        bound: list[ConcernChange] = []
-        for change in changes:
-            updates: dict[str, Any] = {}
-            for ref in change.basis_refs:
-                basis = basis_by_ref.get(ref)
-                if basis is None:
-                    return _rejected(
-                        "CANDIDATE-CONCERN-BASIS",
-                        field_path=("concern_changes", "basis_refs"),
-                    )
-                ordinals.add(basis.ordinal)
-            if not isinstance(change, CreateConcern):
-                basis = basis_by_ref.get(change.concern_ref)
-                if (
-                    basis is None
-                    or basis.item_kind != "current_concern"
-                    or basis.source_ref is None
-                ):
-                    return _rejected(
-                        "CANDIDATE-CONCERN-REFERENCE",
-                        field_path=("concern_changes", "concern_ref"),
-                    )
-                updates["concern_ref"] = str(basis.source_ref)
-                ordinals.add(basis.ordinal)
-            review = getattr(change, "review", None)
-            if isinstance(review, ActivityReview):
-                basis = basis_by_ref.get(review.activity_ref)
-                if (
-                    basis is None
-                    or basis.item_kind != "current_activity"
-                    or self._context.current_activity_id is None
-                ):
-                    return _rejected(
-                        "CANDIDATE-CONCERN-ACTIVITY",
-                        field_path=("concern_changes", "review"),
-                    )
-                updates["review"] = review.model_copy(
-                    update={"activity_ref": str(self._context.current_activity_id)}
-                )
-                ordinals.add(basis.ordinal)
-            bound.append(change.model_copy(update=updates))
+        bound, concern_ordinals, error, path = bind_concern_changes(
+            changes,
+            basis_by_ref=basis_by_ref,
+            current_activity_id=self._context.current_activity_id,
+        )
+        if bound is None:
+            return _rejected(error or "CANDIDATE-CONCERN-REFERENCE", field_path=path)
+        ordinals = {mind_basis.ordinal, *concern_ordinals}
         change_set = result.change_set
         existing = next(
             (item for item in change_set.owner_drafts if item.owner == "mind"), None
@@ -1020,7 +959,7 @@ class DeterministicCandidateValidator:
                         failure = "CANDIDATE-MOOD-COMMAND"
                     else:
                         try:
-                            appraisal = _mood_semantic_appraisal_from_command(command)
+                            appraisal = semantic_appraisal_from_command(command)
                         except TypeError, ValueError, MoodViolation:
                             failure = "CANDIDATE-MOOD-COMMAND"
                         else:
@@ -1418,11 +1357,11 @@ class DeterministicCandidateValidator:
         )
         mood_draft: CandidateOwnerDraft | None = None
         if candidate.appraisal is not None:
-            mood_draft, mood_error = _bind_appraisal_draft(
+            mood_draft, mood_error = bind_appraisal_draft(
                 candidate.appraisal,
                 proposal_ref="proposal:2" if experience is not None else "proposal:1",
                 bases=bases,
-                context=self._context,
+                current_components=self._context.current_components,
                 cognition=self._mood_cognition,
             )
             if mood_draft is None:
@@ -1546,11 +1485,11 @@ class DeterministicCandidateValidator:
             proposal_no += 1
         mood_draft: CandidateOwnerDraft | None = None
         if candidate.appraisal is not None:
-            mood_draft, mood_error = _bind_appraisal_draft(
+            mood_draft, mood_error = bind_appraisal_draft(
                 candidate.appraisal,
                 proposal_ref=f"proposal:{proposal_no}",
                 bases=bases,
-                context=self._context,
+                current_components=self._context.current_components,
                 cognition=self._mood_cognition,
             )
             if mood_draft is None:
@@ -1841,7 +1780,7 @@ class DeterministicCandidateValidator:
         if expressions:
             disposition = CandidateDisposition.CHANGE
         if candidate.appraisal is not None:
-            mood_draft, mood_error = _bind_appraisal_draft(
+            mood_draft, mood_error = bind_appraisal_draft(
                 candidate.appraisal,
                 proposal_ref=(
                     "proposal:2"
@@ -1853,7 +1792,7 @@ class DeterministicCandidateValidator:
                     else "proposal:1"
                 ),
                 bases=bases,
-                context=self._context,
+                current_components=self._context.current_components,
                 cognition=self._mood_cognition,
             )
             if mood_draft is None:
@@ -2139,11 +2078,11 @@ class DeterministicCandidateValidator:
         if material is not None:
             owner_drafts.append(self._material_cognition.bind(material))
         if candidate.appraisal is not None:
-            mood_draft, mood_error = _bind_appraisal_draft(
+            mood_draft, mood_error = bind_appraisal_draft(
                 candidate.appraisal,
                 proposal_ref="proposal:3",
                 bases=bases,
-                context=context,
+                current_components=context.current_components,
                 cognition=self._mood_cognition,
             )
             if mood_draft is None:
@@ -2725,11 +2664,11 @@ def _expand_creator_cognitive_act(
             )
             proposal_no += 1
     if source.appraisal is not None:
-        mood_change, mood_error = _bind_appraisal_event(
+        mood_change, mood_error = bind_appraisal_event(
             source.appraisal,
             proposal_ref=f"proposal:{proposal_no}",
             bases=bases,
-            context=context,
+            current_components=context.current_components,
         )
         if mood_error is not None:
             return None, None, mood_error
@@ -2784,193 +2723,6 @@ def _expand_creator_cognitive_act(
         }
     )
     return candidate, replace(bound, relationship=relationship), None
-
-
-def _mood_semantic_appraisal_from_command(
-    command: MoodSemanticAppraisalCommand,
-) -> SemanticAppraisalEvent:
-    previous_id = (
-        None
-        if command.previous_episode_id is None
-        else UUID(command.previous_episode_id)
-    )
-    value = command.appraisal
-    return SemanticAppraisalEvent(
-        AppraisalTransition(command.transition),
-        previous_id,
-        AppraisalEventPhase(command.event_phase),
-        command.gist,
-        SemanticAppraisal(
-            tuple(
-                AppraisalConcern(
-                    AppraisalConcernTarget(item.target),
-                    AppraisalSignificance(item.significance),
-                    AppraisalDirection(item.direction),
-                )
-                for item in value.concerns
-            ),
-            AppraisalExpectedness(value.expectedness),
-            AppraisalCertainty(value.outcome_certainty),
-            AppraisalQuality(value.intrinsic_quality),
-            AppraisalSelfInvolvement(value.self_involvement),
-            None
-            if value.demand is None
-            else AppraisalDemand(
-                AppraisalUrgency(value.demand.urgency),
-                AppraisalDemandLevel(value.demand.effort),
-            ),
-            None
-            if value.causality is None
-            else AppraisalCausality(
-                AppraisalAgency(value.causality.agency),
-                AppraisalIntentionality(value.causality.intentionality),
-            ),
-            None
-            if value.coping is None
-            else AppraisalCoping(
-                AppraisalResponseAccess(value.coping.response_access),
-                AppraisalPowerBalance(value.coping.power_balance),
-                AppraisalAdjustment(value.coping.adjustment),
-            ),
-            None
-            if value.standards is None
-            else AppraisalStandards(
-                AppraisalCompatibility(value.standards.self_compatibility),
-                AppraisalCompatibility(value.standards.norm_compatibility),
-                AppraisalSelfScope(value.standards.self_scope),
-            ),
-        ),
-        None
-        if command.change_from_previous is None
-        else AppraisalTrajectory(command.change_from_previous),
-    )
-
-
-def _bind_appraisal_event(
-    signal: AppraisalEventSignalV2,
-    *,
-    proposal_ref: str,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-) -> tuple[dict[str, Any] | None, str | None]:
-    current = next(
-        (
-            (version, canonical)
-            for owner, version, canonical in context.current_components
-            if owner is CandidateOwner.MOOD
-        ),
-        None,
-    )
-    mood_basis = next(
-        (
-            item
-            for item in bases
-            if item.item_kind == "mood"
-            and current is not None
-            and item.source_version == current[0]
-        ),
-        None,
-    )
-    if current is None or mood_basis is None:
-        return None, "CANDIDATE-MOOD-CONTEXT"
-    episode_basis = None
-    if signal.episode_ref is not None:
-        episode_ordinal = int(signal.episode_ref.partition(":")[2])
-        episode_basis = next(
-            (
-                item
-                for item in bases
-                if item.ordinal == episode_ordinal
-                and item.item_kind == "active_affective_episode"
-                and item.source_ref is not None
-            ),
-            None,
-        )
-        if episode_basis is None or episode_basis.source_ref is None:
-            return None, "CANDIDATE-MOOD-EPISODE"
-        if episode_basis.source_ref.version != 7:
-            return None, "CANDIDATE-MOOD-EPISODE"
-    basis_refs = tuple(
-        dict.fromkeys(
-            (
-                *signal.basis_refs,
-                *((signal.episode_ref,) if signal.episode_ref is not None else ()),
-                f"ctx:{mood_basis.ordinal}",
-            )
-        )
-    )
-    allowed_refs = {f"ctx:{item.ordinal}" for item in bases}
-    if not set(basis_refs).issubset(allowed_refs):
-        return None, "CANDIDATE-MOOD-BASIS"
-    try:
-        MoodState.model_validate_json(current[1], strict=True)
-    except ValidationError:
-        return None, "CANDIDATE-MOOD-STATE"
-    event_command = MoodSemanticAppraisalCommand.model_construct(
-        schema_version="armi.mood-appraisal.v2",
-        transition=signal.transition,
-        previous_episode_id=(
-            None if episode_basis is None else str(episode_basis.source_ref)
-        ),
-        event_phase=signal.event_phase,
-        gist=signal.gist,
-        appraisal=signal.appraisal,
-        change_from_previous=signal.change_from_previous,
-    )
-    return (
-        {
-            "proposal_ref": proposal_ref,
-            "atomic_group_ref": "group:4",
-            "basis_refs": basis_refs,
-            "payload": {
-                "proposal_kind": "component_changes",
-                "fact_class": "subjective_understanding",
-                "owner": "mood",
-                "expected_version": current[0],
-                "next_state": event_command,
-            },
-        },
-        None,
-    )
-
-
-def _bind_appraisal_draft(
-    signal: AppraisalEventSignalV2,
-    *,
-    proposal_ref: str,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-    cognition: MoodCognitionPort,
-) -> tuple[CandidateOwnerDraft | None, str | None]:
-    proposal, error = _bind_appraisal_event(
-        signal,
-        proposal_ref=proposal_ref,
-        bases=bases,
-        context=context,
-    )
-    if proposal is None or error is not None:
-        return None, error or "CANDIDATE-MOOD-COMMAND"
-    try:
-        payload = cast(dict[str, object], proposal["payload"])
-        command = cast(MoodSemanticAppraisalCommand, payload["next_state"])
-        basis_refs = cast(tuple[str, ...], proposal["basis_refs"])
-        ordinals = tuple(int(ref.partition(":")[2]) for ref in basis_refs)
-        return (
-            cognition.bind(
-                CandidateMoodDraft(
-                    proposal_ref,
-                    cast(str, proposal["atomic_group_ref"]),
-                    ordinals,
-                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                    cast(int, payload["expected_version"]),
-                    MoodCandidateKind.APPRAISAL,
-                    _mood_semantic_appraisal_from_command(command),
-                )
-            ),
-            None,
-        )
-    except KeyError, TypeError, ValueError, ValidationError, MoodViolation:
-        return None, "CANDIDATE-MOOD-COMMAND"
 
 
 def _expand_dialogue_candidate(
@@ -3457,13 +3209,11 @@ def _bind_dialogue_component_change(
     if current is None or basis is None:
         return None, "CANDIDATE-COMPONENT-CONTEXT"
     try:
-        current_payload = {
-            key: value
-            for key, value in json.loads(current[1]).items()
-            if key != "concerns"
-        }
         current_state = state_type.model_validate_json(
-            json.dumps(current_payload), strict=True
+            mind_editable_state(current[1])
+            if owner is CandidateOwner.MIND
+            else current[1],
+            strict=True,
         )
         next_state = current_state.model_dump(mode="json")
         field_names = (

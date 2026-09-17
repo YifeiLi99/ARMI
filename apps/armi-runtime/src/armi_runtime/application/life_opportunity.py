@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from uuid import UUID
 
 from armi_attention.api import (
@@ -12,6 +11,7 @@ from armi_attention.api import (
 )
 from armi_cognition.api import CognitionOperationReadPort
 from armi_interaction.api import InteractionIdentityPort
+from armi_kernel.application import ConsiderationSignal
 from armi_mood.api import MoodReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 from armi_subject_state.api import SubjectStateReadPort
@@ -46,35 +46,34 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
     async def outlet_health(self, outlet: str) -> tuple[str, str | None]:
         return await self._outlet_health(outlet)
 
-    async def psychological_attention_since(
+    async def consideration_signals(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        after: datetime | None,
-    ) -> datetime | None:
-        return await self._mood.attention_since(
-            transaction, subject_id=subject_id, after=after
+        minimum_delay_seconds: int,
+    ) -> tuple[ConsiderationSignal, ...]:
+        mind = await self._subject_state.consideration_signals(
+            transaction,
+            subject_id=subject_id,
         )
-
-    async def concern_review_since(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        after: datetime | None,
-    ) -> datetime | None:
-        concerns = await self._subject_state.concerns(
-            transaction, subject_id=subject_id
+        mood = await self._mood.consideration_signals(
+            transaction,
+            subject_id=subject_id,
+            minimum_delay_seconds=minimum_delay_seconds,
         )
-        deadlines = [
-            item.review_at
-            for item in concerns
-            if item.state in {"open", "waiting"}
-            and item.review_at is not None
-            and (after is None or item.review_at > after)
-        ]
-        return min(deadlines) if deadlines else None
+        own_commits = await self._cognition.autonomous_commit_ids(
+            transaction,
+            commit_ids=tuple(
+                signal.source_commit_id
+                for signal in mood
+                if signal.source_commit_id is not None
+            ),
+        )
+        return (
+            *mind,
+            *(signal for signal in mood if signal.source_commit_id not in own_commits),
+        )
 
     async def state_epoch(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

@@ -8,10 +8,20 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_kernel.application import (
+    CandidateFactClass,
+    CandidateOwnerDraft,
+    ConsiderationSignal,
+)
 from armi_runtime_foundation import AdminContentPort as SubjectStateAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
+from ._cognitive_binding import bind_concern_changes
+from ._cognitive_contract import (
+    MIND_COGNITIVE_INSTRUCTIONS,
+    MIND_CONTEXT_REFERENCES,
+    MindState,
+)
 from ._concerns import (
     CONCERN_CHANGES,
     CONCERN_RECORDS,
@@ -24,6 +34,12 @@ from ._concerns import (
     TimedReview,
     UpdateConcern,
     concern_attention_status,
+)
+from ._projection import (
+    mind_attention_projection,
+    mind_context_items,
+    mind_editable_state,
+    mind_signals,
 )
 
 
@@ -157,6 +173,26 @@ class SubjectStateCorrectionHead:
 
 @runtime_checkable
 class SubjectStateReadPort(Protocol):
+    async def attention_status(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        consumed: frozenset[tuple[str, str, str]],
+    ) -> list[dict[str, object]]: ...
+
+    async def consideration_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event_purpose: str | None = None,
+        event_ref: UUID | None = None,
+        event_at: datetime | None = None,
+        activity_id: UUID | None = None,
+    ) -> tuple[ConsiderationSignal, ...]: ...
+
     async def concerns(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[ConcernRecord, ...]: ...
@@ -304,6 +340,8 @@ class SubjectStateAdminCorrectionPort(Protocol):
 __all__ = (
     "CONCERN_CHANGES",
     "CONCERN_RECORDS",
+    "MIND_COGNITIVE_INSTRUCTIONS",
+    "MIND_CONTEXT_REFERENCES",
     "ActivityReview",
     "CandidateSubjectStateDraft",
     "CloseConcern",
@@ -312,6 +350,7 @@ __all__ = (
     "CreateConcern",
     "CreatorInputReview",
     "LifeModeHead",
+    "MindState",
     "SubjectComponentSummary",
     "SubjectStateAdminComponent",
     "SubjectStateAdminContentPort",
@@ -330,5 +369,10 @@ __all__ = (
     "SubjectSummary",
     "TimedReview",
     "UpdateConcern",
+    "bind_concern_changes",
     "concern_attention_status",
+    "mind_attention_projection",
+    "mind_context_items",
+    "mind_editable_state",
+    "mind_signals",
 )

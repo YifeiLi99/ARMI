@@ -9,6 +9,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLTransaction
 from armi_sleep.api import (
     SleepOpportunityDraft,
@@ -17,6 +18,7 @@ from armi_sleep.api import (
 )
 
 from ._autonomy_postgresql import PostgreSQLAutonomyOwner
+from ._signals import freeze_signals, unconsumed_signals
 from .api import (
     AutonomyPolicy,
     ExternalEvidenceOpportunityDraft,
@@ -35,6 +37,32 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def unconsumed_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        signals: tuple[ConsiderationSignal, ...],
+    ) -> tuple[ConsiderationSignal, ...]:
+        return await unconsumed_signals(
+            transaction, subject_id=subject_id, signals=signals
+        )
+
+    async def freeze_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+        signals: tuple[ConsiderationSignal, ...],
+        frozen_at: datetime,
+    ) -> None:
+        await freeze_signals(
+            transaction,
+            opportunity_id=opportunity_id,
+            signals=signals,
+            frozen_at=frozen_at,
+        )
+
     def __init__(self, autonomy_policy: AutonomyPolicy | None = None) -> None:
         self._autonomy_policy = autonomy_policy or AutonomyPolicy()
 
@@ -248,17 +276,22 @@ class PostgreSQLOpportunityOwner:
     ) -> OpportunityCognitionCandidate:
         row = await (
             await transaction.execute(
-                """SELECT opportunity_id, root_opportunity_id, evidence_id,
-                          subject_id, scene_id, context_party_id, purpose,
-                          source_kind, source_ref, source_version,
-                          available_after, expires_at, activity_id
-                   FROM armi.opportunities WHERE opportunity_id=%s""",
+                """SELECT o.opportunity_id, o.root_opportunity_id, o.evidence_id,
+                          o.subject_id, o.scene_id, o.context_party_id, o.purpose,
+                          o.source_kind, o.source_ref, o.source_version,
+                          o.available_after, o.expires_at, COALESCE(o.activity_id,root.activity_id)
+                   FROM armi.opportunities o JOIN armi.opportunities root
+                     ON root.opportunity_id=o.root_opportunity_id
+                   WHERE o.opportunity_id=%s""",
                 (opportunity_id,),
             )
         ).fetchone()
         if row is None:
             raise LifeViolation("LIFE-OPPORTUNITY-STATE")
-        candidate = _cognition_candidate(row)
+        candidate = replace(
+            _cognition_candidate(row),
+            minimum_consideration_seconds=self._autonomy_policy.minimum_consideration_seconds,
+        )
         if candidate.purpose != "consider_autonomous_life":
             return candidate
         state = await (

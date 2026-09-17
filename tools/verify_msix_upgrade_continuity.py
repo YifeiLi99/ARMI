@@ -92,7 +92,8 @@ async def verify(phase: str, evidence: Path) -> None:
         }
         if phase == "before":
             assert (
-                schema["baseline_identity"] == upgrade_plan()["source"]["baseline"]
+                schema["baseline_identity"]
+                == upgrade_plan(str(schema["baseline_identity"]))["source"]["baseline"]
             ), schema
             evidence.write_text(
                 json.dumps(

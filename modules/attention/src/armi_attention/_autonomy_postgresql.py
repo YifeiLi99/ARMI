@@ -6,12 +6,13 @@ import json
 from dataclasses import asdict
 from uuid import UUID, uuid7
 
+from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLTransaction
 
+from ._signals import signal_metadata, unconsumed_signals
 from .api import (
     AutonomyPlan,
     AutonomyPolicy,
-    LifeOpportunityFactsPort,
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
@@ -20,52 +21,6 @@ from .api import (
 
 
 class PostgreSQLAutonomyOwner:
-    async def consider_psychological_attention(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        policy: AutonomyPolicy,
-        facts: LifeOpportunityFactsPort,
-    ) -> None:
-        if not policy.enabled:
-            return
-        # Terminal rounds are the durable attention watermark, including
-        # silence and interruption. Never reawaken from their own appraisal.
-        previous = await (
-            await transaction.execute(
-                """SELECT max(resolved_at) FROM armi.opportunities
-                   WHERE subject_id=%s AND purpose='consider_autonomous_life'""",
-                (subject_id,),
-            )
-        ).fetchone()
-        if previous is None:
-            raise LifeViolation("LIFE-AUTONOMY-HISTORY-MISSING")
-        attention_at = await facts.psychological_attention_since(
-            transaction, subject_id=subject_id, after=previous[0]
-        )
-        review_at = await facts.concern_review_since(
-            transaction, subject_id=subject_id, after=previous[0]
-        )
-        if review_at is not None:
-            await transaction.execute(
-                """UPDATE armi.autonomy_plans
-                   SET next_consideration_at=LEAST(next_consideration_at,%s),
-                       updated_at=statement_timestamp()
-                   WHERE subject_id=%s AND opportunity_id IS NULL
-                     AND next_consideration_at > %s""",
-                (review_at, subject_id, review_at),
-            )
-        if attention_at is not None:
-            await transaction.execute(
-                """UPDATE armi.autonomy_plans
-                   SET next_consideration_at=LEAST(next_consideration_at,
-                       %s + %s * interval '1 second'),
-                       updated_at=statement_timestamp()
-                   WHERE subject_id=%s AND opportunity_id IS NULL""",
-                (attention_at, policy.minimum_consideration_seconds, subject_id),
-            )
-
     async def admit_due(
         self,
         transaction: PostgreSQLTransaction,
@@ -75,21 +30,45 @@ class PostgreSQLAutonomyOwner:
         scene_id: UUID | None = None,
         creator_party_id: UUID | None = None,
         activity_id: UUID | None = None,
+        signals: tuple[ConsiderationSignal, ...] = (),
     ) -> OpportunityAdmissionOutcome:
         if not policy.enabled:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED, None, "LIFE-AUTONOMY-DISABLED"
             )
         plan = await self.ensure_plan(transaction, subject_id=subject_id, policy=policy)
+        signals = await unconsumed_signals(
+            transaction, subject_id=subject_id, signals=signals
+        )
+        signal_at = min((signal.eligible_at for signal in signals), default=None)
         if plan.opportunity_id is not None:
             previous = await (
                 await transaction.execute(
-                    "SELECT current_disposition FROM armi.opportunities WHERE opportunity_id=%s",
+                    "SELECT current_disposition,statement_timestamp() FROM armi.opportunities WHERE opportunity_id=%s",
                     (plan.opportunity_id,),
                 )
             ).fetchone()
             if previous is None:
                 raise LifeViolation("LIFE-AUTONOMY-OPPORTUNITY-MISSING")
+            if (
+                previous[0] == "open"
+                and plan.next_consideration_at > previous[1]
+                and (signal_at is None or signal_at > previous[1])
+            ):
+                await transaction.execute(
+                    """UPDATE armi.opportunities SET current_disposition='cancelled',
+                       resolved_at=statement_timestamp(),resolution_reason_code='LIFE-SIGNAL-WITHDRAWN'
+                       WHERE opportunity_id=%s AND current_disposition='open'""",
+                    (plan.opportunity_id,),
+                )
+                await transaction.execute(
+                    """UPDATE armi.autonomy_plans SET opportunity_id=NULL,plan_version=plan_version+1
+                       WHERE subject_id=%s""",
+                    (subject_id,),
+                )
+                return OpportunityAdmissionOutcome(
+                    OpportunityAdmissionStatus.REJECTED, None, "LIFE-SIGNAL-WITHDRAWN"
+                )
             if previous[0] in {"open", "selected"}:
                 return OpportunityAdmissionOutcome(
                     OpportunityAdmissionStatus.DUPLICATE, plan.opportunity_id
@@ -111,9 +90,9 @@ class PostgreSQLAutonomyOwner:
             )
         ready = await (
             await transaction.execute(
-                """SELECT next_consideration_at <= statement_timestamp()
+                """SELECT LEAST(next_consideration_at,%s::timestamptz) <= statement_timestamp()
                    FROM armi.autonomy_plans WHERE subject_id=%s""",
-                (subject_id,),
+                (signal_at, subject_id),
             )
         ).fetchone()
         if ready is None or not ready[0]:
@@ -138,9 +117,9 @@ class PostgreSQLAutonomyOwner:
         await transaction.execute(
             """INSERT INTO armi.opportunities
                (opportunity_id,subject_id,purpose,eligibility_status,current_disposition,
-                root_opportunity_id,source_kind,source_ref,source_version,scene_id,context_party_id,activity_id)
+                root_opportunity_id,source_kind,source_ref,source_version,scene_id,context_party_id,activity_id,consideration_signals)
                VALUES (%s,%s,'consider_autonomous_life','eligible','open',%s,
-                       'autonomy_plan',%s,%s,%s,%s,%s)""",
+                       'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb)""",
             (
                 opportunity_id,
                 subject_id,
@@ -150,6 +129,7 @@ class PostgreSQLAutonomyOwner:
                 scene_id,
                 creator_party_id,
                 activity_id,
+                signal_metadata(signals, frozen_at=None),
             ),
         )
         await transaction.execute(

@@ -7,12 +7,12 @@ import math
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
 import rfc8785
-from armi_kernel.application import CandidateFactClass
+from armi_kernel.application import CandidateFactClass, ConsiderationSignal
 
 from .api import (
     VAD,
@@ -75,6 +75,8 @@ class StoredAffectiveEvent:
     transition: AppraisalTransition = AppraisalTransition.NEW
     phase: AppraisalEventPhase = AppraisalEventPhase.REALIZED
     gist: str = ""
+    source_commit_id: UUID | None = None
+    event_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1205,21 +1207,23 @@ def derive_effective_snapshot(
     return current, tuple(active), tuple(episodes[:5]), tuple(tendencies[:2])
 
 
-def attention_since(
+def consideration_signals(
     events: tuple[StoredAffectiveEvent, ...],
     *,
-    after: datetime | None,
+    minimum_delay_seconds: int,
     as_of: datetime,
-) -> datetime | None:
+) -> tuple[ConsiderationSignal, ...]:
     """New, still-active concerns can attract attention; they never order action."""
     latest: dict[UUID, StoredAffectiveEvent] = {}
     for event in sorted(events, key=lambda item: item.occurred_at):
         if event.episode_id is not None and event.occurred_at <= as_of:
             latest[event.episode_id] = event
-    candidates: list[datetime] = []
+    _, _, visible, _ = derive_effective_snapshot(VAD(0, 0, 0), events, as_of=as_of)
+    visible_ids = {item.episode_id for item in visible}
+    candidates: list[ConsiderationSignal] = []
     for event in latest.values():
         if (
-            (after is not None and event.occurred_at <= after)
+            event.episode_id not in visible_ids
             or event.transition is AppraisalTransition.RESOLVE
             or event.phase is AppraisalEventPhase.AVERTED
         ):
@@ -1233,8 +1237,20 @@ def attention_since(
             item.tendency not in {ActionTendency.PAUSE, ActionTendency.DISENGAGE}
             for item in tendencies
         ):
-            candidates.append(event.occurred_at)
-    return min(candidates) if candidates else None
+            assert event.episode_id is not None
+            if event.event_id is None:
+                raise MoodViolation("MOOD-SIGNAL-SOURCE")
+            candidates.append(
+                ConsiderationSignal(
+                    "mood",
+                    event.episode_id,
+                    str(event.event_id),
+                    "affective_change",
+                    event.occurred_at + timedelta(seconds=minimum_delay_seconds),
+                    event.source_commit_id,
+                )
+            )
+    return tuple(candidates)
 
 
 def validate_candidate(value: CandidateMoodDraft) -> None:

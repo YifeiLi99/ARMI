@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid7
 
+from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import (
     AdminContentCommand,
     AdminContentContext,
@@ -13,12 +15,27 @@ from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
 )
 
-from ._domain import validate_state
+from ._domain import consideration_signals, validate_state
+from ._event_storage import EVENT_QUERY, parse_events
 from .api import MoodAdminComponent, MoodCorrectionHead, MoodViolation
 
 
 class PostgreSQLMoodAdmin:
     __slots__ = ()
+
+    def consideration_signals(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        as_of: datetime,
+        minimum_delay_seconds: int,
+    ) -> tuple[ConsiderationSignal, ...]:
+        events = parse_events(
+            transaction.execute(EVENT_QUERY, (None, None, as_of, as_of, 7)).fetchall()
+        )
+        return consideration_signals(
+            events, as_of=as_of, minimum_delay_seconds=minimum_delay_seconds
+        )
 
     def apply(
         self,

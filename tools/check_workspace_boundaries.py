@@ -100,6 +100,7 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
                 "tests/postgresql/fixtures/v17-model-response.json",
                 "tests/postgresql/fixtures/v21-mind.json",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v21-to-v22.sql",
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v22-to-v23.sql",
             }:
                 # Exact forward migration mentions its source contracts to retain
                 # history; it never installs an old candidate execution parser.
@@ -346,6 +347,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-kernel==0.0.0",
             "armi-runtime-foundation==0.0.0",
+            "pydantic==2.13.4",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
             "rfc8785==0.1.4",
@@ -1981,6 +1983,46 @@ def analyze_source(
                 node, current_module=module, is_package=is_package
             )
             names = tuple(alias.name for alias in node.names)
+            if (
+                imported_module == "armi_subject_state.api"
+                and distribution != "armi-subject-state"
+                and "/src/" in path.replace("\\", "/")
+                and any(
+                    name
+                    in {"CONCERN_RECORDS", "ConcernRecord", "concern_attention_status"}
+                    for name in names
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-PSYCHOLOGY-STORAGE",
+                        path,
+                        node.lineno,
+                        "business consumers must use Mind projections, not persistent concern records",
+                    )
+                )
+            if (
+                imported_module == "armi_mood.api"
+                and distribution != "armi-mood"
+                and "/src/" in path.replace("\\", "/")
+                and any(
+                    name
+                    in {
+                        "derive_effective_snapshot",
+                        "half_life_seconds",
+                        "StoredAffectiveEvent",
+                    }
+                    for name in names
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-PSYCHOLOGY-STRATEGY",
+                        path,
+                        node.lineno,
+                        "Mood strategies are private; consume owner projections",
+                    )
+                )
             if "*" in names:
                 violations.append(
                     Violation(

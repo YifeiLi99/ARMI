@@ -493,3 +493,15 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_psychological_storage_cannot_leak_into_business_consumers() -> None:
+    from tools.check_workspace_boundaries import analyze_source
+
+    findings = analyze_source(
+        "from armi_subject_state.api import CONCERN_RECORDS",
+        path="modules/context/src/armi_context/example.py",
+        module="armi_context.example",
+        distribution="armi-context",
+    )
+    assert any(item.code == "ARC-PSYCHOLOGY-STORAGE" for item in findings)

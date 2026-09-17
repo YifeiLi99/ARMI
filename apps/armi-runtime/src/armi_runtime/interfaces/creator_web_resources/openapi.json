@@ -152,6 +152,16 @@
             ],
             "title": "Cognition Status"
           },
+          "consideration_signals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsiderationSignals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "current_disposition": {
             "title": "Current Disposition",
             "type": "string"
@@ -228,6 +238,7 @@
           }
         },
         "required": [
+          "consideration_signals",
           "operation_id",
           "available_after",
           "current_disposition",
@@ -290,6 +301,25 @@
             },
             "title": "Concerns",
             "type": "array"
+          },
+          "consideration_signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConsiderationSignalItem"
+            },
+            "title": "Consideration Signals",
+            "type": "array"
+          },
+          "effective_consideration_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Consideration At"
           },
           "last_considered_at": {
             "anyOf": [
@@ -658,6 +688,85 @@
           "condition_state"
         ],
         "title": "ConcernAttentionStatus",
+        "type": "object"
+      },
+      "ConsiderationSignalItem": {
+        "additionalProperties": false,
+        "properties": {
+          "condition_version": {
+            "title": "Condition Version",
+            "type": "string"
+          },
+          "eligible_at": {
+            "title": "Eligible At",
+            "type": "string"
+          },
+          "object_ref": {
+            "title": "Object Ref",
+            "type": "string"
+          },
+          "owner": {
+            "enum": [
+              "mind",
+              "mood"
+            ],
+            "title": "Owner",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "review_time_reached",
+              "creator_input",
+              "activity_result",
+              "affective_change"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "object_ref",
+          "condition_version",
+          "reason",
+          "eligible_at"
+        ],
+        "title": "ConsiderationSignalItem",
+        "type": "object"
+      },
+      "ConsiderationSignals": {
+        "additionalProperties": false,
+        "properties": {
+          "frozen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frozen At"
+          },
+          "schema_version": {
+            "const": "armi.consideration-signals.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/ConsiderationSignalItem"
+            },
+            "title": "Signals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "signals",
+          "frozen_at"
+        ],
+        "title": "ConsiderationSignals",
         "type": "object"
       },
       "CreatorActivityItemResponse": {

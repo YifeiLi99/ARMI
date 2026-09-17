@@ -8,10 +8,11 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import SubjectStateApplication
-from ._concerns import CONCERN_RECORDS, apply_concern_changes
+from ._concerns import CONCERN_RECORDS, apply_concern_changes, concern_signals
 from .api import (
     CandidateSubjectStateDraft,
     ConcernRecord,
@@ -59,6 +60,40 @@ class PostgreSQLSubjectStateOwner:
 
     def __init__(self, application: SubjectStateApplication) -> None:
         self._application = application
+
+    async def attention_status(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        consumed: frozenset[tuple[str, str, str]],
+    ) -> list[dict[str, object]]:
+        from ._concerns import concern_attention_status
+
+        return concern_attention_status(
+            await self.concerns(transaction, subject_id=subject_id),
+            as_of=as_of,
+            consumed=consumed,
+        )
+
+    async def consideration_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event_purpose: str | None = None,
+        event_ref: UUID | None = None,
+        event_at: datetime | None = None,
+        activity_id: UUID | None = None,
+    ) -> tuple[ConsiderationSignal, ...]:
+        return concern_signals(
+            await self.concerns(transaction, subject_id=subject_id),
+            event_purpose=event_purpose,
+            event_ref=event_ref,
+            event_at=event_at,
+            activity_id=activity_id,
+        )
 
     async def concerns(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

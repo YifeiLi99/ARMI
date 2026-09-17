@@ -6,11 +6,11 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, cast
 
-from armi_subject_state.api import ConcernChange
+from armi_mood.api import AppraisalEventSignalV2
+from armi_subject_state.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import (
-    AppraisalEventSignalV2,
     CreatorAppraisalExperience,
 )
 from ._creator_changes import CreatorChange, change_context_refs
@@ -22,11 +22,11 @@ CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v5"
 CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v5"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = (
-    """一次完成对 Creator 输入的认知：决定行动，以及是否形成经历、评价、关系、承诺或资料变化。
+    f"""一次完成对 Creator 输入的认知：决定行动，以及是否形成经历、评价、关系、承诺或资料变化。
 拒绝、需要信息、延期和没有变化也可以附带表达；没有表达时保持沉默。
 只依据冻结 Context；不虚构主体身份、权限、情绪数值或现实执行结果。
 只有 Creator 明确要求记住时才提出记忆摘要；评价使用语义标签，保留来源与不确定性。
-若出现值得持续弄清的问题，可用 concern_changes 保存问题、在意理由、解决条件和复查条件；这不是记忆摘要或接到任务，不必每轮建立关注。得到答案后可以更新、解决或放下。
+{MIND_COGNITIVE_INSTRUCTIONS}
 """
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 )

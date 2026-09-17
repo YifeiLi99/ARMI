@@ -6,7 +6,6 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -55,7 +54,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
-from armi_mood.api import MoodReadPort
+from armi_mood.api import MoodReadPort, active_mood_gists, mood_context_items
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
@@ -64,7 +63,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 from armi_sleep.api import SleepReadPort
-from armi_subject_state.api import SubjectStateReadPort
+from armi_subject_state.api import SubjectStateReadPort, mind_context_items
 
 from ._compiler import CONTEXT_POLICY_VERSION, DeterministicContextCompiler
 from ._embedding import QUERY_MAX_CHARS
@@ -454,6 +453,7 @@ class ContextPipeline:
                     result=result,
                     manifest_artifact=manifest_registration.ref,
                     compiled_artifact=compiled_registration.ref,
+                    snapshot=snapshot,
                 )
             self._wakeups.notify(COGNITION_EXECUTE)
             return True
@@ -559,7 +559,7 @@ class ContextPipeline:
             return None
         try:
             query = _semantic_recall_query(query_bytes)
-            mood_gists = _active_mood_gists(snapshot.component_payloads)
+            mood_gists = active_mood_gists(snapshot.component_payloads)
             if mood_gists:
                 query = "\n".join((query, *mood_gists)).strip()
             if not query:
@@ -716,15 +716,36 @@ def _context_request(
     }
     for kind, source_id, version, payload in snapshot.component_payloads:
         component_content = payload.decode("utf-8")
-        if kind == "mind":
-            component_content = json.dumps(
-                {
-                    key: value
-                    for key, value in json.loads(payload).items()
-                    if key != "concerns"
-                },
-                ensure_ascii=False,
+        if kind in {"mind", "mood"}:
+            views = (
+                mind_context_items(
+                    payload,
+                    revision_id=source_id,
+                    version=version,
+                    as_of=snapshot.observed_at,
+                    purpose=snapshot.purpose,
+                    signals=snapshot.consideration_signals,
+                )
+                if kind == "mind"
+                else mood_context_items(payload, revision_id=source_id, version=version)
             )
+            for view in views:
+                items.append(
+                    _candidate(
+                        profile,
+                        section_by_component[kind],
+                        view.item_kind,
+                        ContextSourceIdentity(
+                            view.source_kind, view.source_ref, view.source_version
+                        ),
+                        ContextTrustClass.SUBJECTIVE_STATE,
+                        "private",
+                        view.content,
+                        requested_required=view.required,
+                        relevance=view.relevance,
+                    )
+                )
+            continue
         items.append(
             _candidate(
                 profile,
@@ -734,82 +755,10 @@ def _context_request(
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
                 component_content,
-                requested_required=kind == "self"
-                or (kind == "mind" and snapshot.purpose != "consider_other_human_input")
-                or (
-                    snapshot.purpose
-                    in {
-                        "perform_subject_self_check",
-                        "reflect_prompt",
-                    }
-                    and kind in {"self", "mind"}
-                ),
+                requested_required=kind == "self",
                 relevance=90,
             )
         )
-        if kind == "mind":
-            mind = json.loads(payload)
-            for concern in mind["concerns"]:
-                if concern["state"] not in {"open", "waiting"}:
-                    continue
-                context_concern = dict(concern)
-                if snapshot.autonomy_context is not None:
-                    autonomy = json.loads(snapshot.autonomy_context)
-                    now = datetime.fromisoformat(autonomy["current_time"])
-                    consumed = autonomy["last_considered_at"]
-                    context_concern["elapsed_seconds"] = max(
-                        0,
-                        int(
-                            (
-                                now - datetime.fromisoformat(concern["updated_at"])
-                            ).total_seconds()
-                        ),
-                    )
-                    context_concern["consideration_reason"] = (
-                        "review_time_reached"
-                        if concern["review_at"] is not None
-                        and datetime.fromisoformat(concern["review_at"]) <= now
-                        and (
-                            consumed is None
-                            or datetime.fromisoformat(concern["review_at"])
-                            > datetime.fromisoformat(consumed)
-                        )
-                        else "autonomous_context_review"
-                    )
-                else:
-                    context_concern["consideration_reason"] = snapshot.purpose
-                items.append(
-                    _candidate(
-                        profile,
-                        ContextSection.MIND,
-                        "current_concern",
-                        ContextSourceIdentity(
-                            "mind_concern", UUID(concern["concern_id"]), version
-                        ),
-                        ContextTrustClass.SUBJECTIVE_STATE,
-                        "private",
-                        json.dumps(context_concern, ensure_ascii=False),
-                        requested_required=True,
-                        relevance=95,
-                    )
-                )
-        if kind == "mood":
-            for episode_id, episode_payload, intensity in _active_mood_episodes(
-                payload
-            ):
-                items.append(
-                    _candidate(
-                        profile,
-                        ContextSection.MOOD,
-                        "active_affective_episode",
-                        ContextSourceIdentity("mood_episode", episode_id, version),
-                        ContextTrustClass.SUBJECTIVE_STATE,
-                        "private",
-                        episode_payload,
-                        requested_required=False,
-                        relevance=max(70, min(99, intensity)),
-                    )
-                )
     if snapshot.scene_id is not None:
         items.append(
             _item(
@@ -1544,83 +1493,6 @@ _RECALL_TEXT_KEYS = frozenset(
         "trigger",
     }
 )
-
-
-def _active_mood_episodes(
-    component_payloads: tuple[tuple[str, UUID, int, bytes], ...] | bytes,
-) -> tuple[tuple[UUID, str, int], ...]:
-    payloads = (
-        (component_payloads,)
-        if isinstance(component_payloads, bytes)
-        else tuple(
-            payload
-            for kind, _source_id, _version, payload in component_payloads
-            if kind == "mood"
-        )
-    )
-    if not payloads:
-        return ()
-    try:
-        decoded = json.loads(payloads[-1])
-        if not isinstance(decoded, dict):
-            return ()
-        document = cast(dict[str, object], decoded)
-        if document.get("schema_version") != ("armi.mood-snapshot.v2"):
-            return ()
-        raw_episodes = document.get("active_episodes")
-        if not isinstance(raw_episodes, list):
-            return ()
-        result: list[tuple[UUID, str, int]] = []
-        for decoded_episode in cast(list[object], raw_episodes)[:5]:
-            if not isinstance(decoded_episode, dict):
-                return ()
-            raw = cast(dict[str, object], decoded_episode)
-            episode_id = UUID(str(raw["episode_id"]))
-            gist = str(raw["gist"])
-            phase = str(raw["event_phase"])
-            intensity = raw["intensity"]
-            if (
-                episode_id.version != 7
-                or not gist.strip()
-                or len(gist) > 64
-                or phase not in {"anticipated", "ongoing", "realized", "averted"}
-                or type(intensity) is not int
-                or not 0 <= intensity <= 100
-            ):
-                return ()
-            result.append(
-                (
-                    episode_id,
-                    rfc8785.dumps(
-                        {
-                            "schema_version": "armi.active-affective-episode.v1",
-                            "gist": gist,
-                            "event_phase": phase,
-                            "intensity": intensity,
-                        }
-                    ).decode("utf-8"),
-                    intensity,
-                )
-            )
-        return tuple(result)
-    except KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError:
-        return ()
-
-
-def _active_mood_gists(
-    component_payloads: tuple[tuple[str, UUID, int, bytes], ...],
-) -> tuple[str, ...]:
-    remaining = 160
-    result: list[str] = []
-    for _episode_id, payload, intensity in _active_mood_episodes(component_payloads):
-        if intensity < 20 or len(result) == 2 or remaining <= 0:
-            continue
-        gist = str(cast(dict[str, object], json.loads(payload))["gist"])
-        piece = gist[:remaining]
-        if piece:
-            result.append(piece)
-            remaining -= len(piece)
-    return tuple(result)
 
 
 def _semantic_recall_query(value: bytes) -> str:

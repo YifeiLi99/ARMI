@@ -285,6 +285,16 @@ class _SubjectState:
 
 
 class _Mood:
+    def consideration_signals(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        as_of: datetime,
+        minimum_delay_seconds: int,
+    ) -> tuple:
+        del transaction, as_of, minimum_delay_seconds
+        return ()
+
     def current_component(
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MoodAdminComponent | None:

@@ -26,6 +26,7 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     CognitiveEpisodeId,
+    ConsiderationSignal,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -43,7 +44,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 from armi_memory.api import MemoryReadPort
-from armi_mood.api import MoodReadPort
+from armi_mood.api import MoodReadPort, mood_snapshot_bytes
 from armi_prompt.api import PromptContextSource, PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -104,6 +105,8 @@ class ContextEpisodeSnapshot:
     policy_version: str
     mechanism_identity: str
     trace_id: TraceId
+    observed_at: datetime
+    consideration_signals: tuple[ConsiderationSignal, ...]
     component_payloads: tuple[tuple[str, UUID, int, bytes], ...]
     memory_payloads: tuple[tuple[UUID, int, bytes, str], ...]
     experience_context: tuple[ContextExperienceState, ...]
@@ -208,52 +211,29 @@ class PostgreSQLContextRepository:
             )
             for item in components
         )
+        signals = await self._subject_state.consideration_signals(
+            tx,
+            subject_id=subject.subject_id,
+            event_purpose=opportunity.purpose,
+            event_ref=opportunity.opportunity_id,
+            event_at=opportunity.available_after,
+            activity_id=opportunity.activity_id,
+        )
+        mood_signals = await self._mood.consideration_signals(
+            tx,
+            subject_id=subject.subject_id,
+            minimum_delay_seconds=opportunity.minimum_consideration_seconds,
+        )
+        signals = await self._opportunities.unconsumed_signals(
+            tx,
+            subject_id=subject.subject_id,
+            signals=(*signals, *mood_signals),
+        )
+        signals = tuple(
+            signal for signal in signals if signal.eligible_at <= mood.as_of
+        )
         component_payloads += (
-            (
-                "mood",
-                mood.current_revision_id,
-                mood.version,
-                rfc8785.dumps(
-                    {
-                        "schema_version": "armi.mood-snapshot.v2",
-                        "as_of": mood.as_of.isoformat(),
-                        "home_base": {
-                            "valence": mood.home_base.valence,
-                            "arousal": mood.home_base.arousal,
-                            "dominance": mood.home_base.dominance,
-                        },
-                        "current": {
-                            "valence": mood.current.valence,
-                            "arousal": mood.current.arousal,
-                            "dominance": mood.current.dominance,
-                        },
-                        "active_emotions": [
-                            {
-                                "family": item.family.value,
-                                "nuance": item.nuance,
-                                "intensity": item.intensity,
-                            }
-                            for item in mood.active_emotions
-                        ],
-                        "active_episodes": [
-                            {
-                                "episode_id": str(item.episode_id),
-                                "gist": item.gist,
-                                "event_phase": item.phase.value,
-                                "intensity": item.intensity,
-                            }
-                            for item in mood.active_episodes
-                        ],
-                        "action_tendencies": [
-                            {
-                                "tendency": item.tendency.value,
-                                "intensity": item.intensity,
-                            }
-                            for item in mood.action_tendencies
-                        ],
-                    }
-                ),
-            ),
+            ("mood", mood.current_revision_id, mood.version, mood_snapshot_bytes(mood)),
         )
         memory_rows = await self._memories.maintenance_context(
             tx,
@@ -427,6 +407,8 @@ class PostgreSQLContextRepository:
             policy_version="armi.context-policy.v5",
             mechanism_identity=episode.mechanism_identity,
             trace_id=episode.trace_id,
+            observed_at=mood.as_of,
+            consideration_signals=signals,
             component_payloads=component_payloads,
             memory_payloads=memory_payloads,
             experience_context=episode.experience_context,
@@ -470,6 +452,7 @@ class PostgreSQLContextRepository:
         result: ContextResult,
         manifest_artifact: ArtifactRef,
         compiled_artifact: ArtifactRef,
+        snapshot: ContextEpisodeSnapshot,
     ) -> None:
         tx = unit_of_work.transaction
         for item in result.items:
@@ -520,6 +503,21 @@ class PostgreSQLContextRepository:
                         policy,
                     ),
                 )
+        included = {
+            item.candidate.source.reference
+            for item in result.items
+            if item.disposition.value == "included"
+        }
+        await self._opportunity_transitions.freeze_signals(
+            tx,
+            opportunity_id=snapshot.opportunity_id,
+            signals=tuple(
+                signal
+                for signal in snapshot.consideration_signals
+                if signal.object_ref in included
+            ),
+            frozen_at=snapshot.observed_at,
+        )
         episode = await self._episodes.mark_context_prepared(
             tx,
             episode_id=episode_id,

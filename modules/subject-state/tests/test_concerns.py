@@ -128,19 +128,193 @@ def test_attention_projection_reports_time_without_mutating_the_concern() -> Non
         (), (creation(),), now=now, commit_id=uuid7(), basis_ordinals=(1,)
     )
     assert (
-        concern_attention_status(records, as_of=now, consumed_before=None)[0][
+        concern_attention_status(records, as_of=now, consumed=frozenset())[0][
             "condition_state"
         ]
         == "scheduled"
     )
     later = now + timedelta(hours=6)
-    due = concern_attention_status(records, as_of=later, consumed_before=None)
+    due = concern_attention_status(records, as_of=later, consumed=frozenset())
     assert due[0]["condition_state"] == "due"
-    assert concern_attention_status(records, as_of=later, consumed_before=None) == due
+    assert concern_attention_status(records, as_of=later, consumed=frozenset()) == due
     assert (
-        concern_attention_status(records, as_of=later, consumed_before=later)[0][
-            "condition_state"
-        ]
+        concern_attention_status(
+            records,
+            as_of=later,
+            consumed=frozenset(
+                {("mind", str(records[0].concern_id), str(records[0].source_commit_id))}
+            ),
+        )[0]["condition_state"]
         == "consumed"
     )
     assert records[0].state == "open"
+
+
+def test_owner_signals_keep_condition_identity_across_time_and_exclude_own_activity_round():
+    from armi_subject_state._concerns import concern_signals
+
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    records = apply_concern_changes(
+        (), (creation(),), now=now, commit_id=uuid7(), basis_ordinals=(1,)
+    )
+    assert concern_signals(()) == ()
+    signals = concern_signals(records)
+    assert signals == concern_signals(records)
+    assert signals[0].condition_version == str(records[0].source_commit_id)
+    closed = apply_concern_changes(
+        records,
+        (
+            CloseConcern(
+                operation="release",
+                concern_ref=str(records[0].concern_id),
+                conclusion="No further investment is worthwhile",
+                basis_refs=("ctx:1",),
+            ),
+        ),
+        now=now + timedelta(minutes=10),
+        commit_id=uuid7(),
+        basis_ordinals=(1,),
+    )
+    assert concern_signals(closed) == ()
+
+
+def test_event_review_requires_new_creator_input_or_related_result_and_preserves_waiting():
+    from armi_subject_state._concerns import concern_signals
+    from armi_subject_state.api import ActivityReview, CreatorInputReview
+
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    records = apply_concern_changes(
+        (),
+        (
+            creation().model_copy(
+                update={
+                    "review": CreatorInputReview(
+                        kind="creator_input", reason="Ask when a new clue arrives"
+                    )
+                }
+            ),
+        ),
+        now=now,
+        commit_id=uuid7(),
+        basis_ordinals=(1,),
+    )
+    event_ref = uuid7()
+    assert (
+        concern_signals(
+            records,
+            event_purpose="consider_creator_input",
+            event_ref=event_ref,
+            event_at=now,
+        )
+        == ()
+    )
+    event = concern_signals(
+        records,
+        event_purpose="consider_creator_input",
+        event_ref=event_ref,
+        event_at=now + timedelta(seconds=1),
+    )
+    assert event[0].reason == "creator_input"
+    assert records[0].understanding == creation().understanding
+    activity = uuid7()
+    waiting = (
+        records[0].model_copy(
+            update={
+                "review": ActivityReview(
+                    kind="activity_result",
+                    activity_ref=str(activity),
+                    reason="Await evidence",
+                ),
+                "state": "waiting",
+            }
+        ),
+    )
+    assert (
+        concern_signals(
+            waiting,
+            event_purpose="consider_autonomous_life",
+            event_ref=event_ref,
+            event_at=now + timedelta(seconds=1),
+            activity_id=activity,
+        )
+        == ()
+    )
+    assert (
+        concern_signals(
+            waiting,
+            event_purpose="consider_codex_result",
+            event_ref=event_ref,
+            event_at=now + timedelta(seconds=1),
+            activity_id=uuid7(),
+        )
+        == ()
+    )
+    result = concern_signals(
+        waiting,
+        event_purpose="consider_codex_result",
+        event_ref=event_ref,
+        event_at=now + timedelta(seconds=1),
+        activity_id=activity,
+    )
+    assert result[0].reason == "activity_result"
+    assert waiting[0].state == "waiting"
+    assert waiting[0].understanding == records[0].understanding
+
+
+def test_scripted_curiosity_asks_waits_and_resolves_only_after_feedback():
+    """Scripted owner candidates verify the mechanism, not model behavior."""
+    from armi_subject_state._concerns import concern_signals
+    from armi_subject_state.api import CreatorInputReview
+
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    records = apply_concern_changes(
+        (), (creation(),), now=now, commit_id=uuid7(), basis_ordinals=(1,)
+    )
+    concern_id = records[0].concern_id
+    # Asking and delivery do not supply knowledge. The next candidate keeps the
+    # original understanding and waits for a new Creator input.
+    wait = UpdateConcern(
+        **{
+            **creation().model_dump(),
+            "operation": "update",
+            "concern_ref": str(concern_id),
+            "state": "waiting",
+            "review": CreatorInputReview(
+                kind="creator_input", reason="已询问叶片变化; 等待新的观察反馈"
+            ),
+        }
+    )
+    waiting = apply_concern_changes(
+        records,
+        (wait,),
+        now=now + timedelta(minutes=5),
+        commit_id=uuid7(),
+        basis_ordinals=(1, 2),
+    )
+    assert waiting[0].understanding == records[0].understanding
+    assert concern_signals(waiting) == ()
+    feedback = concern_signals(
+        waiting,
+        event_purpose="consider_creator_input",
+        event_ref=uuid7(),
+        event_at=now + timedelta(hours=1),
+    )
+    assert feedback[0].object_ref == concern_id
+    assert waiting[0].state == "waiting"
+    resolved = apply_concern_changes(
+        waiting,
+        (
+            CloseConcern(
+                operation="resolve",
+                concern_ref=str(concern_id),
+                conclusion="反馈说明叶柄两侧生长不均使叶片朝光; 满足解释朝向变化的条件",
+                basis_refs=("ctx:3",),
+            ),
+        ),
+        now=now + timedelta(hours=1),
+        commit_id=uuid7(),
+        basis_ordinals=(1, 3),
+    )
+    assert resolved[0].concern_id == concern_id
+    assert resolved[0].state == "resolved"
+    assert concern_signals(resolved) == ()

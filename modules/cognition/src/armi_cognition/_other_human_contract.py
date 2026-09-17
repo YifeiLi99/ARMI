@@ -6,6 +6,7 @@ import json
 from typing import Annotated, Literal, cast
 
 from armi_kernel.application import ModelViolation
+from armi_mood.api import AppraisalEventSignalV2
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -15,7 +16,6 @@ from pydantic import (
     ValidationError,
 )
 
-from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._dialogue_contract import ContextRef, Summary
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from armi_mood.api import AppraisalEventSignalV2
 from armi_subject_state.api import ConcernChange
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
-from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
 VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate.v3"

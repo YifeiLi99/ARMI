@@ -549,6 +549,13 @@ class CognitionOperationSnapshot:
 
 @runtime_checkable
 class CognitionOperationReadPort(Protocol):
+    async def autonomous_commit_ids(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        commit_ids: tuple[UUID, ...],
+    ) -> frozenset[UUID]: ...
+
     async def opportunity_episode_states(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
     ) -> tuple[tuple[UUID, str], ...]: ...
@@ -701,6 +708,13 @@ class CognitionAdminEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionAdminPort(Protocol):
+    def autonomous_commit_ids(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        commit_ids: tuple[UUID, ...],
+    ) -> frozenset[UUID]: ...
+
     def attempts(
         self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
     ) -> tuple[CognitionAdminAttempt, ...]: ...

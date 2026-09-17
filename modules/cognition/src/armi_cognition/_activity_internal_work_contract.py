@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
+from armi_mood.api import AppraisalEventSignalV2
 from pydantic import BaseModel, ConfigDict, Field
 
-from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._dialogue_contract import ContextRef
 from ._text_contract import Metadata, Text256, Text1024, Text2048, Text65536
 

@@ -1,5 +1,6 @@
 """Fixed Admin operations owned by Cognition."""
 
+import json
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -11,6 +12,22 @@ from .api import CognitionAdminAttempt, CognitionAdminEpisodeSnapshot
 
 class PostgreSQLCognitionAdmin:
     __slots__ = ()
+
+    def autonomous_commit_ids(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        commit_ids: tuple[UUID, ...],
+    ) -> frozenset[UUID]:
+        if not commit_ids:
+            return frozenset()
+        rows = transaction.execute(
+            """SELECT s.subject_commit_id FROM armi.cognitive_candidate_applications s
+               JOIN armi.cognitive_episodes e ON e.cognitive_episode_id=s.cognitive_episode_id
+               WHERE s.subject_commit_id IN (SELECT value::uuid FROM jsonb_array_elements_text(%s::jsonb)) AND e.purpose='consider_autonomous_life'""",
+            (json.dumps([str(value) for value in commit_ids]),),
+        ).fetchall()
+        return frozenset(cast(UUID, row[0]) for row in rows)
 
     def attempts(
         self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID

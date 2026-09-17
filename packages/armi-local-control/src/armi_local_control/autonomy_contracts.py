@@ -27,7 +27,25 @@ class ConcernAttentionStatus(AutonomyResponse):
     condition_state: Literal["scheduled", "due", "consumed", "waiting_for_event"]
 
 
+class ConsiderationSignalItem(AutonomyResponse):
+    owner: Literal["mind", "mood"]
+    object_ref: str
+    condition_version: str
+    reason: Literal[
+        "review_time_reached", "creator_input", "activity_result", "affective_change"
+    ]
+    eligible_at: str
+
+
+class ConsiderationSignals(AutonomyResponse):
+    schema_version: Literal["armi.consideration-signals.v1"]
+    signals: list[ConsiderationSignalItem]
+    frozen_at: str | None
+
+
 class AutonomyStatus(AutonomyResponse):
+    consideration_signals: list[ConsiderationSignalItem] = []
+    effective_consideration_at: str | None = None
     concerns: list[ConcernAttentionStatus] = []
     observed_at: str | None = None
     last_considered_at: str | None = None
@@ -57,6 +75,8 @@ class AutonomyStatus(AutonomyResponse):
 
 
 class AutonomyHistoryItem(AutonomyResponse):
+    consideration_signals: ConsiderationSignals | None
+
     operation_id: str
     available_after: str
     current_disposition: str

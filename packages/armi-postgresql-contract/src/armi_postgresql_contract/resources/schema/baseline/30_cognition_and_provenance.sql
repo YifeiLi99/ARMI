@@ -650,6 +650,13 @@ CREATE TABLE armi.opportunities (
     source_ref uuid NOT NULL,
     source_version bigint NOT NULL,
     activity_id uuid,
+    consideration_signals jsonb,
+    CONSTRAINT opportunities_consideration_signals_check CHECK ((consideration_signals IS NULL) OR (
+    jsonb_typeof(consideration_signals)='object'
+    AND consideration_signals->>'schema_version'='armi.consideration-signals.v1'
+    AND jsonb_typeof(consideration_signals->'signals')='array'
+    AND consideration_signals ? 'frozen_at'
+)),
     CONSTRAINT opportunities_current_disposition_check CHECK ((current_disposition = ANY (ARRAY['open'::text, 'selected'::text, 'resolved'::text, 'superseded'::text, 'cancelled'::text]))),
     CONSTRAINT opportunities_eligibility_status_check CHECK ((eligibility_status = 'eligible'::text)),
     CONSTRAINT opportunities_expiry_check CHECK (((expires_at IS NULL) OR (expires_at > available_after))),
