@@ -227,3 +227,78 @@ def test_autonomous_mind_and_concern_changes_form_one_owner_draft(experiment):
     )
     assert state["motivations"] == ["理解观察到的变化"]
     assert state["concerns"][0]["state"] == "waiting"
+
+
+def test_trajectory_carries_owner_state_consumes_signals_and_closes(experiment):
+    from datetime import timedelta
+
+    host = experiment["MindTrajectory"]()
+    start = host.now
+
+    def step(assessment=None, expression=None):
+        case = host.prepare()
+        candidate = {
+            "kind": "no_activity",
+            "next_consideration_seconds": 21600,
+            "expression": expression,
+            "mind_appraisals": [] if assessment is None else [assessment],
+        }
+        response = json.dumps(
+            {
+                "schema_version": "armi.model-response-artifact.v3",
+                "output_text": json.dumps({"candidate": candidate}),
+            }
+        ).encode()
+        row = experiment["validate_response"](case, response)
+        host.accept(row)
+        assert row["validation"] == "accepted"
+        return case, row
+
+    assessment = dict(
+        object_ref="ctx:5",
+        basis_refs=["ctx:5"],
+        desired_outcome="understand",
+        significance="important",
+        discrepancy="substantial",
+        understanding="unexplained",
+        progress="stalled",
+        opportunity="available",
+        resolution="open",
+        explanation="不知道合成装置的规则",
+    )
+    _, first = step(assessment)
+    assert host.now == start + timedelta(minutes=30)
+    assert first["mind_version"] == 2
+    case, second = step(expression="这个装置为何变色?")
+    assert any(b.item_kind == "current_motivation" for b in case["bases"])
+    assert second["motivation_projection"][0]["level"] > 0
+    assert host.now == start + timedelta(minutes=35)
+    assert (
+        second["mind_version"] == 2
+    )  # Silence/text never erases or invents a revision.
+    _, third = step(
+        assessment
+        | {
+            "object_ref": "ctx:7",
+            "resolution": "satisfied",
+            "discrepancy": "none",
+            "understanding": "sufficient",
+            "explanation": "反馈说明计时器每30分钟切换,回答了原问题",
+        }
+    )
+    assert third["feedback_present"]
+    assert third["motivation_projection"] == []
+    assert experiment["mind_signals"](host.head.canonical_state) == ()
+    assert host.now == start + timedelta(minutes=35, hours=6)
+
+
+def test_trajectory_stops_instead_of_faking_activity_or_accepting_rejection(experiment):
+    host = experiment["MindTrajectory"]()
+    initial = host.head
+    host.accept({"validation": "accepted", "candidate": {"kind": "start_activity"}})
+    assert host.stop_reason == "requires_activity_or_effect_host"
+    assert host.head == initial
+    host = experiment["MindTrajectory"]()
+    host.accept({"validation": "rejected"})
+    assert host.stop_reason == "candidate_rejected"
+    assert host.head == initial

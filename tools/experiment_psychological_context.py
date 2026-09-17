@@ -1,7 +1,7 @@
-"""Synthetic paired probes of the existing autonomous cognition contract.
+"""Synthetic paired probes and an in-memory Mind trajectory experiment.
 
 No model calls unless --live is explicit. Never runs effects or writes a subject.
-This measures candidate behaviour, not longitudinal subjective experience.
+This measures candidates and Owner transformations, not subjective experience.
 """
 
 from __future__ import annotations
@@ -40,7 +40,9 @@ from armi_mind.api import (
     MindViolation,
     evaluate_motivation,
     initial_mind_state,
+    mind_context_items,
     mind_motivation_projection,
+    mind_signals,
     prepare_mind_change,
     project_motivation,
 )
@@ -102,8 +104,20 @@ def identity(index: int) -> UUID:
     return UUID(int=(1_800_000_000_000 << 80) | (7 << 76) | (2 << 62) | index)
 
 
-def prepare_case(text: str) -> dict[str, Any]:
-    mind = initial_mind_state()
+def prepare_case(
+    text: str, *, head: MindHead | None = None, now: datetime | None = None
+) -> dict[str, Any]:
+    now = now or datetime(2026, 9, 17, 6, tzinfo=UTC)
+    head = head or MindHead(identity(1), 1, initial_mind_state())
+    mind = head.canonical_state
+    psychological = mind_context_items(
+        mind,
+        revision_id=head.current_revision_id,
+        version=head.version,
+        as_of=now,
+        purpose="consider_autonomous_life",
+        signals=tuple(s for s in mind_signals(mind) if s.eligible_at <= now),
+    )
     mood = rfc8785.dumps(
         {
             "schema_version": "armi.mood.v4",
@@ -113,7 +127,7 @@ def prepare_case(text: str) -> dict[str, Any]:
         }
     )
     entries = (
-        ("mind", "mind", json.loads(mind), "subjective_state"),
+        ("mind", "mind", json.loads(psychological[0].content), "subjective_state"),
         ("mood", "mood", json.loads(mood), "subjective_state"),
         (
             "current_life_opportunity",
@@ -121,7 +135,7 @@ def prepare_case(text: str) -> dict[str, Any]:
             {
                 "synthetic": True,
                 "autonomy": {
-                    "current_time": "2026-09-17T14:00:00+08:00",
+                    "current_time": now.isoformat(),
                     "timezone": "Asia/Shanghai",
                     "remaining_requests": 48,
                     "outlet_bound": True,
@@ -159,14 +173,30 @@ def prepare_case(text: str) -> dict[str, Any]:
             "runtime_authority",
         ),
     )
-    sections = ("mind", "mood", "current_opportunity", "capability", "memory", "scene")
+    entries += tuple(
+        (item.item_kind, item.source_kind, json.loads(item.content), "subjective_state")
+        for item in psychological[1:]
+    )
+    sections = (
+        "mind",
+        "mood",
+        "current_opportunity",
+        "capability",
+        "memory",
+        "scene",
+    ) + ("mind",) * (len(psychological) - 1)
+    sources = [
+        (head.current_revision_id, head.version),
+        *((identity(i), 1) for i in range(2, 7)),
+        *((item.source_ref, item.source_version) for item in psychological[1:]),
+    ]
     refs: tuple[dict[str, object], ...] = tuple(
         {"ref": f"ctx:{i}", "section": sections[i - 1], "item_kind": entry[0]}
         for i, entry in enumerate(entries, 1)
     )
     bases = tuple(
         CandidateBasis(
-            i, sections[i - 1], entry[0], identity(i), 1, entry[3], "private"
+            i, sections[i - 1], entry[0], *sources[i - 1], entry[3], "private"
         )
         for i, entry in enumerate(entries, 1)
     )
@@ -183,8 +213,8 @@ def prepare_case(text: str) -> dict[str, Any]:
                         "item_kind": item[0],
                         "source": {
                             "kind": item[1],
-                            "reference": str(identity(i)),
-                            "version": 1,
+                            "reference": str(sources[i - 1][0]),
+                            "version": sources[i - 1][1],
                         },
                         "trust": item[3],
                         "privacy": "private",
@@ -219,7 +249,7 @@ def prepare_case(text: str) -> dict[str, Any]:
         scene_id=identity(102),
         creator_party_id=identity(103),
         current_components=(
-            (CandidateOwner.MIND, 1, mind),
+            (CandidateOwner.MIND, head.version, mind),
             (CandidateOwner.MOOD, 1, mood),
         ),
         purpose="consider_autonomous_life",
@@ -234,6 +264,8 @@ def prepare_case(text: str) -> dict[str, Any]:
         "bases": bases,
         "validation": validation,
         "schema": bind_context_schema(autonomous_schema_for_context(compiled), refs),
+        "now": now,
+        "head": head,
     }
 
 
@@ -350,7 +382,7 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
     )
     projections = []
     if result.change_set is not None:
-        now = datetime(2026, 9, 17, 6, tzinfo=UTC)
+        now = case["now"]
         identities = iter(range(109, 130))
         for draft in result.change_set.owner_drafts:
             if draft.owner != "mind":
@@ -363,11 +395,13 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
             )
             try:
                 payload = prepare_mind_change(
-                    MindHead(identity(1), current[1], current[2]),
+                    MindHead(case["head"].current_revision_id, current[1], current[2]),
                     draft.candidate,
                     now=now,
-                    commit_id=identity(108),
-                    new_identity=lambda: identity(next(identities)),
+                    commit_id=identity(108 + current[1] * 100),
+                    new_identity=lambda version=current[1]: identity(
+                        next(identities) + version * 100
+                    ),
                 )
                 projections.append(
                     {
@@ -387,6 +421,7 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
                     "field_path": error.field_path,
                 }
     return {
+        "candidate": candidate,
         "validation": result.status.value,
         "error_code": result.error_code,
         "stage": "candidate_validation",
@@ -396,6 +431,92 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
         else [item.owner for item in result.change_set.owner_drafts],
         "mind_preparations": projections,
     }
+
+
+class MindTrajectory:
+    """Synthetic in-memory Mind host; no Activity, Mood or Effect commit is claimed."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 9, 17, 6, tzinfo=UTC)
+        self.head = MindHead(identity(1), 1, initial_mind_state())
+        self.consumed: set[tuple[str, str, str]] = set()
+        self.feedback_at = self.now + timedelta(hours=2)
+        self.feedback_seen = False
+        self.expressions: list[str] = []
+        self.stop_reason: str | None = None
+
+    def prepare(self) -> dict[str, Any]:
+        self.feedback_seen = self.feedback_seen or self.now >= self.feedback_at
+        text = (
+            "合成环境,无真实任务:此前你对观察图案的变化有兴趣。"
+            "你看到一个合成装置的灯:按钮没有被碰触,灯却从蓝变黄又变蓝。"
+            "目前尚不知道其变化规律。Creator 知道装置规则,可通过隔离文本交流,"
+            "但没有要求你研究、提问或完成任务。"
+        )
+        if self.feedback_seen:
+            text += (
+                "\n新到达的合成 Creator 反馈:这个装置只按计时器循环,"
+                "每30分钟切换一次蓝黄,按钮不参与颜色控制;这是此合成装置的完整规则。"
+            )
+        else:
+            text += "\n到目前没有新解释或实验结果。"
+        if self.expressions:
+            text += "\n本实验隔离文本渠道中你已表达的内容:" + json.dumps(
+                self.expressions, ensure_ascii=False
+            )
+        case = prepare_case(text, head=self.head, now=self.now)
+        # These exact current-state signals are included through the Owner projection.
+        self.consumed.update(
+            s.identity
+            for s in mind_signals(self.head.canonical_state)
+            if s.eligible_at <= self.now
+        )
+        return case
+
+    def accept(self, row: dict[str, Any]) -> None:
+        row["virtual_time"] = self.now.isoformat()
+        row["feedback_present"] = self.feedback_seen
+        if row["validation"] != "accepted":
+            self.stop_reason = "candidate_rejected"
+            return
+        candidate = row["candidate"]
+        if isinstance(candidate, bytes):
+            candidate = json.loads(candidate)
+            row["candidate"] = candidate
+        # Do not pretend a prepared Activity or tool request has been executed.
+        if candidate["kind"] not in {"no_activity", "defer", "need_information"}:
+            self.stop_reason = "requires_activity_or_effect_host"
+            row["stop_reason"] = self.stop_reason
+            return
+        for prepared in row["mind_preparations"]:
+            self.head = MindHead(
+                identity(2000 + self.head.version),
+                self.head.version + 1,
+                rfc8785.dumps(prepared["prepared_state"]),
+            )
+        expression = candidate.get("expression")
+        if expression:
+            self.expressions.append(expression)
+            # Fixed synthetic reply policy; it does not prescribe ARMI's next decision.
+            if not self.feedback_seen:
+                self.feedback_at = min(
+                    self.feedback_at, self.now + timedelta(minutes=5)
+                )
+        row["mind_version"] = self.head.version
+        row["mind_state"] = json.loads(self.head.canonical_state)
+        row["motivation_projection"] = mind_motivation_projection(
+            self.head.canonical_state, as_of=self.now, consumed=frozenset(self.consumed)
+        )
+        next_at = self.now + timedelta(seconds=candidate["next_consideration_seconds"])
+        for signal in mind_signals(self.head.canonical_state):
+            if signal.identity not in self.consumed:
+                next_at = min(
+                    next_at, max(self.now + timedelta(minutes=1), signal.eligible_at)
+                )
+        if not self.feedback_seen:
+            next_at = min(next_at, self.feedback_at)
+        row["next_virtual_time"] = next_at.isoformat()
+        self.now = next_at
 
 
 async def run(
@@ -409,7 +530,7 @@ async def run(
     output.mkdir(parents=True, exist_ok=False)
     instructions = (
         AUTONOMOUS_ACTIVITY_INSTRUCTIONS
-        if mode == "autonomous"
+        if mode in {"autonomous", "trajectory"}
         else (
             MIND_APPRAISAL_INSTRUCTIONS
             + "Mood 使用同一处境的语义评价,没有情绪变化可以为 null。"
@@ -443,6 +564,7 @@ async def run(
         receipts[receipt.call_id] = receipt
 
     results = []
+    trajectory = MindTrajectory() if mode == "trajectory" else None
     try:
         with provider_meter_scope(
             ProviderMeterScope(
@@ -464,9 +586,15 @@ async def run(
                 cases = tuple(item for item in cases if item[0] == case_name)
                 if not cases:
                     raise ValueError("EXPERIMENT-CASE")
+            if trajectory is not None:
+                cases = tuple((f"step_{i}", "") for i in range(1, 7))
             for index, (label, text) in enumerate(cases, 1):
                 case = (
-                    prepare_case(text) if mode == "autonomous" else appraisal_case(text)
+                    trajectory.prepare()
+                    if trajectory is not None
+                    else prepare_case(text)
+                    if mode == "autonomous"
+                    else appraisal_case(text)
                 )
                 if mode == "schema_probe":
                     case["schema"] = SchemaProbe.model_json_schema()
@@ -475,6 +603,8 @@ async def run(
                 save(output / f"{prefix}-request.json", case["request"])
                 save(output / f"{prefix}-schema.json", case["schema"])
                 if not live:
+                    if trajectory is not None:
+                        break  # Later inputs require an actual accepted predecessor.
                     continue
                 assert credential is not None
                 binding = case["binding"]
@@ -582,15 +712,21 @@ async def run(
                         "case": label,
                         **(
                             validate_response(case, response.response_bytes)
-                            if mode == "autonomous"
+                            if mode in {"autonomous", "trajectory"}
                             else validate_appraisal_response(
                                 case, response.response_bytes
                             )
                         ),
                     }
+                if trajectory is not None:
+                    trajectory.accept(row)
+                elif isinstance(row.get("candidate"), bytes):
+                    row["candidate"] = json.loads(row["candidate"])
                 save(output / f"{prefix}-validation.json", row)
                 results.append(row)
                 print(json.dumps(row, ensure_ascii=False), flush=True)
+                if trajectory is not None and trajectory.stop_reason is not None:
+                    break
     finally:
         journal.settle_interrupted(verification_id)
         billed = [receipt for receipt in receipts.values() if receipt.billable]
@@ -613,7 +749,12 @@ async def run(
                 "results": results,
                 "subject_committed": False,
                 "effects_executed": False,
-                "limitation": "单轮候选对照,不证明持续心理变化或主观体验",
+                "stop_reason": None if trajectory is None else trajectory.stop_reason,
+                "limitation": (
+                    "连续内存 Mind 实验;正式候选校验与 Mind 准备,非 Runtime 调度、数据库联合提交或真实效果验收;Mood 不跨轮持久化。"
+                    if trajectory is not None
+                    else "单轮候选对照,不证明持续心理变化或主观体验"
+                ),
             },
         )
     return {"output": str(output), "billable_calls": count, "known_microyuan": spent}
@@ -629,7 +770,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=("autonomous", "appraisal", "schema_probe"),
+        choices=("autonomous", "appraisal", "schema_probe", "trajectory"),
         default="autonomous",
     )
     args = parser.parse_args()
