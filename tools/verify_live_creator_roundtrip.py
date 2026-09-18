@@ -47,11 +47,11 @@ SELECT episode.cognitive_episode_id,
        effect.status,
        effect.verification_status,
        outbox.status,
-       artifact.storage_locator,
-       artifact.content_digest,
-       artifact.byte_size,
+       artifact_object.storage_locator,
+       artifact_object.content_digest,
+       artifact_object.byte_size,
        artifact.media_type,
-       artifact.integrity_status
+       artifact_object.integrity_status
 FROM armi.party_input_interactions AS interaction
 LEFT JOIN armi.cognitive_episodes AS episode
   ON episode.trace_id=interaction.trace_id
@@ -62,6 +62,11 @@ LEFT JOIN armi.effect_outbox_items AS outbox
   ON outbox.effect_id=effect.effect_id
 LEFT JOIN armi.artifacts AS artifact
   ON artifact.artifact_id=effect.payload_artifact_id
+ AND artifact.retention_status='retained'
+LEFT JOIN armi.artifact_objects AS artifact_object
+  ON artifact_object.artifact_object_id=artifact.artifact_object_id
+ AND artifact_object.generation=artifact.object_generation
+ AND artifact_object.object_status='available'
 WHERE interaction.interaction_id=%s
 ORDER BY effect.registered_at DESC NULLS LAST
 LIMIT 1
