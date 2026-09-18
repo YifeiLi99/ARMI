@@ -1,7 +1,7 @@
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
 import rfc8785
@@ -127,7 +127,53 @@ def test_first_observation_can_find_no_unmet_need_without_inventing_history(reso
     assert record["parameters"]["resolution"] == resolution
 
 
-def test_invalid_reference_duplicate_capacity_and_text_replacement_are_rejected():
+def test_retained_motivations_do_not_block_new_appraisal_or_later_updates():
+    head = MindHead(uuid7(), 1, initial_mind_state())
+    for _ in range(6):
+        before = json.loads(head.canonical_state)["motivation_states"]
+        payload = prepare(head, (assess(),), {"ctx:1": basis()})
+        after = json.loads(payload)["motivation_states"]
+        assert after[:-1] == before
+        head = MindHead(uuid7(), head.version + 1, payload)
+    assert len(after) == 6
+    unchanged = prepare(head, (), {})
+    assert json.loads(unchanged)["motivation_states"] == after
+    first_id = mind_signals(payload)[0].object_ref
+    resolved = prepare(
+        head,
+        (assess(resolution="satisfied"),),
+        {"ctx:1": basis(first_id, "current_motivation")},
+    )
+    assert len(mind_signals(resolved)) == 5
+
+
+def test_followup_evidence_updates_existing_motivation_without_new_slot():
+    payload = prepare(
+        MindHead(uuid7(), 1, initial_mind_state()),
+        (assess(),),
+        {"ctx:1": basis()},
+    )
+    initial = json.loads(payload)["motivation_states"][0]
+    for version in range(2, 5):
+        payload = prepare(
+            MindHead(uuid7(), version, payload),
+            (assess("ctx:2", basis_refs=("ctx:1", "ctx:2")),),
+            {
+                "ctx:1": basis(),
+                "ctx:2": replace(
+                    basis(UUID(initial["motivation_id"]), "current_motivation"),
+                    ordinal=2,
+                ),
+            },
+        )
+        records = json.loads(payload)["motivation_states"]
+        assert len(records) == 1
+        assert records[0]["motivation_id"] == initial["motivation_id"]
+        assert records[0]["object_id"] == initial["object_id"]
+        assert records[0]["basis_ordinals"] == [1, 2]
+
+
+def test_invalid_reference_duplicate_and_text_replacement_are_rejected():
     head = MindHead(uuid7(), 1, initial_mind_state())
     with pytest.raises(MindViolation, match="MIND-REFERENCE"):
         prepare(head, (assess(),), {})
@@ -138,8 +184,6 @@ def test_invalid_reference_duplicate_capacity_and_text_replacement_are_rejected(
             uuid7(), version + 1, prepare(head, (assess(),), {"ctx:1": basis()})
         )
     before = head.canonical_state
-    with pytest.raises(MindViolation, match="MIND-MOTIVATION-CAPACITY"):
-        prepare(head, (assess(),), {"ctx:1": basis()})
     draft = CandidateMindDraft(
         "proposal:1",
         "group:1",

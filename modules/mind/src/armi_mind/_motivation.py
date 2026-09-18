@@ -111,8 +111,6 @@ def apply_mind_appraisals(
     basis_ordinals: tuple[int, ...],
     new_identity: Callable[[], UUID] = uuid7,
 ) -> tuple[MotivationRecord, ...]:
-    from .api import MindViolation
-
     records = {
         (r.object_id, r.parameters.desired_outcome): r
         for r in current
@@ -141,8 +139,8 @@ def apply_mind_appraisals(
             source_commit_id=commit_id,
             basis_ordinals=basis_ordinals,
         )
-    if sum(r.parameters.resolution == "open" for r in records.values()) > 4:
-        raise MindViolation("MIND-MOTIVATION-CAPACITY", ("mind_appraisals",))
+    # The per-turn appraisal bound is not a lifetime record cap; see DESIGN.md.
+    # Retained motivations must not block an otherwise valid Subject Commit.
     return tuple(records.values())
 
 

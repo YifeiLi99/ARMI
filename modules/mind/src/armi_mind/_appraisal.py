@@ -40,6 +40,8 @@ class MindAppraisal(MindAppraisalParameters, frozen=True):
 
 MIND_APPRAISAL_INSTRUCTIONS = (
     "评价自身当前处境。每项对应 Context 中一个具体对象和依据。已有动机应引用 current_motivation 沿原对象更新。"
+    "同一事项的后续消息、重复等待或再次尝试,object_ref 引用已有 current_motivation,"
+    "新消息只作为 basis_refs 的补充依据,不因消息 ID 改变就另建同一愿望。"
     "desired_outcome 表示希望理解、交流或投入有意义活动;不输出情绪名称、强度或增量。"
     "significance 是对象的重要性;discrepancy 是希望与现实的差距,不是经过的时间。"
     "central 需要已有核心目标或长期重要关系的依据;眼前出现一个话题不使它自动成为核心。"
