@@ -23,10 +23,9 @@ class BundleDatabase(BaseModel):
 
 class ProgramBundle(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.windows-bundle.v2"]
+    schema_version: Literal["armi.windows-bundle.v3"]
     target: Literal["windows-11-x64"]
     database: BundleDatabase
-    package_set_digest: str
     package_id: str = Field(pattern=r"^[a-f0-9]{24}$")
     files: dict[str, str]
 

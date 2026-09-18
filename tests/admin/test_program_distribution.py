@@ -9,7 +9,7 @@ from armi_admin.application.updates import UpdateManifest, version_parts
 def test_bundle_rejects_changed_program_and_escaped_inventory(tmp_path):
     (tmp_path / "program.txt").write_bytes(b"program")
     value = {
-        "schema_version": "armi.windows-bundle.v2",
+        "schema_version": "armi.windows-bundle.v3",
         "target": "windows-11-x64",
         "database": {
             "postgresql": "18.4",
@@ -19,7 +19,6 @@ def test_bundle_rejects_changed_program_and_escaped_inventory(tmp_path):
             "schema_digest": "schema-a",
             "role_policy_digest": "roles-a",
         },
-        "package_set_digest": "sha256:" + "1" * 64,
         "files": {"program.txt": hashlib.sha256(b"program").hexdigest()},
     }
     value["package_id"] = hashlib.sha256(

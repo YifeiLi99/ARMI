@@ -13,7 +13,6 @@ from typing import Any, Literal
 
 from armi_admin.application import (
     AdminConfigError,
-    AdminPackageIdentityError,
     AdminSecretError,
 )
 from armi_admin.application.installation import SetupApplication, SetupError, SetupPaths
@@ -244,7 +243,6 @@ class ARMIMCPServer(MCPServer[Any]):
             )
         except (
             AdminConfigError,
-            AdminPackageIdentityError,
             AdminSecretError,
             SetupError,
         ):
@@ -317,7 +315,6 @@ def main(argv: list[str] | None = None) -> None:
         OSError,
         KeyError,
         AdminConfigError,
-        AdminPackageIdentityError,
         AdminSecretError,
         SetupError,
     ):

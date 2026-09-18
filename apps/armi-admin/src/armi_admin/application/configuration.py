@@ -28,7 +28,6 @@ from pydantic import (
 
 ADMIN_CONFIG_ENV = "ARMI_ADMIN_CONFIG"
 _MAX_CONFIG_BYTES = 64 * 1024
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
 
 
 class AdminConfigError(RuntimeError):
@@ -49,12 +48,6 @@ def _validate_uuid7(value: str) -> str:
         raise ValueError("ADMIN-CONFIG-ENVIRONMENT-ID") from exc
     if parsed.version != 7 or str(parsed) != value:
         raise ValueError("ADMIN-CONFIG-ENVIRONMENT-ID")
-    return value
-
-
-def _validate_digest(value: str) -> str:
-    if _DIGEST.fullmatch(value) is None:
-        raise ValueError("ADMIN-CONFIG-DIGEST")
     return value
 
 
@@ -80,31 +73,31 @@ LocatorValue = Annotated[
 class AdminExpectedIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    package_set_digest: str | None = None
+    source_root: str | None = Field(default=None, min_length=1)
     package_family: str | None = Field(default=None, min_length=1)
-
-    @field_validator("package_set_digest")
-    @classmethod
-    def _digest(cls, value: str | None) -> str | None:
-        return None if value is None else _validate_digest(value)
 
     @model_validator(mode="after")
     def _one_binding(self) -> Self:
-        if (self.package_set_digest is None) == (self.package_family is None):
+        if (self.source_root is None) == (self.package_family is None):
             raise ValueError("ADMIN-CONFIG-PROGRAM-BINDING")
         return self
 
-    def resolved_digest(self) -> str:
-        if self.package_set_digest is not None:
-            return self.package_set_digest
-        from armi_local_control.windows_package import package_identity
+    def verify(self) -> None:
+        from .package_identity import admin_program_identity
 
-        from .distribution import ProgramBundle
+        if self.package_family is not None:
+            from armi_local_control.windows_package import package_identity
 
-        identity = package_identity()
-        if identity is None or identity.family != self.package_family:
-            raise AdminConfigError("ADMIN-CONFIG-PACKAGE-FAMILY")
-        return ProgramBundle.read(identity.program_root).package_set_digest
+            identity = package_identity()
+            if identity is None or identity.family != self.package_family:
+                raise AdminConfigError("ADMIN-CONFIG-PACKAGE-FAMILY")
+        elif (
+            self.source_root is None
+            or not Path(self.source_root).is_absolute()
+            or Path(self.source_root).resolve()
+            != Path(admin_program_identity()["source_root"])
+        ):
+            raise AdminConfigError("ADMIN-CONFIG-SOURCE-ROOT")
 
 
 class PackagedPostgreSQLBinding(BaseModel):
@@ -131,7 +124,7 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v9"]
+    schema_version: Literal["armi.admin-config.v10"]
     operator_id: str = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )

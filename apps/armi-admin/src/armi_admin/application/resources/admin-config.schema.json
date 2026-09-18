@@ -26,9 +26,10 @@
           "default": null,
           "title": "Package Family"
         },
-        "package_set_digest": {
+        "source_root": {
           "anyOf": [
             {
+              "minLength": 1,
               "type": "string"
             },
             {
@@ -36,7 +37,7 @@
             }
           ],
           "default": null,
-          "title": "Package Set Digest"
+          "title": "Source Root"
         }
       },
       "title": "AdminExpectedIdentity",
@@ -294,7 +295,7 @@
       "title": "Runtime Defaults Path"
     },
     "schema_version": {
-      "const": "armi.admin-config.v9",
+      "const": "armi.admin-config.v10",
       "title": "Schema Version",
       "type": "string"
     },

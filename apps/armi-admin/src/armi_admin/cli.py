@@ -14,11 +14,9 @@ from pydantic import ValidationError
 from armi_admin.application import (
     AdminConfigError,
     AdminCredentialPort,
-    AdminPackageIdentityError,
     AdminSecretError,
-    admin_package_set_digest,
+    admin_program_identity,
     load_admin_config,
-    verify_admin_package_set,
 )
 from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.composition import bootstrap_admin
@@ -102,7 +100,7 @@ def _run(argv: list[str] | None = None) -> int:
             )
     args = parser.parse_args(argv)
     if args.operation == "identity":
-        print(json.dumps({"package_set_digest": admin_package_set_digest()}))
+        print(json.dumps(admin_program_identity()))
         return 0
     if args.operation == "schema":
         print(
@@ -119,7 +117,7 @@ def _run(argv: list[str] | None = None) -> int:
     if args.config is not None:
         environment["ARMI_ADMIN_CONFIG"] = str(args.config.resolve())
     config, path = load_admin_config(environment)
-    verify_admin_package_set(config.expected.resolved_digest())
+    config.expected.verify()
     credentials = AdminCredentialPort(
         locator=config.locator,
         migrator_locator=config.migrator_locator,
@@ -169,7 +167,7 @@ def _run(argv: list[str] | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         return _run(argv)
-    except (AdminConfigError, AdminPackageIdentityError, AdminSecretError) as error:
+    except (AdminConfigError, AdminSecretError) as error:
         print(json.dumps({"status": "rejected", "error_code": str(error)}))
         return 2
     except OSError, ValueError, TypeError:

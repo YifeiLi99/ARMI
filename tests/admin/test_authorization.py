@@ -4,7 +4,12 @@ from pathlib import Path
 from uuid import uuid7
 
 import pytest
-from armi_admin.application import AdminConfig, AdminCredentialPort, AdminSecretError
+from armi_admin.application import (
+    AdminConfig,
+    AdminCredentialPort,
+    AdminSecretError,
+    admin_program_identity,
+)
 from armi_admin.application.authorization import AuthorizationError, AuthorizationStore
 from armi_kernel.application import CredentialPurpose
 from cryptography.hazmat.primitives import serialization
@@ -16,7 +21,7 @@ def stores(tmp_path: Path):
     key = Ed25519PrivateKey.generate()
     agent = AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v9",
+            "schema_version": "armi.admin-config.v10",
             "operator_id": "delegated-agent",
             "authorized_operations": ("environment_reset", "authorization_get"),
             "environment_kind": "active",
@@ -29,7 +34,7 @@ def stores(tmp_path: Path):
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "authorization_public_key": key.public_key().public_bytes_raw().hex(),
-            "expected": {"package_set_digest": "sha256:" + "1" * 64},
+            "expected": admin_program_identity(),
         }
     )
     issuer = AdminConfig.model_validate(

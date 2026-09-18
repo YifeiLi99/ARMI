@@ -11,9 +11,7 @@ from .control_plane import AdminControlError, AdminControlPlane
 from .corrections import AdminCorrectionCoordinator, AdminCorrectionError
 from .credentials import AdminCredentialPort, AdminSecretError
 from .package_identity import (
-    AdminPackageIdentityError,
-    admin_package_set_digest,
-    verify_admin_package_set,
+    admin_program_identity,
 )
 
 __all__ = (
@@ -26,9 +24,7 @@ __all__ = (
     "AdminCorrectionError",
     "AdminCredentialPort",
     "AdminEnvironmentKind",
-    "AdminPackageIdentityError",
     "AdminSecretError",
-    "admin_package_set_digest",
+    "admin_program_identity",
     "load_admin_config",
-    "verify_admin_package_set",
 )

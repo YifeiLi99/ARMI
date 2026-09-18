@@ -17,6 +17,7 @@ from armi_admin.application import (
     AdminControlPlane,
     AdminCorrectionCoordinator,
     AdminCredentialPort,
+    admin_program_identity,
 )
 from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.application.contracts import (
@@ -51,13 +52,14 @@ from mcp.client import Client
 
 ENVIRONMENT_ID = "018f3f4a-7b8c-7def-8abc-1234567890ab"
 DIGEST = "sha256:" + "1" * 64
+SOURCE_ROOT = admin_program_identity()["source_root"]
 
 
 def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v9",
+            "schema_version": "armi.admin-config.v10",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -74,7 +76,7 @@ def _config() -> AdminConfig:
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "expected": {
-                "package_set_digest": DIGEST,
+                "source_root": SOURCE_ROOT,
             },
         }
     )
@@ -275,7 +277,7 @@ class AdminConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v9",
+            "armi.admin-config.v10",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -584,14 +586,14 @@ class AdminProtocolTests(unittest.TestCase):
         self.assertIn("admin_preview_correction", names)
         self.assertIn("admin_correction_status", names)
 
-    def test_source_install_is_rejected_before_credentials_or_pool(self) -> None:
+    def test_wrong_source_binding_is_rejected_before_credentials_or_pool(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config_path = root / "admin.yaml"
             config_path.write_text(
                 "\n".join(
                     (
-                        "schema_version: armi.admin-config.v9",
+                        "schema_version: armi.admin-config.v10",
                         "operator_id: isolated-test-agent",
                         "authorized_operations: [health]",
                         "environment_kind: system_test",
@@ -607,7 +609,7 @@ class AdminProtocolTests(unittest.TestCase):
                         "migrator_database_locator: env:ARMI_SECRET_MIGRATOR_DATABASE",
                         "preview_key_locator: env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                         "expected:",
-                        f"  package_set_digest: {DIGEST}",
+                        f"  source_root: {(root / 'wrong-checkout').as_posix()}",
                         "",
                     )
                 ),

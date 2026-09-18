@@ -58,10 +58,6 @@ def test_initial_bindings_isolate_creator_signing_credentials(tmp_path):
         service.prepare(operation_id=str(uuid7()))
     with (
         patch(
-            "armi_admin.application.installation.admin_package_set_digest",
-            return_value="sha256:" + "1" * 64,
-        ),
-        patch(
             "armi_admin.application.installation.ProgramBundle.read",
             return_value=Mock(database=Mock(model_dump=Mock(return_value={}))),
         ),

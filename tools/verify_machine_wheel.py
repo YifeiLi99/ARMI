@@ -11,20 +11,32 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid7
 
-from armi_admin.application import AdminConfig, admin_package_set_digest
+from armi_admin.application import AdminConfig
 from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 
-async def verify(
-    root: Path, executable: Path | None = None, *, expected_digest: str | None = None
-) -> None:
+async def verify(root: Path, executable: Path | None = None) -> None:
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("ARMI_")
+    }
+    environment["PYTHONIOENCODING"] = "utf-8"
+    entry = [str(executable)] if executable else [sys.executable, "-m", "armi_app"]
+    identity = subprocess.run(
+        [*entry, "cli", "admin", "identity"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+        timeout=20,
+    )
     environment_id = str(uuid7())
     config = root / "admin.yaml"
     config.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v9",
+                "schema_version": "armi.admin-config.v10",
                 "operator_id": "wheel-verifier",
                 "authorized_operations": ["capabilities", "environment_status"],
                 "environment_kind": "active",
@@ -36,20 +48,14 @@ async def verify(
                 "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                 "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                 "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
-                "expected": {
-                    "package_set_digest": expected_digest or admin_package_set_digest()
-                },
+                "expected": json.loads(identity.stdout),
             }
         ),
         encoding="utf-8",
         newline="\n",
     )
-    environment = {
-        key: value for key, value in os.environ.items() if not key.startswith("ARMI_")
-    }
     environment["ARMI_ADMIN_CONFIG"] = str(config)
     AdminConfig.model_validate(json.loads(config.read_text(encoding="utf-8")))
-    entry = [str(executable)] if executable else [sys.executable, "-m", "armi_app"]
     command = subprocess.run(
         [*entry, "cli", "admin", "capabilities"],
         env=environment,

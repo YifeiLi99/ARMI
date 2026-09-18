@@ -36,7 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from .configuration import AdminConfig
 from .deployment import environment_binding, register_environment
 from .distribution import ProgramBundle
-from .package_identity import admin_package_set_digest
+from .package_identity import admin_program_identity
 from .postgresql_bootstrap import apply_policy, inspect_policy, physical_role_name
 from .updates import UpdateAction
 
@@ -200,8 +200,6 @@ class SetupApplication:
     def check(self) -> dict[str, object]:
         bundle = ProgramBundle.read(self.paths.installation_root)
         bundle.verify(self.paths.installation_root)
-        if bundle.package_set_digest != admin_package_set_digest():
-            raise SetupError("SETUP-PROGRAM-IDENTITY-MISMATCH")
         identity = package_identity()
         if (self.control / "program.json").exists():
             bound = environment_binding(self.root)
@@ -460,7 +458,7 @@ class SetupApplication:
         write_control(self.root / "environment.yaml", environment)
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v9",
+                "schema_version": "armi.admin-config.v10",
                 "operator_id": "native-local-admin",
                 "authorized_operations": list(_DAILY_SCOPES),
                 "environment_kind": "active",
@@ -477,7 +475,7 @@ class SetupApplication:
                 "migrator_database_locator": self._locator("migrator-database"),
                 "preview_key_locator": self._locator("admin-preview"),
                 "authorization_public_key": key.public_key().public_bytes_raw().hex(),
-                "expected": {"package_set_digest": admin_package_set_digest()},
+                "expected": admin_program_identity(),
             }
         )
         issuer = config.model_dump(mode="json")

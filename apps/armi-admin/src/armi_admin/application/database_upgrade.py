@@ -28,7 +28,6 @@ from .deployment import environment_binding
 from .distribution import ProgramBundle
 from .installation import SetupError, SetupPaths
 from .local_authority import verify_local_owner
-from .package_identity import admin_package_set_digest
 
 
 def database_upgrade(
@@ -36,10 +35,7 @@ def database_upgrade(
 ) -> dict[str, Any]:
     bundle = ProgramBundle.read(paths.installation_root)
     bundle.verify(paths.installation_root)
-    if (
-        bundle.package_set_digest != admin_package_set_digest()
-        or bundle.database.model_dump() != upgrade_target()
-    ):
+    if bundle.database.model_dump() != upgrade_target():
         raise SetupError("SETUP-UPGRADE-PROGRAM-IDENTITY")
     config, config_path = load_admin_config(
         {"ARMI_ADMIN_CONFIG": str(paths.environment_root / "admin.yaml")},

@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
 
-from armi_admin.application import AdminConfig, AdminControlPlane, AdminCredentialPort
+from armi_admin.application import (
+    AdminConfig,
+    AdminControlPlane,
+    AdminCredentialPort,
+    admin_program_identity,
+)
 from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.persistence import AdminObservationGateway
 from armi_runtime.composition.admin_control import (
@@ -20,6 +25,7 @@ from armi_runtime.composition.admin_control import (
 
 ENVIRONMENT_ID = "018f3f4a-7b8c-7def-8abc-1234567890ab"
 DIGEST = "sha256:" + "1" * 64
+SOURCE_ROOT = admin_program_identity()["source_root"]
 
 
 def _config(root: Path) -> AdminConfig:
@@ -38,7 +44,7 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v9",
+            "schema_version": "armi.admin-config.v10",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -54,7 +60,7 @@ def _config(root: Path) -> AdminConfig:
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "expected": {
-                "package_set_digest": DIGEST,
+                "source_root": SOURCE_ROOT,
             },
         }
     )

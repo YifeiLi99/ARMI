@@ -295,7 +295,6 @@ class CapabilitiesPayload(Payload):
     environment_id: str
     environment_kind: str
     operator_id: str
-    package_set_digest: str
     authorized_operations: list[str]
     runtime_status: str
     database_status: Literal["not_checked"]

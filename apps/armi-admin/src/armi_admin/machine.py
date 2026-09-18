@@ -10,7 +10,6 @@ from typing import Any
 from .application import (
     AdminCredentialPort,
     load_admin_config,
-    verify_admin_package_set,
 )
 from .application.catalog import ADMIN_OPERATIONS
 from .application.local_authority import verify_local_owner
@@ -36,7 +35,7 @@ class AdminSession:
 
     def _bound(self) -> AdminComposition:
         config, path = load_admin_config({"ARMI_ADMIN_CONFIG": str(self.path)})
-        verify_admin_package_set(config.expected.resolved_digest())
+        config.expected.verify()
         if self.local_owner:
             verify_local_owner(config, path)
         signature = config.model_dump_json()

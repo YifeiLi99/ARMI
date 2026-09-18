@@ -30,7 +30,7 @@ def test_package_upgrade_resolves_resources_without_rewriting_admin_identity(
         encoding="utf-8",
     )
     value = {
-        "schema_version": "armi.admin-config.v9",
+        "schema_version": "armi.admin-config.v10",
         "operator_id": "acceptance-admin",
         "authorized_operations": ["environment_status"],
         "environment_kind": "active",
@@ -54,17 +54,16 @@ def test_package_upgrade_resolves_resources_without_rewriting_admin_identity(
     config_path.write_bytes(content)
     monkeypatch.setattr(windows_package, "package_identity", lambda: identity)
     monkeypatch.setattr(windows_package, "data_root", lambda: root)
-    bundle = SimpleNamespace(database=database, package_set_digest="sha256:" + "1" * 64)
+    bundle = SimpleNamespace(database=database)
     monkeypatch.setattr(ProgramBundle, "read", lambda _: bundle)
     first, _ = load_admin_config({"ARMI_ADMIN_CONFIG": str(config_path)})
     identity.program_root = tmp_path / "package-2"
-    bundle.package_set_digest = "sha256:" + "2" * 64
     second, _ = load_admin_config({"ARMI_ADMIN_CONFIG": str(config_path)})
     assert (
         second.runtime_defaults_path == identity.program_root / "resources/runtime.yaml"
     )
     assert first.runtime_defaults_path != second.runtime_defaults_path
-    assert second.expected.resolved_digest() == bundle.package_set_digest
+    second.expected.verify()
     assert first.invocation_identity() == second.invocation_identity()
     assert config_path.read_bytes() == content
     bundle.database = database.model_copy(update={"schema_digest": "incompatible"})

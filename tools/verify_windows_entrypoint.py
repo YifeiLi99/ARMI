@@ -67,13 +67,7 @@ async def check(program: Path, *, installed: bool = False) -> None:
     scratch.mkdir(exist_ok=True)
     with TemporaryDirectory(prefix="entrypoint-", dir=scratch) as raw:
         root = Path(raw)
-        await verify(
-            root,
-            executable,
-            expected_digest=ProgramBundle.read(program).package_set_digest
-            if installed
-            else None,
-        )
+        await verify(root, executable)
         binding = root / "client.yaml"
         binding.write_text(
             json.dumps(

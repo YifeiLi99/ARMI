@@ -29,7 +29,11 @@ import psycopg
 import pytest
 import rfc8785
 from armi_activity.api import ActivityViolation
-from armi_admin.application import AdminConfig, AdminCredentialPort
+from armi_admin.application import (
+    AdminConfig,
+    AdminCredentialPort,
+    admin_program_identity,
+)
 from armi_admin.application.authorization import AuthorizationStore
 from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.application.contracts import (
@@ -338,7 +342,7 @@ def _publishing_artifact_store(
 
 
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
-_ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
+_ADMIN_SOURCE_ROOT = admin_program_identity()["source_root"]
 _ADMIN_AUTHORIZATION_KEY = Ed25519PrivateKey.generate()
 
 
@@ -396,7 +400,7 @@ def _admin_cli_binding(
     binding.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v9",
+                "schema_version": "armi.admin-config.v10",
                 "operator_id": "isolated-system-agent",
                 "authorized_operations": [
                     "configuration.read",
@@ -2324,7 +2328,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )[0]
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v9",
+                    "schema_version": "armi.admin-config.v10",
                     "operator_id": "isolated-content-admin",
                     "authorized_operations": ("content_write",),
                     "environment_kind": "acceptance",
@@ -2337,7 +2341,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
-                    "expected": {"package_set_digest": _ADMIN_PACKAGE_DIGEST},
+                    "expected": {"source_root": _ADMIN_SOURCE_ROOT},
                 }
             )
             credentials = AdminCredentialPort(
@@ -4056,7 +4060,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(rejected.exception.code, "DB-SCHEMA-CONTRACT")
 
     @pytest.mark.test_group("runtime", "configuration")
-    @pytest.mark.installation
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
 
@@ -5536,7 +5539,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v9",
+                "schema_version": "armi.admin-config.v10",
                 "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                 .public_bytes_raw()
                 .hex(),
@@ -5560,7 +5563,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                 "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                 "expected": {
-                    "package_set_digest": _ADMIN_PACKAGE_DIGEST,
+                    "source_root": _ADMIN_SOURCE_ROOT,
                 },
             }
         )
@@ -5694,7 +5697,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v9",
+                    "schema_version": "armi.admin-config.v10",
                     "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                     .public_bytes_raw()
                     .hex(),
@@ -5720,7 +5723,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                     "expected": {
-                        "package_set_digest": _ADMIN_PACKAGE_DIGEST,
+                        "source_root": _ADMIN_SOURCE_ROOT,
                     },
                 }
             )
@@ -5965,7 +5968,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v9",
+                    "schema_version": "armi.admin-config.v10",
                     "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                     .public_bytes_raw()
                     .hex(),
@@ -5987,7 +5990,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                     "expected": {
-                        "package_set_digest": _ADMIN_PACKAGE_DIGEST,
+                        "source_root": _ADMIN_SOURCE_ROOT,
                     },
                 }
             )
@@ -10010,7 +10013,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             root = Path(temporary).resolve()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v9",
+                    "schema_version": "armi.admin-config.v10",
                     "operator_id": "isolated-cognition-reader",
                     "authorized_operations": ("cognition_read",),
                     "environment_kind": "acceptance",
@@ -10023,7 +10026,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
-                    "expected": {"package_set_digest": _ADMIN_PACKAGE_DIGEST},
+                    "expected": {"source_root": _ADMIN_SOURCE_ROOT},
                 }
             )
             credentials = AdminCredentialPort(
@@ -11934,7 +11937,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self._drop_s011_schema(fixture)
 
     @pytest.mark.test_group("admin", "runtime")
-    @pytest.mark.installation
     def test_real_cli_uses_fixed_scopes_and_safe_output(self) -> None:
         fixture = self.create_database()
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:

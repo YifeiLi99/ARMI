@@ -11,7 +11,6 @@ import shutil
 import struct
 from pathlib import Path
 
-from armi_admin.application.package_identity import admin_package_set_digest
 from armi_postgresql_contract import (
     BASELINE_IDENTITY,
     role_policy_digest,
@@ -118,7 +117,7 @@ def seal(root: Path) -> None:
                     stream, "sha256"
                 ).hexdigest()
     manifest: dict[str, object] = {
-        "schema_version": "armi.windows-bundle.v2",
+        "schema_version": "armi.windows-bundle.v3",
         "target": "windows-11-x64",
         "database": {
             "postgresql": "18.4",
@@ -128,7 +127,6 @@ def seal(root: Path) -> None:
             "schema_digest": schema_resource_digest(),
             "role_policy_digest": role_policy_digest(),
         },
-        "package_set_digest": admin_package_set_digest(),
         "files": inventory,
     }
     manifest["package_id"] = hashlib.sha256(
