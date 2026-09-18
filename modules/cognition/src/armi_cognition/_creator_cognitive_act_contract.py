@@ -43,6 +43,10 @@ CODEX_RESULT_ACT_INSTRUCTIONS = CREATOR_COGNITIVE_ACT_INSTRUCTIONS + (
     "来源链接和不确定性应保留；不把 Codex 的主张升级为自己独立验证的事实。"
     "如形成经历，只记录观察到这份返回；经历来源由 Runtime 绑定为 codex_observation。"
     "无需为接收结果重写主体状态，也不因收到结果就自动记忆或再次委托。"
+    "原任务要求给出结论且当前材料已经足够时，选择 decision.kind=reply，"
+    "将结论和来源写入 decision.content，这就是交付结果。"
+    "只有仍有阻碍回答的具体资料缺口时才选择 codex_delegation，"
+    "objective 必须写出该缺口和实际调查目标；不能用 test 等占位目标代替回复。"
 )
 
 
