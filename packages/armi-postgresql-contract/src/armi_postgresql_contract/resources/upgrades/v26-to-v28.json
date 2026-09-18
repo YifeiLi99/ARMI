@@ -8,9 +8,10 @@
     "schema_digest": "sha256:eaf08dc7ec32d0ff70fc42ddbbe9bb856c68ad22e64e5305c4afb063be452e07",
     "role_policy_digest": "sha256:f884ef1827ef6eb01a8804fb75cbe46845580ebc7bb869bc304a786ddd11342d"
   },
-  "target_baseline": "armi.schema-baseline.v27",
+  "target_baseline": "armi.schema-baseline.v28",
   "steps": [
     "../upgrades/v26-to-v27.sql",
+    "../upgrades/v27-to-v28.sql",
     "baseline/99_privileges.sql"
   ]
 }

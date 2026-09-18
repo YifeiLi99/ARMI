@@ -106,7 +106,7 @@ class CreatorCodexTaskCommand:
     objective: str
     idempotency_key: IdempotencyKey
     trace_id: TraceId
-    model_id: CodexModel = CodexModel.SOL
+    model_id: CodexModel = CodexModel.LUNA
     reasoning_effort: CodexReasoningEffort = CodexReasoningEffort.MEDIUM
     web_search: bool = False
     delegate_id: UUID | None = None
@@ -127,6 +127,8 @@ class CreatorCodexTaskCommand:
             or type(self.model_id) is not CodexModel
             or type(self.reasoning_effort) is not CodexReasoningEffort
             or type(self.web_search) is not bool
+            or self.model_id is not CodexModel.LUNA
+            or self.reasoning_effort is not CodexReasoningEffort.MEDIUM
         ):
             raise CodexDelegationViolation("CODEX-TASK-REQUEST")
         try:

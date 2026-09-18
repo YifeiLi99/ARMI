@@ -901,7 +901,7 @@ class ModelPipeline:
         if (
             purpose == "consider_creator_voice_input"
             and adapter.binding.response_contract_version
-            != "armi.creator-voice-act-candidate.v6"
+            != "armi.creator-voice-act-candidate.v7"
         ):
             raise ModelViolation("MODEL-BINDING")
         if (

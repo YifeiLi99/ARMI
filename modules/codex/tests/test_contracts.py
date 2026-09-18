@@ -24,7 +24,7 @@ def test_autonomous_task_has_own_source_and_preserves_execution_boundaries() -> 
 
     draft = bind_autonomous_codex_task(
         objective="整理我正在进行的研究。",
-        model_id="gpt-5.6-sol",
+        model_id="gpt-5.6-luna",
         reasoning_effort="medium",
         web_search=False,
         proposal_ref="proposal:1",

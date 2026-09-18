@@ -96,7 +96,7 @@ class CodexTaskManifest:
     effect_id: UUID
     objective: str
     deadline_seconds: int
-    model_id: CodexModel = CodexModel.SOL
+    model_id: CodexModel = CodexModel.LUNA
     reasoning_effort: CodexReasoningEffort = CodexReasoningEffort.MEDIUM
     web_search: bool = False
     schema_version: str = "armi.codex-task-manifest.v2"
@@ -110,6 +110,8 @@ class CodexTaskManifest:
             or type(self.model_id) is not CodexModel
             or type(self.reasoning_effort) is not CodexReasoningEffort
             or type(self.web_search) is not bool
+            or self.model_id is not CodexModel.LUNA
+            or self.reasoning_effort is not CodexReasoningEffort.MEDIUM
         ):
             raise CodexRunnerViolation("CODEX-TASK-MANIFEST")
         _uuid7(self.task_id, "CODEX-TASK-MANIFEST")

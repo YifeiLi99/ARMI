@@ -184,20 +184,20 @@ def test_subprocess_failure_preserves_unknown_outcome() -> None:
     assert error.outcome_unknown is True
 
 
-def test_task_options_use_luna_low_reasoning_and_live_search(
+def test_task_options_use_luna_medium_reasoning_and_live_search(
     tmp_path: Path,
 ) -> None:
     task, _run_root = _prepare(tmp_path)
     task = replace(
         task,
         model_id=CodexModel.LUNA,
-        reasoning_effort=CodexReasoningEffort.LOW,
+        reasoning_effort=CodexReasoningEffort.MEDIUM,
         web_search=True,
     )
     config = runner_module._config(task)
 
     assert runner_module._model(task) == "gpt-5.6-luna"
-    assert 'model_reasoning_effort="low"' in config
+    assert 'model_reasoning_effort="medium"' in config
     assert 'web_search="live"' in config
     assert "tools.web_search=true" in config
     assert "sandbox_workspace_write.network_access=false" in config
@@ -208,6 +208,28 @@ def test_task_options_use_luna_low_reasoning_and_live_search(
 def test_task_codec_rejects_duplicate_keys() -> None:
     with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-FORMAT"):
         decode_task(b'{"schema_version":"a","schema_version":"b"}')
+
+
+@pytest.mark.parametrize("model", [CodexModel.SOL, CodexModel.TERRA])
+def test_runner_rejects_models_outside_luna_budget(tmp_path: Path, model) -> None:
+    task, _ = _prepare(tmp_path)
+    with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-MANIFEST"):
+        replace(task, model_id=model)
+
+
+@pytest.mark.parametrize(
+    "effort",
+    [
+        CodexReasoningEffort.LOW,
+        CodexReasoningEffort.HIGH,
+        CodexReasoningEffort.XHIGH,
+        CodexReasoningEffort.MAX,
+    ],
+)
+def test_runner_requires_medium_reasoning(tmp_path: Path, effort) -> None:
+    task, _ = _prepare(tmp_path)
+    with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-MANIFEST"):
+        replace(task, reasoning_effort=effort)
 
 
 @pytest.mark.asyncio

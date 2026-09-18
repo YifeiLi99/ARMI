@@ -63,7 +63,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     version = manifest["purpose_profiles"][purpose]["response_contract_version"]
     kind = _PURPOSE_KINDS[purpose]
     value: dict[str, Any] = {"kind": kind}
-    if version == "armi.creator-cognitive-act-candidate.v6":
+    if version == "armi.creator-cognitive-act-candidate.v7":
         value = {
             "decision": {**value, "content": None},
             "experience": None,
@@ -260,13 +260,18 @@ def test_creator_schema_is_smaller_without_repeating_the_complete_object():
     # No existing concern, activity or emotional episode is present in this Context.
     schema = _provider_output_schema(
         bind_context_schema(
-            candidate_schema("armi.creator-cognitive-act-candidate.v6"),
+            candidate_schema("armi.creator-cognitive-act-candidate.v7"),
             ({"ref": "ctx:1", "item_kind": "current_evidence"},),
         ),
         available_refs=("ctx:1",),
     )
     encoded = json.dumps(schema, ensure_ascii=False, separators=(",", ":")).encode()
-    assert len(encoded) < 12251
+    original = json.dumps(
+        candidate_schema("armi.creator-cognitive-act-candidate.v7"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+    assert len(encoded) < len(original)
     assert schema["properties"]["candidate"]["type"] == "object"
     assert "decision" in schema["properties"]["candidate"]["properties"]
     assert "experience" in schema["properties"]["candidate"]["properties"]
@@ -370,7 +375,7 @@ def test_reply_memory_shape_is_visible_to_provider(invalid):
         "appraisal": None,
         "changes": [],
     }
-    schema = _schema("armi.creator-cognitive-act-candidate.v6")
+    schema = _schema("armi.creator-cognitive-act-candidate.v7")
     if invalid:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({"candidate": value}, schema)
@@ -438,7 +443,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
         "mind_appraisals": [],
         "changes": [],
     }
-    version = "armi.creator-cognitive-act-candidate.v6"
+    version = "armi.creator-cognitive-act-candidate.v7"
     schema = _schema(version)
     jsonschema.validate({"candidate": value}, schema)
     parse_candidate(
@@ -469,7 +474,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
 def test_returned_output_is_saved_before_local_rejection(output, provider_status):
     binding = replace(
         load_active_binding(),
-        response_contract_version="armi.creator-cognitive-act-candidate.v6",
+        response_contract_version="armi.creator-cognitive-act-candidate.v7",
     )
     adapter = VolcengineArkModelAdapter(
         binding=binding,

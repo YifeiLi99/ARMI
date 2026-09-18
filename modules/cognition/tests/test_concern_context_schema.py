@@ -8,7 +8,7 @@ from armi_cognition._model_contract import candidate_schema
 
 def test_concern_and_emotional_episode_references_cannot_be_interchanged():
     schema = bind_context_schema(
-        candidate_schema("armi.creator-cognitive-act-candidate.v6"),
+        candidate_schema("armi.creator-cognitive-act-candidate.v7"),
         (
             {"ref": "ctx:1", "item_kind": "current_evidence"},
             {"ref": "ctx:2", "item_kind": "current_concern"},
@@ -32,7 +32,7 @@ def test_concern_and_emotional_episode_references_cannot_be_interchanged():
 
 def test_no_previous_episode_or_concern_removes_only_unavailable_choices():
     schema = bind_context_schema(
-        candidate_schema("armi.creator-cognitive-act-candidate.v6"),
+        candidate_schema("armi.creator-cognitive-act-candidate.v7"),
         ({"ref": "ctx:1", "item_kind": "current_evidence"},),
     )
     text = json.dumps(schema)
@@ -50,7 +50,7 @@ def test_no_previous_episode_or_concern_removes_only_unavailable_choices():
 
 
 def test_context_binding_does_not_mutate_the_shared_contract():
-    source = candidate_schema("armi.creator-cognitive-act-candidate.v6")
+    source = candidate_schema("armi.creator-cognitive-act-candidate.v7")
     before = json.dumps(source, sort_keys=True)
     bind_context_schema(source, ())
     assert json.dumps(source, sort_keys=True) == before

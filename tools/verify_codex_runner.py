@@ -44,7 +44,7 @@ from armi_runtime.composition.codex_runner_tool import (
 )
 
 _SDK_VERSION = "0.144.4"
-_MODEL = "gpt-5.6-sol"
+_MODEL = "gpt-5.6-luna"
 _GATE_ID = "s038-openai-python-sdk-live-gate-final"
 _PREFLIGHT_ID = "s038-openai-python-sdk-preflight-1"
 

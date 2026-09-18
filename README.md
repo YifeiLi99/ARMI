@@ -8,7 +8,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`ARMI cli interaction` / 统一 MCP 的 `interaction_*` 提供交互使用，`ARMI cli admin` / 统一 MCP 的 `admin_*` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
 
-产品以完整、直接、高效的 Agent/LLM 自动化链路为第一优先级，人类界面为第二优先级。已开启的能力在配置范围内持续可用，不额外设置申请、审核、批准流程；普通回复是基础能力。简化应减少无独立职责的步骤、状态和重复记录，同时保留隐私、数据保护与执行正确性。普通 Creator 文本、语音、QQ 私聊及共用回复链的主动表达已采用直接执行、中断即结束；Codex 委托同样直接执行、中断即结束：通过 `codex.enabled` 开启后重启生效，默认关闭；执行器或凭据不可用会明确失败。保留 Creator／代理提交任务入口，由 ARMI 决定委托并自行理解结果，无逐次审批。Codex 第一版采用轻量委托：记录目标与执行选项，SDK 执行后保存最终正文并交回认知；不要求任务 ZIP、文件差异或独立验证报告，清理失败与执行结果分开记录。管理端授权保持独立合同。
+产品以完整、直接、高效的 Agent/LLM 自动化链路为第一优先级，人类界面为第二优先级。已开启的能力在配置范围内持续可用，不额外设置申请、审核、批准流程；普通回复是基础能力。简化应减少无独立职责的步骤、状态和重复记录，同时保留隐私、数据保护与执行正确性。普通 Creator 文本、语音、QQ 私聊及共用回复链的主动表达已采用直接执行、中断即结束；Codex 委托同样直接执行、中断即结束：通过 `codex.enabled` 开启后重启生效，默认关闭；执行器或凭据不可用会明确失败。保留 Creator／代理提交任务入口，由 ARMI 决定委托并自行理解结果，无逐次审批。普通文本和实时语音可直接选择 Codex 委托，不需要 Creator 先提交专门任务。委托固定使用 `gpt-5.6-luna` / `medium`，不能自行升级模型或思考强度。Codex 第一版采用轻量委托：记录目标与执行选项，SDK 执行后保存最终正文并交回认知；不要求任务 ZIP、文件差异或独立验证报告，清理失败与执行结果分开记录。管理端授权保持独立合同。
 
 ## 产品不变量
 
@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v27`，支持精确 v21–v26 → v27 保留数据升级 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v28`，支持精确 v21–v27 → v28 保留数据升级 |
 | 物理 schema | 当前 baseline 107 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -84,7 +84,7 @@ tests/                          架构、合同、Runtime、PostgreSQL 与系统
 docs/                           私有设计和外部研究，Git 忽略
 ```
 
-Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；已有数据库只接受包内声明的精确前向升级路径，当前支持 v21–v26 → v27，不通过重装替代升级。
+Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；已有数据库只接受包内声明的精确前向升级路径，当前支持 v21–v27 → v28，不通过重装替代升级。
 
 ## 日常启动
 
@@ -127,7 +127,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 该命令重新构建网页、wheels 和完整 payload，自动选择高于已安装版本与本地构建记录的四段版本，再签名并调用 Windows 安装。它仅使用 `YifeiLi99.ARMI.Acceptance` 身份和独立验收数据；已有环境先检查数据库合同，再通过 Admin 正常停机，停机失败则不请求更新。部署后核对 Windows 实际版本，关闭验收版的 GitHub 自动更新，保持环境停止，随后从开始菜单打开“ARMI 验收”即可测试。构建默认使用已准备的离线依赖缓存；缺少依赖时失败，不自动联网补齐。
 
-默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。当前源码提供 v21–v26 → v27 精确前向升级；v27 将 Codex 持久化简化为委托与结果，保留历史制品和其他主体数据。源码变更不会自动更新安装版。此前独立签名测试包验证了 v16 到 v17 的升级、身份与凭据保留及中断状态；2026-09-15 经用户授权原位安装验收包 `2026.9.15.3` 并升级到 v19，数据库为 current、Runtime 与 QQ 为 ready，启动后新的自主认知完成。该历史记录不代表当前源码经过真实收费调用或 QQ 消息验收。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。当前源码提供 v21–v27 → v28 精确前向升级；v27 将 Codex 持久化简化为委托与结果，保留历史制品和其他主体数据。源码变更不会自动更新安装版。此前独立签名测试包验证了 v16 到 v17 的升级、身份与凭据保留及中断状态；2026-09-15 经用户授权原位安装验收包 `2026.9.15.3` 并升级到 v19，数据库为 current、Runtime 与 QQ 为 ready，启动后新的自主认知完成。该历史记录不代表当前源码经过真实收费调用或 QQ 消息验收。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
 
 版本格式为 `年.月.日.当日序号`，例如 `2026.9.15.1`，日期取构建电脑的本地日期。同日序号高于发布配置、已安装版本及本地构建记录，换日从 1 开始。日期早于已知最高版本或同日序号达到 65535 时明确失败；旧 `0.1.0.x` 可直接升级到日期版本。本地生成的 release tag 同步为 `v<完整版本>`，不上传 GitHub。发布配置中的 `.0` 是未发布基准，正式发布需填写实际日期及序号并同步 tag。
 

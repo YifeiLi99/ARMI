@@ -306,7 +306,7 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v6",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v7",
     )
     concern_id = uuid7()
     bases = (
@@ -363,7 +363,7 @@ def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v6",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v7",
         current_components=tuple(
             (
                 owner,
@@ -470,7 +470,7 @@ def test_creator_decision_with_expression_reaches_expression_owner(kind, purpose
     context = replace(
         context,
         purpose=purpose,
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v6",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v7",
     )
     bases = (
         *bases,
@@ -522,7 +522,7 @@ def test_creator_combined_changes_keep_unique_refs_and_shared_experience(voice, 
         subject_party_id=uuid7(),
         purpose="consider_creator_voice_input" if voice else "consider_creator_input",
         candidate_contract_version=(
-            "armi.creator-voice-act-candidate.v6"
+            "armi.creator-voice-act-candidate.v7"
             if voice
             else CREATOR_COGNITIVE_ACT_VERSION
         ),
@@ -2497,6 +2497,34 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
         _bytes(candidate), bases=extended
     )
     assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
+
+
+def test_creator_dialogue_can_delegate_without_a_precreated_codex_task() -> None:
+    context, bases = _fixture()
+    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    candidate = {
+        "decision": {
+            "kind": "codex_delegation",
+            "objective": "Compare official sources",
+            "web_search": True,
+        }
+    }
+    inactive = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+    assert inactive.error_code == "CANDIDATE-CODEX-NOT-ACTIVE"
+    result = DeterministicCandidateValidator(
+        replace(context, codex_active=True)
+    ).validate(_bytes(candidate), bases=bases)
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    (delegation,) = result.change_set.codex_delegations
+    assert delegation.new_task is not None
+    manifest = json.loads(delegation.new_task.manifest_bytes)
+    assert manifest["objective"] == candidate["decision"]["objective"]
+    assert manifest["model_id"] == "gpt-5.6-luna"
+    assert manifest["reasoning_effort"] == "medium"
+    assert manifest["web_search"] is True
 
 
 def test_creator_cognitive_act_web_research_binds_authority_deterministically() -> None:

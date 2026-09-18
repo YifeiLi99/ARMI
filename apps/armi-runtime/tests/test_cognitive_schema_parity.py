@@ -134,12 +134,12 @@ def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, ac
     "version,value,path",
     [
         (
-            "armi.creator-cognitive-act-candidate.v6",
+            "armi.creator-cognitive-act-candidate.v7",
             {"decision": {"kind": "reply", "content": "ok"}},
             ("decision", "content"),
         ),
         (
-            "armi.creator-voice-act-candidate.v6",
+            "armi.creator-voice-act-candidate.v7",
             {"d": {"kind": "reply", "content": "ok"}},
             ("d", "content"),
         ),

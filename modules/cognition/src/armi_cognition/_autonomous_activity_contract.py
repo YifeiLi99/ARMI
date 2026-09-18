@@ -75,8 +75,8 @@ class AutonomousLifeQueryDecision(_StrictModel):
 class AutonomousCodexDecision(_StrictModel):
     kind: Literal["codex_delegation"]
     objective: Text2048
-    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] = "gpt-5.6-sol"
-    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    model_id: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    reasoning_effort: Literal["medium"] = "medium"
     web_search: bool = False
     appraisal: AppraisalEventSignalV3 | None = None
 

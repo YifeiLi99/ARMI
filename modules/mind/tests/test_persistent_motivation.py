@@ -135,6 +135,8 @@ def test_retained_motivations_do_not_block_new_appraisal_or_later_updates():
         after = json.loads(payload)["motivation_states"]
         assert after[:-1] == before
         head = MindHead(uuid7(), head.version + 1, payload)
+    payload = head.canonical_state
+    after = json.loads(payload)["motivation_states"]
     assert len(after) == 6
     unchanged = prepare(head, (), {})
     assert json.loads(unchanged)["motivation_states"] == after

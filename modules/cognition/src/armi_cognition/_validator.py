@@ -311,6 +311,7 @@ class DialogueBoundChanges:
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
     exact_life_query: CandidateExactLifeQueryDraft | None = None
+    codex_delegation: CodexDelegationDraft | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1139,6 +1140,14 @@ class DeterministicCandidateValidator:
             exact_query = dialogue_bound_changes.exact_life_query
             group_members[exact_query.atomic_group_ref].append(exact_query.proposal_ref)
             accepted[exact_query.proposal_ref] = exact_query
+
+        if (
+            dialogue_bound_changes is not None
+            and dialogue_bound_changes.codex_delegation is not None
+        ):
+            delegation = dialogue_bound_changes.codex_delegation
+            group_members[delegation.atomic_group_ref].append(delegation.proposal_ref)
+            accepted[delegation.proposal_ref] = delegation
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
@@ -2597,6 +2606,7 @@ def _expand_creator_cognitive_act(
         "no_change": "Creator dialogue no change selected.",
         "defer": "Creator dialogue defer selected.",
         "need_information": "Creator dialogue needs information.",
+        "codex_delegation": "Creator dialogue delegated work to Codex.",
         "web_research": "Creator dialogue selected public Web research.",
         "exact_life_query": "ARMI selected an exact life-record query.",
         "visual_observation": "ARMI selected a visual observation.",
@@ -2611,6 +2621,7 @@ def _expand_creator_cognitive_act(
     web_requests: list[dict[str, Any]] = []
     visual_requests: list[dict[str, Any]] = []
     exact_query: CandidateExactLifeQueryDraft | None = None
+    codex_delegation: CodexDelegationDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
     experience_ref: str | None = None
@@ -2682,6 +2693,19 @@ def _expand_creator_cognitive_act(
         )
         understanding_basis_refs = tuple(f"ctx:{ordinal}" for ordinal in query_bases)
         disposition = "change"
+    elif isinstance(decision, creator_act.CodexDelegationDecision):
+        if not context.codex_active:
+            return None, None, "CANDIDATE-CODEX-NOT-ACTIVE"
+        codex_delegation = bind_autonomous_codex_task(
+            objective=decision.objective,
+            model_id="gpt-5.6-luna",
+            reasoning_effort="medium",
+            web_search=decision.web_search,
+            proposal_ref="proposal:1",
+            atomic_group_ref="group:1",
+            basis_ordinals=(evidence.ordinal,),
+        )
+        disposition = "change"
     elif isinstance(decision, creator_act.WebResearchDecision):
         purpose = next(
             (
@@ -2751,7 +2775,13 @@ def _expand_creator_cognitive_act(
             }
         )
     proposal_no = (
-        2 if action_choices or web_requests or visual_requests or exact_query else 1
+        2
+        if action_choices
+        or web_requests
+        or visual_requests
+        or exact_query
+        or codex_delegation
+        else 1
     )
     material_events = tuple(
         item for item in source.changes if item.op.startswith("material.")
@@ -2913,7 +2943,10 @@ def _expand_creator_cognitive_act(
             reason_summary=summary,
         ),
         DialogueBoundChanges(
-            relationship=relationship, material=material, exact_life_query=exact_query
+            relationship=relationship,
+            material=material,
+            exact_life_query=exact_query,
+            codex_delegation=codex_delegation,
         ),
         None,
     )

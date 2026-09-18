@@ -19,12 +19,12 @@ from ._dialogue_contract import ContextRef
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 
-CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v6"
-CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v6"
+CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v7"
+CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v7"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = (
     f"""一次完成对 Creator 输入的认知：决定行动，以及是否形成经历、评价、关系、承诺或资料变化。
-拒绝、需要信息、延期和没有变化也可以附带表达；没有表达时保持沉默。
+Codex 可用时，可以自行选择 codex_delegation 请求协助：官方资料与源码查阅、多来源研究对比、复杂计算、代码分析与编写、实验方案和长文整理。\n网页搜索不可用不代表 Codex 不可用；Codex 可独立使用内置 Web Search。不要只因自身缺工具就要求 Creator 搬运资料。\n委托须说明目标、必要上下文、约束和希望返回的结果；需要最新公开资料时启用 web_search。等待真实结果后再作结论。\n委托固定使用 gpt-5.6-luna / medium，不升级模型。只承诺已接入工具能完成的事；当前不提供宿主应用控制、账号操作或宿主文件访问。\n拒绝、需要信息、延期和没有变化也可以附带表达；没有表达时保持沉默。
 只依据冻结 Context；不虚构主体身份、权限、情绪数值或现实执行结果。
 只有 Creator 明确要求记住时才提出记忆摘要；评价使用语义标签，保留来源与不确定性。
 {MIND_COGNITIVE_INSTRUCTIONS}
@@ -84,6 +84,17 @@ class WebResearchDecision(_StrictModel, frozen=True):
     ]
 
 
+class CodexDelegationDecision(_StrictModel, frozen=True):
+    kind: Literal["codex_delegation"]
+    objective: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
+    web_search: bool = False
+
+
 class VisualObservationDecision(_StrictModel, frozen=True):
     kind: Literal["visual_observation"]
     source_kind: Literal["camera", "screen"]
@@ -94,6 +105,7 @@ Decision = Annotated[
     | TerminalDecision
     | ExactLifeQueryDecision
     | WebResearchDecision
+    | CodexDelegationDecision
     | VisualObservationDecision,
     Field(discriminator="kind"),
 ]
@@ -172,6 +184,7 @@ VoiceDecision = Annotated[
     | VoiceTerminalDecision
     | ExactLifeQueryDecision
     | WebResearchDecision
+    | CodexDelegationDecision
     | VisualObservationDecision,
     Field(discriminator="kind"),
 ]

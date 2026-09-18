@@ -1336,18 +1336,18 @@ export interface components {
       contract_version: "1.0";
       /**
        * Model Id
-       * @default gpt-5.6-sol
-       * @enum {string}
+       * @default gpt-5.6-luna
+       * @constant
        */
-      model_id: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+      model_id: "gpt-5.6-luna";
       /** Objective */
       objective: string;
       /**
        * Reasoning Effort
        * @default medium
-       * @enum {string}
+       * @constant
        */
-      reasoning_effort: "low" | "medium" | "high" | "xhigh" | "max";
+      reasoning_effort: "medium";
       /**
        * Web Search
        * @default false

@@ -2,7 +2,7 @@
 
 import json
 
-from ._delegation_contract import CodexTaskSourceId
+from ._delegation_contract import CodexDelegationViolation, CodexTaskSourceId
 from ._runner_contract import CodexModel, CodexReasoningEffort
 
 
@@ -13,6 +13,11 @@ def task_manifest(
     reasoning_effort: CodexReasoningEffort,
     web_search: bool,
 ) -> bytes:
+    if (
+        model_id is not CodexModel.LUNA
+        or reasoning_effort is not CodexReasoningEffort.MEDIUM
+    ):
+        raise CodexDelegationViolation("CODEX-TASK-MODEL-POLICY")
     return (
         json.dumps(
             {

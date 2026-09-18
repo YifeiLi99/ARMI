@@ -1518,6 +1518,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("schema", "codex", "admin")
     def test_supported_v26_database_upgrade_preserves_artifacts(self) -> None:
+        self._assert_upgrade_preserves_codex_artifacts("v26")
+
+    @pytest.mark.test_group("schema", "codex", "admin")
+    def test_supported_v27_database_upgrade_preserves_artifacts(self) -> None:
+        self._assert_upgrade_preserves_codex_artifacts("v27")
+
+    def _assert_upgrade_preserves_codex_artifacts(self, source_version: str) -> None:
         from zipfile import ZipFile
 
         from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
@@ -1526,7 +1533,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         old = self.create_database()
         resource = schema_resource_root().parent / "upgrades"
-        source = upgrade_plan("armi.schema-baseline.v26")["source"]
+        source = upgrade_plan(f"armi.schema-baseline.{source_version}")["source"]
         artifact_id, object_id = uuid7(), uuid7()
         digest = Digest.from_bytes(b"historical Codex result").value
         locator = f"objects/sha256/{digest[7:9]}/{digest[9:11]}/{digest[7:]}"
@@ -1537,7 +1544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v26-source.zip") as archive:
+            with ZipFile(resource / f"{source_version}-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -7518,7 +7525,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         if autonomous_codex:
             task = bind_autonomous_codex_task(
                 objective="整理当前研究并保留结论。",
-                model_id="gpt-5.6-sol",
+                model_id="gpt-5.6-luna",
                 reasoning_effort="medium",
                 web_search=False,
                 proposal_ref="proposal:4",

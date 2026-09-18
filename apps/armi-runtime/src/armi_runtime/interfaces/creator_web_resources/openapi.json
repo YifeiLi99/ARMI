@@ -1171,12 +1171,8 @@
             "type": "string"
           },
           "model_id": {
-            "default": "gpt-5.6-sol",
-            "enum": [
-              "gpt-5.6-sol",
-              "gpt-5.6-terra",
-              "gpt-5.6-luna"
-            ],
+            "const": "gpt-5.6-luna",
+            "default": "gpt-5.6-luna",
             "title": "Model Id",
             "type": "string"
           },
@@ -1187,14 +1183,8 @@
             "type": "string"
           },
           "reasoning_effort": {
+            "const": "medium",
             "default": "medium",
-            "enum": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
             "title": "Reasoning Effort",
             "type": "string"
           },
