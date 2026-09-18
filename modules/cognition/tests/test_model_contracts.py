@@ -327,7 +327,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v16",
+        "schema_version": "armi.cognition-candidate.v17",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,

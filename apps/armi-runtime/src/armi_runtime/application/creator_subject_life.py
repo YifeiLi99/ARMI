@@ -454,7 +454,7 @@ def create_subject_life_use_cases(
                         CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v7",
+                        "creator-operation.v8",
                     )
                 )
             except Exception:

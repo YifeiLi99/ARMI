@@ -22,7 +22,7 @@ function outcome(status: string, codex = false): object {
     occurred_at: "2026-07-30T10:00:00.000000Z",
     message: "safe",
     details: {
-      projection_version: "creator-operation.v7",
+      projection_version: "creator-operation.v8",
       operation_ref: OPERATION_ID,
       operation_kind: codex
         ? "codex_delegation"
@@ -40,9 +40,6 @@ function outcome(status: string, codex = false): object {
               execution_status: "verified",
               model_id: "gpt-5.6-sol",
               sdk_identity: "openai-codex/1",
-              validator_id: "validator-v1",
-              source_tree_digest: `sha256:${"a".repeat(64)}`,
-              final_tree_digest: `sha256:${"b".repeat(64)}`,
             },
           }
         : {}),
@@ -144,6 +141,6 @@ describe("Creator operation projection", () => {
     await renderOutcome("accepted", true);
     expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
     expect(screen.getByText("verified")).toBeInTheDocument();
-    expect(screen.getByText(`sha256:${"b".repeat(64)}`)).toBeInTheDocument();
+    expect(screen.getByText("尚未开始")).toBeInTheDocument();
   });
 });

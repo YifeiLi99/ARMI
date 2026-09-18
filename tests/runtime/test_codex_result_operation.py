@@ -19,23 +19,7 @@ from armi_kernel.contracts import Digest
 from armi_runtime.application.creator_projection import operation_wire
 from armi_runtime.application.operation_assembler import (
     RuntimeCreatorOperationAssembler,
-    _derive_phase,
 )
-
-
-@pytest.mark.parametrize("reconsideration_no", (1, 2, 3))
-def test_later_opportunity_stale_conflict_remains_diagnosable(
-    reconsideration_no: int,
-) -> None:
-    assert _derive_phase(
-        disposition="resolved",
-        reconsideration_no=reconsideration_no,
-        episode_status="completed",
-        cognition_failure=None,
-        application_resolution="stale",
-        expression=None,
-        effect_status=None,
-    ) == (CreatorOperationPhase.STALE_CONFLICT, "CONFLICT_SUBJECT_STATE_STALE")
 
 
 @pytest.mark.asyncio
@@ -142,9 +126,6 @@ async def test_verified_execution_does_not_hide_pending_or_interrupted_result_co
                 execution_status="verified",
                 model_id=None,
                 sdk_identity=None,
-                validator_id="codex.output-artifact.v1",
-                source_tree_digest=digest,
-                final_tree_digest=digest,
             )
         )
     )

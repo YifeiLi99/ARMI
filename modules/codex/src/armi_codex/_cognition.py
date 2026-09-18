@@ -11,7 +11,7 @@ from ._delegation_contract import (
     CodexTaskSourceId,
 )
 from ._runner_contract import CodexModel, CodexReasoningEffort
-from ._task_content import task_bundle, task_manifest
+from ._task_content import task_manifest
 
 
 def bind_autonomous_codex_task(
@@ -31,11 +31,9 @@ def bind_autonomous_codex_task(
     ):
         raise CodexDelegationViolation("CODEX-TASK-REQUEST")
     source_id = CodexTaskSourceId(uuid7())
-    bundle, tree = task_bundle(source_id)
     manifest = task_manifest(
         source_id,
         objective,
-        tree,
         CodexModel(model_id),
         CodexReasoningEffort(reasoning_effort),
         web_search,
@@ -46,6 +44,5 @@ def bind_autonomous_codex_task(
         basis_ordinals,
         source_id,
         Digest.from_bytes(manifest),
-        "codex.output-artifact.v1",
-        new_task=CodexNewTaskContent(bundle, manifest, tree),
+        new_task=CodexNewTaskContent(manifest),
     )

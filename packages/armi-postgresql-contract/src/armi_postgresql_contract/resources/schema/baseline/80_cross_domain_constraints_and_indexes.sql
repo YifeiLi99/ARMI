@@ -295,13 +295,6 @@ ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_sources_pkey PRIMARY KEY (codex_task_source_id);
 
 --
--- Name: codex_task_sources codex_task_sources_source_bundle_artifact_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_task_sources
-    ADD CONSTRAINT codex_task_sources_source_bundle_artifact_id_key UNIQUE (source_bundle_artifact_id);
-
---
 -- Name: codex_task_sources codex_task_sources_task_manifest_artifact_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2441,13 +2434,6 @@ ALTER TABLE ONLY armi.codex_result_sources
     ADD CONSTRAINT codex_result_sources_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 --
--- Name: codex_task_sources codex_task_sources_source_bundle_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_task_sources
-    ADD CONSTRAINT codex_task_sources_source_bundle_artifact_id_fkey FOREIGN KEY (source_bundle_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
 -- Name: codex_task_sources codex_task_sources_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2465,13 +2451,6 @@ ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_sources_task_manifest_artifact_id_fkey FOREIGN KEY (task_manifest_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
--- Name: codex_verification_results codex_verification_results_diagnostics_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_diagnostics_artifact_id_fkey FOREIGN KEY (diagnostics_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
 -- Name: codex_verification_results codex_verification_results_effect_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2486,39 +2465,11 @@ ALTER TABLE ONLY armi.codex_verification_results
     ADD CONSTRAINT codex_verification_results_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
 --
--- Name: codex_verification_results codex_verification_results_event_transcript_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_event_transcript_artifact_id_fkey FOREIGN KEY (event_transcript_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
 -- Name: codex_verification_results codex_verification_results_final_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.codex_verification_results
     ADD CONSTRAINT codex_verification_results_final_result_artifact_id_fkey FOREIGN KEY (final_result_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: codex_verification_results codex_verification_results_patch_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_patch_artifact_id_fkey FOREIGN KEY (patch_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: codex_verification_results codex_verification_results_result_bundle_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_result_bundle_artifact_id_fkey FOREIGN KEY (result_bundle_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: codex_verification_results codex_verification_results_validation_report_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_validation_report_artifact_id_fkey FOREIGN KEY (validation_report_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

@@ -105,7 +105,7 @@ class CandidateEpisodeSnapshot:
     basis_item_ids: tuple[tuple[int, UUID], ...]
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
     purpose: str
-    codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
+    codex_task_sources: tuple[tuple[UUID, Digest], ...] = ()
     opportunity_id: UUID | None = None
     current_activity_id: UUID | None = None
     current_activity_revision_id: UUID | None = None
@@ -317,7 +317,7 @@ class PostgreSQLCandidateValidationRepository:
         opportunity = await self._opportunity_context.context_snapshot(
             connection, opportunity_id=row[13]
         )
-        codex_sources: tuple[tuple[UUID, Digest, str], ...] = ()
+        codex_sources: tuple[tuple[UUID, Digest], ...] = ()
         if opportunity.evidence_id is not None:
             evidence = await self._evidence.snapshot(
                 connection, evidence_id=EvidenceId(opportunity.evidence_id)
@@ -330,7 +330,6 @@ class PostgreSQLCandidateValidationRepository:
                     (
                         source.task_source_id,
                         source.task_manifest_digest,
-                        source.validator_id,
                     ),
                 )
         activity_row = await self._activities.candidate_head(

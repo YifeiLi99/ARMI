@@ -34,7 +34,7 @@ class PostgreSQLExpressionActionOwner:
                        revision.operation_class, revision.purpose,
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, revision.codex_task_source_id,
-                       revision.task_manifest_digest, revision.validator_id
+                       revision.task_manifest_digest
                        , intent.created_at
                 FROM armi.action_intents AS intent
                 JOIN armi.action_intent_revisions AS revision
@@ -66,8 +66,7 @@ class PostgreSQLExpressionActionOwner:
             task_manifest_digest=(
                 Digest(str(row[15])) if row[15] is not None else None
             ),
-            validator_id=str(row[16]) if row[16] is not None else None,
-            created_at=row[17],
+            created_at=row[16],
         )
 
     async def operation_snapshot(

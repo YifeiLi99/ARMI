@@ -34,14 +34,8 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
             (table, column, "party")
             for table, column in (
                 ("codex_result_sources", "evidence_artifact_id"),
-                ("codex_task_sources", "source_bundle_artifact_id"),
                 ("codex_task_sources", "task_manifest_artifact_id"),
-                ("codex_verification_results", "diagnostics_artifact_id"),
-                ("codex_verification_results", "event_transcript_artifact_id"),
                 ("codex_verification_results", "final_result_artifact_id"),
-                ("codex_verification_results", "patch_artifact_id"),
-                ("codex_verification_results", "result_bundle_artifact_id"),
-                ("codex_verification_results", "validation_report_artifact_id"),
             )
         ),
     ),

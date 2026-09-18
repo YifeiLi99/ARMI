@@ -24,10 +24,8 @@ class PostgreSQLCodexReadOwner:
         row = await (
             await transaction.execute(
                 """
-                SELECT subject_id, source_bundle_artifact_id,
-                       source_bundle_digest, source_tree_digest,
-                       task_manifest_artifact_id, task_manifest_digest,
-                       validator_id, deadline_seconds, trace_id
+                SELECT subject_id, task_manifest_artifact_id, task_manifest_digest,
+                       deadline_seconds, trace_id
                 FROM armi.codex_task_sources
                 WHERE codex_task_source_id=%s
                 """,
@@ -41,12 +39,8 @@ class PostgreSQLCodexReadOwner:
             row[0],
             row[1],
             Digest(str(row[2])),
-            Digest(str(row[3])),
-            row[4],
-            Digest(str(row[5])),
-            str(row[6]),
-            int(row[7]),
-            TraceId(str(row[8])),
+            int(row[3]),
+            TraceId(str(row[4])),
         )
 
     async def find_by_manifest_digest(
@@ -78,8 +72,7 @@ class PostgreSQLCodexReadOwner:
                 """
                 SELECT source.codex_task_source_id,
                        verification.codex_verification_id,
-                       verification.execution_status, source.validator_id,
-                       source.source_tree_digest, verification.final_tree_digest,
+                       verification.execution_status,
                        result.opportunity_id
                 FROM armi.codex_task_sources AS source
                 LEFT JOIN armi.codex_verification_results AS verification
@@ -102,10 +95,7 @@ class PostgreSQLCodexReadOwner:
             None if row[2] is None else str(row[2]),
             None,
             None,
-            str(row[3]),
-            Digest(str(row[4])),
-            None if row[5] is None else Digest(str(row[5])),
-            row[6],
+            row[3],
         )
 
     async def verification_effect_id(
@@ -132,24 +122,10 @@ class PostgreSQLCodexReadOwner:
         effect_id: UUID,
         kind: str,
     ) -> ArtifactId | None:
-        if kind == "patch":
-            row = await (
-                await transaction.execute(
-                    "SELECT patch_artifact_id FROM armi.codex_verification_results WHERE effect_id=%s",
-                    (effect_id,),
-                )
-            ).fetchone()
-        elif kind == "final_result":
+        if kind == "final_result":
             row = await (
                 await transaction.execute(
                     "SELECT final_result_artifact_id FROM armi.codex_verification_results WHERE effect_id=%s",
-                    (effect_id,),
-                )
-            ).fetchone()
-        elif kind == "validation_report":
-            row = await (
-                await transaction.execute(
-                    "SELECT validation_report_artifact_id FROM armi.codex_verification_results WHERE effect_id=%s",
                     (effect_id,),
                 )
             ).fetchone()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, TypeVar, cast, runtime_checkable
+from typing import Protocol, TypeVar, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import ArtifactId
@@ -20,7 +20,6 @@ _CODE = re.compile(
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$")
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$")
 _SCENE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
-_VALIDATOR = re.compile(r"^codex\.[a-z0-9.-]{1,96}\.v[1-9][0-9]*$")
 
 
 class CodexVerificationStatus(StrEnum):
@@ -83,14 +82,8 @@ class CodexResultSourceId:
 class CodexTaskSourceDraft:
     task_source_id: CodexTaskSourceId
     subject_id: SubjectId
-    source_bundle_artifact_id: ArtifactId
-    source_bundle_digest: Digest
-    source_tree_digest: Digest
     manifest_artifact_id: ArtifactId
     manifest_digest: Digest
-    validator_id: str
-    allowed_paths: tuple[str, ...]
-    forbidden_paths: tuple[str, ...]
     deadline_seconds: int
     trace_id: TraceId
 
@@ -98,22 +91,13 @@ class CodexTaskSourceDraft:
         if (
             type(self.task_source_id) is not CodexTaskSourceId
             or type(self.subject_id) is not SubjectId
-            or type(self.source_bundle_artifact_id) is not ArtifactId
-            or type(self.source_bundle_digest) is not Digest
-            or type(self.source_tree_digest) is not Digest
             or type(self.manifest_artifact_id) is not ArtifactId
             or type(self.manifest_digest) is not Digest
             or type(self.trace_id) is not TraceId
-            or type(self.validator_id) is not str
-            or _VALIDATOR.fullmatch(self.validator_id) is None
             or type(self.deadline_seconds) is not int
             or not 60 <= self.deadline_seconds <= 1800
         ):
             raise CodexDelegationViolation("CODEX-TASK-SOURCE")
-        # Empty means the disposable workspace is writable; forbidden_paths is the
-        # authoritative blacklist for the current task contract.
-        _paths(self.allowed_paths, required=False)
-        _paths(self.forbidden_paths, required=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,9 +151,7 @@ class CreatorCodexTaskAdmissionPort(Protocol[_CreatorCodexAcceptanceT_co]):
 
 @dataclass(frozen=True, slots=True)
 class CodexNewTaskContent:
-    bundle_bytes: bytes
     manifest_bytes: bytes
-    source_tree_digest: Digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +161,6 @@ class CodexDelegationDraft:
     basis_ordinals: tuple[int, ...]
     task_source_id: CodexTaskSourceId
     task_manifest_digest: Digest
-    validator_id: str
     purpose: str = "delegate_codex_work"
     capability_kind: str = "codex.delegated-work"
     operation: str = "execute"
@@ -200,8 +181,6 @@ class CodexDelegationDraft:
             )
             or type(self.task_source_id) is not CodexTaskSourceId
             or type(self.task_manifest_digest) is not Digest
-            or type(self.validator_id) is not str
-            or _VALIDATOR.fullmatch(self.validator_id) is None
             or self.purpose != "delegate_codex_work"
             or self.capability_kind != "codex.delegated-work"
             or self.operation != "execute"
@@ -220,16 +199,7 @@ class CodexVerificationResult:
     effect_id: UUID
     status: CodexVerificationStatus
     cleanup_status: CodexCleanupStatus
-    source_tree_digest: Digest
-    final_tree_digest: Digest | None
-    patch_digest: Digest | None
-    transcript_artifact_id: ArtifactId | None
     final_result_artifact_id: ArtifactId | None
-    patch_artifact_id: ArtifactId | None
-    result_bundle_artifact_id: ArtifactId | None
-    diagnostics_artifact_id: ArtifactId | None
-    validation_report_artifact_id: ArtifactId | None
-    changed_paths: tuple[str, ...]
     completed_at: Instant
     execution_error_code: str | None = None
     cleanup_error_code: str | None = None
@@ -241,22 +211,13 @@ class CodexVerificationResult:
             or self.effect_id.version != 7
             or type(self.status) is not CodexVerificationStatus
             or type(self.cleanup_status) is not CodexCleanupStatus
-            or type(self.source_tree_digest) is not Digest
             or type(self.completed_at) is not Instant
         ):
             raise CodexDelegationViolation("CODEX-VERIFICATION-RESULT")
-        _paths(self.changed_paths, required=False)
         succeeded = self.status is CodexVerificationStatus.VERIFIED
         if succeeded != (
-            self.cleanup_status is CodexCleanupStatus.CLEAN
-            and self.final_tree_digest is not None
-            and self.patch_digest is not None
-            and self.final_result_artifact_id is not None
-            and self.patch_artifact_id is not None
-            and self.result_bundle_artifact_id is not None
-            and self.validation_report_artifact_id is not None
+            self.final_result_artifact_id is not None
             and self.execution_error_code is None
-            and self.cleanup_error_code is None
         ):
             raise CodexDelegationViolation("CODEX-VERIFICATION-RESULT")
 
@@ -293,27 +254,6 @@ class CodexTaskSourceAdmissionPort(Protocol):
 @runtime_checkable
 class CodexDelegationPort(Protocol):
     async def dispatch_once(self) -> bool: ...
-
-
-def _paths(values: object, *, required: bool) -> None:
-    if type(values) is not tuple:
-        raise CodexDelegationViolation("CODEX-TASK-PATHS")
-    path_values = cast(tuple[object, ...], values)
-    if (required and not path_values) or len(path_values) > 500:
-        raise CodexDelegationViolation("CODEX-TASK-PATHS")
-    folded: set[str] = set()
-    for value in path_values:
-        if (
-            type(value) is not str
-            or not value
-            or value.startswith(("/", "\\"))
-            or "\\" in value
-            or ":" in value
-            or any(part in {"", ".", ".."} for part in value.split("/"))
-            or value.casefold() in folded
-        ):
-            raise CodexDelegationViolation("CODEX-TASK-PATHS")
-        folded.add(value.casefold())
 
 
 def _uuid7(value: object, code: str) -> None:

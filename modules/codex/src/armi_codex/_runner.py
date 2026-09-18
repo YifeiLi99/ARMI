@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import os
 import shutil
 import stat
 import subprocess
 import threading
-import zipfile
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Final
 
-import rfc8785
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -33,17 +30,7 @@ from ._runner_contract import (
     CodexRunStatus,
     CodexTaskManifest,
 )
-from ._sdk_codec import SdkTurnEvidence, normalize_sdk_turn, validate_final_output
-from ._validation import materialize_output_artifact, validate_fixed_result
-from ._workspace import (
-    CustodiedTree,
-    TreeSnapshot,
-    capture_tree,
-    changed_paths,
-    extract_source_bundle,
-    materialize_custody,
-    patch_digest,
-)
+from ._sdk_codec import SdkTurnEvidence, normalize_sdk_turn
 
 _PURPOSE = CredentialPurpose("codex.runner.auth")
 _SDK_VERSION: Final = "0.144.4"
@@ -69,16 +56,6 @@ def check_local_runner() -> None:
 _PERSISTENT_PLATFORM_CHILDREN = frozenset({".sandbox", _PLATFORM_STATE})
 
 
-@dataclass(frozen=True, slots=True)
-class CodexRunArtifactSet:
-    event_transcript: bytes
-    final_result: bytes
-    patch: bytes
-    result_bundle: bytes
-    diagnostics: bytes
-    validation_report: bytes
-
-
 class IsolatedCodexRunner(CodexRunnerPort):
     __slots__ = ("_auth_locator", "_credential_port", "_run_root")
 
@@ -95,31 +72,23 @@ class IsolatedCodexRunner(CodexRunnerPort):
         self._credential_port = credential_port
         self._auth_locator = auth_locator
 
-    async def run(self, task: CodexTaskManifest) -> CodexRunResult:
-        result, _artifacts = await self.run_custodied(task)
-        return result
-
-    async def run_custodied(
+    async def run(
         self,
         task: CodexTaskManifest,
         *,
         cancellation: threading.Event | None = None,
-    ) -> tuple[CodexRunResult, CodexRunArtifactSet]:
-        execution = task.execution_id.value.hex
-        intake = self._run_root / "intake" / execution
-        bundle = intake / f"{task.source_bundle_digest.value[7:]}.zip"
-        private = self._run_root / "private" / execution
+    ) -> CodexRunResult:
+        private = self._run_root / "private" / task.execution_id.value.hex
         workspace = private / "workspace"
         temp = private / "temp"
         platform_home = self._run_root / "platform-home"
-        if private.exists() or not intake.is_dir():
+        if private.exists():
             raise CodexRunnerViolation("CODEX-EXECUTION-STATE")
-        self._prepare_roots(private, temp, platform_home)
         execution_error: CodexRunnerViolation | None = None
         result: CodexRunResult | None = None
-        artifacts: CodexRunArtifactSet | None = None
         try:
-            before = extract_source_bundle(bundle, workspace, task)
+            self._prepare_roots(private, temp, platform_home)
+            workspace.mkdir()
             self._write_auth(platform_home)
             evidence = await _invoke_sdk(
                 workspace=workspace,
@@ -128,47 +97,13 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 task=task,
                 cancellation=cancellation,
             )
-            (platform_home / "auth.json").unlink(missing_ok=True)
-            if len(evidence.final_response) > task.output_limit_bytes:
-                raise CodexRunnerViolation("CODEX-OUTPUT-LIMIT")
-            materialize_output_artifact(
-                task=task,
-                workspace=workspace,
-                final_response=evidence.final_response,
-            )
-            custody = capture_tree(workspace, byte_limit=task.workspace_limit_bytes)
-            after = custody.snapshot
-            custody_workspace = private / "custody"
-            materialize_custody(custody, custody_workspace)
-            paths = changed_paths(before, after, task)
-            deliverable = validate_fixed_result(
-                task=task,
-                workspace=custody_workspace,
-                changed_paths=paths,
-            )
-            validate_final_output(
-                evidence.final_response,
-                paths,
-                expected_deliverable=deliverable,
-            )
-            artifacts = _custody_artifacts(
-                custody=custody,
-                evidence=evidence,
-                before=before,
-                after=after,
-                paths=paths,
-            )
             result = CodexRunResult(
                 execution_id=task.execution_id,
                 status=CodexRunStatus.SUCCEEDED,
                 model_id=_model(task),
                 sdk_version=_SDK_VERSION,
-                source_tree_digest=before.digest,
-                final_tree_digest=after.digest,
-                patch_digest=patch_digest(before, after, paths),
+                final_response=evidence.final_response,
                 usage=evidence.usage,
-                modified_file_count=len(paths),
-                validation_passed=True,
             )
         except CodexRunnerViolation as error:
             execution_error = error
@@ -177,16 +112,18 @@ class IsolatedCodexRunner(CodexRunnerPort):
         except Exception:
             execution_error = CodexRunnerViolation("CODEX-UNEXPECTED")
         cleanup_error = self._cleanup(private, platform_home)
-        if cleanup_error is not None:
-            if execution_error is None:
-                execution_error = cleanup_error
-            else:
-                execution_error.record_cleanup_failure(cleanup_error.code)
         if execution_error is not None:
+            if cleanup_error is not None:
+                execution_error.record_cleanup_failure(cleanup_error.code)
             raise execution_error from None
-        if result is None or artifacts is None:
+        if result is None:
             raise CodexRunnerViolation("CODEX-UNEXPECTED")
-        return result, artifacts
+        # Cleanup is independent of task completion; see DESIGN.md, Codex.
+        return (
+            replace(result, cleanup_error_code=cleanup_error.code)
+            if cleanup_error
+            else result
+        )
 
     def _prepare_roots(
         self,
@@ -291,7 +228,6 @@ async def _invoke_sdk(
                 approval_mode=ApprovalMode.deny_all,
                 cwd=str(workspace),
                 model=_model(task),
-                output_schema=cast(Any, _output_schema(task)),
                 sandbox=Sandbox.workspace_write,
             )
             turn_task = asyncio.create_task(turn.run())
@@ -315,10 +251,7 @@ async def _invoke_sdk(
                     timeout=min(0.25, remaining),
                 )
             sdk_result = await turn_task
-        return normalize_sdk_turn(
-            sdk_result,
-            allow_web_search=(task.web_search),
-        )
+        return normalize_sdk_turn(sdk_result)
     except CodexRunnerViolation:
         raise
     except asyncio.CancelledError:
@@ -382,43 +315,11 @@ def _model(task: CodexTaskManifest) -> str:
     return task.model_id.value
 
 
-_OUTPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["summary", "changed_paths"],
-    "properties": {
-        "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "changed_paths": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 500,
-            "items": {"type": "string"},
-        },
-    },
-}
-
-
-def _output_schema(task: CodexTaskManifest) -> dict[str, object]:
-    if task.validator_id != "codex.output-artifact.v1":
-        return _OUTPUT_SCHEMA
-    return {
-        **_OUTPUT_SCHEMA,
-        "required": ["summary", "changed_paths", "deliverable"],
-        "properties": {
-            **cast(dict[str, object], _OUTPUT_SCHEMA["properties"]),
-            "deliverable": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1048576,
-            },
-        },
-    }
-
-
 _BASE_INSTRUCTIONS = (
-    "You are a one-shot delegated task worker. Follow the supplied task contract and "
-    "workspace facts. Never use MCP, apps, skills, hooks, credentials, or paths outside "
-    "the temporary workspace. Respect every forbidden path in the task contract."
+    "Complete the task delegated by ARMI using the available tools. "
+    "Return the result directly in your final response, including relevant sources "
+    "and any limitations or unsuccessful actions. "
+    "Work within the temporary workspace and configured permissions."
 )
 
 _WEB_SEARCH_INSTRUCTIONS = (
@@ -434,132 +335,8 @@ def _base_instructions(task: CodexTaskManifest) -> str:
     return _BASE_INSTRUCTIONS + " Web Search is disabled for this task."
 
 
-def _custody_artifacts(
-    *,
-    custody: CustodiedTree,
-    evidence: SdkTurnEvidence,
-    before: TreeSnapshot,
-    after: TreeSnapshot,
-    paths: tuple[str, ...],
-) -> CodexRunArtifactSet:
-    old = {path: digest for path, digest, _ in before.files}
-    new = {path: digest for path, digest, _ in after.files}
-    patch = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "schema_version": "armi.codex-normalized-patch.v1",
-                "changes": [
-                    {
-                        "path": path,
-                        "before": old.get(path),
-                        "after": new.get(path),
-                    }
-                    for path in paths
-                ],
-            },
-        )
-    )
-    diagnostics = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "schema_version": "armi.codex-diagnostics.v1",
-                "commands": [
-                    {
-                        "exit_code": command.exit_code,
-                        "status": command.status,
-                    }
-                    for command in evidence.commands
-                ],
-            },
-        )
-    )
-    validation = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "schema_version": "armi.codex-verification-report.v1",
-                "status": "verified",
-                "source_tree_digest": before.digest.value,
-                "final_tree_digest": after.digest.value,
-                "changed_paths": list(paths),
-            },
-        )
-    )
-    return CodexRunArtifactSet(
-        evidence.transcript,
-        evidence.final_response,
-        patch,
-        _result_bundle(custody),
-        diagnostics,
-        validation,
-    )
-
-
-def _result_bundle(custody: CustodiedTree) -> bytes:
-    output = io.BytesIO()
-    try:
-        with zipfile.ZipFile(
-            output,
-            mode="w",
-            compression=zipfile.ZIP_DEFLATED,
-            compresslevel=9,
-        ) as archive:
-            for relative, value in custody.files:
-                info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
-                info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = 0o100600 << 16
-                archive.writestr(info, value)
-    except OSError, zipfile.BadZipFile:
-        raise CodexRunnerViolation("CODEX-RESULT-CUSTODY") from None
-    value = output.getvalue()
-    if not value or len(value) > 100 * 1024 * 1024:
-        raise CodexRunnerViolation("CODEX-OUTPUT-LIMIT")
-    return value
-
-
 def _prompt(task: CodexTaskManifest) -> str:
-    task_rules = (
-        ["Only replace result.txt with ARMI_CODEX_CONFORMANCE_OK followed by LF."]
-        if task.validator_id == "codex.conformance.minimal-edit.v1"
-        else [
-            "Complete the objective and return the full result in the deliverable field.",
-            "Do not edit the workspace; the runner will persist deliverable as result.md.",
-            'Report changed_paths as exactly ["result.md"].',
-        ]
-    )
-    network_rule = (
-        "Use built-in Web Search when it helps the objective; external writes, login, "
-        "downloads and credential use remain forbidden."
-        if task.web_search
-        else "Web Search and external network access are disabled for this task."
-    )
-    path_rule = (
-        "Only modify allowed_paths and never modify forbidden_paths."
-        if task.allowed_paths
-        else "The disposable workspace is writable except for forbidden_paths."
-    )
-    value = {
-        "objective": task.objective,
-        "facts": list(task.facts),
-        "allowed_paths": list(task.allowed_paths),
-        "forbidden_paths": list(task.forbidden_paths),
-        "rules": [
-            "Make the smallest necessary change.",
-            *task_rules,
-            network_rule,
-            "Do not read or write outside the workspace.",
-            path_rule,
-            "Return strict JSON with summary and the exact sorted changed_paths.",
-        ],
-    }
-    encoded = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    if len(encoded) > 64 * 1024:
-        raise CodexRunnerViolation("CODEX-TASK-FORMAT")
-    return encoded.decode("utf-8")
+    return task.objective
 
 
 def _sdk_environment(platform_home: Path, temp: Path) -> dict[str, str]:
@@ -739,7 +516,6 @@ write_platform_state = _write_platform_state
 
 
 __all__ = (
-    "CodexRunArtifactSet",
     "IsolatedCodexRunner",
     "owner_only",
     "runner_config",

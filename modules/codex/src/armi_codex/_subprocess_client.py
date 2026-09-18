@@ -9,12 +9,11 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
-from ._codec import encode_task
-from ._custody_codec import decode_custodied_result
-from ._runner import CodexRunArtifactSet
+from ._codec import decode_result, encode_task
 from ._runner_contract import (
     CodexRunnerViolation,
     CodexRunResult,
@@ -25,16 +24,16 @@ from ._windows_job import WindowsJob
 _MAX_ERROR_BYTES = 4096
 
 
-def run_custodied_subprocess(
+def run_subprocess(
     *,
     runner_entry_module: str,
     environment_root: Path,
     process_temp: Path,
     task: CodexTaskManifest,
     cancellation: threading.Event,
-) -> tuple[CodexRunResult, CodexRunArtifactSet]:
+) -> CodexRunResult:
     process_temp.mkdir(parents=True, exist_ok=True)
-    result: tuple[CodexRunResult, CodexRunArtifactSet] | None = None
+    result: CodexRunResult | None = None
     execution_error: CodexRunnerViolation | None = None
     try:
         result = _run_process(
@@ -50,7 +49,10 @@ def run_custodied_subprocess(
         shutil.rmtree(process_temp)
     except OSError:
         if execution_error is None:
-            execution_error = CodexRunnerViolation("CODEX-CLEANUP")
+            if result is not None:
+                result = replace(result, cleanup_error_code="CODEX-CLEANUP")
+            else:
+                execution_error = CodexRunnerViolation("CODEX-CLEANUP")
         else:
             execution_error.record_cleanup_failure("CODEX-CLEANUP")
     if execution_error is not None:
@@ -67,7 +69,7 @@ def _run_process(
     process_temp: Path,
     task: CodexTaskManifest,
     cancellation: threading.Event,
-) -> tuple[CodexRunResult, CodexRunArtifactSet]:
+) -> CodexRunResult:
     stdout = b""
     stderr = b""
     payload: bytes | None = encode_task(task)
@@ -82,7 +84,6 @@ def _run_process(
                     runner_entry_module,
                     "--environment-root",
                     str(environment_root),
-                    "--custodied",
                 ),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -126,10 +127,10 @@ def _run_process(
         raise _decode_failure(stderr)
     if stderr:
         raise CodexRunnerViolation("CODEX-STDOUT-POLLUTION")
-    result, artifacts = decode_custodied_result(stdout)
+    result = decode_result(stdout)
     if result.execution_id != task.execution_id:
         raise CodexRunnerViolation("CODEX-RESULT-FORMAT")
-    return result, artifacts
+    return result
 
 
 def _reap_exact_child(process: subprocess.Popen[bytes]) -> None:
@@ -200,4 +201,4 @@ def _environment(temp: Path) -> dict[str, str]:
     }
 
 
-__all__ = ("run_custodied_subprocess",)
+__all__ = ("run_subprocess",)

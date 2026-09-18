@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from armi_artifact_store.api import ArtifactCatalogPort
+from armi_artifact_store.api import ArtifactAdminPort, ArtifactCatalogPort
 from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import (
     DataRightsEffectGate,
@@ -35,7 +35,6 @@ from ._admin import PostgreSQLCodexAdmin
 from ._application import CodexEffectPipeline, CodexTaskSourceGateway
 from ._codec import decode_result, decode_task, encode_result, encode_task
 from ._commit import PostgreSQLCodexCommit
-from ._custody_codec import encode_custodied_result
 from ._data_rights import PostgreSQLCodexDataRightsParticipant
 from ._postgresql import PostgreSQLCodexDelegationRepository
 from ._read_postgresql import PostgreSQLCodexReadOwner
@@ -51,7 +50,6 @@ from ._runner import (
 )
 from ._timeline_projection import CodexTaskTimelineProjection
 from ._windows_job import WindowsJob
-from ._workspace import snapshot_tree
 from .api import (
     CodexAdminPort,
     CodexArtifactReadPort,
@@ -64,8 +62,8 @@ from .api import (
 )
 
 
-def bootstrap_codex_admin() -> CodexAdminPort:
-    return PostgreSQLCodexAdmin()
+def bootstrap_codex_admin(*, artifacts: ArtifactAdminPort) -> CodexAdminPort:
+    return PostgreSQLCodexAdmin(artifacts)
 
 
 compose_codex_task_source_gateway = CodexTaskSourceGateway
@@ -173,11 +171,9 @@ def bootstrap_codex_runner(
 
 decode_runner_task = decode_task
 encode_runner_result = encode_result
-encode_custodied_runner_result = encode_custodied_result
 decode_runner_result = decode_result
 encode_runner_task = encode_task
 RunnerWindowsJob = WindowsJob
-snapshot_runner_workspace = snapshot_tree
 
 
 def bootstrap_codex_data_rights() -> DataRightsParticipant:
@@ -204,13 +200,11 @@ __all__ = (
     "compose_codex_task_source_gateway",
     "decode_runner_result",
     "decode_runner_task",
-    "encode_custodied_runner_result",
     "encode_runner_result",
     "encode_runner_task",
     "owner_only",
     "runner_config",
     "sanitize_platform_home",
-    "snapshot_runner_workspace",
     "validate_platform_home",
     "write_platform_state",
 )

@@ -371,7 +371,6 @@ class ExpressionIntentSnapshot:
     response_bytes: int | None
     codex_task_source_id: UUID | None
     task_manifest_digest: Digest | None
-    validator_id: str | None
     created_at: datetime
 
 
@@ -397,7 +396,6 @@ class DelegatedActionIntentDraft:
     proposal_ref: str
     task_source_id: UUID
     task_manifest_digest: Digest
-    validator_id: str
     task_manifest_artifact_id: UUID
     task_manifest_bytes: int
     trace_id: TraceId

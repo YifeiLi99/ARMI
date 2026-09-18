@@ -627,7 +627,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "life-record-query.v2",
         "creator-relationship.v3",
         "scene-timeline.v6",
-        "creator-operation.v7",
+        "creator-operation.v8",
         "other-human-record.v1",
         "creator-effect.v6",
         "subject-summary.v1",
@@ -922,13 +922,10 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
     execution_status: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     model_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
     sdk_identity: Annotated[str, Field(min_length=1, max_length=256)] | None = None
-    validator_id: Annotated[str, Field(min_length=1, max_length=128)]
-    source_tree_digest: Annotated[str, Field(pattern=_DIGEST_PATTERN)]
-    final_tree_digest: Annotated[str, Field(pattern=_DIGEST_PATTERN)] | None = None
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v7"]
+    projection_version: Literal["creator-operation.v8"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",

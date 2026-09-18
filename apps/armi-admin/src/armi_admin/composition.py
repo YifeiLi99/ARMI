@@ -109,7 +109,7 @@ def bootstrap_admin(
         artifact_root = config.environment_root / "data" / "artifacts"
         artifacts = bootstrap_artifact_admin(artifact_root=artifact_root)
         cognition = bootstrap_cognition_admin()
-        codex = bootstrap_codex_admin()
+        codex = bootstrap_codex_admin(artifacts=artifacts)
         effects = bootstrap_effect_admin()
         evidence = bootstrap_evidence_admin()
         expression = bootstrap_expression_admin()

@@ -1088,18 +1088,6 @@
             ],
             "title": "Execution Status"
           },
-          "final_tree_digest": {
-            "anyOf": [
-              {
-                "pattern": "sha256:[0-9a-f]{64}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Final Tree Digest"
-          },
           "model_id": {
             "anyOf": [
               {
@@ -1148,20 +1136,9 @@
             ],
             "title": "Sdk Identity"
           },
-          "source_tree_digest": {
-            "pattern": "sha256:[0-9a-f]{64}",
-            "title": "Source Tree Digest",
-            "type": "string"
-          },
           "task_source_ref": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "title": "Task Source Ref",
-            "type": "string"
-          },
-          "validator_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Validator Id",
             "type": "string"
           },
           "verification_ref": {
@@ -1180,9 +1157,7 @@
         "required": [
           "result_processing_phase",
           "result_processing_reason",
-          "task_source_ref",
-          "validator_id",
-          "source_tree_digest"
+          "task_source_ref"
         ],
         "title": "CreatorCodexExecutionDetails",
         "type": "object"
@@ -2222,7 +2197,7 @@
             "title": "Owner Reason"
           },
           "projection_version": {
-            "const": "creator-operation.v7",
+            "const": "creator-operation.v8",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2332,7 +2307,7 @@
               "life-record-query.v2",
               "creator-relationship.v3",
               "scene-timeline.v6",
-              "creator-operation.v7",
+              "creator-operation.v8",
               "other-human-record.v1",
               "creator-effect.v6",
               "subject-summary.v1",
@@ -7894,9 +7869,7 @@
             "required": true,
             "schema": {
               "enum": [
-                "patch",
-                "final_result",
-                "validation_report"
+                "final_result"
               ],
               "title": "Artifact Kind",
               "type": "string"

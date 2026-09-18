@@ -23,7 +23,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("codex")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "codex_result_sources",
@@ -70,28 +70,10 @@ class PostgreSQLCodexDataRightsParticipant:
         usage_rows = await (
             await transaction.execute(
                 """WITH refs AS (
-                     SELECT source_bundle_artifact_id AS artifact_id,
+                     SELECT task_manifest_artifact_id AS artifact_id,
                             codex_task_source_id=ANY(%s::uuid[]) AS targeted
                      FROM armi.codex_task_sources
-                     UNION ALL SELECT task_manifest_artifact_id,
-                            codex_task_source_id=ANY(%s::uuid[])
-                     FROM armi.codex_task_sources
-                     UNION ALL SELECT event_transcript_artifact_id,
-                            codex_verification_id=ANY(%s::uuid[])
-                     FROM armi.codex_verification_results
                      UNION ALL SELECT final_result_artifact_id,
-                            codex_verification_id=ANY(%s::uuid[])
-                     FROM armi.codex_verification_results
-                     UNION ALL SELECT patch_artifact_id,
-                            codex_verification_id=ANY(%s::uuid[])
-                     FROM armi.codex_verification_results
-                     UNION ALL SELECT result_bundle_artifact_id,
-                            codex_verification_id=ANY(%s::uuid[])
-                     FROM armi.codex_verification_results
-                     UNION ALL SELECT diagnostics_artifact_id,
-                            codex_verification_id=ANY(%s::uuid[])
-                     FROM armi.codex_verification_results
-                     UNION ALL SELECT validation_report_artifact_id,
                             codex_verification_id=ANY(%s::uuid[])
                      FROM armi.codex_verification_results
                    ) SELECT artifact_id,count(*),count(*) FILTER (WHERE targeted)
@@ -99,12 +81,6 @@ class PostgreSQLCodexDataRightsParticipant:
                      GROUP BY artifact_id ORDER BY artifact_id""",
                 (
                     list(task_ids),
-                    list(task_ids),
-                    list(verification_ids),
-                    list(verification_ids),
-                    list(verification_ids),
-                    list(verification_ids),
-                    list(verification_ids),
                     list(verification_ids),
                 ),
             )

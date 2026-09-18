@@ -239,20 +239,10 @@ export function OperationPanel({
                   <dt>Codex Task Source</dt>
                   <dd>{data.details.codex_execution.task_source_ref}</dd>
                 </div>
-                <div>
-                  <dt>Validator</dt>
-                  <dd>{data.details.codex_execution.validator_id}</dd>
-                </div>
                 {data.details.codex_execution.model_id ? (
                   <div>
                     <dt>Codex Model</dt>
                     <dd>{data.details.codex_execution.model_id}</dd>
-                  </div>
-                ) : null}
-                {data.details.codex_execution.final_tree_digest ? (
-                  <div>
-                    <dt>Final Tree</dt>
-                    <dd>{data.details.codex_execution.final_tree_digest}</dd>
                   </div>
                 ) : null}
               </>

@@ -1499,7 +1499,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v16",
+        "schema_version": "armi.cognition-candidate.v17",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -2315,7 +2315,6 @@ def test_action_owner_rejects_duplicate_action_roles_atomically(
                 "capability_kind": "codex.delegated-work",
                 "operation": "execute",
                 "purpose": "delegate_codex_work",
-                "validator_id": "codex.result.v1",
             }
             if delegated
             else {
@@ -2454,7 +2453,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2645,7 +2644,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["understanding"] = {
         "text": "我刚查到一条相关记录。",
         "fact_class": "objective_fact",
@@ -2712,7 +2711,6 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     context, bases = _fixture()
     task_source_id = uuid7()
     task_digest = Digest.from_bytes(b"codex task manifest")
-    validator_id = "codex.python-unit.v1"
     task_basis = CandidateBasis(
         4,
         "current_evidence",
@@ -2741,7 +2739,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
         "private",
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2758,7 +2756,6 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
                 "capability_kind": "codex.delegated-work",
                 "operation": "execute",
                 "purpose": "delegate_codex_work",
-                "validator_id": validator_id,
             },
         }
     ]
@@ -2771,7 +2768,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     active_context = replace(
         context,
         codex_active=True,
-        codex_task_sources=((task_source_id, task_digest, validator_id),),
+        codex_task_sources=((task_source_id, task_digest),),
     )
     first = DeterministicCandidateValidator(active_context).validate(
         _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
@@ -2822,7 +2819,7 @@ def test_creator_reply_capability_request_is_not_in_the_contract() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2876,7 +2873,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4141,7 +4138,7 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4189,7 +4186,7 @@ def test_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v16"
+    candidate["schema_version"] = "armi.cognition-candidate.v17"
     candidate["disposition"] = "no_action"
     candidate["experiences"] = []
     candidate["component_changes"] = []

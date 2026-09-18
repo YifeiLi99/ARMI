@@ -110,9 +110,7 @@ class EffectObservationReliability(StrEnum):
 
 
 class EffectArtifactKind(StrEnum):
-    PATCH = "patch"
     FINAL_RESULT = "final_result"
-    VALIDATION_REPORT = "validation_report"
 
 
 @dataclass(frozen=True, slots=True)

@@ -32,13 +32,11 @@ async def test_lost_lease_cancels_runner_and_preserves_unknown(
     stopped = threading.Event()
     task = SimpleNamespace(
         execution_id=CodexExecutionId(uuid7()),
-        source_bundle_digest=Digest.from_bytes(b"bundle"),
     )
     snapshot = SimpleNamespace(
         creator_party_id=uuid7(),
         scene_id=uuid7(),
         dispatch_deadline=None,
-        source_bundle=object(),
         task_manifest=object(),
     )
 
@@ -89,7 +87,7 @@ async def test_lost_lease_cancels_runner_and_preserves_unknown(
     monkeypatch.setattr(CodexEffectPipeline, "_read", AsyncMock(return_value=b"bundle"))
     monkeypatch.setattr(CodexEffectPipeline, "_heartbeat", heartbeat)
     monkeypatch.setattr(application, "_task_manifest", lambda *_args: task)
-    monkeypatch.setattr(application, "run_custodied_subprocess", runner)
+    monkeypatch.setattr(application, "run_subprocess", runner)
 
     assert await asyncio.wait_for(pipeline.dispatch_once(), timeout=10)
     assert stopped.is_set()
@@ -125,15 +123,10 @@ async def test_codex_notifies_only_committed_technical_failures(status, stopped)
         pipeline._stop.set()
     origin = uuid7()
     await pipeline._settle(
-        SimpleNamespace(
-            root_operation_id=origin, source_tree_digest=Digest.from_bytes(b"source")
-        ),
+        SimpleNamespace(root_operation_id=origin),
         status=status,
         cleanup_status=CodexCleanupStatus.CLEAN,
         published={},
-        final_tree_digest=None,
-        patch_digest=None,
-        changed_path_count=0,
         execution_error_code="CODEX-EXECUTION-FAILED",
         cleanup_error_code=None,
     )
@@ -195,9 +188,7 @@ async def test_removed_task_artifact_settles_claim_before_execution() -> None:
     )
     repository._sources = SimpleNamespace(
         task_source=AsyncMock(
-            return_value=SimpleNamespace(
-                source_bundle_artifact_id=uuid7(), task_manifest_artifact_id=uuid7()
-            )
+            return_value=SimpleNamespace(task_manifest_artifact_id=uuid7())
         )
     )
     repository._artifacts = SimpleNamespace(
@@ -215,3 +206,37 @@ async def test_removed_task_artifact_settles_claim_before_execution() -> None:
         observation_digest=Digest.from_bytes(b"CODEX-TASK-ARTIFACT"),
         error_code="CODEX-TASK-ARTIFACT",
     )
+
+
+@pytest.mark.asyncio
+async def test_success_publishes_only_result_and_returns_it_for_cognition():
+    from armi_codex.api import CodexRunResult, CodexRunStatus
+    from armi_kernel.contracts import TraceId
+
+    published = object()
+    stored = []
+
+    async def stage(content, policy):
+        value = b"".join([chunk async for chunk in content])
+        stored.append((value, policy))
+        return object()
+
+    pipeline = cast(Any, object.__new__(CodexEffectPipeline))
+    pipeline._storage = SimpleNamespace(
+        stage=stage,
+        publish=AsyncMock(return_value=published),
+    )
+    result = CodexRunResult(
+        CodexExecutionId(uuid7()),
+        CodexRunStatus.SUCCEEDED,
+        "gpt-5.6-sol",
+        "0.144.4",
+        "资料结果及来源",
+        None,
+        cleanup_error_code="CODEX-CLEANUP",
+    )
+    values = await pipeline._publish_success(TraceId("a" * 32), result)
+    assert values == {"final_result": published}
+    assert len(stored) == 1
+    assert stored[0][0].decode("utf-8") == result.final_response
+    pipeline._storage.publish.assert_awaited_once()

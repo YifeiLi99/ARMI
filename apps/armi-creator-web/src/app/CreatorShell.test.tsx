@@ -97,7 +97,7 @@ function acceptedOperationProjection(): object {
     result_ref: OPPORTUNITY_ID,
     custodian: "runtime",
     details: {
-      projection_version: "creator-operation.v7",
+      projection_version: "creator-operation.v8",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "accepted",
@@ -117,7 +117,7 @@ function preparedContextOperation(): object {
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
     details: {
-      projection_version: "creator-operation.v7",
+      projection_version: "creator-operation.v8",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "context_preparing",
@@ -221,7 +221,11 @@ function optionalLifeProjectionResponse(url: string): Response | undefined {
     return jsonResponse(autonomyStatusResponse());
   }
   if (url === "/v1/data-rights/orders") {
-    return jsonResponse({contract_version: "1.0", projection_version: "data-rights-order-collection.v3", orders: []});
+    return jsonResponse({
+      contract_version: "1.0",
+      projection_version: "data-rights-order-collection.v3",
+      orders: [],
+    });
   }
   if (url === "/v1/scenes") {
     return jsonResponse({

@@ -16,9 +16,6 @@ from armi_codex.bootstrap import (
     validate_platform_home,
     write_platform_state,
 )
-from armi_codex.bootstrap import (
-    snapshot_runner_workspace as snapshot_tree,
-)
 
 __all__ = (
     "WindowsJob",
@@ -27,7 +24,6 @@ __all__ = (
     "owner_only",
     "runner_config",
     "sanitize_platform_home",
-    "snapshot_tree",
     "validate_platform_home",
     "write_platform_state",
 )

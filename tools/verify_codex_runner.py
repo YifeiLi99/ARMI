@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import zipfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -23,12 +22,10 @@ from armi_codex.api import (
     CodexRunStatus,
     CodexTaskManifest,
 )
-from armi_kernel.contracts import Digest
 from armi_runtime.composition.codex_runner_tool import (
     WindowsJob,
     decode_result,
     encode_task,
-    snapshot_tree,
 )
 from armi_runtime.composition.codex_runner_tool import (
     owner_only as _owner_only,
@@ -118,37 +115,14 @@ def _runtime_binary() -> Path:
     return binary
 
 
-def _write_source(root: Path) -> tuple[Path, Path]:
-    source = root / "source"
-    source.mkdir()
-    (source / "result.txt").write_bytes(b"PENDING\n")
-    bundle = root / "source.zip"
-    with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.write(source / "result.txt", "result.txt")
-    return source, bundle
-
-
-def _task(root: Path, execution: CodexExecutionId) -> tuple[CodexTaskManifest, Path]:
-    source, bundle = _write_source(root)
-    source_tree = snapshot_tree(source, byte_limit=1024 * 1024)
-    bundle_digest = Digest.from_bytes(bundle.read_bytes())
-    task = CodexTaskManifest(
+def _task(execution: CodexExecutionId) -> CodexTaskManifest:
+    return CodexTaskManifest(
         execution_id=execution,
         task_id=uuid7(),
         effect_id=uuid7(),
-        source_bundle_digest=bundle_digest,
-        source_tree_digest=source_tree.digest,
-        objective="Replace result.txt with ARMI_CODEX_CONFORMANCE_OK followed by LF.",
-        facts=(
-            "result.txt is the only file in the conformance workspace.",
-            "The independent validator requires its exact UTF-8 bytes.",
-        ),
-        allowed_paths=("result.txt",),
-        forbidden_paths=(),
-        validator_id="codex.conformance.minimal-edit.v1",
+        objective="Reply with exactly ARMI_CODEX_CONFORMANCE_OK.",
         deadline_seconds=900,
     )
-    return task, bundle
 
 
 def _environment(root: Path, auth: bytes) -> tuple[Path, Path]:
@@ -247,10 +221,7 @@ def _live(root: Path) -> dict[str, object]:
     }
     try:
         environment_root, data_root = _environment(live_root, bytes(auth))
-        task, bundle = _task(live_root, execution)
-        intake = data_root / "codex-runner" / "intake" / execution.value.hex
-        intake.mkdir(parents=True)
-        shutil.copyfile(bundle, intake / f"{task.source_bundle_digest.value[7:]}.zip")
+        task = _task(execution)
         dispatched = True
         stdout, stderr, returncode = _invoke_runner(
             environment_root=environment_root,
@@ -270,11 +241,8 @@ def _live(root: Path) -> dict[str, object]:
         result = decode_result(stdout)
         if result.status is not CodexRunStatus.SUCCEEDED or result.usage is None:
             raise RuntimeError(result.error_code or "CODEX-LIVE-FAILED")
-        final_tree_digest = result.final_tree_digest
-        patch_digest = result.patch_digest
         if (
-            type(final_tree_digest) is not Digest
-            or type(patch_digest) is not Digest
+            result.final_response.strip() != "ARMI_CODEX_CONFORMANCE_OK"
             or result.sdk_version != _SDK_VERSION
         ):
             raise RuntimeError("CODEX-LIVE-RESULT")
@@ -288,12 +256,8 @@ def _live(root: Path) -> dict[str, object]:
             "runtime_version": _SDK_VERSION,
             "model_id": result.model_id,
             "sdk_version": result.sdk_version,
-            "source_bundle_digest": task.source_bundle_digest.to_wire(),
-            "source_tree_digest": result.source_tree_digest.to_wire(),
-            "final_tree_digest": final_tree_digest.to_wire(),
-            "patch_digest": patch_digest.to_wire(),
-            "modified_file_count": result.modified_file_count,
-            "validation_passed": result.validation_passed,
+            "response_received": True,
+            "cleanup_error_code": result.cleanup_error_code,
             "input_tokens": result.usage.input_tokens,
             "cached_input_tokens": result.usage.cached_input_tokens,
             "output_tokens": result.usage.output_tokens,
@@ -351,10 +315,7 @@ def _preflight(root: Path) -> dict[str, object]:
         _binary = _runtime_binary()
         contract_root = preflight_root / "contract"
         contract_root.mkdir()
-        default_task, _bundle = _task(
-            contract_root,
-            CodexExecutionId(uuid7()),
-        )
+        default_task = _task(CodexExecutionId(uuid7()))
         runner_config = _config(default_task)
         temp = preflight_root / "temp"
         platform_home = preflight_root / "data" / "codex-runner" / "platform-home"

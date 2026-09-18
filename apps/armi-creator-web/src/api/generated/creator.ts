@@ -1314,8 +1314,6 @@ export interface components {
     CreatorCodexExecutionDetails: {
       /** Execution Status */
       execution_status?: string | null;
-      /** Final Tree Digest */
-      final_tree_digest?: string | null;
       /** Model Id */
       model_id?: string | null;
       /** Result Processing Phase */
@@ -1324,12 +1322,8 @@ export interface components {
       result_processing_reason: string | null;
       /** Sdk Identity */
       sdk_identity?: string | null;
-      /** Source Tree Digest */
-      source_tree_digest: string;
       /** Task Source Ref */
       task_source_ref: string;
-      /** Validator Id */
-      validator_id: string;
       /** Verification Ref */
       verification_ref?: string | null;
     };
@@ -1707,7 +1701,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v7";
+      projection_version: "creator-operation.v8";
       /** Reason Code */
       reason_code?: string | null;
       /**
@@ -1776,7 +1770,7 @@ export interface components {
         | "life-record-query.v2"
         | "creator-relationship.v3"
         | "scene-timeline.v6"
-        | "creator-operation.v7"
+        | "creator-operation.v8"
         | "other-human-record.v1"
         | "creator-effect.v6"
         | "subject-summary.v1"
@@ -4298,7 +4292,7 @@ export interface operations {
       header?: never;
       path: {
         effect_id: string;
-        artifact_kind: "patch" | "final_result" | "validation_report";
+        artifact_kind: "final_result";
       };
       cookie?: never;
     };

@@ -597,7 +597,7 @@ class EffectPipeline:
             (
                 CreatorResourceKind("operation"),
                 str(intent.operation_ref),
-                "creator-operation.v7",
+                "creator-operation.v8",
             ),
         ]
         if include_scene:

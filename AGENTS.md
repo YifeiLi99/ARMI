@@ -76,7 +76,7 @@
   本地附件先经 `upload import` 或分块上传得到受治理引用，再显式接纳；上传完成不触发认知。`runtime_entrypoint` 是私有启动 worker，不承担业务或管理命令。私有主体快照另需 `subject_snapshot.private` 授权范围。
 - 交互用例和操作合同位于 Runtime `application/`，HTTP、CLI、MCP 只适配传输，不经 HTTP handler 转接机器操作。本地拥有者经服务端验证受保护的本机绑定后具有完整 ARMI 管理权限，不需要 Windows 提权或逐次应用内审批；显式受限绑定仍按授权范围执行，不能借 setup 转发、调用参数或配置修改信任根。事务、并发、回执及正式环境故障注入限制继续生效。配置消费者仅在验证并实际采用后登记当前版本；读取文件或保存配置不等于生效。中断管理调用通过 `invocation reconcile` 核验，不以当前状态猜测历史成功或重放原效果。
 - ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；开发代理执行危险操作仍须遵守用户授权边界，不以应用内管理权限替代用户授权。
-- ARMI 的 Codex 委托使用官方 SDK/订阅 auth，按当前合同允许逐任务选择模型、reasoning 和内置 Web Search；这不指定开发仓库时的模型。Runner 只操作 manifest 的一次性 workspace，遵守路径边界，不访问 ARMI DB、Admin 或宿主 secret/配置；内容产出为 `result.md`，代码/文件产出经独立 validator 与 custody 副本核验。
+- ARMI 的 Codex 委托使用官方 SDK/订阅 auth，按当前合同允许逐任务选择模型、reasoning 和内置 Web Search；这不指定开发仓库时的模型。Runner 只操作 manifest 的一次性 workspace，遵守路径边界，不访问 ARMI DB、Admin 或宿主 secret/配置；第一版仅保留目标与执行选项的委托记录、执行状态和最终正文，结果交回后由 ARMI 决定后续行动或对话。不要求任务 ZIP、目录差异、独立 validator、多份报告或 `result.md` 交付；本地清理失败独立记录，不丢弃成功结果或重跑任务。
 - ARMI Web research 与 Codex 内置 Web Search 是独立只读链，后者不授予 shell 网络权限；结果先成为 Evidence/Opportunity，不直接写 Memory、Relationship 或回复。
 - 项目当前未授予开源许可证，不擅自声明开源或复制不兼容源码/素材，保留研究来源和许可证记录。
 

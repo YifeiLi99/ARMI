@@ -353,7 +353,7 @@ class CandidateValidationContext:
     purpose: str = "consider_creator_input"
     web_search_active: bool = False
     codex_active: bool = False
-    codex_task_sources: tuple[tuple[UUID, Digest, str], ...] = ()
+    codex_task_sources: tuple[tuple[UUID, Digest], ...] = ()
     opportunity_id: UUID | None = None
     current_activity_id: UUID | None = None
     current_activity_revision_id: UUID | None = None
@@ -1103,7 +1103,6 @@ class DeterministicCandidateValidator:
                         tuple(basis.ordinal for basis in proposal_bases),
                         CodexTaskSourceId(UUID(payload.task_source_id)),
                         Digest(payload.task_manifest_digest),
-                        payload.validator_id,
                     )
                     continue
             if failure is None:
@@ -2868,7 +2867,7 @@ def _expand_creator_cognitive_act(
         disposition = "change"
     return (
         CognitionCandidate.model_construct(
-            schema_version="armi.cognition-candidate.v16",
+            schema_version="armi.cognition-candidate.v17",
             base=CandidateBase.model_construct(
                 subject_version=context.base_subject_version,
                 state_epoch=context.base_state_epoch,
@@ -3907,10 +3906,7 @@ def _codex_delegation_failure(
     )
     if source is None:
         return "CANDIDATE-CODEX-TASK-SOURCE"
-    if (
-        source[1].value != payload.task_manifest_digest
-        or source[2] != payload.validator_id
-    ):
+    if source[1].value != payload.task_manifest_digest:
         return "CANDIDATE-CODEX-TASK-IDENTITY"
     if not any(
         basis.item_kind == "codex_task_source" and basis.source_ref == source_id
@@ -4145,7 +4141,6 @@ def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
         "basis_ordinals": list(value.basis_ordinals),
         "task_source_id": str(value.task_source_id.value),
         "task_manifest_digest": value.task_manifest_digest.value,
-        "validator_id": value.validator_id,
         "capability_kind": value.capability_kind,
         "operation": value.operation,
         "purpose": value.purpose,

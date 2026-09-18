@@ -36,14 +36,9 @@ from armi_interaction.api import (
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
     RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._delegation_contract import (
@@ -73,11 +68,8 @@ class CodexDispatchSnapshot:
     scene_id: UUID
     creator_party_id: UUID
     task_source_id: UUID
-    source_bundle: ArtifactRef
-    source_tree_digest: Digest
     task_manifest: ArtifactRef
     task_manifest_digest: Digest
-    validator_id: str
     deadline_seconds: int
     trace_id: TraceId
     dispatch_deadline: Instant | None
@@ -127,8 +119,7 @@ class PostgreSQLCodexDelegationRepository:
         existing = await (
             await connection.execute(
                 """
-                SELECT task_manifest_digest, source_bundle_digest,
-                       source_tree_digest, validator_id
+                SELECT task_manifest_digest
                 FROM armi.codex_task_sources
                 WHERE codex_task_source_id = %s
                 """,
@@ -136,12 +127,7 @@ class PostgreSQLCodexDelegationRepository:
             )
         ).fetchone()
         if existing is not None:
-            if tuple(map(str, existing)) != (
-                draft.manifest_digest.value,
-                draft.source_bundle_digest.value,
-                draft.source_tree_digest.value,
-                draft.validator_id,
-            ):
+            if tuple(map(str, existing)) != (draft.manifest_digest.value,):
                 raise CodexDelegationViolation("CODEX-TASK-IDEMPOTENCY")
             return draft.task_source_id
         subject = await self._identity.creator_context(
@@ -151,28 +137,20 @@ class PostgreSQLCodexDelegationRepository:
         if subject is None:
             raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
         await self._require_artifact(
-            uow, draft.source_bundle_artifact_id.value, draft.source_bundle_digest
-        )
-        await self._require_artifact(
             uow, draft.manifest_artifact_id.value, draft.manifest_digest
         )
         await connection.execute(
             """
             INSERT INTO armi.codex_task_sources (
-                codex_task_source_id, subject_id, source_bundle_artifact_id,
-                source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
-                task_manifest_digest, validator_id,
-                deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                codex_task_source_id, subject_id, task_manifest_artifact_id,
+                task_manifest_digest,
+                deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s)
             """,
             (
                 draft.task_source_id.value,
                 draft.subject_id.value,
-                draft.source_bundle_artifact_id.value,
-                draft.source_bundle_digest.value,
-                draft.source_tree_digest.value,
                 draft.manifest_artifact_id.value,
                 draft.manifest_digest.value,
-                draft.validator_id,
                 draft.deadline_seconds,
                 draft.trace_id.value,
             ),
@@ -203,19 +181,6 @@ class PostgreSQLCodexDelegationRepository:
         )
         if admitted.status is OpportunityAdmissionStatus.REJECTED:
             raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
-        await uow.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", uow.environment_id),
-                Purpose("delegate_codex_work"),
-                "codex.task_source.admitted",
-                AuditReference("codex_task_source", draft.task_source_id.value),
-                AuditResultStatus.ACCEPTED,
-                draft.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=draft.subject_id,
-            )
-        )
         return draft.task_source_id
 
     async def existing_creator_task(
@@ -293,9 +258,6 @@ class PostgreSQLCodexDelegationRepository:
         if draft.subject_id.value != context.subject_id:
             raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
         await self._require_artifact(
-            uow, draft.source_bundle_artifact_id.value, draft.source_bundle_digest
-        )
-        await self._require_artifact(
             uow, draft.manifest_artifact_id.value, draft.manifest_digest
         )
         await _insert_task_source(connection, draft)
@@ -340,23 +302,6 @@ class PostgreSQLCodexDelegationRepository:
         opportunity_id = admitted.opportunity_id
         if opportunity_id is None:
             raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
-        await uow.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference(
-                    "creator_delegate" if delegate_id is not None else "creator",
-                    delegate_id or context.creator_party_id,
-                ),
-                Purpose("delegate_codex_work"),
-                "codex.task_source.admitted",
-                AuditReference("codex_task_source", draft.task_source_id.value),
-                AuditResultStatus.ACCEPTED,
-                draft.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=draft.subject_id,
-                request=AuditReference("creator_input", interaction_id),
-            )
-        )
         return CreatorInputAcceptance(
             CreatorInteractionId(interaction_id),
             EvidenceId(evidence_id),
@@ -401,15 +346,11 @@ class PostgreSQLCodexDelegationRepository:
             uow.transaction,
             task_source_id=intent.codex_task_source_id,
         )
-        bundle = await self._artifacts.retained_ref_in(
-            uow.transaction,
-            ArtifactId(source.source_bundle_artifact_id),
-        )
         manifest = await self._artifacts.retained_ref_in(
             uow.transaction,
             ArtifactId(source.task_manifest_artifact_id),
         )
-        if bundle is None or manifest is None:
+        if manifest is None:
             await self._effect.settle_codex(
                 uow.transaction,
                 claim=claim,
@@ -431,11 +372,8 @@ class PostgreSQLCodexDelegationRepository:
             claim.scene_id,
             claim.context_party_id,
             source.task_source_id,
-            bundle,
-            source.source_tree_digest,
             manifest,
             source.task_manifest_digest,
-            source.validator_id,
             source.deadline_seconds,
             claim.trace_id,
             claim.dispatch_deadline,
@@ -472,31 +410,18 @@ class PostgreSQLCodexDelegationRepository:
         status: CodexVerificationStatus,
         cleanup_status: CodexCleanupStatus,
         artifacts: Mapping[str, ArtifactRef],
-        source_tree_digest: Digest,
-        final_tree_digest: Digest | None,
-        patch_digest: Digest | None,
-        changed_path_count: int,
         execution_error_code: str | None,
         cleanup_error_code: str | None,
     ) -> UUID:
         connection = uow.transaction
         verification_id = uuid7()
-        validation = artifacts["validation_report"].content_digest
-        event_transcript = artifacts.get("event_transcript")
-        final_result = artifacts.get("final_result")
-        patch = artifacts.get("patch")
-        result_bundle = artifacts.get("result_bundle")
-        diagnostics = artifacts.get("diagnostics")
+        final_result = artifacts["final_result"]
         await connection.execute(
             """
             INSERT INTO armi.codex_verification_results (
                 codex_verification_id, effect_id, effect_attempt_id,
-                execution_status, cleanup_status, source_tree_digest,
-                final_tree_digest, patch_digest, event_transcript_artifact_id,
-                final_result_artifact_id, patch_artifact_id,
-                result_bundle_artifact_id, diagnostics_artifact_id,
-                validation_report_artifact_id,
-                changed_path_count, execution_error_code, cleanup_error_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                execution_status, cleanup_status, final_result_artifact_id,
+                execution_error_code, cleanup_error_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 verification_id,
@@ -504,36 +429,21 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.attempt_id,
                 status.value,
                 cleanup_status.value,
-                source_tree_digest.value,
-                final_tree_digest.value if final_tree_digest else None,
-                patch_digest.value if patch_digest else None,
-                event_transcript.artifact_id.value
-                if event_transcript is not None
-                else None,
-                final_result.artifact_id.value if final_result is not None else None,
-                patch.artifact_id.value if patch is not None else None,
-                result_bundle.artifact_id.value if result_bundle is not None else None,
-                diagnostics.artifact_id.value if diagnostics is not None else None,
-                artifacts["validation_report"].artifact_id.value,
-                changed_path_count,
+                final_result.artifact_id.value,
                 execution_error_code,
                 cleanup_error_code,
             ),
         )
-        terminal_error_code = (
-            execution_error_code
-            or cleanup_error_code
-            or (
-                "CODEX-DELEGATION-FAILED"
-                if status is CodexVerificationStatus.FAILED
-                else "CODEX-DELEGATION-UNKNOWN"
-            )
+        terminal_error_code = execution_error_code or (
+            "CODEX-DELEGATION-FAILED"
+            if status is CodexVerificationStatus.FAILED
+            else "CODEX-DELEGATION-UNKNOWN"
         )
         await self._effect.settle_codex(
             connection,
             claim=_effect_claim(snapshot),
             status=status.value,
-            observation_digest=validation,
+            observation_digest=final_result.content_digest,
             error_code=(
                 terminal_error_code
                 if status
@@ -542,11 +452,7 @@ class PostgreSQLCodexDelegationRepository:
             ),
         )
         evidence_id, result_source_id = uuid7(), uuid7()
-        evidence_ref = (
-            artifacts["final_result"]
-            if status is CodexVerificationStatus.VERIFIED
-            else artifacts["result_evidence"]
-        )
+        evidence_ref = final_result
         await self._evidence.accept(
             uow,
             EvidenceDraft(
@@ -597,21 +503,6 @@ class PostgreSQLCodexDelegationRepository:
                 evidence_ref.artifact_id.value,
             ),
         )
-        await uow.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", uow.environment_id),
-                Purpose("delegate_codex_work"),
-                "codex.delegation.settled",
-                AuditReference("effect", snapshot.effect_id),
-                AuditResultStatus.APPLIED
-                if status is CodexVerificationStatus.VERIFIED
-                else AuditResultStatus.FAILED,
-                snapshot.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(snapshot.subject_id),
-            )
-        )
         return verification_id
 
     async def _require_artifact(
@@ -649,20 +540,15 @@ async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> N
     await connection.execute(
         """
         INSERT INTO armi.codex_task_sources (
-            codex_task_source_id, subject_id, source_bundle_artifact_id,
-            source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
-            task_manifest_digest, validator_id,
-            deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            codex_task_source_id, subject_id, task_manifest_artifact_id,
+            task_manifest_digest,
+            deadline_seconds, trace_id) VALUES (%s,%s,%s,%s,%s,%s)
         """,
         (
             draft.task_source_id.value,
             draft.subject_id.value,
-            draft.source_bundle_artifact_id.value,
-            draft.source_bundle_digest.value,
-            draft.source_tree_digest.value,
             draft.manifest_artifact_id.value,
             draft.manifest_digest.value,
-            draft.validator_id,
             draft.deadline_seconds,
             draft.trace_id.value,
         ),

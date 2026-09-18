@@ -1516,6 +1516,60 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_supported_v25_database_upgrade_preserves_psychology(self) -> None:
         self._assert_supported_database_upgrade("v25")
 
+    @pytest.mark.test_group("schema", "codex", "admin")
+    def test_supported_v26_database_upgrade_preserves_artifacts(self) -> None:
+        from zipfile import ZipFile
+
+        from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
+        from armi_postgresql_contract.schema_resources import schema_resource_root
+        from armi_postgresql_contract.upgrades import apply_upgrade, upgrade_plan
+
+        old = self.create_database()
+        resource = schema_resource_root().parent / "upgrades"
+        source = upgrade_plan("armi.schema-baseline.v26")["source"]
+        artifact_id, object_id = uuid7(), uuid7()
+        digest = Digest.from_bytes(b"historical Codex result").value
+        locator = f"objects/sha256/{digest[7:9]}/{digest[9:11]}/{digest[7:]}"
+        with psycopg.connect(old.migrator_dsn) as connection:
+            connection.execute("SET ROLE armi_owner")
+            connection.execute("CREATE SCHEMA armi AUTHORIZATION armi_owner")
+            connection.execute(
+                "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+            )
+            connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
+            with ZipFile(resource / "v26-source.zip") as archive:
+                for name in sorted(archive.namelist()):
+                    if name.startswith("baseline/") and name.endswith(".sql"):
+                        connection.execute(
+                            cast(LiteralString, archive.read(name).decode("utf-8")),
+                            prepare=False,
+                        )
+            connection.execute(
+                "UPDATE armi.schema_baseline_identity SET resource_digest=%s,installed_catalog_digest=%s,role_policy_digest=%s",
+                (
+                    source["schema_digest"],
+                    database_catalog_digest(connection),
+                    source["role_policy_digest"],
+                ),
+            )
+            connection.execute(
+                "INSERT INTO armi.artifact_objects (artifact_object_id,content_digest,byte_size,storage_locator) VALUES (%s,%s,23,%s)",
+                (object_id, digest, locator),
+            )
+            connection.execute(
+                "INSERT INTO armi.artifacts (artifact_id,artifact_object_id,object_generation,media_type,logical_kind,producer_kind,producer_trace_id,privacy_scope) VALUES (%s,%s,1,'text/plain','codex.final-result','codex',%s,'private')",
+                (artifact_id, object_id, "a" * 32),
+            )
+            self.assertEqual(apply_upgrade(connection)["state"], "upgraded")
+            self.assertEqual(apply_upgrade(connection)["state"], "current")
+            self.assertEqual(
+                connection.execute(
+                    "SELECT artifact_id,content_digest FROM armi.artifacts JOIN armi.artifact_objects USING(artifact_object_id) WHERE artifact_id=%s",
+                    (artifact_id,),
+                ).fetchone(),
+                (artifact_id, digest),
+            )
+
     def _assert_supported_database_upgrade(self, source_version: str) -> None:
         from zipfile import ZipFile
 
@@ -4555,11 +4609,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             provenance = connection.execute(
                 "SELECT delegate_id FROM armi.party_input_interactions WHERE purpose='codex_task_request'"
             ).fetchone()
-            audit = connection.execute(
-                "SELECT actor_kind,actor_ref FROM armi.audit_events WHERE operation='codex.task_source.admitted'"
-            ).fetchone()
         self.assertEqual(provenance, (command.delegate_id,))
-        self.assertEqual(audit, ("creator_delegate", command.delegate_id))
 
     @pytest.mark.test_group("admin", "schema")
     def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
@@ -7243,7 +7293,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "basis_ordinals": [1],
                         "task_source_id": str(ids["codex_source"]),
                         "task_manifest_digest": digests["input"].value,
-                        "validator_id": "codex.output-artifact.v1",
                         "capability_kind": "codex.delegated-work",
                         "operation": "execute",
                         "purpose": "delegate_codex_work",
@@ -7292,7 +7341,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (1,),
                         CodexTaskSourceId(ids["codex_source"]),
                         digests["input"],
-                        "codex.output-artifact.v1",
                     ),
                 )
                 if codex
@@ -7488,7 +7536,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "basis_ordinals": list(task.basis_ordinals),
                     "task_source_id": str(task.task_source_id.value),
                     "task_manifest_digest": task.task_manifest_digest.value,
-                    "validator_id": task.validator_id,
                     "capability_kind": task.capability_kind,
                     "operation": task.operation,
                     "purpose": task.purpose,
@@ -7696,7 +7743,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v16"
+        candidate_contract_version = "armi.cognition-candidate.v17"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -8138,17 +8185,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO armi.codex_task_sources (
-                        codex_task_source_id, subject_id, source_bundle_artifact_id,
-                        source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
-                        task_manifest_digest, validator_id, deadline_seconds, trace_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,'codex.output-artifact.v1',900,%s)
+                        codex_task_source_id, subject_id, task_manifest_artifact_id,
+                        task_manifest_digest, deadline_seconds, trace_id)
+                    VALUES (%s,%s,%s,%s,900,%s)
                     """,
                     (
                         ids["codex_source"],
                         born.subject_id,
-                        artifact_ids["request"],
-                        digests["request"].value,
-                        digests["request"].value,
                         artifact_ids["input"],
                         digests["input"].value,
                         trace,
@@ -9298,17 +9341,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             status=CodexVerificationStatus.VERIFIED,
                             cleanup_status=CodexCleanupStatus.CLEAN,
                             artifacts={
-                                "validation_report": codex_claim.task_manifest,
-                                "final_result": codex_claim.source_bundle,
-                                "patch": codex_claim.task_manifest,
-                                "result_bundle": codex_claim.source_bundle,
+                                "final_result": codex_claim.task_manifest,
                             },
-                            source_tree_digest=codex_claim.source_tree_digest,
-                            final_tree_digest=Digest.from_bytes(
-                                b"controlled final tree"
-                            ),
-                            patch_digest=Digest.from_bytes(b"controlled patch"),
-                            changed_path_count=1,
                             execution_error_code=None,
                             cleanup_error_code=None,
                         )
@@ -10151,7 +10185,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v7",
+                            "creator-operation.v8",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")

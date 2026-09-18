@@ -118,7 +118,7 @@ class Harness:
             ArtifactIntegrityStatus.VERIFIED,
         )
 
-    async def read(self, kind=EffectArtifactKind.PATCH):
+    async def read(self, kind=EffectArtifactKind.FINAL_RESULT):
         return await self.pipeline.read_artifact(
             self.effect, creator_party_id=self.creator, kind=kind
         )
@@ -190,29 +190,26 @@ async def test_concurrent_cold_reads_share_one_load(harness):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "kind", [EffectArtifactKind.PATCH, EffectArtifactKind.VALIDATION_REPORT]
-)
-async def test_unprojected_content_preserves_registered_digest(harness, kind):
+async def test_failure_content_preserves_registered_digest(harness):
     h = harness
     await h.publish(b'{"verified":true}', "application/json")
-    result = await h.read(kind)
+    result = await h.read()
     assert result.content_digest == h.ref.content_digest
     assert result.content == b'{"verified":true}'
 
 
 @pytest.mark.asyncio
-async def test_final_result_only_returns_deliverable_and_its_digest(harness):
+async def test_final_result_returns_original_text_and_registered_digest(harness):
     h = harness
     await h.publish(
-        b'{"changed_paths":["result.md"],"deliverable":"done\\n","summary":"private wrapper"}',
-        "application/json",
+        b"done\n",
+        "text/plain",
     )
     result = await h.read(EffectArtifactKind.FINAL_RESULT)
     assert result.content == b"done\n"
     assert result.media_type == "text/plain"
     assert result.content_digest == Digest.from_bytes(b"done\n")
-    assert result.content_digest != h.ref.content_digest
+    assert result.content_digest == h.ref.content_digest
     assert await h.read(EffectArtifactKind.FINAL_RESULT) is result
 
 
@@ -220,20 +217,7 @@ async def test_final_result_only_returns_deliverable_and_its_digest(harness):
 @pytest.mark.parametrize(
     "content,kind",
     [
-        (b"\xff", EffectArtifactKind.PATCH),
-        (b"[]", EffectArtifactKind.FINAL_RESULT),
-        (
-            b'{"summary":"ok","changed_paths":[],"deliverable":""}',
-            EffectArtifactKind.FINAL_RESULT,
-        ),
-        (
-            b'{"summary":NaN,"changed_paths":[],"deliverable":"x"}',
-            EffectArtifactKind.FINAL_RESULT,
-        ),
-        (
-            b'{"summary":"ok","changed_paths":[],"deliverable":"x","deliverable":"y"}',
-            EffectArtifactKind.FINAL_RESULT,
-        ),
+        (b"\xff", EffectArtifactKind.FINAL_RESULT),
     ],
 )
 async def test_invalid_content_is_never_cached(harness, content, kind):
@@ -251,7 +235,7 @@ async def test_hit_cannot_bypass_creator_scope(harness):
     await h.read()
     with pytest.raises(EffectViolation, match="SCOPE-EFFECT-NOT-VISIBLE"):
         await h.pipeline.read_artifact(
-            h.effect, creator_party_id=uuid7(), kind=EffectArtifactKind.PATCH
+            h.effect, creator_party_id=uuid7(), kind=EffectArtifactKind.FINAL_RESULT
         )
 
 

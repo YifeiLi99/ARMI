@@ -110,7 +110,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
             value["next_consideration_seconds"] = 60
             value["expression"] = None
             value["mind_change"] = None
-    elif version == "armi.cognition-candidate.v16":
+    elif version == "armi.cognition-candidate.v17":
         value = {
             "schema_version": version,
             "base": {

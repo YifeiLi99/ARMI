@@ -66,23 +66,16 @@ CREATE TABLE armi.codex_result_sources (
 CREATE TABLE armi.codex_task_sources (
     codex_task_source_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    source_bundle_artifact_id uuid NOT NULL,
-    source_bundle_digest text NOT NULL,
-    source_tree_digest text NOT NULL,
     task_manifest_artifact_id uuid NOT NULL,
     task_manifest_digest text NOT NULL,
-    validator_id text NOT NULL,
     deadline_seconds integer NOT NULL,
     trace_id text NOT NULL,
     admitted_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     origin_subject_commit_id uuid,
     CONSTRAINT codex_task_sources_codex_task_source_id_check CHECK ((uuid_extract_version(codex_task_source_id) = 7)),
     CONSTRAINT codex_task_sources_deadline_seconds_check CHECK (((deadline_seconds >= 60) AND (deadline_seconds <= 1800))),
-    CONSTRAINT codex_task_sources_source_bundle_digest_check CHECK ((source_bundle_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT codex_task_sources_source_tree_digest_check CHECK ((source_tree_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT codex_task_sources_task_manifest_digest_check CHECK ((task_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT codex_task_sources_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32)))),
-    CONSTRAINT codex_task_sources_validator_id_check CHECK ((validator_id ~ '^codex\.[a-z0-9.-]{1,96}\.v[1-9][0-9]*$'::text))
+    CONSTRAINT codex_task_sources_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
 );
 
 --
@@ -95,29 +88,16 @@ CREATE TABLE armi.codex_verification_results (
     effect_attempt_id uuid NOT NULL,
     execution_status text NOT NULL,
     cleanup_status text NOT NULL,
-    source_tree_digest text NOT NULL,
-    final_tree_digest text,
-    patch_digest text,
-    event_transcript_artifact_id uuid,
-    final_result_artifact_id uuid,
-    patch_artifact_id uuid,
-    result_bundle_artifact_id uuid,
-    diagnostics_artifact_id uuid,
-    validation_report_artifact_id uuid,
-    changed_path_count integer NOT NULL,
+    final_result_artifact_id uuid NOT NULL,
     execution_error_code text,
     cleanup_error_code text,
     completed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT codex_verification_results_changed_path_count_check CHECK (((changed_path_count >= 0) AND (changed_path_count <= 500))),
-    CONSTRAINT codex_verification_results_check CHECK ((((execution_status = 'verified'::text) AND (cleanup_status = 'clean'::text) AND (final_tree_digest IS NOT NULL) AND (patch_digest IS NOT NULL) AND (final_result_artifact_id IS NOT NULL) AND (patch_artifact_id IS NOT NULL) AND (result_bundle_artifact_id IS NOT NULL) AND (validation_report_artifact_id IS NOT NULL) AND (execution_error_code IS NULL) AND (cleanup_error_code IS NULL)) OR (execution_status <> 'verified'::text))),
+    CONSTRAINT codex_verification_results_check CHECK ((execution_status <> 'verified'::text OR execution_error_code IS NULL)),
     CONSTRAINT codex_verification_results_cleanup_error_code_check CHECK (((cleanup_error_code IS NULL) OR (cleanup_error_code ~ '^CODEX-[A-Z0-9-]+$'::text))),
     CONSTRAINT codex_verification_results_cleanup_status_check CHECK ((cleanup_status = ANY (ARRAY['clean'::text, 'failed'::text]))),
     CONSTRAINT codex_verification_results_codex_verification_id_check CHECK ((uuid_extract_version(codex_verification_id) = 7)),
     CONSTRAINT codex_verification_results_execution_error_code_check CHECK (((execution_error_code IS NULL) OR (execution_error_code ~ '^CODEX-[A-Z0-9-]+$'::text))),
-    CONSTRAINT codex_verification_results_execution_status_check CHECK ((execution_status = ANY (ARRAY['verified'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text]))),
-    CONSTRAINT codex_verification_results_final_tree_digest_check CHECK (((final_tree_digest IS NULL) OR (final_tree_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT codex_verification_results_patch_digest_check CHECK (((patch_digest IS NULL) OR (patch_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT codex_verification_results_source_tree_digest_check CHECK ((source_tree_digest ~ '^sha256:[0-9a-f]{64}$'::text))
+    CONSTRAINT codex_verification_results_execution_status_check CHECK ((execution_status = ANY (ARRAY['verified'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text])))
 );
 
 --

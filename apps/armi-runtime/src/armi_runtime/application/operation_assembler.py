@@ -238,9 +238,6 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                         execution.execution_status,
                         execution.model_id,
                         execution.sdk_identity,
-                        execution.validator_id,
-                        execution.source_tree_digest,
-                        execution.final_tree_digest,
                         None if result_phase is None else result_phase.value,
                         result_reason,
                     )

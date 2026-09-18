@@ -20,9 +20,7 @@ from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 
 
 def test_autonomous_task_has_own_source_and_preserves_execution_boundaries() -> None:
-    import io
     import json
-    import zipfile
 
     draft = bind_autonomous_codex_task(
         objective="整理我正在进行的研究。",
@@ -37,19 +35,12 @@ def test_autonomous_task_has_own_source_and_preserves_execution_boundaries() -> 
     manifest = json.loads(draft.new_task.manifest_bytes)
     assert manifest["objective"] == "整理我正在进行的研究。"
     assert manifest["web_search"] is False
-    assert manifest["forbidden_paths"] == [".armi-task-id"]
-    assert manifest["source_tree_digest"] == draft.new_task.source_tree_digest.value
+    assert manifest["task_source_id"] == str(draft.task_source_id.value)
     assert (
         Digest.from_bytes(draft.new_task.manifest_bytes) == draft.task_manifest_digest
     )
     assert "creator_party_id" not in manifest
     assert "input_id" not in manifest
-    with zipfile.ZipFile(io.BytesIO(draft.new_task.bundle_bytes)) as archive:
-        assert set(archive.namelist()) == {".armi-task-id", "result.md"}
-        assert archive.read(".armi-task-id").decode().strip() == str(
-            draft.task_source_id.value
-        )
-        assert archive.read("result.md") == b"PENDING\n"
 
 
 def test_creator_codex_task_command_preserves_exact_objective() -> None:
@@ -76,20 +67,29 @@ def test_creator_codex_task_command_rejects_invalid_objective(objective: str) ->
         )
 
 
-def test_creator_timeline_projection_reads_only_the_verified_objective() -> None:
+@pytest.mark.parametrize("historical", (False, True))
+def test_creator_timeline_projection_reads_only_the_verified_objective(
+    historical: bool,
+) -> None:
     manifest = rfc8785.dumps(
         {
-            "schema_version": "armi.codex-task-source.v2",
+            "schema_version": "armi.codex-task-source.v2"
+            if historical
+            else "armi.codex-task-source.v3",
             "objective": "  保留原始目标\n并生成交付物。  ",
-            "facts": ["one fact"],
-            "allowed_paths": [],
-            "forbidden_paths": [".armi-task-id"],
-            "validator_id": "codex.output-artifact.v1",
+            "task_source_id": str(uuid7()),
             "deadline_seconds": 900,
-            "source_tree_digest": Digest.from_bytes(b"tree").value,
             "model_id": "gpt-5.6-sol",
             "reasoning_effort": "medium",
             "web_search": False,
+            **(
+                {
+                    "validator_id": "codex.output-artifact.v1",
+                    "source_tree_digest": Digest.from_bytes(b"historical tree").value,
+                }
+                if historical
+                else {}
+            ),
         }
     )
     artifact = ArtifactRef(

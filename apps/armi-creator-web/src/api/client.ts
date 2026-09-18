@@ -932,8 +932,7 @@ export async function getEffectDetail(
   return requireJson(response);
 }
 
-export type CodexEffectArtifactKind =
-  "patch" | "final_result" | "validation_report";
+export type CodexEffectArtifactKind = "final_result";
 
 export async function getEffectArtifact(
   token: string,

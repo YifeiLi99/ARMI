@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import cast
 from uuid import UUID
 
 from armi_kernel.application import ArtifactRef, RuntimeFence
-from armi_kernel.contracts import Digest
 
 from .api import (
     EffectArtifactContent,
@@ -42,48 +39,13 @@ class _Entry:
     expiry: asyncio.TimerHandle
 
 
-def _object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("duplicate key")
-        result[key] = value
-    return result
-
-
-def _invalid_constant(value: str) -> object:
-    raise ValueError(value)
-
-
 def project_artifact(
     kind: EffectArtifactKind, source: ArtifactRef, content: bytes
 ) -> EffectArtifactContent:
     try:
-        decoded = content.decode("utf-8", errors="strict")
-        if kind is not EffectArtifactKind.FINAL_RESULT:
-            return EffectArtifactContent(
-                kind, source.media_type, content, source.content_digest
-            )
-        value: object = json.loads(
-            decoded, object_pairs_hook=_object_pairs, parse_constant=_invalid_constant
-        )
-        if type(value) is not dict:
-            raise ValueError
-        document = cast(dict[str, object], value)
-        if set(document) != {
-            "summary",
-            "changed_paths",
-            "deliverable",
-        }:
-            raise ValueError
-        deliverable = document["deliverable"]
-        if type(deliverable) is not str or not deliverable.strip():
-            raise ValueError
-        projected = deliverable.encode("utf-8", errors="strict")
-        if len(projected) > 1024 * 1024:
-            raise ValueError
+        content.decode("utf-8", errors="strict")
         return EffectArtifactContent(
-            kind, "text/plain", projected, Digest.from_bytes(projected)
+            kind, source.media_type, content, source.content_digest
         )
     except UnicodeError, ValueError:
         raise EffectViolation("EFFECT-ARTIFACT-INTEGRITY") from None

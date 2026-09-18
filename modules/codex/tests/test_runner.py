@@ -6,7 +6,6 @@ import subprocess
 import sys
 import threading
 import time
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -14,19 +13,10 @@ from uuid import uuid7
 
 import pytest
 from armi_codex import _runner as runner_module
-from armi_codex._codec import decode_task
-from armi_codex._custody_codec import (
-    decode_custodied_result,
-    encode_custodied_result,
-)
-from armi_codex._runner import (
-    CodexRunArtifactSet,
-    IsolatedCodexRunner,
-    _result_bundle,
-)
+from armi_codex._codec import decode_result, decode_task, encode_result, encode_task
+from armi_codex._runner import IsolatedCodexRunner
 from armi_codex._sdk_codec import SdkTurnEvidence
-from armi_codex._subprocess_client import _decode_failure, run_custodied_subprocess
-from armi_codex._workspace import capture_tree, changed_paths, snapshot_tree
+from armi_codex._subprocess_client import _decode_failure, run_subprocess
 from armi_codex.api import (
     CodexExecutionId,
     CodexModel,
@@ -43,19 +33,6 @@ from armi_kernel.application import (
     CredentialPurpose,
     SecretHandle,
 )
-from armi_kernel.contracts import Digest
-
-
-def test_result_bundle_uses_the_single_custodied_byte_set(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    target = workspace / "result.md"
-    target.write_bytes(b"captured\n")
-    custody = capture_tree(workspace, byte_limit=1024)
-    target.write_bytes(b"late mutation\n")
-
-    with zipfile.ZipFile(runner_module.io.BytesIO(_result_bundle(custody))) as bundle:
-        assert bundle.read("result.md") == b"captured\n"
 
 
 def test_supervisor_cancellation_terminates_child_process_tree(tmp_path: Path) -> None:
@@ -76,7 +53,7 @@ def test_supervisor_cancellation_terminates_child_process_tree(tmp_path: Path) -
     handle = None
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
-            run_custodied_subprocess,
+            run_subprocess,
             runner_entry_module="controlled_runner",
             environment_root=tmp_path,
             process_temp=tmp_path / "supervisor-temp",
@@ -161,107 +138,40 @@ class _Credentials(CredentialPort):
         return _Handle(b'{"tokens":{"access_token":"conformance"}}')
 
 
-def _task(bundle: Path, source: Path) -> CodexTaskManifest:
+def _prepare(tmp_path: Path) -> tuple[CodexTaskManifest, Path]:
     return CodexTaskManifest(
         CodexExecutionId(uuid7()),
         uuid7(),
         uuid7(),
-        Digest.from_bytes(bundle.read_bytes()),
-        snapshot_tree(source, byte_limit=1024 * 1024).digest,
-        "Create result.txt containing the fixed conformance marker.",
-        ("This is an isolated conformance repository.",),
-        ("result.txt",),
-        ("input.txt",),
-        "codex.conformance.minimal-edit.v1",
+        "整理资料并说明来源。",
         60,
-    )
+    ), tmp_path / "runs"
 
 
-def _bundle(tmp_path: Path) -> tuple[Path, Path]:
-    source = tmp_path / "source"
-    source.mkdir()
-    (source / "input.txt").write_text("input\n", encoding="utf-8", newline="\n")
-    bundle = tmp_path / "source.zip"
-    with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.write(source / "input.txt", "input.txt")
-    return source, bundle
+_prepare_output_task = _prepare
 
 
-def _prepare(tmp_path: Path) -> tuple[CodexTaskManifest, Path]:
-    source, bundle = _bundle(tmp_path)
-    task = _task(bundle, source)
-    run_root = tmp_path / "runs"
-    intake = run_root / "intake" / task.execution_id.value.hex
-    intake.mkdir(parents=True)
-    bundle.rename(intake / f"{task.source_bundle_digest.value[7:]}.zip")
-    return task, run_root
+def _evidence(output: str) -> SdkTurnEvidence:
+    return SdkTurnEvidence(output, CodexUsage(12, 0, 4))
 
 
-def _prepare_output_task(tmp_path: Path) -> tuple[CodexTaskManifest, Path]:
-    source = tmp_path / "output-source"
-    source.mkdir()
-    (source / ".armi-task-id").write_text("stable\n", encoding="utf-8")
-    (source / "result.md").write_text("PENDING\n", encoding="utf-8")
-    bundle = tmp_path / "output-source.zip"
-    with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.write(source / ".armi-task-id", ".armi-task-id")
-        archive.write(source / "result.md", "result.md")
-    task = CodexTaskManifest(
-        CodexExecutionId(uuid7()),
-        uuid7(),
-        uuid7(),
-        Digest.from_bytes(bundle.read_bytes()),
-        snapshot_tree(source, byte_limit=1024 * 1024).digest,
-        "Write the requested Creator deliverable.",
-        ("result.md is the only deliverable.",),
-        ("result.md",),
-        (".armi-task-id",),
-        "codex.output-artifact.v1",
-        60,
-    )
-    run_root = tmp_path / "output-runs"
-    intake = run_root / "intake" / task.execution_id.value.hex
-    intake.mkdir(parents=True)
-    bundle.rename(intake / f"{task.source_bundle_digest.value[7:]}.zip")
-    return task, run_root
-
-
-def _evidence(output: bytes) -> SdkTurnEvidence:
-    transcript = b'[{"type":"commandExecution"}]'
-    return SdkTurnEvidence(
-        output,
-        transcript,
-        CodexUsage(12, 0, 4),
-        (),
-    )
-
-
-def test_custodied_runner_envelope_round_trips_without_paths(tmp_path: Path) -> None:
-    task, _run_root = _prepare(tmp_path)
+def test_runner_message_preserves_plain_result_and_cleanup_failure(
+    tmp_path: Path,
+) -> None:
+    task, _root = _prepare(tmp_path)
     result = CodexRunResult(
-        execution_id=task.execution_id,
-        status=CodexRunStatus.SUCCEEDED,
-        model_id="gpt-5.6-sol",
-        sdk_version="0.144.4",
-        source_tree_digest=task.source_tree_digest,
-        final_tree_digest=Digest.from_bytes(b"tree"),
-        patch_digest=Digest.from_bytes(b"patch"),
-        usage=CodexUsage(3, 1, 2),
-        modified_file_count=1,
-        validation_passed=True,
+        task.execution_id,
+        CodexRunStatus.SUCCEEDED,
+        "gpt-5.6-sol",
+        "0.144.4",
+        "中文结果\n含来源",
+        None,
+        cleanup_error_code="CODEX-CLEANUP",
     )
-    artifacts = CodexRunArtifactSet(
-        event_transcript=b"events",
-        final_result=b"result",
-        patch=b"patch",
-        result_bundle=b"bundle",
-        diagnostics=b"diagnostics",
-        validation_report=b"validation",
-    )
-    encoded = encode_custodied_result(result, artifacts)
-    assert decode_custodied_result(encoded) == (result, artifacts)
+    assert decode_result(encode_result(result)) == result
+    assert decode_task(encode_task(task)) == task
     with pytest.raises(CodexRunnerViolation, match="CODEX-RESULT-FORMAT"):
-        decode_custodied_result(encoded + b"trailing")
+        decode_result(encode_result(result) + b"trailing")
 
 
 def test_subprocess_failure_preserves_unknown_outcome() -> None:
@@ -292,77 +202,12 @@ def test_task_options_use_luna_low_reasoning_and_live_search(
     assert "tools.web_search=true" in config
     assert "sandbox_workspace_write.network_access=false" in config
     assert 'web_search="disabled"' not in config
-    prompt = json.loads(runner_module._prompt(task))
-    assert any("Use built-in Web Search" in rule for rule in prompt["rules"])
-    assert all("Do not use network" not in rule for rule in prompt["rules"])
-    result = CodexRunResult(
-        execution_id=task.execution_id,
-        status=CodexRunStatus.SUCCEEDED,
-        model_id="gpt-5.6-luna",
-        sdk_version="0.144.4",
-        source_tree_digest=task.source_tree_digest,
-        final_tree_digest=Digest.from_bytes(b"tree"),
-        patch_digest=Digest.from_bytes(b"patch"),
-        usage=CodexUsage(3, 1, 2),
-        modified_file_count=1,
-        validation_passed=True,
-    )
-    assert result.model_id == "gpt-5.6-luna"
+    assert runner_module._prompt(task) == task.objective
 
 
-def test_empty_allow_list_uses_workspace_with_explicit_blacklist(
-    tmp_path: Path,
-) -> None:
-    source, bundle = _bundle(tmp_path)
-    task = replace(_task(bundle, source), allowed_paths=(), forbidden_paths=("secret",))
-    before = snapshot_tree(source, byte_limit=1024 * 1024)
-    (source / "notes.md").write_text("ok\n", encoding="utf-8", newline="\n")
-    after = snapshot_tree(source, byte_limit=1024 * 1024)
-    assert changed_paths(before, after, task) == ("notes.md",)
-
-    (source / "secret").mkdir()
-    before = snapshot_tree(source, byte_limit=1024 * 1024)
-    (source / "secret" / "token.txt").write_text("blocked\n", encoding="utf-8")
-    after = snapshot_tree(source, byte_limit=1024 * 1024)
-    with pytest.raises(CodexRunnerViolation, match="CODEX-SCOPE"):
-        changed_paths(before, after, task)
-
-
-def test_task_codec_rejects_duplicate_keys_and_paths(tmp_path: Path) -> None:
-    source, bundle = _bundle(tmp_path)
-    task = _task(bundle, source)
-    value = {
-        field: getattr(task, field)
-        for field in task.__dataclass_fields__  # type: ignore[attr-defined]
-    }
-    value.update(
-        execution_id=str(task.execution_id.value),
-        task_id=str(task.task_id),
-        effect_id=str(task.effect_id),
-        source_bundle_digest=str(task.source_bundle_digest),
-        source_tree_digest=str(task.source_tree_digest),
-        facts=list(task.facts),
-        allowed_paths=list(task.allowed_paths),
-        forbidden_paths=list(task.forbidden_paths),
-    )
-    assert decode_task(json.dumps(value).encode()) == task
+def test_task_codec_rejects_duplicate_keys() -> None:
     with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-FORMAT"):
         decode_task(b'{"schema_version":"a","schema_version":"b"}')
-    for invalid in ("../escape", ".codex/config.toml", "CON.txt", "wild*.txt"):
-        with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-PATH"):
-            CodexTaskManifest(
-                task.execution_id,
-                task.task_id,
-                task.effect_id,
-                task.source_bundle_digest,
-                task.source_tree_digest,
-                task.objective,
-                task.facts,
-                (invalid,),
-                (),
-                task.validator_id,
-                task.deadline_seconds,
-            )
 
 
 @pytest.mark.asyncio
@@ -378,11 +223,7 @@ async def test_fake_sdk_run_is_scoped_and_preserves_only_platform_state(
         (workspace / "result.txt").write_text(
             "ARMI_CODEX_CONFORMANCE_OK\n", encoding="utf-8", newline="\n"
         )
-        output = json.dumps(
-            {"summary": "created marker", "changed_paths": ["result.txt"]},
-            separators=(",", ":"),
-        ).encode()
-        return _evidence(output)
+        return _evidence("任务结果及来源")
 
     monkeypatch.setattr(runner_module, "_invoke_sdk", fake_invoke_sdk)
     runner = IsolatedCodexRunner(
@@ -392,7 +233,7 @@ async def test_fake_sdk_run_is_scoped_and_preserves_only_platform_state(
     )
     result = await runner.run(task)
     assert result.status is CodexRunStatus.SUCCEEDED
-    assert result.modified_file_count == 1
+    assert result.final_response == "任务结果及来源"
     assert result.usage is not None and result.usage.input_tokens == 12
     assert not (run_root / "private" / task.execution_id.value.hex).exists()
     assert {path.name for path in (run_root / "platform-home").iterdir()} == {
@@ -401,59 +242,36 @@ async def test_fake_sdk_run_is_scoped_and_preserves_only_platform_state(
 
 
 @pytest.mark.asyncio
-async def test_scope_violation_fails_without_exposing_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_completed_result_survives_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task, run_root = _prepare(tmp_path)
 
-    async def fake_invoke_sdk(**values):  # type: ignore[no-untyped-def]
-        (values["workspace"] / "input.txt").write_text("changed\n", encoding="utf-8")
-        return _evidence(b'{"summary":"bad","changed_paths":["input.txt"]}')
+    async def fake_invoke_sdk(**values):
+        # Scratch files do not invalidate an otherwise completed delegation.
+        (values["workspace"] / "notes.txt").write_text("scratch", encoding="utf-8")
+        return _evidence("研究结果与来源")
+
+    original_cleanup = runner_module.remove_private_directory
+
+    def cleanup_reports_failure(path):
+        original_cleanup(path)
+        raise CodexRunnerViolation("CODEX-CLEANUP")
 
     monkeypatch.setattr(runner_module, "_invoke_sdk", fake_invoke_sdk)
+    monkeypatch.setattr(
+        runner_module, "remove_private_directory", cleanup_reports_failure
+    )
     runner = IsolatedCodexRunner(
         run_root=run_root,
         credential_port=_Credentials(),
         auth_locator=CredentialLocator.parse("file:auth.json"),
     )
-    with pytest.raises(CodexRunnerViolation) as captured:
-        await runner.run(task)
-    assert captured.value.code == "CODEX-SCOPE"
-    assert "input.txt" not in str(captured.value)
-
-
-@pytest.mark.asyncio
-async def test_output_artifact_validator_custodies_real_deliverable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    task, run_root = _prepare_output_task(tmp_path)
-    deliverable = "# 交付结果\n\n这是经独立验证的任务结果。\n"
-
-    async def fake_invoke_sdk(**values):  # type: ignore[no-untyped-def]
-        assert (values["workspace"] / "result.md").read_text(encoding="utf-8") == (
-            "PENDING\n"
-        )
-        output = json.dumps(
-            {
-                "summary": "created deliverable",
-                "changed_paths": ["result.md"],
-                "deliverable": deliverable,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode()
-        return _evidence(output)
-
-    monkeypatch.setattr(runner_module, "_invoke_sdk", fake_invoke_sdk)
-    runner = IsolatedCodexRunner(
-        run_root=run_root,
-        credential_port=_Credentials(),
-        auth_locator=CredentialLocator.parse("file:auth.json"),
-    )
-    result, artifacts = await runner.run_custodied(task)
+    result = await runner.run(task)
     assert result.status is CodexRunStatus.SUCCEEDED
-    assert json.loads(artifacts.final_result)["deliverable"] == deliverable
-    assert not (run_root / "private" / task.execution_id.value.hex).exists()
+    assert result.final_response == "研究结果与来源"
+    assert result.cleanup_error_code == "CODEX-CLEANUP"
 
 
 @pytest.mark.asyncio

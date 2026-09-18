@@ -117,7 +117,7 @@ GENERIC_COGNITION_INSTRUCTIONS = (
     "回复引用当前证据和场合,不为回复附加不必要的主体变化。"
     "consider_codex_task 中由你决定委托或正式拒绝。只有当前 capability_catalog 表明 Codex 可用才可委托。"
     "codex_delegation 必须引用 codex_task_source 和 capability_catalog,原样引用当前任务来源身份、"
-    "task_manifest_digest 和 validator;不从正文猜测或替换 manifest 摘要。"
+    "task_manifest_digest;不从正文猜测或替换 manifest 摘要。"
     "委托使用 disposition=change,不与 formal_no_action 同时提出,无需配套申请。"
     "consider_codex_result 中,只能从当前证据里的真实 runner 结果形成 codex_observation Experience,"
     "由你理解、采纳或拒绝结果;执行结果不等于主体已接纳,不扩大为未观察到的事实。"
@@ -130,7 +130,7 @@ MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
 DialoguePromptVersion = Literal["armi.dialogue-prompt.v4"]
-CANDIDATE_VERSION = "armi.cognition-candidate.v16"
+CANDIDATE_VERSION = "armi.cognition-candidate.v17"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -412,10 +412,6 @@ class CodexDelegationPayload(_StrictModel, frozen=True):
     capability_kind: Literal["codex.delegated-work"]
     operation: Literal["execute"]
     purpose: Literal["delegate_codex_work"]
-    validator_id: Annotated[
-        str,
-        StringConstraints(pattern=r"^codex\.[a-z0-9.-]{1,96}\.v[1-9][0-9]*$"),
-    ]
 
 
 type ActionChoicePayload = Annotated[
@@ -509,7 +505,7 @@ class CandidateUncertainty(_StrictModel, frozen=True):
 class CognitionCandidate(_StrictModel, frozen=True):
     mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
-    schema_version: Literal["armi.cognition-candidate.v16"]
+    schema_version: Literal["armi.cognition-candidate.v17"]
     base: CandidateBase
     disposition: Literal[
         "change",

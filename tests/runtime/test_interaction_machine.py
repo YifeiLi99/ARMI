@@ -189,7 +189,10 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
     assert len(content) == 4 * 1024 * 1024
     callers = []
     artifact = EffectArtifactContent(
-        EffectArtifactKind.PATCH, "text/plain", content, Digest.from_bytes(content)
+        EffectArtifactKind.FINAL_RESULT,
+        "text/plain",
+        content,
+        Digest.from_bytes(content),
     )
     original_sha256 = hashlib.sha256
 
@@ -206,7 +209,7 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
 
     app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
     client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
-    arguments = {"effect_id": str(uuid7()), "artifact_kind": "patch"}
+    arguments = {"effect_id": str(uuid7()), "artifact_kind": "final_result"}
     first = await InteractionTools(lambda: client).call_tool("artifact_read", arguments)
     assert first.structured_content is not None
     assert first.structured_content["result"]["byte_count"] == 65536
@@ -228,7 +231,7 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
             "--effect-id",
             arguments["effect_id"],
             "--artifact-kind",
-            "patch",
+            "final_result",
             "--output",
             str(output),
         ]
@@ -257,7 +260,7 @@ async def test_artifact_download_rejects_changed_content_without_publishing(
             calls += 1
             content = (b"a" if calls == 1 else b"b") * 100000
             return EffectArtifactContent(
-                EffectArtifactKind.PATCH,
+                EffectArtifactKind.FINAL_RESULT,
                 "text/plain",
                 content,
                 Digest.from_bytes(content),
@@ -268,7 +271,7 @@ async def test_artifact_download_rejects_changed_content_without_publishing(
     output = tmp_path / "artifact.patch"
     with pytest.raises(ValueError, match="ARTIFACT-CHANGED"):
         await client.download_artifact(
-            {"effect_id": str(uuid7()), "artifact_kind": "patch"}, output
+            {"effect_id": str(uuid7()), "artifact_kind": "final_result"}, output
         )
     assert not output.exists()
     assert not tuple(tmp_path.glob("*.part"))
@@ -335,7 +338,7 @@ async def test_download_rejects_wrong_final_digest_without_publishing(tmp_path):
     output = tmp_path / "artifact.patch"
     with pytest.raises(ValueError, match="ARTIFACT-INTEGRITY"):
         await client.download_artifact(
-            {"effect_id": str(uuid7()), "artifact_kind": "patch"}, output
+            {"effect_id": str(uuid7()), "artifact_kind": "final_result"}, output
         )
     assert not output.exists()
     assert not tuple(tmp_path.glob("*.part"))
@@ -360,7 +363,7 @@ async def test_artifact_window_preserves_byte_boundaries(tmp_path, offset, lengt
         "artifact_read",
         {
             "effect_id": str(uuid7()),
-            "artifact_kind": "patch",
+            "artifact_kind": "final_result",
             "offset": offset,
             "length": length,
         },
@@ -396,7 +399,7 @@ async def test_invalid_artifact_window_is_rejected(
     client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
     arguments = {
         "effect_id": str(uuid7()),
-        "artifact_kind": "patch",
+        "artifact_kind": "final_result",
         "offset": offset,
         "length": length,
     }

@@ -780,7 +780,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     stage = _operation_stage(phase)
     outcome = _operation_outcome(phase)
     wire["details"] = {
-        "projection_version": "creator-operation.v7",
+        "projection_version": "creator-operation.v8",
         "operation_ref": str(operation.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,
@@ -849,11 +849,6 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
                     "result_processing_reason": operation.codex_execution.result_processing_reason,
                     "model_id": operation.codex_execution.model_id,
                     "sdk_identity": operation.codex_execution.sdk_identity,
-                    "validator_id": operation.codex_execution.validator_id,
-                    "source_tree_digest": operation.codex_execution.source_tree_digest.value,
-                    "final_tree_digest": None
-                    if operation.codex_execution.final_tree_digest is None
-                    else operation.codex_execution.final_tree_digest.value,
                 }
             }
             if operation.codex_execution is not None

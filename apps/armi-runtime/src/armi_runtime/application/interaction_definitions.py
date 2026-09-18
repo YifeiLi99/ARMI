@@ -392,7 +392,7 @@ OPERATION_CONTRACTS = (
                 "name": "artifact_kind",
                 "required": True,
                 "schema": {
-                    "enum": ["patch", "final_result", "validation_report"],
+                    "enum": ["final_result"],
                     "title": "Artifact Kind",
                     "type": "string",
                 },

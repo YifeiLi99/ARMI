@@ -274,8 +274,8 @@ def test_codex_task_context_exposes_registered_manifest_digest() -> None:
         snapshot,
         rfc8785.dumps(
             {
-                "schema_version": "armi.codex-task-source.v2",
-                "source_tree_digest": Digest.from_bytes(b"source tree").value,
+                "schema_version": "armi.codex-task-source.v3",
+                "objective": "收集资料",
             }
         ),
         b"fixed prompt",
@@ -287,7 +287,7 @@ def test_codex_task_context_exposes_registered_manifest_digest() -> None:
     )
     document = json.loads(cast(str, evidence.content))
     assert document["task_manifest_digest"] == manifest_digest.value
-    assert document["source_tree_digest"] != manifest_digest.value
+    assert document["objective"] == "收集资料"
 
 
 def test_autonomy_opportunity_is_required_runtime_evidence() -> None:

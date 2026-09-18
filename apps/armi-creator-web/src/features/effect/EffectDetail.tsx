@@ -163,38 +163,35 @@ export function EffectDetail({
           {effect.data.effect_kind === "codex_delegation" &&
           effect.data.status === "completed" ? (
             <div className="verified-response">
-              <h3>已核验 Codex 产物</h3>
+              <h3>Codex 返回结果</h3>
               <div className="timeline-heading-row">
-                {(["patch", "final_result", "validation_report"] as const).map(
-                  (kind) => (
-                    <button
-                      type="button"
-                      className="secondary"
-                      key={kind}
-                      onClick={() => {
-                        setArtifactFailure(false);
-                        void getEffectArtifact(
-                          token,
-                          effect.data.effect_id,
-                          kind,
-                        )
-                          .then((content) => setArtifact({ kind, content }))
-                          .catch((error: unknown) => {
-                            if (
-                              error instanceof ApiFailure &&
-                              error.status === 401
-                            ) {
-                              onUnauthorized();
-                            } else {
-                              setArtifactFailure(true);
-                            }
-                          });
-                      }}
-                    >
-                      查看 {kind}
-                    </button>
-                  ),
-                )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setArtifactFailure(false);
+                    void getEffectArtifact(
+                      token,
+                      effect.data.effect_id,
+                      "final_result",
+                    )
+                      .then((content) =>
+                        setArtifact({ kind: "final_result", content }),
+                      )
+                      .catch((error: unknown) => {
+                        if (
+                          error instanceof ApiFailure &&
+                          error.status === 401
+                        ) {
+                          onUnauthorized();
+                        } else {
+                          setArtifactFailure(true);
+                        }
+                      });
+                  }}
+                >
+                  查看结果
+                </button>
               </div>
               {artifact === null ? null : (
                 <div>

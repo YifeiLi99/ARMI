@@ -205,9 +205,6 @@ class CreatorCodexExecutionSummary:
     execution_status: str | None
     model_id: str | None
     sdk_identity: str | None
-    validator_id: str
-    source_tree_digest: Digest
-    final_tree_digest: Digest | None
     result_processing_phase: str | None
     result_processing_reason: str | None
 
@@ -221,13 +218,6 @@ class CreatorCodexExecutionSummary:
                     type(self.verification_ref) is not UUID
                     or self.verification_ref.version != 7
                 )
-            )
-            or type(self.validator_id) is not str
-            or not self.validator_id
-            or type(self.source_tree_digest) is not Digest
-            or (
-                self.final_tree_digest is not None
-                and type(self.final_tree_digest) is not Digest
             )
         ):
             raise CreatorInputViolation("CON-INPUT-OPERATION")

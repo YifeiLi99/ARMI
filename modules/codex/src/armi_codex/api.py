@@ -80,7 +80,6 @@ class CodexCommitContext:
 @dataclass(frozen=True, slots=True)
 class CodexPreparedTask:
     task_source_id: UUID
-    bundle: ArtifactPublication
     manifest: ArtifactPublication
 
 
@@ -109,12 +108,8 @@ class CodexCommitPort(Protocol):
 class CodexTaskSourceSnapshot:
     task_source_id: UUID
     subject_id: UUID
-    source_bundle_artifact_id: UUID
-    source_bundle_digest: Digest
-    source_tree_digest: Digest
     task_manifest_artifact_id: UUID
     task_manifest_digest: Digest
-    validator_id: str
     deadline_seconds: int
     trace_id: TraceId
 
@@ -127,9 +122,6 @@ class CodexExecutionSnapshot:
     execution_status: str | None
     model_id: str | None
     sdk_identity: str | None
-    validator_id: str
-    source_tree_digest: Digest
-    final_tree_digest: Digest | None
     result_opportunity_id: UUID | None
 
 

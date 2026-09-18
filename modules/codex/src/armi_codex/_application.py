@@ -35,11 +35,6 @@ from armi_kernel.application import (
     ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
@@ -52,9 +47,8 @@ from armi_kernel.application import (
     RuntimeFence,
     ordered_custody_requests,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, SubjectId, TraceId
 from armi_runtime_foundation import (
-    PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
 )
@@ -73,21 +67,18 @@ from ._postgresql import (
     CodexDispatchSnapshot,
     PostgreSQLCodexDelegationRepository,
 )
-from ._runner import (
-    CodexRunArtifactSet,
-    remove_private_directory,
-    sanitize_platform_home,
-)
+from ._runner import remove_private_directory, sanitize_platform_home
 from ._runner_contract import (
     CodexExecutionId,
     CodexModel,
     CodexReasoningEffort,
     CodexRunnerViolation,
+    CodexRunResult,
     CodexRunStatus,
     CodexTaskManifest,
 )
-from ._subprocess_client import run_custodied_subprocess
-from ._task_content import task_bundle, task_manifest
+from ._subprocess_client import run_subprocess
+from ._task_content import task_manifest
 from .api import CodexArtifactStorePort, CodexTaskSourceReadPort
 
 Diagnostic = Callable[[str], None]
@@ -227,28 +218,14 @@ class CodexTaskSourceGateway(
         if reason is not None:
             raise CodexDelegationViolation(reason)
         task_source_id = CodexTaskSourceId(uuid7())
-        bundle, source_tree_digest = task_bundle(task_source_id)
         manifest = task_manifest(
             task_source_id,
             command.objective,
-            source_tree_digest,
             command.model_id,
             command.reasoning_effort,
             command.web_search,
         )
         try:
-            published_bundle = await self._storage.publish(
-                await self._storage.stage(
-                    _one_chunk(bundle),
-                    ArtifactPolicy(
-                        "application/zip",
-                        "codex.task-source-bundle",
-                        "creator.codex-task",
-                        command.trace_id,
-                        ArtifactPrivacyScope.PRIVATE,
-                    ),
-                )
-            )
             published_manifest = await self._storage.publish(
                 await self._storage.stage(
                     _one_chunk(manifest),
@@ -294,17 +271,9 @@ class CodexTaskSourceGateway(
                 )
                 if existing is not None:
                     return existing
-                bundle_registration = await self._catalog.register(
-                    uow, ArtifactId(uuid7()), published_bundle
-                )
                 manifest_registration = await self._catalog.register(
                     uow, ArtifactId(uuid7()), published_manifest
                 )
-                for registration in (bundle_registration, manifest_registration):
-                    if registration.inserted:
-                        await uow.audit.append(
-                            _artifact_audit(uow, registration.ref, command.trace_id)
-                        )
                 acceptance = await self._repository.admit_creator_task_source(
                     uow,
                     delegate_id=command.delegate_id,
@@ -314,14 +283,8 @@ class CodexTaskSourceGateway(
                     draft=CodexTaskSourceDraft(
                         task_source_id,
                         SubjectId(context.subject_id),
-                        bundle_registration.ref.artifact_id,
-                        bundle_registration.ref.content_digest,
-                        source_tree_digest,
                         manifest_registration.ref.artifact_id,
                         manifest_registration.ref.content_digest,
-                        "codex.output-artifact.v1",
-                        (),
-                        (".armi-task-id",),
                         900,
                         command.trace_id,
                     ),
@@ -384,7 +347,7 @@ class CodexTaskSourceGateway(
                     CreatorResourceKind("operation"),
                     str(acceptance.opportunity_id),
                     now,
-                    "creator-operation.v7",
+                    "creator-operation.v8",
                 )
             )
         except Exception:
@@ -510,7 +473,7 @@ class CodexEffectPipeline:
         snapshot: CodexDispatchSnapshot | None = None
         task: CodexTaskManifest | None = None
         dispatched = False
-        intake_cleanup_failed = False
+        cleanup_failed = False
         custody_context = None
         try:
             async with self._factory.unit_of_work() as uow:
@@ -550,10 +513,8 @@ class CodexEffectPipeline:
                 requests, deadline_at=snapshot.dispatch_deadline
             )
             await custody_context.__aenter__()
-            bundle = await self._read(snapshot.source_bundle)
             manifest_bytes = await self._read(snapshot.task_manifest)
             task = _task_manifest(snapshot, manifest_bytes)
-            _install_intake(self._run_root, task, bundle)
             async with self._factory.unit_of_work() as uow:
                 if uow.runtime_fence != runtime_fence:
                     raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
@@ -587,7 +548,7 @@ class CodexEffectPipeline:
             cancellation = self._cancellation
             runner_task = asyncio.create_task(
                 asyncio.to_thread(
-                    run_custodied_subprocess,
+                    run_subprocess,
                     runner_entry_module=self._runner_entry_module,
                     environment_root=self._environment_root,
                     process_temp=self._run_root
@@ -597,6 +558,7 @@ class CodexEffectPipeline:
                     cancellation=cancellation,
                 )
             )
+            runner_completed = False
             try:
                 done, _pending = await asyncio.wait(
                     {heartbeat, runner_task}, return_when=asyncio.FIRST_COMPLETED
@@ -604,7 +566,8 @@ class CodexEffectPipeline:
                 if heartbeat in done:
                     await heartbeat
                     raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
-                result, artifact_set = await runner_task
+                result = await runner_task
+                runner_completed = True
             finally:
                 heartbeat.cancel()
                 await asyncio.gather(heartbeat, return_exceptions=True)
@@ -620,36 +583,31 @@ class CodexEffectPipeline:
                     except TimeoutError:
                         runner_task.cancel()
                         self._diagnostic("codex.dispatch.cancel_timeout")
-                try:
-                    _cleanup_execution(self._run_root, task.execution_id)
-                except CodexDelegationViolation:
-                    intake_cleanup_failed = True
+                if not runner_completed:
+                    try:
+                        _cleanup_execution(self._run_root, task.execution_id)
+                    except CodexDelegationViolation:
+                        cleanup_failed = True
                 task = None
-            if intake_cleanup_failed:
-                cleanup_error = CodexRunnerViolation("CODEX-CLEANUP")
-                cleanup_error.record_cleanup_failure("CODEX-CLEANUP")
-                raise cleanup_error
             if self._stop.is_set():
                 return True
-            published = await self._publish_success(
-                snapshot.trace_id, result.status, artifact_set
-            )
+            published = await self._publish_success(snapshot.trace_id, result)
             await self._settle(
                 snapshot,
                 status=CodexVerificationStatus.VERIFIED,
-                cleanup_status=CodexCleanupStatus.CLEAN,
+                cleanup_status=CodexCleanupStatus.FAILED
+                if cleanup_failed or result.cleanup_error_code
+                else CodexCleanupStatus.CLEAN,
                 published=published,
-                final_tree_digest=result.final_tree_digest,
-                patch_digest=result.patch_digest,
-                changed_path_count=result.modified_file_count,
                 execution_error_code=None,
-                cleanup_error_code=None,
+                cleanup_error_code=result.cleanup_error_code
+                or ("CODEX-CLEANUP" if cleanup_failed else None),
             )
             return True
         except CodexRunnerViolation as error:
             if self._stop.is_set():
                 return True
-            if intake_cleanup_failed and error.cleanup_error_code is None:
+            if cleanup_failed and error.cleanup_error_code is None:
                 error.record_cleanup_failure("CODEX-CLEANUP")
             if snapshot is None:
                 self._diagnostic("codex.dispatch.preflight_failed")
@@ -671,9 +629,6 @@ class CodexEffectPipeline:
                     else CodexCleanupStatus.CLEAN
                 ),
                 published=published,
-                final_tree_digest=None,
-                patch_digest=None,
-                changed_path_count=0,
                 execution_error_code=error.code,
                 cleanup_error_code=error.cleanup_error_code,
             )
@@ -738,53 +693,17 @@ class CodexEffectPipeline:
     async def _publish_success(
         self,
         trace_id: TraceId,
-        run_status: CodexRunStatus,
-        values: CodexRunArtifactSet,
+        result: CodexRunResult,
     ) -> dict[str, Any]:
-        if run_status is not CodexRunStatus.SUCCEEDED:
+        if result.status is not CodexRunStatus.SUCCEEDED:
             raise CodexDelegationViolation("CODEX-VERIFICATION-RESULT")
-        evidence = rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.codex-result-evidence.v1",
-                    "result_kind": "verified_completion",
-                },
-            )
-        )
         return await self._publish_values(
             trace_id,
             {
-                "event_transcript": (
-                    "application/json",
-                    "codex.event-transcript",
-                    values.event_transcript,
-                ),
                 "final_result": (
-                    "application/json",
+                    "text/plain",
                     "codex.final-result",
-                    values.final_result,
-                ),
-                "patch": ("application/json", "codex.normalized-patch", values.patch),
-                "result_bundle": (
-                    "application/zip",
-                    "codex.result-tree",
-                    values.result_bundle,
-                ),
-                "diagnostics": (
-                    "application/json",
-                    "codex.diagnostics",
-                    values.diagnostics,
-                ),
-                "validation_report": (
-                    "application/json",
-                    "codex.validation-report",
-                    values.validation_report,
-                ),
-                "result_evidence": (
-                    "application/json",
-                    "codex.result-evidence",
-                    evidence,
+                    result.final_response.encode("utf-8"),
                 ),
             },
         )
@@ -795,55 +714,21 @@ class CodexEffectPipeline:
         status: CodexVerificationStatus,
         error: CodexRunnerViolation,
     ) -> dict[str, Any]:
-        report = rfc8785.dumps(
-            cast(
-                Any,
+        value = (
+            json.dumps(
                 {
-                    "schema_version": "armi.codex-verification-report.v1",
                     "status": status.value,
                     "error_code": error.code,
-                    "cleanup_error_code": error.cleanup_error_code,
                 },
+                ensure_ascii=False,
+                indent=2,
             )
-        )
-        evidence = rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.codex-result-evidence.v1",
-                    "result_kind": {
-                        CodexVerificationStatus.FAILED: "execution_failure",
-                        CodexVerificationStatus.UNKNOWN: "outcome_unknown",
-                        CodexVerificationStatus.CANCELLED: "cancelled",
-                    }[status],
-                    "error_code": error.code,
-                },
-            )
-        )
-        diagnostics = rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.codex-diagnostics.v1",
-                    "error_code": error.code,
-                    "cleanup_error_code": error.cleanup_error_code,
-                },
-            )
-        )
+            + "\n"
+        ).encode("utf-8")
         return await self._publish_values(
             trace_id,
             {
-                "diagnostics": ("application/json", "codex.diagnostics", diagnostics),
-                "validation_report": (
-                    "application/json",
-                    "codex.validation-report",
-                    report,
-                ),
-                "result_evidence": (
-                    "application/json",
-                    "codex.result-evidence",
-                    evidence,
-                ),
+                "final_result": ("application/json", "codex.final-result", value),
             },
         )
 
@@ -874,9 +759,6 @@ class CodexEffectPipeline:
         status: CodexVerificationStatus,
         cleanup_status: CodexCleanupStatus,
         published: Mapping[str, Any],
-        final_tree_digest: Digest | None,
-        patch_digest: Digest | None,
-        changed_path_count: int,
         execution_error_code: str | None,
         cleanup_error_code: str | None,
     ) -> None:
@@ -894,10 +776,6 @@ class CodexEffectPipeline:
                     status=status,
                     cleanup_status=cleanup_status,
                     artifacts=refs,
-                    source_tree_digest=snapshot.source_tree_digest,
-                    final_tree_digest=final_tree_digest,
-                    patch_digest=patch_digest,
-                    changed_path_count=changed_path_count,
                     execution_error_code=execution_error_code,
                     cleanup_error_code=cleanup_error_code,
                 )
@@ -922,75 +800,39 @@ class CodexEffectPipeline:
             await self._failure_notification(snapshot.root_operation_id, code)
 
 
-def _artifact_audit(
-    uow: PostgreSQLRuntimeUnitOfWork,
-    reference: ArtifactRef,
-    trace_id: TraceId,
-) -> AuditDraft:
-    return AuditDraft(
-        AuditEventId(uuid7()),
-        AuditReference("runtime", uow.environment_id),
-        Purpose("delegate_codex_work"),
-        "artifact.catalog.registered",
-        AuditReference("artifact", reference.artifact_id.value),
-        AuditResultStatus.APPLIED,
-        trace_id,
-        AuditSensitivity.PRIVATE,
-    )
-
-
 def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskManifest:
     try:
-        raw = json.loads(value, object_pairs_hook=_strict_object)
-        if type(raw) is not dict:
+        parsed = json.loads(value.decode("utf-8"), object_pairs_hook=_strict_object)
+        if type(parsed) is not dict:
             raise ValueError
-        document = cast(dict[str, Any], raw)
-        expected_keys = {
+        document = cast(dict[str, Any], parsed)
+        if set(document) != {
             "schema_version",
+            "task_source_id",
             "objective",
-            "facts",
-            "allowed_paths",
-            "forbidden_paths",
-            "validator_id",
             "deadline_seconds",
-            "source_tree_digest",
             "model_id",
             "reasoning_effort",
             "web_search",
-        }
-        if (
-            document.get("schema_version") != "armi.codex-task-source.v2"
-            or type(document.get("web_search")) is not bool
-        ):
-            raise ValueError
-        if set(document) != expected_keys:
+        }:
             raise ValueError
         if (
-            document["validator_id"] != snapshot.validator_id
+            document["schema_version"] != "armi.codex-task-source.v3"
+            or document["task_source_id"] != str(snapshot.task_source_id)
             or document["deadline_seconds"] != snapshot.deadline_seconds
-            or document["source_tree_digest"] != snapshot.source_tree_digest.value
         ):
             raise ValueError
-        facts = tuple(document["facts"])
-        allowed = tuple(document["allowed_paths"])
-        forbidden = tuple(document["forbidden_paths"])
         return CodexTaskManifest(
-            CodexExecutionId(uuid7()),
-            snapshot.task_source_id,
-            snapshot.effect_id,
-            snapshot.source_bundle.content_digest,
-            snapshot.source_tree_digest,
-            document["objective"],
-            facts,
-            allowed,
-            forbidden,
-            snapshot.validator_id,
-            snapshot.deadline_seconds,
+            execution_id=CodexExecutionId(snapshot.attempt_id),
+            task_id=snapshot.task_source_id,
+            effect_id=snapshot.effect_id,
+            objective=document["objective"],
+            deadline_seconds=snapshot.deadline_seconds,
             model_id=CodexModel(document["model_id"]),
             reasoning_effort=CodexReasoningEffort(document["reasoning_effort"]),
             web_search=document["web_search"],
         )
-    except TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError:
+    except ValueError, KeyError, TypeError, CodexRunnerViolation:
         raise CodexDelegationViolation("CODEX-TASK-MANIFEST") from None
 
 
@@ -1001,17 +843,6 @@ def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise ValueError
         result[key] = value
     return result
-
-
-def _install_intake(run_root: Path, task: CodexTaskManifest, bundle: bytes) -> None:
-    intake = run_root / "intake" / task.execution_id.value.hex
-    try:
-        intake.mkdir(parents=True, exist_ok=False)
-        target = intake / f"{task.source_bundle_digest.value[7:]}.zip"
-        with target.open("xb") as stream:
-            stream.write(bundle)
-    except OSError:
-        raise CodexDelegationViolation("CODEX-TASK-INTAKE") from None
 
 
 def _cleanup_execution(run_root: Path, execution_id: CodexExecutionId) -> None:

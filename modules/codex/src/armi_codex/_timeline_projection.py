@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
-import rfc8785
 from armi_interaction.api import SceneTimelineCodexTaskProjectionPort
 from armi_kernel.application import (
     ArtifactIntegrityStatus,
@@ -14,19 +13,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 
-_TASK_SOURCE_KEYS = frozenset(
-    {
-        "schema_version",
-        "objective",
-        "facts",
-        "allowed_paths",
-        "forbidden_paths",
-        "validator_id",
-        "deadline_seconds",
-        "source_tree_digest",
-    }
-    | {"model_id", "reasoning_effort", "web_search"}
-)
 _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_OBJECTIVE_BYTES = 16 * 1024
 
@@ -68,12 +54,7 @@ class CodexTaskTimelineProjection(SceneTimelineCodexTaskProjectionPort):
             if type(decoded) is not dict:
                 raise ValueError
             document = cast(dict[str, object], decoded)
-            if document.get("schema_version") != "armi.codex-task-source.v2":
-                raise ValueError
-            if frozenset(document) != _TASK_SOURCE_KEYS:
-                raise ValueError
-            if rfc8785.dumps(cast(Any, document)) != content:
-                raise ValueError
+            # Historical task records remain readable; execution validates its own contract.
             objective = document["objective"]
             if type(objective) is not str or "\x00" in objective:
                 raise ValueError
@@ -82,12 +63,6 @@ class CodexTaskTimelineProjection(SceneTimelineCodexTaskProjectionPort):
                 not encoded
                 or len(encoded) > _MAX_OBJECTIVE_BYTES
                 or not any(not character.isspace() for character in objective)
-            ):
-                raise ValueError
-            if (
-                type(document["model_id"]) is not str
-                or type(document["reasoning_effort"]) is not str
-                or type(document["web_search"]) is not bool
             ):
                 raise ValueError
             return objective
