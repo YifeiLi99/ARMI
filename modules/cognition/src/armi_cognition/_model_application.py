@@ -65,6 +65,7 @@ from armi_runtime_foundation import (
 from ._autonomous_activity_contract import autonomous_schema_for_context
 from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
+    CODEX_RESULT_ACT_INSTRUCTIONS,
     CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
     CREATOR_COGNITIVE_ACT_VERSION,
     CREATOR_VOICE_ACT_INSTRUCTIONS,
@@ -409,9 +410,11 @@ class ModelPipeline:
             ),
             "consider_codex_result": build_adapter(
                 binding=codex_result_binding,
-                candidate_schema=candidate_schema(
-                    codex_result_binding.response_contract_version
+                candidate_schema=creator_cognitive_act_schema(
+                    web_search=web_search_active
                 ),
+                instructions=CODEX_RESULT_ACT_INSTRUCTIONS,
+                schema_name="armi_creator_cognitive_act_candidate_v7",
             ),
             "consider_other_human_input": build_adapter(
                 binding=other_human_binding,
@@ -893,7 +896,12 @@ class ModelPipeline:
         except KeyError:
             raise ModelViolation("MODEL-BINDING") from None
         if (
-            purpose in {"consider_creator_input", "consider_life_query_result"}
+            purpose
+            in {
+                "consider_creator_input",
+                "consider_life_query_result",
+                "consider_codex_result",
+            }
             and adapter.binding.response_contract_version
             != CREATOR_COGNITIVE_ACT_VERSION
         ):

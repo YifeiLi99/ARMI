@@ -2572,10 +2572,17 @@ def test_creator_cognitive_act_web_research_binds_authority_deterministically() 
     )
 
 
-def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope() -> (
-    None
-):
+@pytest.mark.parametrize("evidence_ordinal", [2, 8])
+def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope(
+    evidence_ordinal: int,
+) -> None:
     context, bases = _fixture()
+    bases = tuple(
+        replace(basis, ordinal=evidence_ordinal)
+        if basis.item_kind == "current_evidence"
+        else basis
+        for basis in bases
+    )
     context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
     extended = (
         *bases,
@@ -2612,6 +2619,7 @@ def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope
     assert query.record_kind == LifeRecordKind("memory")
     assert query.query_text == candidate["decision"]["query"]
     assert query.limit == 20
+    assert query.basis_ordinals == tuple(sorted((evidence_ordinal, 4)))
 
     rejected = DeterministicCandidateValidator(context).validate(
         _bytes(
@@ -2642,6 +2650,57 @@ def test_retired_outreach_contract_cannot_execute() -> None:
     )
     assert result.status is CandidateValidationStatus.REJECTED
     assert result.change_set is None
+
+
+@pytest.mark.parametrize("kind", ["reply", "no_action", "codex_delegation"])
+def test_codex_result_uses_normal_act_without_automatic_memory(kind: str) -> None:
+    context, bases = _fixture()
+    context = replace(
+        context,
+        purpose="consider_codex_result",
+        candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION,
+        codex_active=True,
+    )
+    extended = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            "runtime_authority",
+            "private",
+        ),
+    )
+    decision: dict[str, Any] = {"kind": kind}
+    if kind == "reply":
+        decision["content"] = "返回资料的结论仍有不确定性。"
+    elif kind == "codex_delegation":
+        decision.update(objective="核查返回资料中尚未证实的一点", web_search=True)
+    value = {
+        "decision": decision,
+        "experience": {
+            "first_person_gist": "我收到了一份外部研究结果。",
+            "uncertainty": "返回材料尚有未证实的部分。",
+            "memory_summary": None,
+        },
+    }
+    parsed = parse_creator_cognitive_act(value, allowed_context_refs=frozenset())
+    expanded, _, error = _expand_creator_cognitive_act(
+        parsed, bases=extended, context=context
+    )
+    assert error is None and expanded is not None
+    assert expanded.experiences[0].payload.source_perspective == "codex_observation"
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(value), bases=extended
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.experiences) == 1
+    assert _memories(result.change_set) == ()
+    if kind == "codex_delegation":
+        assert len(result.change_set.codex_delegations) == 1
 
 
 def test_exact_life_query_result_supports_reply_without_becoming_memory() -> None:

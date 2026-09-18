@@ -42,7 +42,7 @@ purpose_profiles:
     output_token_limit: 2048
   consider_codex_result:
     profile: codex_result
-    response_contract_version: armi.cognition-candidate.v17
+    response_contract_version: armi.creator-cognitive-act-candidate.v7
     # Research replies and their structured Subject Commit must fit together.
     output_token_limit: 4096
   consider_codex_task:

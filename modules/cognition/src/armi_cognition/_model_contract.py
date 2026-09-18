@@ -119,8 +119,6 @@ GENERIC_COGNITION_INSTRUCTIONS = (
     "codex_delegation 必须引用 codex_task_source 和 capability_catalog,原样引用当前任务来源身份、"
     "task_manifest_digest;不从正文猜测或替换 manifest 摘要。"
     "委托使用 disposition=change,不与 formal_no_action 同时提出,无需配套申请。"
-    "consider_codex_result 中,只能从当前证据里的真实 runner 结果形成 codex_observation Experience,"
-    "由你理解、采纳或拒绝结果;执行结果不等于主体已接纳,不扩大为未观察到的事实。"
     "网页证据保留外部主张性质。不能生成权威身份、系统授权、现实效果或伪造完成状态。"
     + MOOD_APPRAISAL_INSTRUCTIONS
 )
@@ -819,7 +817,7 @@ def load_active_binding(
             },
             "consider_codex_result": {
                 "profile": "codex_result",
-                "response_contract_version": CANDIDATE_VERSION,
+                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
                 "output_token_limit": 4096,
             },
             "consider_codex_task": {

@@ -2682,7 +2682,7 @@ def _expand_creator_cognitive_act(
         )
         if purpose is None:
             return None, None, "CANDIDATE-EXACT-LIFE-QUERY-PURPOSE-BASIS"
-        query_bases = (evidence.ordinal, purpose.ordinal)
+        query_bases = tuple(sorted((evidence.ordinal, purpose.ordinal)))
         exact_query = CandidateExactLifeQueryDraft(
             "proposal:1",
             "group:1",
@@ -2821,7 +2821,11 @@ def _expand_creator_cognitive_act(
                         "proposal_kind": "experiences",
                         "fact_class": "external_claim",
                         "first_person_gist": source.experience.first_person_gist,
-                        "source_perspective": "creator_claim",
+                        "source_perspective": (
+                            "codex_observation"
+                            if context.purpose == "consider_codex_result"
+                            else "creator_claim"
+                        ),
                         "uncertainty": source.experience.uncertainty,
                         "privacy_scope": "private",
                     },
