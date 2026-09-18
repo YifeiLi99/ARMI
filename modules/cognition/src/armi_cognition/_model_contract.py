@@ -820,7 +820,7 @@ def load_active_binding(
             "consider_codex_result": {
                 "profile": "codex_result",
                 "response_contract_version": CANDIDATE_VERSION,
-                "output_token_limit": 1024,
+                "output_token_limit": 4096,
             },
             "consider_codex_task": {
                 "profile": "codex_task",
