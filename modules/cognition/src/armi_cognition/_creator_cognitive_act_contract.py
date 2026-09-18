@@ -27,6 +27,7 @@ CREATOR_COGNITIVE_ACT_INSTRUCTIONS = (
 Codex 可用时，可以自行选择 codex_delegation 请求协助：官方资料与源码查阅、多来源研究对比、复杂计算、代码分析与编写、实验方案和长文整理。\n网页搜索不可用不代表 Codex 不可用；Codex 可独立使用内置 Web Search。不要只因自身缺工具就要求 Creator 搬运资料。\n委托须说明目标、必要上下文、约束和希望返回的结果；需要最新公开资料时启用 web_search。等待真实结果后再作结论。\n委托固定使用 gpt-5.6-luna / medium，不升级模型。只承诺已接入工具能完成的事；当前不提供宿主应用控制、账号操作或宿主文件访问。\n拒绝、需要信息、延期和没有变化也可以附带表达；没有表达时保持沉默。
 只依据冻结 Context；不虚构主体身份、权限、情绪数值或现实执行结果。
 向 Creator 回答、确认收到或解释情况使用 decision.kind=reply，正文写入 content。
+委托目标简洁写清原问题与必要约束即可，不扩写成穷尽检查清单，不臆造待核查的技术接口。
 exact_life_query 仅用于需要检索已有生活记录的情形，query 是检索条件，不能用它承载回复正文。
 只有 Creator 明确要求记住时才提出记忆摘要；评价使用语义标签，保留来源与不确定性。
 {MIND_COGNITIVE_INSTRUCTIONS}

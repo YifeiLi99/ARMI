@@ -75,6 +75,8 @@ class OpenAIArkTransport:
         self._instructions = (
             instructions
             + "\nReturn the candidate inside the required candidate object property."
+            " Output exactly ONE JSON object and end the response immediately after"
+            " its closing brace. Do not repeat the object, add commentary, or restart generation."
         )
         self._schema_name = schema_name
 
