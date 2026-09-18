@@ -130,6 +130,8 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.3 Creator 单次认知
 
+Creator 文本、实时语音和 Codex 结果的模型输入将当前 `current_evidence` 从背景 Context 中移出，携带原引用、来源、信任与隐私标记独立置于最后一条输入消息。历史发言只作为背景，本轮证据只出现一次；不将外部返回提升为系统指令。该拆分在 Provider 渲染边界完成，计量、请求留存与实际发送使用同一渲染入口，冻结 Context 和 owner 引用保持不变。
+
 标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
 
 模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求记住时形成，memory_summary 的存在代表记忆提议，不再另传 remember。评价轨迹将新事件与既有事件的引用、变化分开建模。语音复用相同业务类型，仅顶层字段别名和 60 字表达上限不同。

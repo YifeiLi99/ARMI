@@ -45,6 +45,47 @@ def test_provider_input_rejects_invalid_dialogue_message() -> None:
         _provider_input(request)
 
 
+@pytest.mark.parametrize(
+    "purpose,source_kind",
+    [
+        ("consider_creator_input", "creator_input"),
+        ("consider_creator_voice_input", "creator_input"),
+        ("consider_codex_result", "codex_result"),
+    ],
+)
+def test_current_evidence_follows_history_once_with_its_original_source(
+    purpose: str, source_kind: str
+) -> None:
+    old = {"item_kind": "recent_scene_turn", "content": "Do not research this turn."}
+    current = {
+        "item_kind": "current_evidence",
+        "content": "Research the latest release.",
+        "source": {"kind": source_kind, "reference": "evidence-id", "version": 1},
+        "trust": "external_claim",
+        "privacy": "private",
+    }
+    request = {
+        "schema_version": "armi.model-request.v1",
+        "compiled_context": {
+            "purpose": purpose,
+            "layers": [
+                {"layer": "conversation_history", "items": [old]},
+                {"layer": "turn_tail", "items": [current]},
+            ],
+        },
+        "included_context_refs": [{"ref": "ctx:1"}, {"ref": "ctx:2"}],
+    }
+    messages = _provider_input(json.dumps(request).encode())
+    assert isinstance(messages, list)
+    assert [message["role"] for message in messages] == ["user", "user"]
+    background = json.loads(messages[0]["content"].split("\n", 1)[1])
+    trigger = json.loads(messages[-1]["content"].split("\n", 1)[1])
+    assert background["compiled_context"]["layers"][0]["items"] == [old]
+    assert background["compiled_context"]["layers"][1]["items"] == []
+    assert trigger == [{"ref": "ctx:2", **current}]
+    assert json.dumps(messages).count("Research the latest release.") == 1
+
+
 def test_provider_schema_binds_context_refs_to_request() -> None:
     schema = {
         "type": "array",
