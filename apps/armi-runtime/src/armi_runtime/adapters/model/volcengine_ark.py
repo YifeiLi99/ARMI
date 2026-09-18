@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
 from typing import Any, Protocol, cast
 
 import httpx
@@ -505,6 +506,8 @@ def _available_refs(request_bytes: bytes) -> tuple[str, ...]:
 def _provider_output_schema(
     value: object, *, available_refs: tuple[str, ...]
 ) -> dict[str, Any]:
+    value = deepcopy(value)
+    _order_union_discriminators(value, value)
     schema = cast(
         dict[str, Any], _strict_provider_schema(value, available_refs=available_refs)
     )
@@ -518,6 +521,39 @@ def _provider_output_schema(
             "$defs": definitions,
         }
     )
+
+
+def _order_union_discriminators(value: Any, root: Any) -> None:
+    """Choose a union branch before generating its payload (see DESIGN.md)."""
+
+    def order_branch(branch: Any, field: str) -> None:
+        if "$ref" in branch:
+            ref = branch["$ref"]
+            branch = root
+            for segment in ref.removeprefix("#/").split("/"):
+                branch = branch[segment.replace("~1", "/").replace("~0", "~")]
+        if "properties" in branch:
+            properties = branch["properties"]
+            branch["properties"] = {
+                field: properties[field],
+                **{key: child for key, child in properties.items() if key != field},
+            }
+        else:
+            for child in branch["oneOf"]:
+                order_branch(child, field)
+
+    if isinstance(value, list):
+        for child in cast(list[Any], value):
+            _order_union_discriminators(child, root)
+    elif isinstance(value, dict):
+        node = cast(dict[str, Any], value)
+        discriminator = node.get("discriminator")
+        if discriminator:
+            field = discriminator["propertyName"]
+            for branch in node["oneOf"]:
+                order_branch(branch, field)
+        for child in node.values():
+            _order_union_discriminators(child, root)
 
 
 def _share_schema_nodes(schema: dict[str, Any]) -> dict[str, Any]:

@@ -255,6 +255,23 @@ def test_old_dialogue_wire_cannot_select_an_execution_parser(value):
         parse_candidate(json.dumps(value).encode(), allowed_context_refs=frozenset())
 
 
+def test_provider_selects_action_before_generating_branch_payload():
+    # Canonical storage sorts keys, so source declaration order does not survive.
+    source = json.loads(
+        json.dumps(
+            candidate_schema("armi.creator-cognitive-act-candidate.v7"), sort_keys=True
+        )
+    )
+    schema = _provider_output_schema(source, available_refs=("ctx:1",))
+    branches = schema["properties"]["candidate"]["properties"]["decision"]["anyOf"]
+    for branch in branches:
+        if "$ref" in branch:
+            branch = schema["$defs"][branch["$ref"].rsplit("/", 1)[-1]]
+        assert next(iter(branch["properties"])) == "kind"
+        assert branch["required"][0] == "kind"
+    assert next(iter(source["$defs"]["ReplyDecision"]["properties"])) == "content"
+
+
 def test_creator_schema_is_smaller_without_repeating_the_complete_object():
     # Measure the actual model schema for the same ordinary input reference.
     # No existing concern, activity or emotional episode is present in this Context.
