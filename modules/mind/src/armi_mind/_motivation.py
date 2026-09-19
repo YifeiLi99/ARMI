@@ -76,6 +76,26 @@ def bind_mind_appraisals(
                 "MIND-REFERENCE", ("mind_appraisals", index, "object_ref")
             )
         object_id, object_kind = basis.source_ref, basis.item_kind
+        if object_kind != "current_motivation":
+            # A model may put the follow-up evidence in object_ref while explicitly
+            # citing the ongoing wish as its basis. Preserve that owner's identity.
+            linked = {
+                r.motivation_id: r
+                for ref in appraisal.basis_refs
+                if basis_by_ref[ref].item_kind == "current_motivation"
+                for r in records
+                if r.motivation_id == basis_by_ref[ref].source_ref
+                and r.parameters.resolution == "open"
+                and r.parameters.desired_outcome == appraisal.desired_outcome
+            }
+            if len(linked) > 1:
+                raise MindViolation(
+                    "MIND-MOTIVATION-REFERENCE",
+                    ("mind_appraisals", index, "object_ref"),
+                )
+            if linked:
+                object_id = next(iter(linked))
+                object_kind = "current_motivation"
         if object_kind == "current_motivation":
             previous = next((r for r in records if r.motivation_id == object_id), None)
             if (

@@ -175,6 +175,97 @@ def test_followup_evidence_updates_existing_motivation_without_new_slot():
         assert records[0]["basis_ordinals"] == [1, 2]
 
 
+def test_followup_with_existing_wish_in_basis_preserves_identity():
+    payload = prepare(
+        MindHead(uuid7(), 1, initial_mind_state()), (assess(),), {"ctx:1": basis()}
+    )
+    initial = json.loads(payload)["motivation_states"][0]
+    updated = prepare(
+        MindHead(uuid7(), 2, payload),
+        (assess("ctx:1", basis_refs=("ctx:1", "ctx:2"), resolution="satisfied"),),
+        {
+            "ctx:1": basis(),
+            "ctx:2": replace(
+                basis(UUID(initial["motivation_id"]), "current_motivation"), ordinal=2
+            ),
+        },
+    )
+    records = json.loads(updated)["motivation_states"]
+    assert len(records) == 1
+    assert records[0]["motivation_id"] == initial["motivation_id"]
+    assert records[0]["object_id"] == initial["object_id"]
+    assert records[0]["parameters"]["resolution"] == "satisfied"
+
+
+def test_ambiguous_same_kind_wishes_must_choose_an_explicit_target():
+    payload = prepare(
+        MindHead(uuid7(), 1, initial_mind_state()),
+        (assess(), assess("ctx:2", basis_refs=("ctx:2",))),
+        {"ctx:1": basis(), "ctx:2": replace(basis(), ordinal=2)},
+    )
+    records = json.loads(payload)["motivation_states"]
+    refs = {"ctx:1": basis()}
+    for ordinal, record in enumerate(records, 2):
+        refs[f"ctx:{ordinal}"] = replace(
+            basis(UUID(record["motivation_id"]), "current_motivation"), ordinal=ordinal
+        )
+    with pytest.raises(MindViolation, match="MIND-MOTIVATION-REFERENCE"):
+        prepare(
+            MindHead(uuid7(), 2, payload),
+            (assess(basis_refs=("ctx:1", "ctx:2", "ctx:3")),),
+            refs,
+        )
+
+
+def test_context_window_preserves_records_prioritizes_links_and_rotates_due_items():
+    head = MindHead(uuid7(), 1, initial_mind_state())
+    objects = [uuid7() for _ in range(7)]
+    for index, identity in enumerate(objects):
+        head = MindHead(
+            uuid7(),
+            head.version + 1,
+            prepare(
+                head,
+                (assess(),),
+                {"ctx:1": basis(identity)},
+                at=NOW + timedelta(minutes=index),
+            ),
+        )
+    before = head.canonical_state
+    records = json.loads(before)["motivation_states"]
+
+    def projected(purpose, **kwargs):
+        return [
+            x
+            for x in mind_context_items(
+                before,
+                revision_id=head.current_revision_id,
+                version=head.version,
+                as_of=NOW + timedelta(hours=2),
+                purpose=purpose,
+                **kwargs,
+            )
+            if x.item_kind == "current_motivation"
+        ]
+
+    recent = projected("consider_creator_input")
+    assert len(recent) == 4 and all(not x.required for x in recent)
+    assert {str(x.source_ref) for x in recent} == {
+        r["motivation_id"] for r in records[-4:]
+    }
+    related = projected(
+        "consider_codex_result", related_object_refs=frozenset({objects[0]})
+    )
+    assert str(related[0].source_ref) == records[0]["motivation_id"]
+    # Previously included review signals are consumed outside Mind; the next
+    # snapshot supplies only unconsumed ones, so older omitted records get a turn.
+    due = mind_signals(before)[:3]
+    review = projected("consider_autonomous_life", signals=due)
+    assert {s.object_ref for s in due} <= {x.source_ref for x in review}
+    assert head.canonical_state == before
+    assert len(json.loads(before)["motivation_states"]) == 7
+
+
 def test_invalid_reference_duplicate_and_text_replacement_are_rejected():
     head = MindHead(uuid7(), 1, initial_mind_state())
     with pytest.raises(MindViolation, match="MIND-REFERENCE"):

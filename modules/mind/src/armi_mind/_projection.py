@@ -21,6 +21,7 @@ def mind_context_items(
     as_of: datetime,
     purpose: str,
     signals: tuple[ConsiderationSignal, ...] = (),
+    related_object_refs: frozenset[UUID] = frozenset(),
 ) -> tuple[PsychologicalContextItem, ...]:
     document = json.loads(payload)
     records = CONCERN_RECORDS.validate_json(
@@ -64,9 +65,21 @@ def mind_context_items(
                 95,
             )
         )
-    for motivation in motivations:
-        if motivation.parameters.resolution != "open":
-            continue
+    # This is a per-context attention window, never a persistent record cap.
+    # Explicit object links come first; autonomous review rotates unconsumed due
+    # signals ahead of recency. See DESIGN.md: persistent motivation selection.
+    autonomous = purpose == "consider_autonomous_life"
+    selected = sorted(
+        (m for m in motivations if m.parameters.resolution == "open"),
+        key=lambda m: (
+            m.object_id in related_object_refs,
+            autonomous and m.motivation_id in reasons,
+            m.anchor_at,
+            m.motivation_id.int,
+        ),
+        reverse=True,
+    )[:4]
+    for motivation in selected:
         content = motivation_view(motivation, as_of=as_of)
         content["consideration_reason"] = reasons.get(
             motivation.motivation_id, "ongoing_motivation"
@@ -78,8 +91,8 @@ def mind_context_items(
                 motivation.motivation_id,
                 version,
                 json.dumps(content, ensure_ascii=False),
-                True,
-                95,
+                False,
+                95 if motivation.object_id in related_object_refs else 85,
             )
         )
     return tuple(result)

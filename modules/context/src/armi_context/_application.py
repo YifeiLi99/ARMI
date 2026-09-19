@@ -728,6 +728,14 @@ def _context_request(
                     as_of=snapshot.observed_at,
                     purpose=snapshot.purpose,
                     signals=snapshot.consideration_signals,
+                    related_object_refs=frozenset(
+                        ref
+                        for ref in (
+                            snapshot.opportunity_source_ref,
+                            snapshot.evidence.source_id if snapshot.evidence else None,
+                        )
+                        if ref is not None
+                    ),
                 )
                 if kind == "mind"
                 else mood_context_items(payload, revision_id=source_id, version=version)
