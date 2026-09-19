@@ -130,7 +130,7 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.3 Creator 单次认知
 
-Creator 文本、实时语音和 Codex 结果的模型输入将当前 `current_evidence` 从背景 Context 中移出，携带原引用、来源、信任与隐私标记独立置于最后一条输入消息。历史发言只作为背景，本轮证据只出现一次；不将外部返回提升为系统指令。该拆分在 Provider 渲染边界完成，计量、请求留存与实际发送使用同一渲染入口，冻结 Context 和 owner 引用保持不变。
+Creator 文本、实时语音和 Codex 结果的模型输入将当前 `current_evidence` 正文从背景 Context 中移出，独立置于最后一条输入消息。Creator 输入保留原结构；Codex 使用 `【codex返回】` 纯文本块，来源、信任与隐私标记随原引用保存在背景的 `current_input_sources` 中，正文旁标注可用引用和外部结果性质。历史发言只作为背景，本轮证据正文只出现一次；不将外部返回提升为系统指令。该拆分在 Provider 渲染边界完成，计量、请求留存与实际发送使用同一渲染入口，冻结 Context 和 owner 引用保持不变。
 
 标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
 
@@ -384,6 +384,8 @@ Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 o
 只读 `provider_usage_calls` 投影聚合五类 Owner 记录，共用查询用例在服务端完成汇总、北京时间每日趋势、服务/模型构成、筛选和分页，并合入同环境 Admin 凭据检查。Creator HTTP 为 `/v1/usage/summary`、`/v1/usage/calls`、`/v1/usage/calls/{call_id}`；Admin CLI 为 `usage summary/list/read`，MCP 对应 `admin_usage_summary/list/read`。同一过滤合同支持时间、服务、模型、用途、结果、费用状态与原操作。详情提供辅助请求、价格来源、错误和证据引用；操作详情与管理因果图提供用量关联。查询仍需 Creator/管理身份，不附带正文读取权限。工作台“系统 → 用量与费用”展示官方单价估算、已知费用和缺失数量，不冒充实际账单；Codex 订阅、本地模型、QQ 与下载不纳入。
 
 ### Codex
+
+委托结果默认是简洁、面向人类的正文：办事说明成功与否、完成事项和必要交付位置；资料问答通常几百字，保留必要来源和限制，原任务要求详细内容时才展开。Runner 不要求 JSON 封套、工具日志或长报告，也不硬截断最终正文。Provider 将本轮结果渲染为 `【codex返回】` 纯文本块，保留原始换行、引号和链接；引用及来源、信任、隐私元数据单独留在背景 Context，正文只出现一次。ARMI 参考结果简短回复，仍使用普通 v7 合同决定情绪、经历和行动，不因接收结果强制产生变化。该呈现变化不缩减其他冻结 Context，也不改变最终候选的结构化校验。
 
 普通文本和语音 v7 决策包含 `codex_delegation`，不要求先提交专门任务。委托固定为 `gpt-5.6-luna` / `medium`，接口与执行器均拒绝其他组合。可委托官方资料/源码研究、多来源对比、复杂计算、代码分析与编写、实验设计和长文整理；内置 Web Search 独立于 ARMI Web 开关。现有工具不支持宿主应用控制、账号操作或宿主文件访问，不向模型宣称这些能力已接入。
 

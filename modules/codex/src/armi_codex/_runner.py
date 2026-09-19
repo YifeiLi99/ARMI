@@ -317,8 +317,14 @@ def _model(task: CodexTaskManifest) -> str:
 
 _BASE_INSTRUCTIONS = (
     "Complete the task delegated by ARMI using the available tools. "
-    "Return the result directly in your final response, including relevant sources "
-    "and any limitations or unsuccessful actions. "
+    "Return a concise, human-readable final answer in the language of the task. "
+    "For an execution task, state whether it succeeded, what was done, and any "
+    "necessary deliverable locations or remaining failures. For research, lead "
+    "with the answer and include only the sources needed to support it. "
+    "Normally use a few sentences or a few hundred Chinese characters; give "
+    "more detail only when the task requires it. Do not return a JSON envelope, "
+    "tool logs, internal reasoning, or an unsolicited long report. Preserve "
+    "material limitations and unsuccessful actions. "
     "Work within the temporary workspace and configured permissions."
 )
 
