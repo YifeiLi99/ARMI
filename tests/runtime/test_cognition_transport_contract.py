@@ -77,7 +77,9 @@ async def test_generic_transport_sends_current_prompt_and_schema(
             binding=cast(
                 Any,
                 SimpleNamespace(
-                    provider="volcengine_ark", model_id="doubao-seed-evolving"
+                    provider="volcengine_ark",
+                    model_id="doubao-seed-evolving",
+                    response_contract_version="armi.cognition-candidate.v17",
                 ),
             ),
             request=cast(Any, request),
@@ -87,7 +89,14 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     assert create.await_args is not None
     payload = create.await_args.kwargs
     assert payload == transport.request_parameters(
-        cast(Any, SimpleNamespace(model_id="doubao-seed-evolving")), cast(Any, request)
+        cast(
+            Any,
+            SimpleNamespace(
+                model_id="doubao-seed-evolving",
+                response_contract_version="armi.cognition-candidate.v17",
+            ),
+        ),
+        cast(Any, request),
     )
     assert payload["instructions"].startswith("# ARMI 本轮认知\n\n## 基本规则")
     assert "候选放在 candidate 属性中" in payload["instructions"]

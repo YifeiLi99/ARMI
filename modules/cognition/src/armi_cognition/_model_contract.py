@@ -748,7 +748,7 @@ def load_active_binding(
             "consider_other_human_input": {
                 "profile": "other_human_dialogue",
                 "response_contract_version": OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-                "output_token_limit": 1024,
+                "output_token_limit": 2048,
             },
             "consider_autonomous_life": {
                 "profile": "autonomous_activity",

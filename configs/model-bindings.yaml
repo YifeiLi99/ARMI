@@ -56,7 +56,8 @@ purpose_profiles:
   consider_other_human_input:
     profile: other_human_dialogue
     response_contract_version: armi.other-human-dialogue-candidate.v9
-    output_token_limit: 1024
+    # Dialogue, appraisal and relationship changes share the same response.
+    output_token_limit: 2048
   consider_autonomous_life:
     profile: autonomous_activity
     response_contract_version: armi.autonomous-activity-candidate.v10

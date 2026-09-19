@@ -340,10 +340,11 @@ def context_item_text(
             return header + "\n\n" + _fenced(content)
         if isinstance(value, dict):
             value = cast(dict[str, Any], value)
-            if kind == "current_scene" and value.get("context_party_id") is not None:
-                value["当前对方是否为主要 Creator"] = value[
-                    "context_party_id"
-                ] == value.get("primary_party_id")
+            if kind == "current_scene" and value.get("sender_party_kind") is not None:
+                # A scene's primary party may be any private-chat peer or group.
+                value["当前对方是否为主要 Creator"] = (
+                    value["sender_party_kind"] == "creator"
+                )
             if not preserve_fields:
                 value = {
                     k: v for k, v in value.items() if k not in _OMIT.get(kind, set())

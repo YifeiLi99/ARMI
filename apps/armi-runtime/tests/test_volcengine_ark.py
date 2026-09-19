@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
 import pytest
 from armi_kernel.application import ModelViolation
@@ -328,6 +329,34 @@ def test_readable_context_keeps_semantics_and_refs_without_runtime_envelope() ->
     assert items[-1]["content"] in messages[-1]["content"]
 
 
+@pytest.mark.parametrize(
+    ("party_kind", "same_party", "expected"),
+    [
+        ("other_human", True, "否"),
+        ("creator", True, "是"),
+        ("creator", False, "是"),
+        ("social_group", True, "否"),
+    ],
+)
+def test_scene_creator_identity_uses_party_kind(party_kind, same_party, expected):
+    from armi_runtime.adapters.model.context_text import context_item_text
+
+    text = context_item_text(
+        {
+            "item_kind": "current_scene",
+            "content": json.dumps(
+                {
+                    "context_party_id": "person",
+                    "primary_party_id": "person" if same_party else "group",
+                    "sender_party_kind": party_kind,
+                }
+            ),
+        },
+        "ctx:1",
+    )
+    assert f"**当前对方是否为主要 Creator**: {expected}" in text
+
+
 def test_readable_context_preserves_scene_identity_and_capability_availability() -> (
     None
 ):
@@ -340,6 +369,7 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
                 {
                     "context_party_id": "party-a",
                     "primary_party_id": "party-b",
+                    "sender_party_kind": "other_human",
                     "input_origin": "creator_delegate",
                     "delegate_id": "agent-id",
                 }
@@ -374,6 +404,68 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
     assert "internal-" not in capability
     assert "codex.delegated-work" in capability and "unavailable" in capability
     assert "CODEX-NOT-READY" in capability and "**已开启**: 否" in capability
+
+
+@pytest.mark.parametrize(
+    ("version", "strict"),
+    [
+        ("armi.other-human-dialogue-candidate.v9", False),
+        ("armi.creator-cognitive-act-candidate.v7", True),
+    ],
+)
+def test_other_human_schema_guidance_preserves_schema_and_local_contract(
+    version, strict
+):
+    from types import SimpleNamespace
+
+    from armi_cognition._other_human_contract import (
+        candidate_schema,
+        parse_other_human_dialogue_candidate_value,
+    )
+
+    transport = OpenAIArkTransport(
+        candidate_schema(), instructions="测试", schema_name="test"
+    )
+    request = SimpleNamespace(
+        canonical_bytes=json.dumps(
+            {
+                "schema_version": "armi.model-request.v1",
+                "compiled_context": {
+                    "purpose": "consider_other_human_input",
+                    "layers": [
+                        {
+                            "items": [
+                                {"item_kind": "current_evidence", "content": "你好"}
+                            ]
+                        }
+                    ],
+                },
+                "included_context_refs": [{"ref": "ctx:1"}],
+            }
+        ).encode(),
+        max_output_tokens=2048,
+    )
+    params = transport.request_parameters(
+        cast(
+            Any,
+            SimpleNamespace(
+                model_id="doubao-seed-evolving", response_contract_version=version
+            ),
+        ),
+        cast(Any, request),
+    )
+    assert params["text"]["format"]["strict"] is strict
+    assert (
+        params["text"]["format"]["schema"]["properties"]["candidate"][
+            "additionalProperties"
+        ]
+        is False
+    )
+    with pytest.raises(ModelViolation):
+        parse_other_human_dialogue_candidate_value(
+            {"decision": {"kind": "reply", "content": 123}},
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
 
 
 def test_provider_schema_binds_context_refs_to_request() -> None:
