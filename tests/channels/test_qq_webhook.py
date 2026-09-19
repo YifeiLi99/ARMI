@@ -64,9 +64,6 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
             10001,
             90009,
             {20002: "朋友群"},
-            True,
-            True,
-            frozenset(),
             frozenset(),
         )
         app = create_qq_event_app(
@@ -118,9 +115,6 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
             10001,
             90009,
             {20002: "朋友群"},
-            True,
-            True,
-            frozenset(),
             frozenset(),
         )
         app = create_qq_event_app(

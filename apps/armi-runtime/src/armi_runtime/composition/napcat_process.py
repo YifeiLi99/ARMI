@@ -134,6 +134,35 @@ class NapCatProcessManager:
             environment_root=self._prepared.root,
         )
 
+    def list_groups(self) -> dict[str, object]:
+        binding = self._binding()
+        if binding is None:
+            raise RuntimeViolation("NAPCAT-DISABLED", "QQ channel is disabled")
+
+        async def read(token_view: memoryview) -> dict[str, object]:
+            gateway = NapCatHttpClient(
+                base_url=binding.api_base_url,
+                access_token=token_view.tobytes().decode("utf-8", "strict"),
+            )
+            try:
+                health = await gateway.inspect_health(
+                    expected_account_id=binding.adapter.account_id
+                )
+                if health.state != "ready":
+                    raise RuntimeViolation(
+                        "NAPCAT-NOT-READY", "QQ account is not ready"
+                    )
+                groups = await gateway.list_groups()
+                for group in groups:
+                    group["reply_enabled"] = (
+                        group["group_id"] in binding.adapter.allowed_groups
+                    )
+                return {"groups": groups}
+            finally:
+                await gateway.close()
+
+        return self._with_access_token(binding, lambda token: asyncio.run(read(token)))
+
     def start(self) -> NapCatStartResult:
         binding = self._binding()
         if binding is None:

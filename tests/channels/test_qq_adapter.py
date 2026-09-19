@@ -93,9 +93,6 @@ def _config() -> QQAdapterConfig:
         10001,
         90009,
         {20002: "朋友群"},
-        True,
-        True,
-        frozenset(),
         frozenset(),
     )
 
@@ -107,14 +104,12 @@ def _segments(
 
 
 class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
-    async def test_creator_only_configuration_rejects_other_private_and_groups(
+    async def test_blocklist_rejects_listed_private_and_unlisted_groups(
         self,
     ) -> None:
         port = _InputPort()
         adapter = QQIngressAdapter(
-            config=QQAdapterConfig(
-                10001, 90009, {}, False, False, frozenset(), frozenset()
-            ),
+            config=QQAdapterConfig(10001, 90009, {}, frozenset({30003})),
             input_port=port,
             gateway=_Gateway(),
         )
@@ -278,16 +273,13 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(accepted.parts[2].byte_size, 12)
         self.assertEqual(accepted.parts[5].file_name, "report.pdf")
 
-    async def test_reply_switches_require_allowlist_exceptions(self) -> None:
+    async def test_private_blocklist_and_group_allowlist_are_independent(self) -> None:
         port = _InputPort()
         config = QQAdapterConfig(
             10001,
             90009,
-            {20002: "朋友群", 20003: "安静群"},
-            False,
-            False,
+            {20002: "朋友群"},
             frozenset({30003}),
-            frozenset({20002}),
         )
         adapter = QQIngressAdapter(config=config, input_port=port, gateway=_Gateway())
         events = (
@@ -331,7 +323,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             await adapter.accept_event(event)
         self.assertEqual(
             [item.message_key.value for item in port.accepted],
-            ["3", "4", "5", "6"],
+            ["1", "3", "4", "6"],
         )
 
     async def test_egress_routes_group_and_private(self) -> None:
@@ -433,10 +425,21 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
 
 
 class QQConfigTests(unittest.TestCase):
-    def test_creator_private_only_needs_no_allowed_group(self) -> None:
+    def test_private_policy_is_open_except_explicit_blocklist(self) -> None:
+        from armi_adapter_qq.adapter import QQConversationPolicy
+
         config = QQAdapterConfig(
-            10001, 90009, {}, False, False, frozenset(), frozenset()
+            10001, 90009, {20002: "朋友群"}, frozenset({30003, 90009})
         )
+        policy = QQConversationPolicy(config)
+        self.assertTrue(policy.allows(group=False, peer_id=40004))
+        self.assertFalse(policy.allows(group=False, peer_id=30003))
+        self.assertFalse(policy.allows(group=False, peer_id=90009))
+        self.assertTrue(policy.allows(group=True, peer_id=20002))
+        self.assertFalse(policy.allows(group=True, peer_id=20003))
+
+    def test_private_chat_needs_no_allowed_group(self) -> None:
+        config = QQAdapterConfig(10001, 90009, {}, frozenset())
         adapter = QQIngressAdapter(
             config=config, input_port=_InputPort(), gateway=_Gateway()
         )
@@ -447,21 +450,18 @@ class QQConfigTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             self.assertIsNone(load_qq_napcat_config(Path(root) / "missing.yaml"))
 
-    def test_v3_loads_reply_policy(self) -> None:
+    def test_v4_loads_reply_policy(self) -> None:
         with TemporaryDirectory() as root:
             path = Path(root) / "qq-napcat.yaml"
             path.write_text(
-                """schema_version: armi.qq-napcat-channel.v3
+                """schema_version: armi.qq-napcat-channel.v4
 enabled: true
 account_id: 10001
 creator_user_id: 90009
 api_base_url: http://127.0.0.1:3000
 event_port: 6199
 request_body_max_bytes: 262144
-reply_to_other_private_users: false
-reply_in_groups: false
-reply_private_user_allowlist: [30003]
-reply_group_allowlist: [20002]
+private_user_blocklist: [30003]
 allowed_groups:
   "20002": 朋友群
 """,
@@ -471,10 +471,7 @@ allowed_groups:
             binding = load_qq_napcat_config(path)
         assert binding is not None
         self.assertEqual(binding.adapter.creator_user_id, 90009)
-        self.assertFalse(binding.adapter.reply_to_other_private_users)
-        self.assertEqual(
-            binding.adapter.reply_private_user_allowlist, frozenset({30003})
-        )
+        self.assertEqual(binding.adapter.private_user_blocklist, frozenset({30003}))
 
 
 if __name__ == "__main__":

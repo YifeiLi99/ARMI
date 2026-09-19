@@ -18,6 +18,34 @@ from armi_channel_napcat import (
 
 
 class NapCatContractTests(unittest.TestCase):
+    def test_group_list_returns_only_valid_group_identity(self) -> None:
+        async def exercise(data):
+            def handler(request):
+                self.assertEqual(request.url.path, "/get_group_list")
+                return httpx.Response(
+                    200, json={"status": "ok", "retcode": 0, "data": data}
+                )
+
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000", transport=httpx.MockTransport(handler)
+            ) as client:
+                return await NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-token",
+                    client=client,
+                ).list_groups()
+
+        self.assertEqual(
+            asyncio.run(
+                exercise([{"group_id": 123, "group_name": "测试群", "extra": 1}])
+            ),
+            [{"group_id": 123, "group_name": "测试群"}],
+        )
+        self.assertEqual(asyncio.run(exercise([])), [])
+        for invalid in ({}, [{"group_id": True, "group_name": "x"}], [{"group_id": 1}]):
+            with self.subTest(invalid=invalid), self.assertRaises(NapCatViolation):
+                asyncio.run(exercise(invalid))
+
     def _health(
         self,
         handler: httpx.MockTransport,

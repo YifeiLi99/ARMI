@@ -287,8 +287,7 @@ def test_configuration_uses_owner_and_preserves_generated_credentials(
         path.name: path.read_bytes() for path in (service.root / "secrets").iterdir()
     }
     assert saved["allowed_groups"] == {}
-    assert saved["reply_in_groups"] is False
-    assert saved["reply_to_other_private_users"] is False
+    assert saved["private_user_blocklist"] == []
     assert saved["enabled"] is False
     assert "environment_start" not in [operation for operation, _ in calls]
     config = service.root / "tools/napcat/config"

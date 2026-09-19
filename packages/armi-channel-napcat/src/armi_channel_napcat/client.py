@@ -112,6 +112,28 @@ class NapCatHttpClient(NapCatGateway):
         if self._owns_client:
             await self._client.aclose()
 
+    async def list_groups(self) -> list[dict[str, Any]]:
+        document = await self._read_action(
+            "/get_group_list", {}, maximum_bytes=1024 * 1024
+        )
+        if not isinstance(document.get("data"), list):
+            raise NapCatViolation("NAPCAT-GROUP-LIST-INVALID")
+        groups: list[dict[str, Any]] = []
+        for item in document["data"]:
+            if not isinstance(item, dict):
+                raise NapCatViolation("NAPCAT-GROUP-LIST-INVALID")
+            item = cast(dict[str, Any], item)
+            if (
+                type(item.get("group_id")) is not int
+                or item["group_id"] <= 0
+                or type(item.get("group_name")) is not str
+            ):
+                raise NapCatViolation("NAPCAT-GROUP-LIST-INVALID")
+            groups.append(
+                {"group_id": item["group_id"], "group_name": item["group_name"]}
+            )
+        return groups
+
     async def inspect_health(self, *, expected_account_id: int) -> NapCatHealthSnapshot:
         if type(expected_account_id) is not int or expected_account_id <= 0:
             raise NapCatViolation("NAPCAT-ACCOUNT-INVALID")

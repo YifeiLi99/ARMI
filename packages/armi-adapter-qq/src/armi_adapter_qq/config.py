@@ -10,7 +10,7 @@ from armi_kernel import load_yaml_file
 
 from .adapter import QQAdapterConfig
 
-QQ_NAPCAT_CONFIG_SCHEMA = "armi.qq-napcat-channel.v3"
+QQ_NAPCAT_CONFIG_SCHEMA = "armi.qq-napcat-channel.v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,10 +42,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
         "api_base_url",
         "event_port",
         "request_body_max_bytes",
-        "reply_to_other_private_users",
-        "reply_in_groups",
-        "reply_private_user_allowlist",
-        "reply_group_allowlist",
+        "private_user_blocklist",
         "allowed_groups",
     }
     if set(document) != expected:
@@ -83,37 +80,25 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     api_base_url = document["api_base_url"]
     event_port = document["event_port"]
     request_body_max_bytes = document["request_body_max_bytes"]
-    reply_to_other_private_users = document["reply_to_other_private_users"]
-    reply_in_groups = document["reply_in_groups"]
-    reply_private_user_allowlist = document["reply_private_user_allowlist"]
-    reply_group_allowlist = document["reply_group_allowlist"]
+    private_user_blocklist = document["private_user_blocklist"]
     if (
         type(account_id) is not int
         or type(creator_user_id) is not int
         or type(api_base_url) is not str
         or type(event_port) is not int
         or type(request_body_max_bytes) is not int
-        or type(reply_to_other_private_users) is not bool
-        or type(reply_in_groups) is not bool
-        or type(reply_private_user_allowlist) is not list
-        or type(reply_group_allowlist) is not list
+        or type(private_user_blocklist) is not list
     ):
         raise ValueError("QQ channel configuration values are invalid")
-    private_user_allowlist_values = cast(list[object], reply_private_user_allowlist)
-    group_allowlist_values = cast(list[object], reply_group_allowlist)
-    if any(type(item) is not int for item in private_user_allowlist_values) or any(
-        type(item) is not int for item in group_allowlist_values
-    ):
-        raise ValueError("QQ reply allowlist is invalid")
+    blocklist_values = cast(list[object], private_user_blocklist)
+    if any(type(item) is not int for item in blocklist_values):
+        raise ValueError("QQ private blocklist is invalid")
     return QQNapCatBindingConfig(
         QQAdapterConfig(
             account_id,
             creator_user_id,
             allowed_groups,
-            reply_to_other_private_users,
-            reply_in_groups,
-            frozenset(cast(list[int], private_user_allowlist_values)),
-            frozenset(cast(list[int], group_allowlist_values)),
+            frozenset(cast(list[int], blocklist_values)),
         ),
         api_base_url,
         event_port,

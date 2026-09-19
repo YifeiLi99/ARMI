@@ -25,6 +25,7 @@ type MaintenanceAction = Literal[
     "device_bindings",
     "mood_display_probe",
     "napcat_status",
+    "napcat_groups",
     "napcat_start",
     "napcat_open",
 ]
@@ -54,6 +55,7 @@ class MaintenanceParameters(BaseModel):
             "vision_sources",
             "device_bindings",
             "napcat_status",
+            "napcat_groups",
         } or (self.action == "artifact_cleanup" and not self.apply)
 
     @model_validator(mode="after")

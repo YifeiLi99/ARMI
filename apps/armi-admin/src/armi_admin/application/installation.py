@@ -159,6 +159,7 @@ _DAILY_SCOPES = (
     "maintenance.semantic_calibrate",
     "maintenance.semantic_status",
     "maintenance.napcat_status",
+    "maintenance.napcat_groups",
     "maintenance.napcat_start",
     "maintenance.napcat_open",
     "maintenance.mood_display_probe",
@@ -935,16 +936,13 @@ class SetupApplication:
             for listener in sockets:
                 listener.close()
         document: dict[str, Any] = values or {
-            "schema_version": "armi.qq-napcat-channel.v3",
+            "schema_version": "armi.qq-napcat-channel.v4",
             "account_id": account_id,
             "creator_user_id": request.creator_user_id,
             "api_base_url": f"http://127.0.0.1:{ports[0]}",
             "event_port": ports[1],
             "request_body_max_bytes": 1048576,
-            "reply_to_other_private_users": False,
-            "reply_in_groups": False,
-            "reply_private_user_allowlist": [],
-            "reply_group_allowlist": [],
+            "private_user_blocklist": [],
             "allowed_groups": {},
         }
         document["enabled"] = request.enabled

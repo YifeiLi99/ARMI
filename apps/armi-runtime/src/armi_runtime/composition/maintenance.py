@@ -46,6 +46,9 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
         "napcat_status": {
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR
         },
+        "napcat_groups": {
+            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR
+        },
         "napcat_start": {
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
             QQ_NAPCAT_EVENT_SECRET_PURPOSE: QQ_NAPCAT_EVENT_SECRET_LOCATOR,
@@ -70,6 +73,8 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
             return inspect_runtime_credentials(prepared)
         case "napcat_status":
             return NapCatProcessManager(prepared).status().safe_view()
+        case "napcat_groups":
+            return NapCatProcessManager(prepared).list_groups()
         case "napcat_start":
             return NapCatProcessManager(prepared).start().safe_view()
         case "napcat_open":

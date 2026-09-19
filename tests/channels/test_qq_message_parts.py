@@ -91,9 +91,7 @@ async def test_sequential_delivery_retains_receipts_and_never_resumes(
     claims.record_message_part.side_effect = record_part
     adapter = QQEffectAdapter(
         QQEgressAdapter(
-            config=QQAdapterConfig(
-                10001, 90009, {}, False, False, frozenset(), frozenset()
-            ),
+            config=QQAdapterConfig(10001, 90009, {}, frozenset()),
             gateway=cast(Any, Gateway()),
         )
     )
@@ -129,18 +127,14 @@ async def test_sequential_delivery_retains_receipts_and_never_resumes(
     )
     snapshot = SimpleNamespace(request=request)
     if failure is None:
-        receipt = await pipeline._dispatch_with_heartbeat(
-            snapshot, content, fence, placeholder
-        )
+        receipt = await pipeline._dispatch_parts(snapshot, content, fence, placeholder)
         assert receipt.external_receiver_ref == "103"
         assert sent == ["嗯", "我在呀", "怎么啦？"]
         assert saved == ["101", "102"]
         assert rights.validate.await_count == 2
     else:
         with pytest.raises((EffectViolation, asyncio.CancelledError)):
-            await pipeline._dispatch_with_heartbeat(
-                snapshot, content, fence, placeholder
-            )
+            await pipeline._dispatch_parts(snapshot, content, fence, placeholder)
         assert sent == (
             ["嗯", "我在呀"] if failure in {"unknown", "cancel"} else ["嗯"]
         )

@@ -55,10 +55,7 @@ class QQAdapterConfig:
     account_id: int
     creator_user_id: int
     allowed_groups: Mapping[int, str]
-    reply_to_other_private_users: bool
-    reply_in_groups: bool
-    reply_private_user_allowlist: frozenset[int]
-    reply_group_allowlist: frozenset[int]
+    private_user_blocklist: frozenset[int]
 
     def __post_init__(self) -> None:
         if (
@@ -87,19 +84,11 @@ class QQAdapterConfig:
                 raise ValueError("QQ allowed group is invalid")
         object.__setattr__(self, "allowed_groups", MappingProxyType(groups))
         if (
-            type(self.reply_to_other_private_users) is not bool
-            or type(self.reply_in_groups) is not bool
-            or type(self.reply_private_user_allowlist) is not frozenset
-            or type(self.reply_group_allowlist) is not frozenset
+            type(self.private_user_blocklist) is not frozenset
             or any(
                 type(user_id) is not int or user_id <= 0
-                for user_id in self.reply_private_user_allowlist
+                for user_id in self.private_user_blocklist
             )
-            or any(
-                type(group_id) is not int or group_id <= 0
-                for group_id in self.reply_group_allowlist
-            )
-            or not self.reply_group_allowlist.issubset(groups)
         ):
             raise ValueError("QQ reply policy is invalid")
 
@@ -114,16 +103,8 @@ class QQConversationPolicy:
 
     def allows(self, *, group: bool, peer_id: int) -> bool:
         if group:
-            return peer_id in self._config.allowed_groups and (
-                self._config.reply_in_groups
-                or peer_id in self._config.reply_group_allowlist
-            )
-        if peer_id == self._config.creator_user_id:
-            return True
-        return (
-            self._config.reply_to_other_private_users
-            or peer_id in self._config.reply_private_user_allowlist
-        )
+            return peer_id in self._config.allowed_groups
+        return peer_id not in self._config.private_user_blocklist
 
 
 class QQIngressAdapter:

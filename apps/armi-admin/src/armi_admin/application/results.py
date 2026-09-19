@@ -863,6 +863,16 @@ class QQChannelPayload(Payload):
     reason_codes: list[str]
 
 
+class QQGroupPayload(Payload):
+    group_id: int
+    group_name: str
+    reply_enabled: bool
+
+
+class QQGroupsPayload(Payload):
+    groups: list[QQGroupPayload]
+
+
 class NapcatStartPayload(Payload):
     status: Literal["disabled", "already_ready", "started", "attention"]
     channel: QQChannelPayload
@@ -926,6 +936,7 @@ class MaintenancePayload(
         | DeviceBindingsPayload
         | MoodDisplayProbePayload
         | QQChannelPayload
+        | QQGroupsPayload
         | NapcatStartPayload
         | NapcatOpenPayload
         | SemanticCalibrationPayload
@@ -950,6 +961,7 @@ MAINTENANCE_PAYLOADS: dict[str, type[BaseModel]] = {
     "device_bindings": DeviceBindingsPayload,
     "mood_display_probe": MoodDisplayProbePayload,
     "napcat_status": QQChannelPayload,
+    "napcat_groups": QQGroupsPayload,
     "napcat_start": NapcatStartPayload,
     "napcat_open": NapcatOpenPayload,
     "semantic_install": SemanticInstallPayload,
