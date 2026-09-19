@@ -415,7 +415,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.payload_bytes, effect.trace_id,
                        effect.destination_kind, NULL::text, NULL::text, NULL::text,
                        effect.live_voice_turn_id, outbox.dispatch_deadline,
-                       effect.system_notification_id
+                       effect.system_notification_id, attempt.dispatch_state
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -444,7 +444,7 @@ class PostgreSQLEffectDispatchRepository:
                 "creator_inbox" if str(row[14]) == "live_voice_audio" else str(row[14])
             ),
         )
-        return EffectDispatchSnapshot(
+        snapshot = EffectDispatchSnapshot(
             row[0],
             row[1],
             int(row[2]),
@@ -478,6 +478,26 @@ class PostgreSQLEffectDispatchRepository:
                 row[20],
             ),
         )
+        if str(row[21]) == "prepared":
+            await self._settle(
+                uow,
+                snapshot,
+                observation_kind="query",
+                reliability="reliable",
+                observation_digest=_observation_digest(
+                    snapshot, "query", "predispatch_expired"
+                ),
+                receiver_ref=None,
+                receiver_external_ref=None,
+                status="cancelled",
+                verification="verified",
+                outbox_status="cancelled",
+                operation_status="effect_cancelled",
+                attempt_result="cancelled",
+                error_code="EFFECT-PREDISPATCH-CANCELLED",
+            )
+            return None
+        return snapshot
 
     async def unknown(
         self, uow: PostgreSQLRuntimeUnitOfWork
@@ -691,7 +711,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND outbox.claim_token = %s
                   AND outbox.claim_expires_at > statement_timestamp()
                   AND attempt.effect_attempt_id = %s
-                  AND attempt.dispatch_state = 'dispatching'
+                  AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 RETURNING outbox.effect_outbox_item_id
                 """,
                 (
@@ -1112,11 +1132,14 @@ class PostgreSQLEffectDispatchRepository:
             UPDATE armi.effect_outbox_items SET status=%s,
                 claim_owner=NULL, claim_expires_at=NULL,
                 delivered_at=CASE WHEN %s='delivered' THEN %s ELSE NULL END,
+                cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END,
                 last_error_code=%s
             WHERE effect_outbox_item_id=%s AND claim_token=%s
             """,
             (
                 outbox_status,
+                outbox_status,
+                attempt[0],
                 outbox_status,
                 attempt[0],
                 error_code,

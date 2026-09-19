@@ -1,8 +1,9 @@
+import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid7
 
 import pytest
@@ -81,6 +82,38 @@ def _receipt() -> EffectAdapterReceipt:
 
 
 @pytest.mark.asyncio
+async def test_claim_is_renewed_while_waiting_for_custody():
+    pipeline = _pipeline(receipt=None)
+    snapshot = _snapshot()
+    released = asyncio.Event()
+
+    async def guarded(*_args):
+        await released.wait()
+        return True
+
+    original_wait = asyncio.wait
+    ticks = 0
+
+    async def fast_wait(tasks, **_kwargs):
+        nonlocal ticks
+        ticks += 1
+        if ticks == 1:
+            await asyncio.sleep(0)
+            return set(), set(tasks)
+        return await original_wait(tasks)
+
+    pipeline._dispatcher.renew_claim.side_effect = lambda *_args: released.set()
+    with (
+        patch.object(EffectPipeline, "_dispatch_in_custody", side_effect=guarded),
+        patch("armi_effect._application.asyncio.wait", side_effect=fast_wait),
+    ):
+        assert await pipeline._dispatch_with_heartbeat(
+            snapshot, _UnitOfWork.runtime_fence
+        )
+    pipeline._dispatcher.renew_claim.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_verified_system_notice_has_system_timeline_origin_and_never_recurses():
     snapshot = _snapshot()
     notification_id = uuid7()
@@ -143,7 +176,7 @@ async def test_direct_reply_checks_send_boundary_without_permissions(
     read = AsyncMock(return_value=None if boundary == "corrupt" else b"reply")
     send = AsyncMock(return_value=_receipt())
     monkeypatch.setattr(EffectPipeline, "_read_payload", read)
-    monkeypatch.setattr(EffectPipeline, "_dispatch_with_heartbeat", send)
+    monkeypatch.setattr(EffectPipeline, "_dispatch_parts", send)
     monkeypatch.setattr(EffectPipeline, "_notify_dispatch", AsyncMock())
     await pipeline._dispatch_claimed(snapshot, _UnitOfWork.runtime_fence)
     read.assert_awaited_once()

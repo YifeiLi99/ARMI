@@ -7017,7 +7017,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_system_notifications_are_atomic_deduplicated_and_not_replayed(
         self,
     ) -> None:
-        for stage in ("delivered", "registered", "unknown", "input"):
+        for stage in (
+            "delivered",
+            "registered",
+            "unknown",
+            "input",
+            "prepared_expired",
+        ):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(system_notification=stage)
 
@@ -8326,6 +8332,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         self.assertEqual(
                             snapshot.request.system_notification_id, notification_id
                         )
+                        if system_notification == "prepared_expired":
+                            async with factory.unit_of_work() as uow:
+                                await dispatcher.renew_claim(uow, snapshot)
+                                await uow.transaction.execute(
+                                    "UPDATE armi.effect_outbox_items SET claim_expires_at=statement_timestamp()-interval '1 second' WHERE effect_id=%s",
+                                    (effect_id,),
+                                )
+                            async with factory.unit_of_work() as uow:
+                                self.assertIsNone(await dispatcher.expired(uow))
+                            async with factory.unit_of_work(read_only=True) as uow:
+                                settled = await (
+                                    await uow.transaction.execute(
+                                        "SELECT dispatch_state,result_status,dispatched_at FROM armi.effect_attempts WHERE effect_attempt_id=%s",
+                                        (snapshot.request.attempt_id.value,),
+                                    )
+                                ).fetchone()
+                            self.assertEqual(settled, ("settled", "cancelled", None))
+                            return
                         async with factory.unit_of_work() as uow:
                             await dispatcher.mark_dispatching(
                                 uow,

@@ -221,6 +221,31 @@ def _component(
     return EmotionComponent(family, nuance, vad or VAD(60, 40, 20), intensity)
 
 
+def test_resolved_episode_leaves_context_while_residual_emotion_decays() -> None:
+    now = datetime(2026, 9, 19, tzinfo=UTC)
+    episode_id = uuid7()
+    opened = StoredAffectiveEvent(
+        now,
+        (StoredEmotionComponent(_component(intensity=80), 3600),),
+        episode_id,
+        gist="等待回应",
+    )
+    closed = StoredAffectiveEvent(
+        now + timedelta(seconds=1),
+        (),
+        episode_id,
+        AppraisalTransition.RESOLVE,
+        AppraisalEventPhase.REALIZED,
+        "已经结束",
+    )
+    _, emotions, episodes, _ = derive_effective_snapshot(
+        VAD(0, 0, 0), (opened, closed), as_of=now + timedelta(seconds=2)
+    )
+    assert emotions
+    assert episodes == ()
+    assert derive_effective_snapshot(VAD(0, 0, 0), (opened, closed), as_of=now)[2]
+
+
 def test_mood_candidate_round_trips_are_canonical() -> None:
     cognition = bootstrap_mood_cognition()
     for candidate in (

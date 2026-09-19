@@ -1207,7 +1207,16 @@ def derive_effective_snapshot(
         if episode_id is not None:
             episode_strengths[episode_id].append((intensity, occurred_at, gist, phase))
     episodes: list[ActiveAffectiveEpisode] = []
+    resolved = {
+        event.episode_id
+        for event in ordered
+        if event.occurred_at <= as_of
+        and event.transition is AppraisalTransition.RESOLVE
+    }
     for episode_id, items in episode_strengths.items():
+        # Residual affect may decay, but a closed episode cannot be continued.
+        if episode_id in resolved:
+            continue
         strength = min(100, round(sum(item[0] for item in items)))
         if strength < 5:
             continue

@@ -256,33 +256,7 @@ class EffectPipeline:
             if snapshot is None:
                 return False
             runtime_fence = self._runtime_admission()
-            requests = ordered_custody_requests(
-                ExecutionCustodyRequest(
-                    ExecutionCustodyScope(
-                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
-                        self._factory.environment_id,
-                    ),
-                    ExecutionCustodyMode.SHARED,
-                ),
-                ExecutionCustodyRequest(
-                    ExecutionCustodyScope(
-                        ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
-                        snapshot.request.destination_party_id,
-                    ),
-                    ExecutionCustodyMode.SHARED,
-                ),
-                ExecutionCustodyRequest(
-                    ExecutionCustodyScope(
-                        ExecutionCustodyScopeKind.OUTREACH_SCENE,
-                        snapshot.request.scene_id,
-                    ),
-                    ExecutionCustodyMode.EXCLUSIVE,
-                ),
-            )
-            async with self._custody.hold(
-                requests, deadline_at=snapshot.dispatch_deadline
-            ):
-                return await self._dispatch_claimed(snapshot, runtime_fence)
+            return await self._dispatch_with_heartbeat(snapshot, runtime_fence)
         except (
             RuntimeTransactionFailure,
             EffectViolation,
@@ -290,6 +264,35 @@ class EffectPipeline:
         ):
             self._diagnostic("effect.dispatch.transient_failure")
             return True
+
+    async def _dispatch_in_custody(
+        self, snapshot: EffectDispatchSnapshot, runtime_fence: RuntimeFence
+    ) -> bool:
+        requests = ordered_custody_requests(
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                    self._factory.environment_id,
+                ),
+                ExecutionCustodyMode.SHARED,
+            ),
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                    snapshot.request.destination_party_id,
+                ),
+                ExecutionCustodyMode.SHARED,
+            ),
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                    snapshot.request.scene_id,
+                ),
+                ExecutionCustodyMode.EXCLUSIVE,
+            ),
+        )
+        async with self._custody.hold(requests, deadline_at=snapshot.dispatch_deadline):
+            return await self._dispatch_claimed(snapshot, runtime_fence)
 
     async def _dispatch_claimed(
         self,
@@ -352,7 +355,7 @@ class EffectPipeline:
                 return True
             await self._notify_dispatch(snapshot, include_scene=False)
             try:
-                receipt = await self._dispatch_with_heartbeat(
+                receipt = await self._dispatch_parts(
                     snapshot, payload, runtime_fence, data_fence
                 )
             except EffectViolation as error:
@@ -475,13 +478,10 @@ class EffectPipeline:
     async def _dispatch_with_heartbeat(
         self,
         snapshot: EffectDispatchSnapshot,
-        payload: bytes,
         runtime_fence: RuntimeFence,
-        data_fence: DataRightsFence,
-    ) -> EffectAdapterReceipt:
-        task = asyncio.create_task(
-            self._dispatch_parts(snapshot, payload, runtime_fence, data_fence)
-        )
+    ) -> bool:
+        # The claim also needs renewal while waiting for execution custody.
+        task = asyncio.create_task(self._dispatch_in_custody(snapshot, runtime_fence))
         try:
             while True:
                 done, _ = await asyncio.wait((task,), timeout=20)
