@@ -487,6 +487,25 @@ class AdminControlPlane:
             relative = path.relative_to(root).as_posix()
             if relative.startswith("run/") or not path.is_file():
                 continue
+            # PostgreSQL must stay online for reset. Its WAL, checkpoints and
+            # logs are not subject changes (DESIGN: environment reset); schema
+            # and subject versions are checked separately. Keep cluster binding
+            # and server configuration in the fingerprint.
+            if relative.startswith(
+                ("postgresql/tmp/", "postgresql/data/")
+            ) and relative not in {
+                "postgresql/data/postgresql.conf",
+                "postgresql/data/postgresql.auto.conf",
+                "postgresql/data/pg_hba.conf",
+                "postgresql/data/pg_ident.conf",
+            }:
+                continue
+            if relative in {
+                "postgresql/postgresql.log",
+                "postgresql/last-command-error.log",
+                "postgresql/native.lock",
+            }:
+                continue
             lines.extend(relative.encode("utf-8"))
             lines.extend(b"\t")
             lines.extend(_digest(path.read_bytes()).encode("ascii"))

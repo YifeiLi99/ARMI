@@ -120,6 +120,12 @@ class AdminResetPreviewTests(unittest.TestCase):
                 return_value=DIGEST,
             ):
                 preview = control.preview_reset()
+                # An online server can checkpoint and log while the stopped
+                # subject and its reset scope remain unchanged.
+                pg = config.environment_root / "postgresql"
+                (pg / "data/pg_wal").mkdir(parents=True)
+                (pg / "data/pg_wal/segment").write_bytes(b"checkpoint")
+                (pg / "postgresql.log").write_text("connection closed\n")
                 other_process = AdminControlPlane(config, credentials, observation)
                 payload = other_process.validate_reset(str(preview["preview_token"]))
                 with patch.object(
@@ -149,6 +155,25 @@ class AdminResetPreviewTests(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, "ADMIN-RESET-PREVIEW-STALE"),
             ):
                 control.validate_reset(str(preview["preview_token"]))
+
+    def test_reset_fingerprint_keeps_cluster_and_server_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in (
+                "postgresql/cluster.json",
+                "postgresql/data/postgresql.conf",
+                "postgresql/data/postgresql.auto.conf",
+                "postgresql/data/pg_hba.conf",
+                "postgresql/data/pg_ident.conf",
+                "data/artifacts/result.txt",
+            ):
+                before = AdminControlPlane._tree_digest(root)
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("changed", encoding="utf-8")
+                self.assertNotEqual(
+                    before, AdminControlPlane._tree_digest(root), relative
+                )
 
 
 class RuntimeControlProtocolTests(unittest.TestCase):
