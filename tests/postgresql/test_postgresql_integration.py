@@ -4828,6 +4828,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             service = bootstrap_admin(config, credentials).service
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
+            for name in ("admin.yaml", "issuer.yaml"):
+                (environment_root / name).write_text(
+                    config.model_dump_json(), encoding="utf-8"
+                )
             preview = service.mutate(
                 "environment_reset_preview",
                 EnvironmentResetPreviewRequest(
@@ -4858,6 +4862,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(reset.status, "succeeded", reset.model_dump_json())
             assert reset.result is not None
             self.assertNotIn("recovery_digest", reset.result)
+            for name in ("admin.yaml", "issuer.yaml"):
+                updated = AdminConfig.model_validate(
+                    json.loads((environment_root / name).read_bytes())
+                )
+                self.assertEqual(updated.environment_incarnation, 2)
+                self.assertEqual(updated.environment_id, config.environment_id)
             replay = service.mutate(
                 "environment_reset",
                 EnvironmentResetRequest(

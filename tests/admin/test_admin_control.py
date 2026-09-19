@@ -17,6 +17,10 @@ from armi_admin.application import (
     admin_program_identity,
 )
 from armi_admin.application.catalog import ADMIN_OPERATIONS
+from armi_admin.application.configuration import (
+    AdminConfigError,
+    synchronize_environment_incarnation,
+)
 from armi_admin.persistence import AdminObservationGateway
 from armi_runtime.composition.admin_control import (
     RuntimeAdminControlServer,
@@ -67,6 +71,45 @@ def _config(root: Path) -> AdminConfig:
 
 
 class AdminResetPreviewTests(unittest.TestCase):
+    def test_reset_publishes_incarnation_and_can_finish_partial_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _config(Path(directory))
+            original = config.model_dump(mode="json")
+            for name in ("admin.yaml", "issuer.yaml"):
+                (config.environment_root / name).write_text(
+                    json.dumps(original), encoding="utf-8"
+                )
+            synchronize_environment_incarnation(config, 4)
+            for name in ("admin.yaml", "issuer.yaml"):
+                saved = json.loads((config.environment_root / name).read_bytes())
+                self.assertEqual(saved, {**original, "environment_incarnation": 4})
+            (config.environment_root / "issuer.yaml").write_text(
+                json.dumps(original), encoding="utf-8"
+            )
+            synchronize_environment_incarnation(
+                config.model_copy(update={"environment_incarnation": 4}), 4
+            )
+            self.assertEqual(
+                json.loads((config.environment_root / "issuer.yaml").read_bytes())[
+                    "environment_incarnation"
+                ],
+                4,
+            )
+
+    def test_reset_binding_mismatch_does_not_partially_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _config(Path(directory))
+            original = config.model_dump(mode="json")
+            admin = config.environment_root / "admin.yaml"
+            admin.write_text(json.dumps(original), encoding="utf-8")
+            (config.environment_root / "issuer.yaml").write_text(
+                json.dumps({**original, "environment_incarnation": 9}), encoding="utf-8"
+            )
+            before = admin.read_bytes()
+            with self.assertRaises(AdminConfigError):
+                synchronize_environment_incarnation(config, 4)
+            self.assertEqual(admin.read_bytes(), before)
+
     def test_active_initialization_does_not_require_disposable_template(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

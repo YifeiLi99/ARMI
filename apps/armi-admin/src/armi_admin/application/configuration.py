@@ -322,6 +322,41 @@ def _path_identity(value: Path | None) -> str | None:
     return f"sha256:{hashlib.sha256(normalized).hexdigest()}"
 
 
+def synchronize_environment_incarnation(config: AdminConfig, incarnation: int) -> None:
+    """Publish a committed reset to the installation's existing Admin bindings.
+
+    Caller holds the environment control lock. A partial publication is retryable;
+    read the saved documents so resolved package paths never leak into YAML.
+    """
+    from armi_local_control import write_control
+    from armi_local_control.configuration.paths import has_reparse_point
+
+    if incarnation not in {
+        config.environment_incarnation,
+        config.environment_incarnation + 1,
+    }:
+        raise AdminConfigError("ADMIN-CONFIG-INCARNATION")
+    updates: list[tuple[Path, dict[str, object]]] = []
+    for name in ("admin.yaml", "issuer.yaml"):
+        path = config.environment_root / name
+        if has_reparse_point(path, root=config.environment_root):
+            raise AdminConfigError("ADMIN-CONFIG-REPARSE")
+        if not path.exists():
+            continue
+        document = load_yaml_mapping(path.read_bytes())
+        saved = AdminConfig.model_validate(document)
+        if (
+            saved.environment_id != config.environment_id
+            or saved.environment_root != config.environment_root
+            or saved.environment_incarnation not in {incarnation - 1, incarnation}
+        ):
+            raise AdminConfigError("ADMIN-CONFIG-INCARNATION")
+        if saved.environment_incarnation != incarnation:
+            updates.append((path, {**document, "environment_incarnation": incarnation}))
+    for path, document in updates:
+        write_control(path, document)
+
+
 def load_admin_config(
     environ: dict[str, str] | None = None,
     *,

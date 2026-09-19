@@ -22,7 +22,7 @@ from armi_runtime_foundation import PostgreSQLAdminTransaction
 
 from armi_admin.persistence.runtime_foundation import RuntimeFoundationAdminAdapter
 
-from .configuration import load_admin_config
+from .configuration import load_admin_config, synchronize_environment_incarnation
 from .credentials import AdminCredentialPort
 from .deployment import environment_binding
 from .distribution import ProgramBundle
@@ -92,7 +92,13 @@ def database_upgrade(
                 if (
                     environment is None
                     or environment.environment_id != config.environment_id
-                    or environment.incarnation != config.environment_incarnation
+                    or environment.environment_kind != config.environment_kind.value
+                    or environment.incarnation
+                    not in {
+                        config.environment_incarnation,
+                        config.environment_incarnation
+                        + (1 if action == "apply" else 0),
+                    }
                 ):
                     raise SetupError("SETUP-UPGRADE-ENVIRONMENT")
                 result = (
@@ -102,6 +108,10 @@ def database_upgrade(
                 )
             # Database commit precedes binding refresh. A later status/apply can recover this gap.
             if action == "apply":
+                # The registered DB generation is authoritative after reset.
+                # Explicit stopped-environment apply also repairs an interrupted
+                # publication to Admin/issuer files; never lower the DB generation.
+                synchronize_environment_incarnation(config, environment.incarnation)
                 write_control(
                     paths.environment_root / ".setup/program.json",
                     {

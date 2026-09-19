@@ -1563,7 +1563,15 @@ class AdminToolService:
                         invocation_key=typed_reset.idempotency_key,
                     ),
                 )
-                self._register_environment(int(result["incarnation"]))
+                from .configuration import synchronize_environment_incarnation
+
+                with environment_control_lock(
+                    self._config.environment_root, self._config.environment_id
+                ):
+                    self._register_environment(int(result["incarnation"]))
+                    synchronize_environment_incarnation(
+                        self._config, int(result["incarnation"])
+                    )
                 self._requires_reload = True
             elif name == "runtime_start":
                 result = self._environment_controller().execute(
