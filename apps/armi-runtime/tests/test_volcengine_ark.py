@@ -5,6 +5,7 @@ import json
 import pytest
 from armi_kernel.application import ModelViolation
 from armi_runtime.adapters.model.volcengine_ark import (
+    OpenAIArkTransport,
     _available_refs,
     _provider_input,
     _strict_provider_schema,
@@ -38,16 +39,21 @@ def test_codex_prompt_assembles_identity_and_task_once():
         ).encode()
     )
     prompt = (
-        CODEX_RESULT_ACT_INSTRUCTIONS + "\n" + "\n".join(m["content"] for m in messages)
+        OpenAIArkTransport(
+            {}, instructions=CODEX_RESULT_ACT_INSTRUCTIONS, schema_name="test"
+        )._instructions
+        + "\n"
+        + "\n".join(m["content"] for m in messages)
     )
-    headings = [line for line in prompt.splitlines() if line.startswith("# ")]
+    headings = [line for line in prompt.splitlines() if line.startswith("#")]
     assert len(headings) == len(set(headings))
-    assert [h for h in headings if "身份" in h] == ["# 身份与人格"]
+    assert [h for h in headings if "身份与" in h] == ["## 身份与人格"]
+    assert [h for h in headings if h.startswith("# ")] == ["# ARMI 本轮认知"]
     assert prompt.count("理解受托工作结果,回应原问题或决定必要的后续行动") == 1
     assert prompt.count("温和、坦诚") == 1
     assert "internal-id" not in prompt
     for i in range(1, 5):
-        assert prompt.count(f"ctx:{i}】") == 1
+        assert prompt.count(f"· ctx:{i}\n") == 1
 
 
 @pytest.mark.parametrize(
@@ -151,6 +157,37 @@ def test_context_rejects_reference_misalignment():
         )
 
 
+def test_external_markdown_cannot_escape_its_source_block():
+    from armi_runtime.adapters.model.context_text import context_item_text
+
+    body = '# 原文标题\n```json\n{"message":"保留【】和（）"}\n```\n````\n尾行'  # noqa: RUF001
+    rendered = context_item_text(
+        {"item_kind": "current_evidence", "content": body, "trust": "external_claim"},
+        "ctx:1",
+    )
+    assert rendered.startswith("### 本轮输入 · ctx:1\n\n> ")
+    assert rendered.endswith("`````text\n" + body + "\n`````")
+
+
+def test_owner_fields_form_nested_markdown_lists():
+    from armi_runtime.adapters.model.context_text import context_item_text
+
+    rendered = context_item_text(
+        {
+            "item_kind": "fixed_prompt",
+            "content": json.dumps(
+                {
+                    "traits": ["温和", "坦诚"],
+                    "voice_style": "简短\n自然",
+                }
+            ),
+        },
+        "ctx:2",
+    )
+    assert "- **性格**:\n  - 温和\n  - 坦诚" in rendered
+    assert "- **语气**: 简短\n  自然" in rendered
+
+
 @pytest.mark.parametrize(
     "schema_version",
     ("armi.creator-dialogue-input.v6",),
@@ -227,8 +264,8 @@ def test_current_evidence_follows_history_once_with_its_original_source(
     assert "私有" in trigger
     assert "evidence-id" not in trigger
     if purpose == "consider_codex_result":
-        assert trigger.startswith("# 当前输入与证据\n\n【codex返回】\n")
-        assert trigger.endswith("\n【codex返回结束】")
+        assert trigger.startswith("## 当前输入与证据\n\n### Codex 返回 · ctx:2\n")
+        assert trigger.endswith("\n```")
         assert "来源:Codex 返回" in trigger
     else:
         assert "来源:Creator 输入" in trigger
@@ -283,11 +320,11 @@ def test_readable_context_keeps_semantics_and_refs_without_runtime_envelope() ->
     ):
         assert omitted not in text
     for ref in ("ctx:1", "ctx:7", "ctx:12"):
-        assert text.count(ref + "】") == 1
-    assert '想了解 "版本"\n和日期' in text
-    assert "当前程度:0" in text
-    assert "是否不确定:否" in text
-    assert "满足情况:open" in text
+        assert text.count("· " + ref + "\n") == 1
+    assert '想了解 "版本"\n    和日期' in text
+    assert "**当前程度**: 0" in text
+    assert "**是否不确定**: 否" in text
+    assert "**满足情况**: open" in text
     assert items[-1]["content"] in messages[-1]["content"]
 
 
@@ -310,7 +347,7 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
         },
         "ctx:3",
     )
-    assert "当前对方是否为主要 Creator:否" in scene
+    assert "**当前对方是否为主要 Creator**: 否" in scene
     assert "creator_delegate" in scene
     assert "party-a" not in scene and "agent-id" not in scene
     capability = context_item_text(
@@ -336,7 +373,7 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
     )
     assert "internal-" not in capability
     assert "codex.delegated-work" in capability and "unavailable" in capability
-    assert "CODEX-NOT-READY" in capability and "已开启:否" in capability
+    assert "CODEX-NOT-READY" in capability and "**已开启**: 否" in capability
 
 
 def test_provider_schema_binds_context_refs_to_request() -> None:

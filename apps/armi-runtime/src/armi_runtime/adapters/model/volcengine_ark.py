@@ -71,8 +71,13 @@ class OpenAIArkTransport:
         schema_name: str,
     ) -> None:
         self._candidate_schema = candidate_schema
+        markdown_lines: list[str] = []
+        for line in instructions.splitlines():
+            if markdown_lines and markdown_lines[-1].startswith("#") and line:
+                markdown_lines.append("")
+            markdown_lines.append("#" + line if line.startswith("#") else line)
         self._instructions = (
-            instructions + "\n\n# 输出要求\n\n"
+            "# ARMI 本轮认知\n\n" + "\n".join(markdown_lines) + "\n\n## 输出要求\n\n"
             "严格按给定 JSON Schema 输出一个 JSON 对象,候选放在 candidate 属性中。"
             "闭合该对象后立即结束;不重复输出、不加说明或隐藏思维链。"
         )

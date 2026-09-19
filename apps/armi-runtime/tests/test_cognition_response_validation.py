@@ -577,7 +577,9 @@ def test_saved_request_contains_actual_provider_input_without_credentials():
     saved = json.loads(adapter.request_evidence(request))
     assert saved["schema_version"] == "armi.model-input-evidence.v1"
     assert "canonical_request" not in saved
-    assert saved["provider_request"]["instructions"].startswith("本次系统指令")
+    assert saved["provider_request"]["instructions"].startswith(
+        "# ARMI 本轮认知\n\n本次系统指令"
+    )
     assert "当前问题" in saved["provider_request"]["input"][-1]["content"]
     assert "compiled_context" not in json.dumps(saved["provider_request"]["input"])
     assert saved["provider_request"]["text"]["format"]["strict"] is True

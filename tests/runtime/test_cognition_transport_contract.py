@@ -89,7 +89,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     assert payload == transport.request_parameters(
         cast(Any, SimpleNamespace(model_id="doubao-seed-evolving")), cast(Any, request)
     )
-    assert payload["instructions"].startswith(GENERIC_COGNITION_INSTRUCTIONS)
+    assert payload["instructions"].startswith("# ARMI 本轮认知\n\n## 基本规则")
     assert "候选放在 candidate 属性中" in payload["instructions"]
     assert payload["text"]["format"]["schema"]["required"] == ["candidate"]
     assert "受托研究结果" in payload["input"][-1]["content"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, cast
 
 from armi_kernel.application import ModelViolation
@@ -87,14 +88,19 @@ def context_messages(document: dict[str, Any]) -> list[dict[str, str]]:
                 purpose, purpose.removeprefix("reflect_")
             )
         )
-        rendered = context_item_text(item, ref, preserve_fields=reflection_target)
+        rendered = context_item_text(
+            item,
+            ref,
+            preserve_fields=reflection_target,
+            title="Codex 返回"
+            if purpose == "consider_codex_result" and kind == "current_evidence"
+            else None,
+        )
         if reflection_target:
             submission["expected_version"] = item["source"]["version"]
         if kind == "codex_task_source" and purpose == "consider_codex_task":
             submission["task_source_id"] = item["source"]["reference"]
         if kind in {"current_evidence", "codex_task_source"}:
-            if purpose == "consider_codex_result":
-                rendered = f"【codex返回】\n{rendered}\n【codex返回结束】"
             current.append(rendered)
         else:
             section = _SECTION_BY_KIND.get(kind, "相关背景")
@@ -109,20 +115,20 @@ def context_messages(document: dict[str, Any]) -> list[dict[str, str]]:
         raise ModelViolation("MODEL-CONTEXT")
     background = [
         *(
-            f"# {name}\n\n" + "\n\n".join(sections[name])
+            f"## {name}\n\n" + "\n\n".join(sections[name])
             for name in _SECTIONS
             if sections[name]
         ),
     ]
     if submission:
         background.append(
-            "# 本合同所需的提交字段\n仅按输出合同引用,不要向用户复述。\n"
-            + json.dumps(submission, ensure_ascii=False, indent=2)
+            "## 本合同所需的提交字段\n\n仅按输出合同引用,不要向用户复述。\n\n"
+            + _fenced(json.dumps(submission, ensure_ascii=False, indent=2), "json")
         )
     messages = [{"role": "user", "content": "\n\n".join(background)}]
     if current:
         messages.append(
-            {"role": "user", "content": "# 当前输入与证据\n\n" + "\n\n".join(current)}
+            {"role": "user", "content": "## 当前输入与证据\n\n" + "\n\n".join(current)}
         )
     return messages
 
@@ -267,19 +273,21 @@ def _lines(value: Any, depth: int = 0) -> list[str]:
         for key, child in cast(dict[str, Any], value).items():
             label = _LABELS.get(key, key)
             if isinstance(child, dict | list) and child:
-                result.append(f"{prefix}{label}:")
+                result.append(f"{prefix}- **{label}**:")
                 result.extend(_lines(child, depth + 1))
             else:
-                result.append(f"{prefix}{label}:{_scalar(child)}")
+                text = _scalar(child).replace("\n", "\n" + prefix + "  ")
+                result.append(f"{prefix}- **{label}**: {text}")
         return result
     if isinstance(value, list):
         result = []
-        for child in cast(list[Any], value):
+        for index, child in enumerate(cast(list[Any], value), 1):
             if isinstance(child, dict | list):
-                result.append(f"{prefix}-")
+                result.append(f"{prefix}- 条目 {index}")
                 result.extend(_lines(child, depth + 1))
             else:
-                result.append(f"{prefix}- {_scalar(child)}")
+                text = _scalar(child).replace("\n", "\n" + prefix + "  ")
+                result.append(f"{prefix}- {text}")
         return result
     return [f"{prefix}{_scalar(value)}"]
 
@@ -295,7 +303,11 @@ def _scalar(value: Any) -> str:
 
 
 def context_item_text(
-    item: dict[str, Any], ref: str, *, preserve_fields: bool = False
+    item: dict[str, Any],
+    ref: str,
+    *,
+    preserve_fields: bool = False,
+    title: str | None = None,
 ) -> str:
     kind = item["item_kind"]
     trust: str = item.get("trust", "")
@@ -309,23 +321,23 @@ def context_item_text(
     source_kind = item.get("source", {}).get("kind")
     if source_kind and source_kind != kind:
         qualifiers.append(f"来源:{_SOURCES.get(source_kind, source_kind)}")
-    header = f"【{_KINDS.get(kind, kind)} {ref}】"
+    header = f"### {title or _KINDS.get(kind, kind)} · {ref}"
     if any(qualifiers):
-        header += "(" + ";".join(q for q in qualifiers if q) + ")"
+        header += "\n\n> " + ";".join(q for q in qualifiers if q)
     content = item["content"]
     if kind == "runtime_identity" and not preserve_fields:
         # Identity/version fencing stays in the frozen request, not model output.
-        return header + "\n你是持续生活的电子人。"
+        return header + "\n\n你是持续生活的电子人。"
     if kind == "current_purpose":
         value = json.loads(content)
         purpose_name: str = value["purpose"]
-        return header + "\n" + _PURPOSES.get(purpose_name, purpose_name)
+        return header + "\n\n" + _PURPOSES.get(purpose_name, purpose_name)
     if kind in _OMIT or kind == "runtime_identity":
         try:
             value = json.loads(content)
         except json.JSONDecodeError:
             # Some supported history/prompt sources are already plain text.
-            return header + "\n" + content
+            return header + "\n\n" + _fenced(content)
         if isinstance(value, dict):
             value = cast(dict[str, Any], value)
             if kind == "current_scene" and value.get("context_party_id") is not None:
@@ -346,4 +358,12 @@ def context_item_text(
                     for capability in value["capabilities"]
                 ]
             content = "\n".join(_lines(value))
-    return header + "\n" + content
+            return header + "\n\n" + content
+    return header + "\n\n" + _fenced(content)
+
+
+def _fenced(content: str, language: str = "text") -> str:
+    # Source headings/fences must not become part of the prompt's own hierarchy.
+    width = max((len(run) for run in re.findall(r"`+", content)), default=0)
+    fence = "`" * max(3, width + 1)
+    return f"{fence}{language}\n{content}\n{fence}"
