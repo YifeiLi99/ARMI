@@ -194,7 +194,6 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
         Digest.from_bytes(b"context"),
         cast(Any, SimpleNamespace()),
         (),
-        (),
         TraceId("a" * 32),
     )
     record = cast(

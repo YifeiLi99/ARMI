@@ -681,7 +681,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     )
 
 
-def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> None:
+def test_other_human_dialogue_uses_the_shared_frozen_request() -> None:
     binding = load_purpose_binding("consider_other_human_input")
     source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234571"
     compiled = json.dumps(
@@ -776,21 +776,13 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
     )
 
     assert binding.response_contract_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
-    assert request["schema_version"] == "armi.creator-dialogue-input.v6"
-    assert request["task"] == "respond_to_other_human"
-    assert [message["role"] for message in request["messages"]] == [
-        "system",
-        "user",
-        "assistant",
-        "user",
+    assert request["schema_version"] == "armi.model-request.v1"
+    assert request["compiled_context"] == json.loads(compiled)
+    assert [ref["ref"] for ref in request["included_context_refs"]] == [
+        "ctx:1",
+        "ctx:2",
+        "ctx:3",
     ]
-    assert [message["content"] for message in request["messages"][1:]] == [
-        "之前的问题",
-        "之前的回答",
-        "现在的问题",
-    ]
-    assert "任务:回应当前对方" in request["messages"][0]["content"]
-    assert source_id not in json.dumps(request, ensure_ascii=False)
 
 
 @pytest.mark.parametrize(

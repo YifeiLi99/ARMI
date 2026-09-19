@@ -46,7 +46,23 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     )
     request = SimpleNamespace(
         canonical_bytes=json.dumps(
-            {"purpose": purpose, "included_context_refs": [{"ref": "ctx:1"}]}
+            {
+                "schema_version": "armi.model-request.v1",
+                "compiled_context": {
+                    "purpose": purpose,
+                    "layers": [
+                        {
+                            "items": [
+                                {
+                                    "item_kind": "current_evidence",
+                                    "content": "受托研究结果",
+                                }
+                            ]
+                        }
+                    ],
+                },
+                "included_context_refs": [{"ref": "ctx:1"}],
+            }
         ).encode(),
         max_output_tokens=1024,
     )
@@ -74,9 +90,9 @@ async def test_generic_transport_sends_current_prompt_and_schema(
         cast(Any, SimpleNamespace(model_id="doubao-seed-evolving")), cast(Any, request)
     )
     assert payload["instructions"].startswith(GENERIC_COGNITION_INSTRUCTIONS)
-    assert "candidate object property" in payload["instructions"]
+    assert "候选放在 candidate 属性中" in payload["instructions"]
     assert payload["text"]["format"]["schema"]["required"] == ["candidate"]
-    assert purpose in payload["input"]
+    assert "受托研究结果" in payload["input"][-1]["content"]
     assert payload["text"]["format"]["name"] == "armi_cognition_candidate_v13"
     wire = json.dumps(payload["text"]["format"]["schema"])
     assert "capability_request" not in wire

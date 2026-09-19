@@ -5,16 +5,118 @@ import json
 import pytest
 from armi_kernel.application import ModelViolation
 from armi_runtime.adapters.model.volcengine_ark import (
+    _available_refs,
     _provider_input,
     _strict_provider_schema,
 )
 
 
 @pytest.mark.parametrize(
+    "purpose",
+    [
+        "consider_creator_input",
+        "consider_creator_voice_input",
+        "consider_other_human_input",
+        "consider_codex_result",
+        "consider_codex_task",
+        "consider_life_query_result",
+        "consider_web_evidence",
+        "consider_visual_observation",
+        "consider_autonomous_life",
+        "consider_sleep",
+        "maintain_subjective_memory",
+        "perform_subject_self_check",
+        "reflect_self",
+        "reflect_mind",
+        "reflect_mood",
+        "reflect_prompt",
+    ],
+)
+def test_all_purposes_share_section_order_without_mutating_frozen_data(purpose):
+    from copy import deepcopy
+
+    items = [
+        {"item_kind": "current_evidence", "content": "当前原文"},
+        {"item_kind": "recent_scene_turn", "content": "历史原文"},
+        {
+            "item_kind": "self",
+            "content": '{"schema_version":"private-wire","name":"ARMI"}',
+        },
+        {"item_kind": "fixed_prompt", "content": "固定人格"},
+    ]
+    document = {
+        "schema_version": "armi.model-request.v1",
+        "compiled_context": {"purpose": purpose, "layers": [{"items": items}]},
+        "included_context_refs": [{"ref": f"ctx:{n}"} for n in [7, 3, 9, 1]],
+    }
+    original = deepcopy(document)
+    encoded = json.dumps(document).encode()
+    messages = _provider_input(encoded)
+    assert isinstance(messages, list)
+    background = messages[0]["content"]
+    assert background.index("# 身份与人格") < background.index("# 本轮任务")
+    assert background.index("# 本轮任务") < background.index("# 当前状态")
+    assert background.index("# 当前状态") < background.index("# 历史对话")
+    assert "当前原文" not in background
+    assert "当前原文" in messages[-1]["content"]
+    assert "private-wire" not in background
+    assert _available_refs(encoded) == ("ctx:1", "ctx:3", "ctx:7", "ctx:9")
+    assert document == original
+
+
+def test_reflection_only_receives_its_target_submission_version():
+    from armi_runtime.adapters.model.context_text import context_messages
+
+    document = {
+        "compiled_context": {
+            "purpose": "reflect_mind",
+            "layers": [
+                {
+                    "items": [
+                        {
+                            "item_kind": "mind",
+                            "content": '{"schema_version":"armi.mind.v1","thoughts":[]}',
+                            "source": {"reference": "hidden-mind-id", "version": 12},
+                        },
+                        {
+                            "item_kind": "self",
+                            "content": '{"schema_version":"hidden-self-contract"}',
+                            "source": {"reference": "hidden-self-id", "version": 8},
+                        },
+                    ]
+                }
+            ],
+        },
+        "output_contract": {"schema_version": "armi.owner-reflection-candidate.v4"},
+        "candidate_base": {"context_digest": "hidden-digest"},
+        "included_context_refs": [{"ref": "ctx:1"}, {"ref": "ctx:2"}],
+    }
+    text = context_messages(document)[0]["content"]
+    assert '"expected_version": 12' in text
+    assert "armi.mind.v1" in text
+    assert "hidden-" not in text
+
+
+def test_context_rejects_reference_misalignment():
+    from armi_runtime.adapters.model.context_text import context_messages
+
+    with pytest.raises(ModelViolation, match="MODEL-CONTEXT"):
+        context_messages(
+            {
+                "compiled_context": {
+                    "purpose": "consider_sleep",
+                    "layers": [{"items": []}],
+                },
+                "included_context_refs": [{"ref": "ctx:1"}],
+            }
+        )
+
+
+@pytest.mark.parametrize(
     "schema_version",
     ("armi.creator-dialogue-input.v6",),
 )
-def test_provider_input_preserves_dialogue_roles(schema_version: str) -> None:
+def test_provider_input_rejects_removed_dialogue_envelope(schema_version: str) -> None:
     request = json.dumps(
         {
             "schema_version": schema_version,
@@ -26,10 +128,8 @@ def test_provider_input_preserves_dialogue_roles(schema_version: str) -> None:
         ensure_ascii=False,
     ).encode()
 
-    assert _provider_input(request) == [
-        {"role": "system", "content": "冻结资料"},
-        {"role": "user", "content": "嗨"},
-    ]
+    with pytest.raises(ModelViolation, match="MODEL-REQUEST"):
+        _provider_input(request)
 
 
 def test_provider_input_rejects_invalid_dialogue_message() -> None:
@@ -88,7 +188,7 @@ def test_current_evidence_follows_history_once_with_its_original_source(
     assert "私有" in trigger
     assert "evidence-id" not in trigger
     if purpose == "consider_codex_result":
-        assert trigger.startswith("【codex返回】\n")
+        assert trigger.startswith("# 当前输入与证据\n\n【codex返回】\n")
         assert trigger.endswith("\n【codex返回结束】")
         assert "来源:Codex 返回" in trigger
     else:
@@ -100,7 +200,7 @@ def test_current_evidence_follows_history_once_with_its_original_source(
 def test_readable_context_keeps_semantics_and_refs_without_runtime_envelope() -> None:
     from copy import deepcopy
 
-    from armi_runtime.adapters.model.volcengine_ark import _current_input_messages
+    from armi_runtime.adapters.model.context_text import context_messages
 
     items = [
         {"item_kind": "runtime_identity", "content": '{"subject_id":"internal-id"}'},
@@ -133,7 +233,7 @@ def test_readable_context_keeps_semantics_and_refs_without_runtime_envelope() ->
         "candidate_base": {"context_digest": "internal-digest"},
     }
     original = deepcopy(document)
-    messages = _current_input_messages(document)
+    messages = context_messages(document)
     assert document == original
     text = "\n".join(m["content"] for m in messages)
     for omitted in (

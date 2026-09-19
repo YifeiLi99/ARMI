@@ -22,15 +22,23 @@ from ._strict_model_json import strict_model_value
 OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate.v4"
 
 REFLECT_SELF_INSTRUCTIONS = """\
+# 本轮自我反思任务与边界
+
 你只负责 Self Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 SelfState 候选及其当前 expected_version。不得修改 Mind、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
 REFLECT_MIND_INSTRUCTIONS = (
+    "# 本轮内心反思任务与边界\n\n"
     "你只负责 Mind Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 MindState 候选及其当前 expected_version，"
     "同时可提交 mind_appraisals。不得修改 Self、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"
+    + "\n\n# 动机评价\n\n"
     + MIND_APPRAISAL_INSTRUCTIONS
 )
 REFLECT_MOOD_INSTRUCTIONS = """\
+# 本轮心情反思任务与边界
+
 你只负责请求 Mood Owner 执行长期基线反思，不能填写 home_base、情绪、VAD 或任何动力学参数。冻结资料存在心情状态时可提交空的 MoodReflectionRequest 及当前 expected_version；证据门槛、时间采样、目标和每轴调整全部由 Mood Owner 确定。不得删除事件，或修改 Self、Mind、Prompt、记忆、关系、活动和对外表达。只输出给定 JSON Schema。"""
 REFLECT_PROMPT_INSTRUCTIONS = """\
+# 本轮方法反思任务与边界
+
 你只负责主体 Prompt Owner 的专项反思。可报告无需变化，或基于冻结资料提交 cognition_method、expression_method、reflection_method 三项完整候选及当前 expected_version。不得修改 Self、Mind、Mood、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
 
 

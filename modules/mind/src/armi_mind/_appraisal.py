@@ -38,29 +38,19 @@ class MindAppraisal(MindAppraisalParameters, frozen=True):
     basis_refs: tuple[EvidenceRef, ...] = Field(min_length=1, max_length=8)
 
 
-MIND_APPRAISAL_INSTRUCTIONS = (
-    "评价自身当前处境。每项对应 Context 中一个具体对象和依据。已有动机应引用 current_motivation 沿原对象更新。"
-    "同一事项的后续消息、重复等待或再次尝试,object_ref 引用已有 current_motivation,"
-    "新消息只作为 basis_refs 的补充依据,不因消息 ID 改变就另建同一愿望。"
-    "当前动机只是本轮选入的已有愿望,不是待逐条执行的任务清单;无关项不必评价。"
-    "后续证据满足原愿望时沿原引用标记 satisfied,决定放下时标记 released;"
-    "无需为收到结果再创建一次了解或投入的愿望。"
-    "basis_refs 引用已有同类动机表示延续该愿望;独立的新愿望不要引用无关动机。"
-    "desired_outcome 表示希望理解、交流或投入有意义活动;不输出情绪名称、强度或增量。"
-    "significance 是对象的重要性;discrepancy 是希望与现实的差距,不是经过的时间。"
-    "central 需要已有核心目标或长期重要关系的依据;眼前出现一个话题不使它自动成为核心。"
-    "explanation 简述愿望及差距的具体依据;信息不足时不编造目标、承诺或不满。"
-    "understand 需要值得弄清的具体未知,不把所有无进展都变成理解问题;"
-    "engage 是希望投入有意义活动,自愿休息或独处可以已经满足。"
-    "engage 的差距特指缺少有意义投入,不是所有工作受阻;保护成果、兑现承诺、修复错误等"
-    "不能仅因有困难就硬归为 engage。三类都不适用时可以不返回数值动机评价,"
-    "通过本轮可用的 Mind 文字变化保留其他愿望,不制造新的枚举或强度。"
-    "understanding 描述理解程度;progress 描述有效进展或重复;opportunity 描述可行机会。"
-    "没有依据选 unknown,无相关愿望返回空列表;不必填满三类。"
-    "未回复不等于拒绝,没聊天不等于无聊;正在投入有价值活动可以没有差距。"
-    "只有依据满足原愿望才 satisfied;不再值得投入可 released;工具失败或送达不等于满足。"
-    "同一对象和愿望只评价一次;重复观察不算新刺激。所有字段是当前处境判断,不是要求采取行动。"
-)
+MIND_APPRAISAL_INSTRUCTIONS = """## 动机评价
+- 围绕一个具体对象评价希望与现实的差距,不是安排动作。无相关愿望时返回空列表,不必凑齐类型。
+- desired_outcome: understand 是想弄清具体未知;connect 是交流愿望;engage 是有意义投入。困难本身不代表缺少投入,休息或独处也可以已经满足。
+- significance 表示对象的重要性,discrepancy 表示愿望差距。central 必须有核心目标或长期关系依据;当前唯一话题不自动成为核心。
+- understanding 表示理解程度,progress 表示有效进展或重复,opportunity 表示可行机会。依据不足用 unknown,不要制造新枚举、情绪名称、强度或增量。
+- explanation 简述愿望和差距的具体依据。没有充分依据时不编造目标、承诺、不满;其他愿望可通过合同允许的 Mind 文字变化保留。
+
+## 动机延续与结束
+- 已有 current_motivation 是本轮可参考的愿望,不是任务清单。无关项无需评价。
+- 同一事项的后续消息、重复等待或再次尝试沿原 object_ref 更新;新消息只补充 basis_refs。
+- basis_refs 引用已有同类动机表示延续该愿望;独立新愿望不引用无关动机。同一对象和愿望每轮只评价一次。
+- 原愿望有依据地满足时用 satisfied,决定放下时用 released。收到工具结果不自动代表满足,也不自动创建新的了解或投入愿望。
+- 未回复不等于拒绝,没有聊天不等于无聊;正在投入有价值活动可以没有差距。重复观察不累加刺激。"""
 
 
 @dataclass(frozen=True, slots=True)

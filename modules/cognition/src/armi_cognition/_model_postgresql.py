@@ -58,7 +58,6 @@ class ModelEpisodeSnapshot:
     context_digest: Digest
     compiled_context: ArtifactRef
     included_context_refs: tuple[dict[str, object], ...]
-    budget_exclusions: tuple[dict[str, object], ...]
     trace_id: TraceId
 
 
@@ -113,7 +112,7 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if row is None:
             raise ModelViolation("MODEL-WORK-STALE")
-        included, excluded = await self._context.model_references(
+        included, _ = await self._context.model_references(
             connection, episode_id=row[0]
         )
         return ModelEpisodeSnapshot(
@@ -134,15 +133,6 @@ class PostgreSQLCognitiveModelRepository:
                     "item_kind": item.item_kind,
                 }
                 for item in included
-            ),
-            tuple(
-                {
-                    "ref": f"ctx:{item.ordinal}",
-                    "section": item.section,
-                    "item_kind": item.item_kind,
-                    "reason_code": item.reason_code,
-                }
-                for item in excluded
             ),
             TraceId(str(row[10])),
         )

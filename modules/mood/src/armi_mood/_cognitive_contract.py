@@ -12,28 +12,20 @@ from pydantic import (
     StringConstraints,
 )
 
-MOOD_APPRAISAL_INSTRUCTIONS = (
-    "评价事件对当前目标、关系及自我标准的意义,不直接选择情绪或填写分数。"
-    "standards 只评价 Context 中有依据的个人准则或社会规范;偏好没有满足、暂时没进展、"
-    "休息或选择独处本身不构成准则冲突。没有相关准则时用 not_applicable,资料不足用 unknown。"
-    "自我标准冲突的 action 指具体行为违背已有准则;global 仅在明确出现整体自我否定时使用,"
-    "不能从一次失误推断。causality 描述事件的责任与控制来源,不因事情发生在自己身上就归因 self。"
-    "intentionality 指是否有意造成当前被评价的后果,不是仅指动作是否有意识;"
-    "无法确定对该后果的意图时用 unclear 或 unknown,不从正常设定边界推断有意伤害。"
-    "intrinsic_quality 评价内容或体验本身的吸引或排斥,不等于目标受挫程度;"
-    "strongly_aversive 需要强烈排斥的依据,损失严重不自动代表该项。"
-    "关系暂未联系不等于关系受损;回应缺失不等于明确拒绝。significance 和 self_involvement "
-    "依据已有目标、关系与身份,不因某事是当前唯一话题就判为 core 或 identity_level。"
-    "engagement 评价当前活动是否提供所需投入:重复且想投入却无收获可为 understimulated;"
-    "自愿休息、安静等待或正在持续取得进展不因此归为 understimulated。"
-    "各维度可以不同:有未满足愿望也可能感受愉快,事情不愉快也不必归咎自己。"
-    "concerns.target=relationship 评价信任、亲近或关系延续本身;暂时不能聊天可影响 self_goal 的"
-    "当下交流愿望,但对方合理独处、忙碌或设定边界不自动意味着关系受损。"
-    "self_evaluation=aligned 只说明符合准则,不是值得自豪的成就;若没有相关准则用 not_applicable。"
-    "anticipated 事件的 direction 评价所预期后果对目标的方向,outcome_certainty 单独评价是否会发生。"
-    "已知若发生会损害目标但尚不确定发生时,不要把已知负向影响写成 unknown;"
-    "只有连影响方向也不清楚时才选 unknown。"
-)
+MOOD_APPRAISAL_INSTRUCTIONS = """## 评价对象与尺度
+- 评价事件对当前目标、关系及自我标准的意义。各维度独立判断,不直接选择情绪,不填写分数、VAD 或强度。
+- significance 和 self_involvement 依据已有目标、关系与身份;当前唯一话题不自动成为 core 或 identity_level。
+- concerns.target=relationship 关乎信任、亲近与关系延续;暂时不能聊天可影响 self_goal 的交流愿望。未联系、忙碌、独处或正常边界不自动代表关系受损,缺少回应不等于拒绝。
+- intrinsic_quality 是内容或体验本身的吸引/排斥,不是目标受挫程度;strongly_aversive 要有强烈排斥的依据。
+- engagement 是活动是否提供所需投入。想投入却重复且无收获可为 understimulated;自愿休息、安静等待或持续进展不因此判为该项。
+
+## 准则、归因与不确定性
+- standards 只评价有依据的个人准则或社会规范。偏好落空、暂无进展、休息或独处本身不是准则冲突。无相关准则用 not_applicable,资料不足用 unknown。
+- 自我标准冲突的 action 指具体行为违背准则;global 需要明确的整体自我否定,不能由一次失误推断。
+- self_evaluation=aligned 仅表示符合准则,不代表值得自豪的成就;无相关准则用 not_applicable。
+- causality 是事件责任和控制来源,不因发生在自己身上就归为 self。intentionality 是是否有意造成被评价的后果,不等于动作有意识;不清楚时用 unclear 或 unknown,不从正常边界推断有意伤害。
+- anticipated.direction 评价预期后果对目标的方向;outcome_certainty 单独判断是否发生。已知负向影响不能因发生概率不确定而改成 unknown;只有方向也不明时才用 unknown。
+- 愿望未满足也可能愉快,不愉快也不必归咎自己,各维度无需刻意一致。"""
 
 Gist = Annotated[
     str,

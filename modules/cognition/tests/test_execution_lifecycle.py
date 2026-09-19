@@ -105,7 +105,6 @@ class _Execution(model.ModelPipeline):
             Digest.from_bytes(b"context"),
             cast(Any, object()),
             (),
-            (),
             TraceId(uuid7().hex),
         )
 

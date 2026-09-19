@@ -69,6 +69,7 @@ from ._creator_cognitive_act_contract import (
     CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
     CREATOR_COGNITIVE_ACT_VERSION,
     CREATOR_VOICE_ACT_INSTRUCTIONS,
+    LIFE_RESULT_ACT_INSTRUCTIONS,
     creator_cognitive_act_schema,
     creator_voice_act_schema,
 )
@@ -387,7 +388,7 @@ class ModelPipeline:
                 candidate_schema=creator_cognitive_act_schema(
                     web_search=web_search_active
                 ),
-                instructions=CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
+                instructions=LIFE_RESULT_ACT_INSTRUCTIONS,
                 schema_name="armi_creator_cognitive_act_candidate_v1",
             ),
             "consider_web_evidence": build_adapter(
@@ -578,7 +579,6 @@ class ModelPipeline:
                 base_state_epoch=snapshot.base_state_epoch,
                 bundle_activation_id=snapshot.bundle_activation_id,
                 included_context_refs=snapshot.included_context_refs,
-                budget_exclusions=snapshot.budget_exclusions,
             )
             async with self._factory.unit_of_work() as unit_of_work:
                 attempt_id = await self._repository.prepare_attempt(
