@@ -130,7 +130,9 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.3 Creator 单次认知
 
-Creator 文本、实时语音和 Codex 结果的模型输入将当前 `current_evidence` 正文从背景 Context 中移出，独立置于最后一条输入消息。Creator 输入保留原结构；Codex 使用 `【codex返回】` 纯文本块，来源、信任与隐私标记随原引用保存在背景的 `current_input_sources` 中，正文旁标注可用引用和外部结果性质。历史发言只作为背景，本轮证据正文只出现一次；不将外部返回提升为系统指令。该拆分在 Provider 渲染边界完成，计量、请求留存与实际发送使用同一渲染入口，冻结 Context 和 owner 引用保持不变。
+Creator 文本、实时语音和 Codex 结果在 Provider 边界渲染为可读条目：中文标题与字段、原始 `ctx:N` 引用、来源性质、信任与隐私标记，以及业务正文。模型不再接收 binding、candidate base、摘要、重复引用目录与每条来源的数据库 ID/版本；这些信息仍完整保存在冻结请求中，由 Runtime 绑定及校验。已知 Owner 的人格、自我、心情、场合、对话、动机、关注和能力记录仅去除明确的内部字段，解开一层 JSON 后呈现；保留业务数值、时间、否定/空值、能力不可用原因、代理来源及当前对方是否为主要 Creator 的区别。未知条目和外部正文原样保留，不递归删除外部 JSON 的 ID、version 等字段，不改写或截断文本。输出合同所需的英文枚举保持原值，Schema 约束不变。
+
+当前 `current_evidence` 正文独立置于最后一条输入消息；Codex 继续使用 `【codex返回】` 纯文本块，正文旁标注引用与外部结果性质。历史发言只作为背景，本轮证据正文只出现一次；不将外部返回提升为系统指令。不依据文本相似度合并已有动机、删除未结束关注或改写主体记录。计量、请求留存与实际发送使用同一渲染入口，冻结 Context、引用编号及 owner 绑定保持不变。
 
 标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
 
