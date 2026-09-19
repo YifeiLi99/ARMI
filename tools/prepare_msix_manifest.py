@@ -111,7 +111,7 @@ def prepare(
         ProcessorArchitecture="x64",
     )
     properties = node(package, "Properties")
-    display_name = "ARMI 验收" if development else "ARMI"
+    display_name = "ARMI"
     node(properties, "DisplayName", display_name)
     node(properties, "PublisherDisplayName", release["publisher_display_name"])
     node(properties, "Logo", "Assets/StoreLogo.png")
