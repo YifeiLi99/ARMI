@@ -11,6 +11,45 @@ from armi_runtime.adapters.model.volcengine_ark import (
 )
 
 
+def test_codex_prompt_assembles_identity_and_task_once():
+    from armi_cognition._creator_cognitive_act_contract import (
+        CODEX_RESULT_ACT_INSTRUCTIONS,
+    )
+
+    items = [
+        {"item_kind": "runtime_identity", "content": '{"subject_id":"internal-id"}'},
+        {"item_kind": "fixed_prompt", "content": "温和、坦诚"},
+        {
+            "item_kind": "current_purpose",
+            "content": '{"purpose":"consider_codex_result"}',
+        },
+        {"item_kind": "current_evidence", "content": "本次研究已完成"},
+    ]
+    messages = _provider_input(
+        json.dumps(
+            {
+                "schema_version": "armi.model-request.v1",
+                "compiled_context": {
+                    "purpose": "consider_codex_result",
+                    "layers": [{"items": items}],
+                },
+                "included_context_refs": [{"ref": f"ctx:{i}"} for i in range(1, 5)],
+            }
+        ).encode()
+    )
+    prompt = (
+        CODEX_RESULT_ACT_INSTRUCTIONS + "\n" + "\n".join(m["content"] for m in messages)
+    )
+    headings = [line for line in prompt.splitlines() if line.startswith("# ")]
+    assert len(headings) == len(set(headings))
+    assert [h for h in headings if "身份" in h] == ["# 身份与人格"]
+    assert prompt.count("理解受托工作结果,回应原问题或决定必要的后续行动") == 1
+    assert prompt.count("温和、坦诚") == 1
+    assert "internal-id" not in prompt
+    for i in range(1, 5):
+        assert prompt.count(f"ctx:{i}】") == 1
+
+
 @pytest.mark.parametrize(
     "purpose",
     [
