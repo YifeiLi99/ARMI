@@ -253,7 +253,10 @@ def test_login_page_hides_install_progress_and_offers_recovery():
     assert desktop.qq_button.configure.call_args.kwargs["state"] == "normal"
 
 
-def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
+@pytest.mark.parametrize("replacement_port", [None, 23456])
+def test_configuration_uses_owner_and_preserves_generated_credentials(
+    tmp_path, replacement_port
+):
     service = application(tmp_path / "environments/active")
     saved = {}
     calls = []
@@ -272,7 +275,9 @@ def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
 
     request = SetupNapcatRequest(action="prepare", creator_user_id=98765)
     with patch.object(service, "invoke", side_effect=invoke):
-        service._configure_napcat(request, account_id=12345)
+        service._configure_napcat(
+            request, account_id=12345, replacement_api_port=replacement_port
+        )
         tokens = {
             path.name: path.read_bytes()
             for path in (service.root / "secrets").iterdir()
@@ -289,6 +294,9 @@ def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
     config = service.root / "tools/napcat/config"
     network = json.loads((config / "onebot11_12345.json").read_bytes())["network"]
     assert network["httpServers"][0]["host"] == "127.0.0.1"
+    if replacement_port is not None:
+        assert network["httpServers"][0]["port"] == replacement_port
+        assert saved["api_base_url"] == f"http://127.0.0.1:{replacement_port}"
     assert network["httpClients"][0]["url"].startswith("http://127.0.0.1:")
     assert network["httpServers"][0]["token"] != network["httpClients"][0]["token"]
     # NapCat stores every transport type in one Map keyed by name.
@@ -316,3 +324,73 @@ def test_unconfirmed_stop_does_not_write_configuration_or_credentials(tmp_path):
     assert invoke.call_count == 2
     assert list((service.root / "secrets").iterdir()) == []
     assert not (service.root / "tools/napcat/config").exists()
+
+
+@pytest.mark.parametrize("winerror", [10013, 10048, None])
+def test_repair_only_replaces_a_denied_port_for_the_authenticated_account(
+    tmp_path, winerror
+):
+    service = application(tmp_path / "environments/active")
+    probe = Mock()
+    if winerror is not None:
+        error = OSError("port unavailable")
+        error.winerror = winerror
+        probe.bind.side_effect = error
+    with (
+        patch.object(service, "_read", return_value=Mock(stage="ready")),
+        patch.object(
+            service,
+            "_napcat_connection",
+            return_value={
+                "status": "unavailable",
+                "logged_in": True,
+                "account_id": 12345,
+            },
+        ),
+        patch.object(
+            service,
+            "_napcat_admin",
+            return_value={
+                "values": {
+                    "api_base_url": "http://127.0.0.1:60165",
+                    "creator_user_id": 98765,
+                }
+            },
+        ),
+        patch("armi_admin.application.installation.socket.socket") as socket_factory,
+        patch(
+            "armi_admin.application.installation.free_loopback_port", return_value=23456
+        ),
+        patch.object(
+            service, "_configure_napcat", return_value={"status": "ready"}
+        ) as configure,
+        patch.object(NapCatNode, "install") as install,
+    ):
+        socket_factory.return_value.__enter__.return_value = probe
+        if winerror == 10013:
+            assert (
+                service.napcat(SetupNapcatRequest(action="repair"))["status"] == "ready"
+            )
+            assert configure.call_args.kwargs == {
+                "account_id": 12345,
+                "replacement_api_port": 23456,
+            }
+            assert configure.call_args.args[0].creator_user_id == 98765
+        else:
+            with pytest.raises(SetupError, match="PORT-REPAIR-NOT-APPLICABLE"):
+                service.napcat(SetupNapcatRequest(action="repair"))
+            configure.assert_not_called()
+        install.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["ready", "login_required", "misconfigured"])
+def test_repair_does_not_reconfigure_ready_or_unauthenticated_accounts(
+    tmp_path, status
+):
+    service = application(tmp_path / "environments/active")
+    with (
+        patch.object(service, "_napcat_connection", return_value={"status": status}),
+        patch.object(service, "_configure_napcat") as configure,
+    ):
+        assert service._repair_napcat()["status"] == status
+        configure.assert_not_called()

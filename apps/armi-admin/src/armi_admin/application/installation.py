@@ -47,7 +47,7 @@ class SetupError(RuntimeError):
 
 class SetupNapcatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    action: Literal["status", "refresh", "prepare", "complete", "open_login"]
+    action: Literal["status", "refresh", "prepare", "complete", "open_login", "repair"]
     creator_user_id: int | None = Field(default=None, gt=0, le=2**63 - 1)
     enabled: bool = False
     open_login: bool = False
@@ -655,6 +655,8 @@ class SetupApplication:
             return self._napcat_connection()
         with LocalProcessLock(self.control / "napcat-setup.lock"):
             try:
+                if request.action == "repair":
+                    return self._repair_napcat()
                 if request.action == "open_login":
                     self._napcat_admin(
                         "environment_start", {"idempotency_key": str(uuid7())}
@@ -856,8 +858,43 @@ class SetupApplication:
             )
         return node.progress("awaiting_login")
 
+    def _repair_napcat(self) -> dict[str, Any]:
+        """Replace a Windows-denied API port without repeating account setup."""
+        from urllib.parse import urlsplit
+
+        current = self._napcat_connection()
+        if current["status"] != "unavailable" or not current.get("logged_in"):
+            return current
+        binding = self._napcat_admin(
+            "configuration", {"target": "qq", "action": "read"}
+        )["values"]
+        port = urlsplit(str(binding["api_base_url"])).port
+        if port is None:
+            raise SetupError("NAPCAT-LOCAL-TRANSPORT-REQUIRED")
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError as error:
+                if getattr(error, "winerror", None) != 10013:
+                    raise SetupError("NAPCAT-PORT-REPAIR-NOT-APPLICABLE") from None
+            else:
+                raise SetupError("NAPCAT-PORT-REPAIR-NOT-APPLICABLE")
+        return self._configure_napcat(
+            SetupNapcatRequest(
+                action="repair",
+                creator_user_id=binding["creator_user_id"],
+                enabled=True,
+            ),
+            account_id=current["account_id"],
+            replacement_api_port=free_loopback_port(),
+        )
+
     def _configure_napcat(
-        self, request: SetupNapcatRequest, *, account_id: int
+        self,
+        request: SetupNapcatRequest,
+        *,
+        account_id: int,
+        replacement_api_port: int | None = None,
     ) -> dict[str, Any]:
         from armi_local_control.napcat_node import NapCatNode
 
@@ -911,6 +948,8 @@ class SetupApplication:
             "allowed_groups": {},
         }
         document["enabled"] = request.enabled
+        if replacement_api_port is not None:
+            document["api_base_url"] = f"http://127.0.0.1:{replacement_api_port}"
         # Validate with the configuration owner before creating transport files.
         admin(
             "configuration",
