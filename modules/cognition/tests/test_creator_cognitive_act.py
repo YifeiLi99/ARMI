@@ -16,6 +16,10 @@ from armi_cognition._creator_cognitive_act_contract import (
     parse_creator_cognitive_act,
     parse_creator_voice_act,
 )
+from armi_cognition._dialogue_output import (
+    expand_dialogue_output,
+    flatten_dialogue_output,
+)
 from pydantic import BaseModel, ValidationError
 
 
@@ -42,6 +46,13 @@ from pydantic import BaseModel, ValidationError
 )
 def test_all_actions_have_the_same_text_and_voice_semantics(decision):
     text_value = {"decision": decision}
+    assert (
+        expand_dialogue_output(
+            flatten_dialogue_output(text_value),
+            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
+        )
+        == text_value
+    )
     voice_value = {"d": decision}
     jsonschema.validate(text_value, creator_cognitive_act_schema())
     jsonschema.validate(voice_value, creator_voice_act_schema())
@@ -283,6 +294,13 @@ def test_every_creator_change_has_shared_schema_and_owner_mapping(
     change, owner, expected
 ):
     text_value = {"decision": {"kind": "no_change"}, "changes": [change]}
+    assert (
+        expand_dialogue_output(
+            flatten_dialogue_output(text_value),
+            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
+        )
+        == text_value
+    )
     voice_value = {"d": {"kind": "no_change"}, "ops": [change]}
     jsonschema.validate(text_value, creator_cognitive_act_schema())
     jsonschema.validate(voice_value, creator_voice_act_schema())

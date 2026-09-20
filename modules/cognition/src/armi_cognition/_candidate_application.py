@@ -92,6 +92,7 @@ from ._candidate_postgresql import (
     CandidateEpisodeSnapshot,
     PostgreSQLCandidateValidationRepository,
 )
+from ._dialogue_output import expand_dialogue_output
 from ._validation_diagnostics import contract_rejection
 from ._validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
@@ -409,7 +410,9 @@ class CandidateValidationService:
             mind_cognition=self._mind_cognition,
         )
         try:
-            candidate_value = model_response_candidate(response_bytes)
+            candidate_value = model_response_candidate(
+                response_bytes, expected_version=snapshot.candidate_contract_version
+            )
         except CandidateViolation as error:
             result = contract_rejection(error)
         else:
@@ -506,7 +509,9 @@ class CandidateValidationService:
         return await self._storage.publish(staged)
 
 
-def model_response_candidate(response_bytes: bytes) -> dict[str, Any]:
+def model_response_candidate(
+    response_bytes: bytes, *, expected_version: str = ""
+) -> dict[str, Any]:
     try:
         raw_response = json.loads(response_bytes)
         if not isinstance(raw_response, dict):
@@ -519,13 +524,11 @@ def model_response_candidate(response_bytes: bytes) -> dict[str, Any]:
         ):
             raise CandidateViolation("CANDIDATE-CONTRACT")
         envelope = json.loads(response["output_text"])
-        if (
-            not isinstance(envelope, dict)
-            or set(cast(dict[str, Any], envelope)) != {"candidate"}
-            or not isinstance(envelope["candidate"], dict)
-        ):
+        if not isinstance(envelope, dict):
             raise CandidateViolation("CANDIDATE-CONTRACT")
-        return cast(dict[str, Any], envelope["candidate"])
+        return expand_dialogue_output(
+            cast(dict[str, Any], envelope), expected_version=expected_version
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
         raise CandidateViolation("CANDIDATE-CONTRACT") from error
 

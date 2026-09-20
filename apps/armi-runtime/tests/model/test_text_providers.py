@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
-from armi_cognition.api import CognitionSchemaDocument
+from armi_cognition.api import CognitionSchemaDocument, flatten_dialogue_output
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     CandidateViolation,
@@ -351,28 +351,28 @@ def test_optional_state_can_be_omitted_but_required_and_unknown_fields_stay_stri
         schema, instructions="", schema_name="test"
     )
     validator = Draft202012Validator(renderer.output_format(request())["schema"])
-    value = {"candidate": {"decision": {"kind": "reply", "content": "在呢"}}}
+    value = {"action": "reply", "content": "在呢"}
     validator.validate(value)
     parse_candidate(
-        json.dumps(value["candidate"]).encode(),
+        json.dumps({"decision": {"kind": "reply", "content": "在呢"}}).encode(),
         expected_version=selected.response_contract_version,
         allowed_context_refs=frozenset(),
     )
     # The independent strict-provider path keeps its original all-required view.
     strict = StructuredRequestRenderer(schema, instructions="", schema_name="test")
     assert not Draft202012Validator(strict.output_format(request())["schema"]).is_valid(
-        value
+        {"candidate": {"decision": {"kind": "reply", "content": "在呢"}}}
     )
     wire = renderer.request_parameters(binding(provider), request())
     assert "required 之外且无变化的字段直接省略" in wire["instructions"]
-    del value["candidate"]["decision"]["content"]
+    del value["content"]
     assert not validator.is_valid(value)
-    value["candidate"]["decision"]["content"] = "在呢"
-    value["candidate"]["note"] = "检查通过"
+    value["content"] = "在呢"
+    value["note"] = "检查通过"
     assert not validator.is_valid(value)
 
 
-def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
+def test_every_purpose_uses_the_same_generation_schema_for_both_providers():
     from armi_runtime.composition.model_verification import (
         candidate_schema,
         load_purpose_binding,
@@ -404,11 +404,11 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
                         "完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n",
                         1,
                     )[1]
-                    .split("\n注意 candidate.appraisal", 1)[0]
+                    .split("\n根对象的字段", 1)[0]
                 )
                 example = json.loads(example_text)
                 Draft202012Validator(expected).validate(example)
-                assert "appraisal" in example["candidate"]["appraisal"]
+                assert "appraisal" not in example.get("event_appraisal", {})
         if purpose == "consider_other_human_input":
             example_text = (
                 wire["instructions"]
@@ -416,21 +416,17 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
                     "完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n",
                     1,
                 )[1]
-                .split("\n注意", 1)[0]
+                .split("\n根对象的字段", 1)[0]
             )
             value = json.loads(example_text)
             Draft202012Validator(expected).validate(value)
-            relationship = value["candidate"]["social"]["relationship_change"]
-            assert relationship["fact"]["kind"] == "party_expression"
-            assert "boundary" not in relationship
-            assert "commitment_change" not in relationship
-            value["candidate"]["social"]["relationship_change"] = dict.fromkeys(
-                ("interpretation", "fact", "boundary", "commitment_change")
-            )
+            assert value["relationship_fact"]["kind"] == "party_expression"
+            assert "relationship_boundary" not in value
+            assert "commitment_change" not in value
+            value["relationship_interpretation"] = None
             assert not Draft202012Validator(expected).is_valid(value)
-            value["candidate"]["social"]["relationship_change"] = None
-            Draft202012Validator(expected).validate(value)
-            value["candidate"]["social"] = None
+            del value["relationship_interpretation"]
+            del value["relationship_fact"]
             Draft202012Validator(expected).validate(value)
 
 
@@ -438,7 +434,7 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
     "purpose", ["consider_creator_input", "consider_other_human_input"]
 )
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])
-def test_dialogue_example_covers_nested_appraisal_with_bound_refs(
+def test_dialogue_example_covers_flat_appraisal_with_bound_refs(
     purpose,
     provider,
 ):
@@ -460,39 +456,33 @@ def test_dialogue_example_covers_nested_appraisal_with_bound_refs(
     value = json.loads(
         wire["instructions"]
         .split("完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n", 1)[1]
-        .split("\n注意 candidate.appraisal", 1)[0]
+        .split("\n根对象的字段", 1)[0]
     )
     expected = renderer.output_format(current)["schema"]
     Draft202012Validator(expected).validate(value)
-    event = value["candidate"]["appraisal"]
+    event = value["event_appraisal"]
     assert event["basis_refs"] == ["ctx:7"]
-    assert set(event) == {
-        "appraisal",
-        "gist",
-        "basis_refs",
-        "trajectory",
-        "event_phase",
-    }
-    # Preserve the event's valid refs, but reject a second copy on candidate.
-    value["candidate"]["basis_refs"] = event["basis_refs"]
+    assert {"gist", "basis_refs", "transition", "event_phase", "concerns"} <= set(event)
+    assert not {"appraisal", "trajectory"} & event.keys()
+    # Preserve the event's valid refs, but reject a second copy at the root.
+    value["basis_refs"] = event["basis_refs"]
     errors = list(Draft202012Validator(expected).iter_errors(value))
     assert any(
-        e.validator == "additionalProperties" and list(e.absolute_path) == ["candidate"]
+        e.validator == "additionalProperties" and list(e.absolute_path) == []
         for e in errors
     )
-    del value["candidate"]["basis_refs"]
+    del value["basis_refs"]
     allowed_fields = (
         wire["instructions"]
-        .split("candidate 的直接字段只能是：", 1)[1]
+        .split("根对象的字段只能是：", 1)[1]
         .split("。", 1)[0]
         .split("、")
     )
-    assert set(allowed_fields) == set(schema["properties"])
-    assert "不得在 candidate 下再复制一份 basis_refs" in wire["instructions"]
-    # The observed failure lost this event envelope; backend must still reject it.
-    value["candidate"]["appraisal"] = event["appraisal"]
+    assert set(allowed_fields) == set(expected["properties"])
+    assert "event_appraisal.basis_refs" in wire["instructions"]
+    # Removing nesting does not make required event meaning optional.
+    del event["gist"]
     assert not Draft202012Validator(expected).is_valid(value)
-    assert "每层 2 空格缩进" in wire["instructions"]
 
 
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])
@@ -537,20 +527,26 @@ def test_relationship_generation_requires_interpretation_without_relaxing_backen
         expected_version=selected.response_contract_version,
         allowed_context_refs=frozenset(),
     )
-    assert not Draft202012Validator(output_schema).is_valid(value)
+    assert not Draft202012Validator(output_schema).is_valid(
+        flatten_dialogue_output(value["candidate"])
+    )
     value["candidate"]["social"]["relationship_change"]["interpretation"] = (
         "我们愿意直接交流"
     )
-    Draft202012Validator(output_schema).validate(value)
+    Draft202012Validator(output_schema).validate(
+        flatten_dialogue_output(value["candidate"])
+    )
     parse_candidate(
         json.dumps(value["candidate"]).encode(),
         expected_version=selected.response_contract_version,
         allowed_context_refs=frozenset(),
     )
     assert "interpretation" in wire["instructions"]
-    # A live model added formatting commentary inside decision; do not strip it.
+    # A live model added formatting commentary; never silently strip extra fields.
     value["candidate"]["decision"]["_note"] = "format checked"
-    assert not Draft202012Validator(output_schema).is_valid(value)
+    flat = flatten_dialogue_output(value["candidate"])
+    flat["_note"] = "format checked"
+    assert not Draft202012Validator(output_schema).is_valid(flat)
     with pytest.raises(ModelViolation):
         parse_candidate(
             json.dumps(value["candidate"]).encode(),

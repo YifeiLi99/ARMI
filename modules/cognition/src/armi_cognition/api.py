@@ -46,6 +46,12 @@ from armi_runtime_foundation import (
 )
 from armi_web_observation.api import WebResearchRequestDraft
 
+from ._dialogue_output import (
+    dialogue_output_kind,
+    dialogue_output_schema,
+    flatten_dialogue_output,
+)
+
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _PROPOSAL = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
@@ -800,4 +806,7 @@ __all__ = (
     "CognitiveBranchRole",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
+    "dialogue_output_kind",
+    "dialogue_output_schema",
+    "flatten_dialogue_output",
 )

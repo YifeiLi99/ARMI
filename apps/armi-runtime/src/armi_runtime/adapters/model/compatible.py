@@ -7,6 +7,11 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
+from armi_cognition.api import (
+    dialogue_output_kind,
+    dialogue_output_schema,
+    flatten_dialogue_output,
+)
 from armi_kernel.application import (
     ModelBinding,
     ModelRequest,
@@ -37,6 +42,7 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             # an interpretation works for both new and existing relationships.
             # Keep every fact/boundary/commitment capability; DESIGN.md.
             _require_relationship_interpretation(output["schema"])
+        output["schema"] = dialogue_output_schema(output["schema"])
         return output
 
     def request_parameters(
@@ -46,8 +52,16 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
         inputs = self.render_input(request)
         # DESIGN.md: generation controls differ; the backend contract never does.
         # Do not mistake a successful HTTP response for validated candidate data.
+        dialogue = dialogue_output_kind(
+            set(self._candidate_schema.get("properties", {}))
+        )
+        business_instructions = self._instructions
+        if dialogue is not None:
+            business_instructions = business_instructions.replace(
+                "候选放在 candidate 属性中。", "字段直接放在根对象。"
+            ).replace("decision.kind", "action")
         instructions = (
-            self._instructions
+            business_instructions
             + "\n\n输出必须是单个完整 JSON 对象，不含 Markdown 代码围栏、解释或额外对象。"
             + "格式检查只在内部进行；任何层级都不得添加 Schema 未定义的字段，"
             + "包括说明、注释、格式检查记录或推理过程。"
@@ -87,19 +101,19 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             # decoder. Show nesting explicitly; never repair returned JSON. DESIGN.md.
             parameters["instructions"] += (
                 "\n\n完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n"
-                + json.dumps(example, ensure_ascii=False, indent=2)
-                + "\n注意 candidate.appraisal 是完整事件；其内部 appraisal 才是评价维度。"
-                + "candidate.appraisal 内的直接字段为 gist、basis_refs、event_phase、trajectory、appraisal。"
-                + "事件依据写在 candidate.appraisal.basis_refs，不得在 candidate 下再复制一份 basis_refs。"
-                + "\ncandidate 的直接字段只能是："
-                + "、".join(sorted(properties))
-                + "。嵌套字段不得提到 candidate 层；输出前检查每个字段所属对象。"
+                + json.dumps(
+                    flatten_dialogue_output(example["candidate"]),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n根对象的字段只能是："
+                + "、".join(sorted(schema["properties"]))
+                + "。event_appraisal 内直接填写事件描述、评价维度和轨迹字段；依据仅写在 event_appraisal.basis_refs。"
                 + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
                 + "需要引用时选择本轮实际支持判断的 Context 条目。"
-                + '\n没有评价、经历或状态变化的普通回复只需：{"candidate":{"decision":{"kind":"reply","content":"在呢"}}}。'
-                + "\n输出使用多行 JSON、每层 2 空格缩进；每个属性独占一行，"
-                + "对象的右花括号另起一行并对齐该对象所在层，不压缩成单行。"
-                + "对象内每个属性必须有字段名，不直接放入无字段名的对象。"
+                + '\n没有评价、经历或状态变化的普通回复只需：{"action":"reply","content":"在呢"}。'
+                + "experience 是经历正文字符串；experience_uncertainty 是可选的不确定性说明。"
+                + "不输出 candidate、decision、social 或 relationship_change 包装对象；不确定字段位置时以 Schema 为准。"
             )
         return parameters
 

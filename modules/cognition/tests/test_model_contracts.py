@@ -136,8 +136,11 @@ def test_internal_other_human_parser_error_is_not_reported_as_model_output(
 
 
 def test_other_human_instructions_require_relationship_interpretation() -> None:
-    assert "只要填写 relationship_change" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
-    assert "interpretation 就必须为非空" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+    assert "填写关系事实、边界或承诺变化时" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+    assert (
+        "experience 和非空 relationship_interpretation"
+        in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+    )
     assert "理解未变时可保留原解释" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
 
 
