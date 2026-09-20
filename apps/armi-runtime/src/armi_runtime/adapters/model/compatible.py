@@ -22,6 +22,10 @@ from .structured import StructuredRequestRenderer
 class CompatibleStructuredTransport(StructuredRequestRenderer):
     """Reuse the exact prompt/schema renderer, never the Ark request protocol."""
 
+    # JSON-mode generation needs no all-required strict-provider expansion.
+    # Preserve the backend's optional fields; see DESIGN.md.
+    _require_all_output_fields = False
+
     def output_format(self, request: ModelRequest) -> dict[str, Any]:
         output = super().output_format(request)
         if set(self._candidate_schema.get("properties", {})) == {
@@ -47,8 +51,8 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             + "\n\n输出必须是单个完整 JSON 对象，不含 Markdown 代码围栏、解释或额外对象。"
             + "格式检查只在内部进行；任何层级都不得添加 Schema 未定义的字段，"
             + "包括说明、注释、格式检查记录或推理过程。"
-            + "字段是否必须出现由 required 决定；可为 null 不等于可省略。"
-            + "无变化时使用 Schema 允许的 null 或空数组，不为填字段编造内容。"
+            + "只输出本轮需要的字段；required 之外且无变化的字段直接省略。"
+            + "可选状态存在实际变化时才填写，不为填字段编造内容。"
             + "以下是从后端合同生成的完整 JSON Schema，必须满足全部字段、类型和约束：\n"
             + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
         )
@@ -92,6 +96,7 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
                 + "。嵌套字段不得提到 candidate 层；输出前检查每个字段所属对象。"
                 + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
                 + "需要引用时选择本轮实际支持判断的 Context 条目。"
+                + '\n没有评价、经历或状态变化的普通回复只需：{"candidate":{"decision":{"kind":"reply","content":"在呢"}}}。'
                 + "\n输出使用多行 JSON、每层 2 空格缩进；每个属性独占一行，"
                 + "对象的右花括号另起一行并对齐该对象所在层，不压缩成单行。"
                 + "对象内每个属性必须有字段名，不直接放入无字段名的对象。"
@@ -233,7 +238,6 @@ def _dialogue_example(
             "event_phase": "realized",
             "trajectory": {"transition": "new"},
             "appraisal": {
-                "causality": None,
                 "concerns": [
                     {
                         "direction": "unchanged",
@@ -241,14 +245,11 @@ def _dialogue_example(
                         "target": "relationship",
                     }
                 ],
-                "coping": None,
-                "demand": None,
                 "engagement": "not_applicable",
                 "expectedness": "expected",
                 "intrinsic_quality": "neutral",
                 "outcome_certainty": "settled",
                 "self_involvement": "limited",
-                "standards": None,
             },
         }
         if available_refs
@@ -260,7 +261,6 @@ def _dialogue_example(
         candidate["social"] = {
             "experience": {
                 "first_person_gist": "对方希望我听完倾诉再提建议。",
-                "uncertainty": None,
             },
             "relationship_change": {
                 "interpretation": "对方愿意继续交流，希望先被倾听。",
@@ -268,12 +268,6 @@ def _dialogue_example(
                     "kind": "party_expression",
                     "summary": "对方表示先别给建议。",
                 },
-                "boundary": None,
-                "commitment_change": None,
             },
         }
-    else:
-        candidate.update(
-            experience=None, changes=[], mind_appraisals=[], concern_changes=[]
-        )
     return {"candidate": candidate}

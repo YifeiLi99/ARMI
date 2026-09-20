@@ -331,6 +331,47 @@ def test_switching_binding_preserves_purpose_contract_and_voice(
     assert load_voice_model_binding(path) == load_voice_model_binding()
 
 
+@pytest.mark.parametrize("provider", ["qwen", "deepseek"])
+@pytest.mark.parametrize(
+    "purpose", ["consider_creator_input", "consider_other_human_input"]
+)
+def test_optional_state_can_be_omitted_but_required_and_unknown_fields_stay_strict(
+    provider, purpose
+):
+    from armi_runtime.adapters.model.structured import StructuredRequestRenderer
+    from armi_runtime.composition.model_verification import (
+        candidate_schema,
+        load_purpose_binding,
+        parse_candidate,
+    )
+
+    selected = load_purpose_binding(purpose)
+    schema = candidate_schema(selected.response_contract_version, purpose=purpose)
+    renderer = CompatibleStructuredTransport(
+        schema, instructions="", schema_name="test"
+    )
+    validator = Draft202012Validator(renderer.output_format(request())["schema"])
+    value = {"candidate": {"decision": {"kind": "reply", "content": "在呢"}}}
+    validator.validate(value)
+    parse_candidate(
+        json.dumps(value["candidate"]).encode(),
+        expected_version=selected.response_contract_version,
+        allowed_context_refs=frozenset(),
+    )
+    # The independent strict-provider path keeps its original all-required view.
+    strict = StructuredRequestRenderer(schema, instructions="", schema_name="test")
+    assert not Draft202012Validator(strict.output_format(request())["schema"]).is_valid(
+        value
+    )
+    wire = renderer.request_parameters(binding(provider), request())
+    assert "required 之外且无变化的字段直接省略" in wire["instructions"]
+    del value["candidate"]["decision"]["content"]
+    assert not validator.is_valid(value)
+    value["candidate"]["decision"]["content"] = "在呢"
+    value["candidate"]["note"] = "检查通过"
+    assert not validator.is_valid(value)
+
+
 def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
     from armi_runtime.composition.model_verification import (
         candidate_schema,
@@ -381,8 +422,8 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
             Draft202012Validator(expected).validate(value)
             relationship = value["candidate"]["social"]["relationship_change"]
             assert relationship["fact"]["kind"] == "party_expression"
-            assert relationship["boundary"] is None
-            assert relationship["commitment_change"] is None
+            assert "boundary" not in relationship
+            assert "commitment_change" not in relationship
             value["candidate"]["social"]["relationship_change"] = dict.fromkeys(
                 ("interpretation", "fact", "boundary", "commitment_change")
             )

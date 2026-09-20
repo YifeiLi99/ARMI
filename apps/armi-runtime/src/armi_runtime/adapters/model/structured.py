@@ -69,6 +69,7 @@ class StructuredRequestRenderer:
     """Common cognition prompt and strict output schema, independent of wire API."""
 
     __slots__ = ("_candidate_schema", "_clients", "_instructions", "_schema_name")
+    _require_all_output_fields = True
 
     def __init__(
         self,
@@ -111,6 +112,7 @@ class StructuredRequestRenderer:
             "schema": _provider_output_schema(
                 self._candidate_schema,
                 available_refs=self.context_refs(request),
+                require_all_fields=self._require_all_output_fields,
             ),
         }
 
@@ -507,12 +509,15 @@ def _available_refs(request_bytes: bytes) -> tuple[str, ...]:
 
 
 def _provider_output_schema(
-    value: object, *, available_refs: tuple[str, ...]
+    value: object, *, available_refs: tuple[str, ...], require_all_fields: bool = True
 ) -> dict[str, Any]:
     value = deepcopy(value)
     _order_union_discriminators(value, value)
     schema = cast(
-        dict[str, Any], _strict_provider_schema(value, available_refs=available_refs)
+        dict[str, Any],
+        _strict_provider_schema(
+            value, available_refs=available_refs, require_all_fields=require_all_fields
+        ),
     )
     definitions = schema.pop("$defs", {})
     return _share_schema_nodes(
@@ -667,10 +672,15 @@ def _strict_provider_schema(
     value: object,
     *,
     available_refs: tuple[str, ...],
+    require_all_fields: bool = True,
 ) -> object:
     if isinstance(value, list):
         return [
-            _strict_provider_schema(item, available_refs=available_refs)
+            _strict_provider_schema(
+                item,
+                available_refs=available_refs,
+                require_all_fields=require_all_fields,
+            )
             for item in cast(list[object], value)
         ]
     if not isinstance(value, dict):
@@ -684,7 +694,7 @@ def _strict_provider_schema(
         ):
             continue
         result["anyOf" if key == "oneOf" else key] = _strict_provider_schema(
-            item, available_refs=available_refs
+            item, available_refs=available_refs, require_all_fields=require_all_fields
         )
     if (
         available_refs
@@ -699,7 +709,8 @@ def _strict_provider_schema(
         property_keys = tuple(cast(dict[object, object], properties))
         if any(not isinstance(key, str) for key in property_keys):
             raise ModelViolation("MODEL-BINDING")
-        result["required"] = list(cast(tuple[str, ...], property_keys))
+        if require_all_fields:
+            result["required"] = list(cast(tuple[str, ...], property_keys))
         result["additionalProperties"] = False
     elif result.get("type") == "object" and "additionalProperties" not in result:
         result["additionalProperties"] = False
