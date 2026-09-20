@@ -121,6 +121,7 @@ from armi_web_observation.bootstrap import bootstrap_web_context_read
 from starlette.responses import Response as StarletteResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from armi_runtime.adapters.model.ark_clients import ArkClients
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
@@ -514,6 +515,7 @@ async def _serve(
     context_pipeline = None
     context_embedding_pipeline = None
     model_pipeline = None
+    model_clients = None
     candidate_pipeline = None
     subject_commit_pipeline = None
     codex_availability = CapabilityAvailability(
@@ -1313,8 +1315,17 @@ async def _serve(
             if "model.ark_api_key" in config.secret_locators:
                 try:
                     with configuration_consumption.consumer("cognition"):
+                        model_clients = ArkClients(
+                            lambda event, duration_ms, reasons: diagnostic.emit(
+                                event,
+                                duration_ms=duration_ms,
+                                reason_codes=reasons,
+                                result_code="MODEL_TRANSPORT",
+                            )
+                        )
                         model_pipeline = compose_model_pipeline(
                             prepared,
+                            clients=model_clients,
                             voice=live_voice_service,
                             finalization=candidate_pipeline,
                             unit_of_work_factory=runtime_unit_of_work_factory,
@@ -1503,6 +1514,8 @@ async def _serve(
                 await life_opportunity_pipeline.close()
             if model_pipeline is not None:
                 await model_pipeline.close()
+            if model_clients is not None:
+                await model_clients.close()
             if web_research_pipeline is not None:
                 await web_research_pipeline.close()
             if web_search_pipeline is not None:
@@ -1877,6 +1890,7 @@ async def _serve(
                 None if life_record_query is None else life_record_query.close,
             ),
             ("model", None if model_pipeline is None else model_pipeline.close),
+            ("model_clients", None if model_clients is None else model_clients.close),
             (
                 "web_research",
                 None if web_research_pipeline is None else web_research_pipeline.close,

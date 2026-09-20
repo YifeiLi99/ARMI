@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from armi_kernel.application import ModelViolation
 from armi_runtime.adapters.model.volcengine_ark import (
-    OpenAIArkTransport,
+    OfficialArkTransport,
     _available_refs,
     _provider_input,
     _strict_provider_schema,
@@ -40,7 +40,7 @@ def test_codex_prompt_assembles_identity_and_task_once():
         ).encode()
     )
     prompt = (
-        OpenAIArkTransport(
+        OfficialArkTransport(
             {}, instructions=CODEX_RESULT_ACT_INSTRUCTIONS, schema_name="test"
         )._instructions
         + "\n"
@@ -421,7 +421,7 @@ def test_all_dialogue_contracts_require_strict_output_and_local_validation(versi
         parse_other_human_dialogue_candidate_value,
     )
 
-    transport = OpenAIArkTransport(
+    transport = OfficialArkTransport(
         candidate_schema(), instructions="测试", schema_name="test"
     )
     request = SimpleNamespace(

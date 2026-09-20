@@ -79,17 +79,20 @@ async def _verify_metered(
             canonical_bytes=rfc8785.dumps(candidate_schema())
         ),
     )
-    input_tokens = await adapter.tokenize(request_bytes)
-    request = checked_model_request(
-        prices=meter.prices,
-        binding=binding,
-        request_bytes=request_bytes,
-        context_digest=context_digest,
-        input_tokens=input_tokens,
-    )
-    started = time.perf_counter()
-    result = await adapter.invoke(request)
-    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    try:
+        input_tokens = await adapter.tokenize(request_bytes)
+        request = checked_model_request(
+            prices=meter.prices,
+            binding=binding,
+            request_bytes=request_bytes,
+            context_digest=context_digest,
+            input_tokens=input_tokens,
+        )
+        started = time.perf_counter()
+        result = await adapter.invoke(request)
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+    finally:
+        await adapter.close()
     if result.status is not ModelResultStatus.SUCCEEDED:
         raise RuntimeError(result.error_code or "MODEL-LIVE-FAILED")
     usage = cast(ModelUsage, result.usage)

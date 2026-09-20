@@ -270,6 +270,7 @@ from armi_web_observation.bootstrap import (
     bootstrap_web_research_commit,
 )
 
+from armi_runtime.adapters.model.ark_clients import ArkClients
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
@@ -1585,6 +1586,7 @@ def _cognition_failure_notification(
 def compose_model_pipeline(
     prepared: PreparedEnvironment,
     *,
+    clients: ArkClients,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     context: ContextCognitionReadPort,
     opportunities: OpportunityCognitionSelectionPort,
@@ -1610,6 +1612,7 @@ def compose_model_pipeline(
         schema_name: str,
     ) -> CognitionModelPort:
         return VolcengineArkModelAdapter(
+            clients=clients,
             binding=binding,
             credential_port=prepared.credential_port,
             locator=model_locator,

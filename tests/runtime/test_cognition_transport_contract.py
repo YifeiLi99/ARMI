@@ -26,21 +26,26 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     monkeypatch, purpose
 ) -> None:
     response = SimpleNamespace(
-        output=[SimpleNamespace(type="message")],
+        output=[SimpleNamespace(type="message", content=[])],
         id="controlled-response",
         model="doubao-seed-evolving",
         output_text="{}",
         usage=None,
         model_dump=lambda **_kwargs: {},
     )
-    create = AsyncMock(return_value=response)
-    client = SimpleNamespace(
-        responses=SimpleNamespace(create=create), close=AsyncMock()
+    create = AsyncMock(
+        return_value=SimpleNamespace(headers={}, parse=AsyncMock(return_value=response))
     )
-    monkeypatch.setattr(ark, "_client", lambda *_args: client)
+    client = SimpleNamespace(
+        responses=SimpleNamespace(with_raw_response=SimpleNamespace(create=create)),
+        close=AsyncMock(),
+    )
+    clients = ark.ArkClients()
+    monkeypatch.setattr(clients, "get", lambda *_args: client)
     schema = candidate_schema("armi.cognition-candidate.v17")
-    transport = ark.OpenAIArkTransport(
+    transport = ark.OfficialArkTransport(
         schema,
+        clients=clients,
         instructions=GENERIC_COGNITION_INSTRUCTIONS,
         schema_name="armi_cognition_candidate_v13",
     )
@@ -107,4 +112,4 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     assert "capability_request" not in wire
     assert "permission_grant" not in wire
     assert "codex_delegation" in wire
-    client.close.assert_awaited_once()
+    client.close.assert_not_awaited()

@@ -266,6 +266,8 @@ Mind 与 Mood 各自拥有评价提示语义。Mood 公开 `MOOD_APPRAISAL_INSTR
 
 正式接线后六次隔离调用全部通过新版自主 Schema 和候选校验，并将原返回交给正式 Mind 变换离线准备；估算 ¥0.222360，无未知用量。长交流间隔、重复无进展分别产生 contact/change_activity 倾向，两小时投影约 7.03125；刚交流未形成动机，持续投入目标为零。未解释新现象未形成好奇，不能宣称三种心理稳定涌现。实验未提交日常主体或执行效果，原子提交另由隔离数据库测试验证。完整真实模型的持续行动及反馈结束轨迹仍未验证。
 
+认知模型传输采用火山官方 `arkruntime==0.8.0`，分词调用 `tokenization.create`，生成调用 `responses.create`。按[官方 SDK 使用建议](https://docs.volcengine.com/docs/ark/sdk-common-examples?lang=zh)，Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离；不同上下文的适配器及分词/生成共用连接池，凭据变化不修改在途请求的认证，停机在工作退出后关闭全部客户端。SDK 自动重试保持关闭，由认知现有预算负责有限分词重试，生成结果未知不自动重放。传输诊断只记录阶段、耗时、HTTP 状态和异常类型链，不记录凭据、提示词或响应正文；返回的服务端请求 ID 沿 Provider 回执留存。严格结构化输出约定不变。
+
 供应商适配器使用 Responses `text.format.type=json_schema`、`strict=true`，与[官方结构化输出入口](https://www.volcengine.com/docs/82379/1958523)一致。发送前将联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；不能沿用规范化存储的字母顺序，让回复正文先于 `kind`。这只调整生成顺序，不改变可接受的候选或校验合同。实验额外保留供应商原响应的 status、incomplete_details 和回显格式，不能仅凭请求设置推断每种复杂 Schema 都得到保证。收到可留存的返回与其可用于认知分开：`ModelInvocationResult.response_error_code` 标记非 completed 返回；Cognition 先保存原始正文和用量，再以具体错误结束 episode，不解析、提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。旧实验未保存供应商完成状态，旧两次结构错误的根因仍未确定；本轮未复现，不归咎于模型或宣称已修复其根因。
 
 ### 心理与自主行动的目标架构

@@ -52,8 +52,9 @@ from armi_mood.api import (
     preview_appraisal,
     semantic_appraisal_from_command,
 )
+from armi_runtime.adapters.model.ark_clients import ArkClients
 from armi_runtime.adapters.model.volcengine_ark import (
-    OpenAIArkTransport,
+    OfficialArkTransport,
     VolcengineArkModelAdapter,
 )
 from armi_runtime.composition.candidate_validation_tool import build_candidate_validator
@@ -350,7 +351,7 @@ def validate_appraisal_response(
         return {"validation": "rejected", "error": str(error)}
 
 
-class EvidenceTransport(OpenAIArkTransport):
+class EvidenceTransport(OfficialArkTransport):
     def __init__(
         self, schema: dict[str, Any], *args: Any, output: Path, **kwargs: Any
     ) -> None:
@@ -567,6 +568,7 @@ async def run(
 
     results = []
     trajectory = MindTrajectory() if mode == "trajectory" else None
+    clients = ArkClients()
     try:
         with provider_meter_scope(
             ProviderMeterScope(
@@ -621,6 +623,7 @@ async def run(
                     ),
                     transport=EvidenceTransport(
                         case["schema"],
+                        clients=clients,
                         instructions=instructions,
                         schema_name="armi_autonomous_activity_experiment",
                         output=output / f"{prefix}-provider-response.json",
@@ -730,6 +733,7 @@ async def run(
                 if trajectory is not None and trajectory.stop_reason is not None:
                     break
     finally:
+        await clients.close()
         journal.settle_interrupted(verification_id)
         billed = [receipt for receipt in receipts.values() if receipt.billable]
         spent = sum(receipt.cost.known_microyuan or 0 for receipt in billed)

@@ -38,6 +38,7 @@ dependencies = [
     "armi-prompt==0.0.0",
     "fastapi==0.140.13",
     "httpx==0.28.1",
+    "arkruntime==0.8.0",
     "openai==2.49.0",
     "openai-codex==0.144.4",
     "psutil==7.2.2",

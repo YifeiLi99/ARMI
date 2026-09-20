@@ -8,8 +8,15 @@ import re
 from copy import deepcopy
 from typing import Any, Protocol, cast
 
-import httpx
 import rfc8785
+from arkruntime._exceptions import (  # pyright: ignore[reportMissingTypeStubs]
+    ArkAPIConnectionError,
+    ArkAPIStatusError,
+    ArkAPITimeoutError,
+)
+from arkruntime.types.responses.response import (  # pyright: ignore[reportMissingTypeStubs]
+    Response,
+)
 from armi_cognition.api import CognitionSchemaDocument
 from armi_kernel.application import (
     CredentialLocator,
@@ -25,13 +32,8 @@ from armi_kernel.application import (
     provider_call,
 )
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
-from openai import (
-    APIConnectionError,
-    APIStatusError,
-    APITimeoutError,
-    AsyncOpenAI,
-)
-from openai.types.responses import Response
+
+from .ark_clients import ArkClients
 
 _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
@@ -58,10 +60,10 @@ class ArkTransport(Protocol):
     ) -> dict[str, Any]: ...
 
 
-class OpenAIArkTransport:
-    """OpenAI SDK transport pinned to the Ark API base."""
+class OfficialArkTransport:
+    """Official Ark SDK transport pinned to the Ark API base."""
 
-    __slots__ = ("_candidate_schema", "_instructions", "_schema_name")
+    __slots__ = ("_candidate_schema", "_clients", "_instructions", "_schema_name")
 
     def __init__(
         self,
@@ -69,7 +71,9 @@ class OpenAIArkTransport:
         *,
         instructions: str,
         schema_name: str,
+        clients: ArkClients | None = None,
     ) -> None:
+        self._clients = clients if clients is not None else ArkClients()
         self._candidate_schema = candidate_schema
         markdown_lines: list[str] = []
         for line in instructions.splitlines():
@@ -83,6 +87,9 @@ class OpenAIArkTransport:
         )
         self._schema_name = schema_name
 
+    async def close(self) -> None:
+        await self._clients.close()
+
     async def tokenize(
         self,
         *,
@@ -90,82 +97,59 @@ class OpenAIArkTransport:
         binding: ModelBinding,
         request_bytes: bytes,
     ) -> int:
-        client = _client(api_key, binding)
-        try:
-            provider_input = _provider_input(request_bytes)
-            rendered_input = (
-                provider_input
-                if isinstance(provider_input, str)
-                else json.dumps(
-                    provider_input, ensure_ascii=False, separators=(",", ":")
+        client = self._clients.get(api_key, binding)
+        provider_input = _provider_input(request_bytes)
+        rendered_input = (
+            provider_input
+            if isinstance(provider_input, str)
+            else json.dumps(provider_input, ensure_ascii=False, separators=(",", ":"))
+        )
+        provider_schema = _provider_output_schema(
+            self._candidate_schema,
+            available_refs=_available_refs(request_bytes),
+        )
+        async with provider_call(
+            provider=binding.provider,
+            model=binding.model_id,
+            service="tokenization",
+        ) as call:
+            try:
+                raw_tokenization = await client.tokenization.with_raw_response.create(
+                    model=binding.model_id,
+                    text="\n".join(
+                        (
+                            self._instructions,
+                            rendered_input,
+                            json.dumps(
+                                provider_schema,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                        )
+                    ),
                 )
-            )
-            provider_schema = _provider_output_schema(
-                self._candidate_schema,
-                available_refs=_available_refs(request_bytes),
-            )
-            async with provider_call(
-                provider=binding.provider,
-                model=binding.model_id,
-                service="tokenization",
-            ) as call:
-                result_value = await client.post(
-                    "/tokenization",
-                    cast_to=cast(Any, dict[str, Any]),
-                    body={
-                        "model": binding.model_id,
-                        "text": "\n".join(
-                            (
-                                self._instructions,
-                                rendered_input,
-                                json.dumps(
-                                    provider_schema,
-                                    ensure_ascii=False,
-                                    separators=(",", ":"),
-                                ),
-                            )
-                        ),
-                    },
-                )
-                token_usage = (
-                    cast(dict[str, object], result_value).get("usage")
-                    if isinstance(result_value, dict)
-                    else None
-                )
+            except ArkAPIStatusError as error:
                 await call.capture(
-                    usage=cast(dict[str, object], token_usage)
-                    if isinstance(token_usage, dict)
-                    else None
+                    usage=None,
+                    provider_request_id=error.response.headers.get("x-request-id")
+                    or error.request_id,
                 )
-        finally:
-            await client.close()
-        if not isinstance(result_value, dict):
+                raise
+            tokenization = await raw_tokenization.parse()
+            result_value = tokenization.model_dump(mode="json")
+            token_usage = result_value.get("usage")
+            await call.capture(
+                provider_request_id=raw_tokenization.headers.get("x-request-id")
+                or tokenization.id,
+                response_model=tokenization.model,
+                usage=cast(dict[str, object], token_usage)
+                if isinstance(token_usage, dict)
+                else None,
+            )
+        if len(tokenization.data) != 1:
             raise ModelViolation("MODEL-TOKENIZATION")
-        result = cast(dict[str, object], result_value)
-        usage_value = result.get("usage")
-        usage = (
-            cast(dict[str, object], usage_value)
-            if isinstance(usage_value, dict)
-            else {}
-        )
-        data_value = result.get("data")
-        data_tokens: object = None
-        if isinstance(data_value, list):
-            data_items = cast(list[object], data_value)
-            if len(data_items) == 1 and isinstance(data_items[0], dict):
-                data_item = cast(dict[str, object], data_items[0])
-                data_tokens = data_item.get("total_tokens")
-        candidate_values = (
-            result.get("total_tokens"),
-            usage.get("total_tokens"),
-            usage.get("input_tokens"),
-            data_tokens,
-        )
-        tokens = next(
-            (value for value in candidate_values if type(value) is int and value > 0),
-            None,
-        )
-        if tokens is None:
+        tokens = tokenization.data[0].total_tokens
+        if type(tokens) is not int or tokens <= 0:
             raise ModelViolation("MODEL-TOKENIZATION")
         return tokens
 
@@ -176,36 +160,39 @@ class OpenAIArkTransport:
         binding: ModelBinding,
         request: ModelRequest,
     ) -> dict[str, Any]:
-        client = _client(api_key, binding)
-        try:
-            async with provider_call(
-                provider=binding.provider,
-                model=binding.model_id,
-                service="generation",
-            ) as call:
-                response = cast(
-                    Response,
-                    await client.responses.create(
-                        **self.request_parameters(binding, request)
-                    ),
+        client = self._clients.get(api_key, binding)
+        async with provider_call(
+            provider=binding.provider,
+            model=binding.model_id,
+            service="generation",
+        ) as call:
+            try:
+                raw_response = await client.responses.with_raw_response.create(
+                    **self.request_parameters(binding, request)
                 )
-                raw_usage = response.model_dump(mode="json").get("usage")
+            except ArkAPIStatusError as error:
                 await call.capture(
-                    usage=cast(dict[str, object], raw_usage)
-                    if isinstance(raw_usage, dict)
-                    else None,
-                    provider_request_id=getattr(response, "_request_id", None)
-                    or response.id,
-                    response_model=response.model,
+                    usage=None,
+                    provider_request_id=error.response.headers.get("x-request-id")
+                    or error.request_id,
                 )
-        finally:
-            await client.close()
+                raise
+            response = cast(Response, await raw_response.parse())
+            request_id = raw_response.headers.get("x-request-id") or response.id
+            raw_usage = response.model_dump(mode="json").get("usage")
+            await call.capture(
+                usage=cast(dict[str, object], raw_usage)
+                if isinstance(raw_usage, dict)
+                else None,
+                provider_request_id=request_id,
+                response_model=response.model,
+            )
         usage = response.usage
         return {
             "provider_request_id": response.id,
-            "request_id": getattr(response, "_request_id", None),
+            "request_id": request_id,
             "model_id": response.model,
-            "output_text": response.output_text,
+            "output_text": _output_text(response),
             "usage": {
                 "input_tokens": getattr(usage, "input_tokens", None),
                 "output_tokens": getattr(usage, "output_tokens", None),
@@ -237,8 +224,20 @@ class OpenAIArkTransport:
                     ),
                 }
             },
-            "extra_body": {"thinking": {"type": "disabled"}},
+            "thinking": {"type": "disabled"},
         }
+
+
+def _output_text(response: Response) -> str:
+    parts: list[str] = []
+    for item in response.output or []:
+        if item.type == "message":
+            for content in item.content or []:
+                if content.type == "output_text":
+                    if content.text is None:
+                        raise ModelViolation("MODEL-PROVIDER-RESPONSE")
+                    parts.append(content.text)
+    return "".join(parts)
 
 
 def _provider_input(request_bytes: bytes) -> list[dict[str, str]]:
@@ -278,6 +277,7 @@ class VolcengineArkModelAdapter(ModelPort):
         instructions: str,
         schema_name: str,
         transport: ArkTransport | None = None,
+        clients: ArkClients | None = None,
     ) -> None:
         if (
             binding.provider != "volcengine_ark"
@@ -301,10 +301,11 @@ class VolcengineArkModelAdapter(ModelPort):
         provider_schema = cast(
             dict[str, Any], json.loads(candidate_schema.canonical_bytes)
         )
-        self._renderer = OpenAIArkTransport(
+        self._renderer = OfficialArkTransport(
             provider_schema,
             instructions=instructions,
             schema_name=schema_name,
+            clients=clients,
         )
         self._transport = transport or self._renderer
 
@@ -336,6 +337,10 @@ class VolcengineArkModelAdapter(ModelPort):
         finally:
             _wipe(secret)
 
+    async def close(self) -> None:
+        """Release the default transport for standalone verification callers."""
+        await self._renderer.close()
+
     async def tokenize(self, canonical_request: bytes) -> int:
         secret = self._copy_secret()
         try:
@@ -346,11 +351,11 @@ class VolcengineArkModelAdapter(ModelPort):
             )
         except ModelViolation:
             raise
-        except APITimeoutError:
+        except ArkAPITimeoutError:
             raise ModelViolation("MODEL-TOKENIZATION-TIMEOUT", retryable=True) from None
-        except APIConnectionError:
-            raise ModelViolation("MODEL-CONNECTION", retryable=True) from None
-        except APIStatusError as error:
+        except ArkAPIConnectionError as error:
+            raise ModelViolation("MODEL-CONNECTION", retryable=True) from error
+        except ArkAPIStatusError as error:
             raise _status_violation(error.status_code, dispatched=False) from None
         except Exception:
             raise ModelViolation("MODEL-TOKENIZATION") from None
@@ -370,17 +375,17 @@ class VolcengineArkModelAdapter(ModelPort):
             return self._settle_response(response, request)
         except ModelViolation:
             raise
-        except APITimeoutError:
+        except ArkAPITimeoutError:
             return _failure(
                 ModelResultStatus.TIMED_OUT,
                 "MODEL-REQUEST-TIMEOUT",
             )
-        except APIConnectionError:
+        except ArkAPIConnectionError:
             return _failure(
                 ModelResultStatus.OUTCOME_UNKNOWN,
                 "MODEL-OUTCOME-UNKNOWN",
             )
-        except APIStatusError as error:
+        except ArkAPIStatusError as error:
             raise _status_violation(error.status_code, dispatched=True) from None
         except Exception:
             return _failure(
@@ -463,20 +468,6 @@ class VolcengineArkModelAdapter(ModelPort):
             usage,
             response_error_code=error_code,
         )
-
-
-def _client(api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
-    try:
-        key = bytes(api_key).decode("utf-8")
-    except UnicodeDecodeError:
-        raise ModelViolation("MODEL-CREDENTIAL") from None
-    return AsyncOpenAI(
-        api_key=key,
-        base_url=binding.api_base,
-        max_retries=0,
-        timeout=binding.timeout_seconds,
-        http_client=httpx.AsyncClient(trust_env=False),
-    )
 
 
 def _available_refs(request_bytes: bytes) -> tuple[str, ...]:
@@ -751,6 +742,6 @@ def _wipe(value: bytearray) -> None:
 
 __all__ = (
     "ArkTransport",
-    "OpenAIArkTransport",
+    "OfficialArkTransport",
     "VolcengineArkModelAdapter",
 )
