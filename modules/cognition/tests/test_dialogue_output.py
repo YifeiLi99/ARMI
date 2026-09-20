@@ -33,26 +33,24 @@ def test_flat_appraisal_preserves_existing_event_and_all_dimensions(version):
     value = {
         "action": "reply",
         "content": "Got it",
-        "event_appraisal": {
-            "gist": "A new understanding",
-            "basis_refs": ["ctx:1"],
-            "transition": "reappraise",
-            "episode_ref": "ctx:2",
-            "change_from_previous": "improved",
-            "event_phase": "realized",
-            "concerns": [
-                {
-                    "target": "relationship",
-                    "significance": "direct",
-                    "direction": "progress",
-                }
-            ],
-            "engagement": "not_applicable",
-            "expectedness": "somewhat_unexpected",
-            "outcome_certainty": "settled",
-            "intrinsic_quality": "pleasant",
-            "self_involvement": "limited",
-        },
+        "event_gist": "A new understanding",
+        "event_basis_refs": ["ctx:1"],
+        "event_transition": "reappraise",
+        "event_episode_ref": "ctx:2",
+        "event_change_from_previous": "improved",
+        "event_phase": "realized",
+        "event_concerns": [
+            {
+                "target": "relationship",
+                "significance": "direct",
+                "direction": "progress",
+            }
+        ],
+        "event_engagement": "not_applicable",
+        "event_expectedness": "somewhat_unexpected",
+        "event_outcome_certainty": "settled",
+        "event_intrinsic_quality": "pleasant",
+        "event_self_involvement": "limited",
     }
     result = decode(value, version)
     assert result.appraisal.episode_ref == "ctx:2"

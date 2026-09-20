@@ -288,7 +288,7 @@ commitment_ref 和 conflicts_with_ref 只能引用 Context 中标题为“关系
 relationship_commitment 的条目;“当前关系”、历史消息、心情等条目不是承诺。
 note_conflict 必须有两个不同的现有承诺及真实冲突依据;没有这些条件就不输出该动作。
 不形成承诺变化时省略 commitment_change,不能为填满字段而编造变化或引用。
-若本轮事件意义发生变化,可填写 event_appraisal;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足。无评价时省略 event_appraisal;枚举中有 not_applicable 时用它表示不适用。
+若本轮事件意义发生变化,可填写 event_ 前缀字段;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足。无评价时省略全部 event_ 字段;枚举中有 not_applicable 时用它表示不适用。
 """
     + "\n\n# 表达方式\n\n"
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS

@@ -8,6 +8,7 @@ import json
 from typing import Any, cast
 
 from armi_cognition.api import (
+    dialogue_output_instructions,
     dialogue_output_kind,
     dialogue_output_schema,
     flatten_dialogue_output,
@@ -57,6 +58,7 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
         )
         business_instructions = self._instructions
         if dialogue is not None:
+            business_instructions = dialogue_output_instructions(business_instructions)
             business_instructions = business_instructions.replace(
                 "候选放在 candidate 属性中。", "字段直接放在根对象。"
             ).replace("decision.kind", "action")
@@ -91,7 +93,7 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             parameters["tool_choice"] = "none"
             # Chat variation is intentional; never replace strict validation with
             # lower temperature. DeepSeek fixes non-thinking top_p at 1.0.
-            parameters["temperature"] = 1.0
+            parameters["temperature"] = 1.3
             parameters["top_p"] = 1.0
         else:
             raise ModelViolation("MODEL-BINDING")
@@ -108,7 +110,9 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
                 )
                 + "\n根对象的字段只能是："
                 + "、".join(sorted(schema["properties"]))
-                + "。event_appraisal 内直接填写事件描述、评价维度和轨迹字段；依据仅写在 event_appraisal.basis_refs。"
+                + "。事件评价全部使用根对象的 event_ 前缀字段，不创建 event_appraisal 对象。"
+                + "event_self_compatibility 是兼容性字符串；仅冲突分支填写 event_self_scope。"
+                + "没有事件评价时省略全部 event_ 字段；填写时必须包含事件描述、依据、阶段、轨迹及必需评价维度。"
                 + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
                 + "需要引用时选择本轮实际支持判断的 Context 条目。"
                 + '\n没有评价、经历或状态变化的普通回复只需：{"action":"reply","content":"在呢"}。'

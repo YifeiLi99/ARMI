@@ -20,14 +20,16 @@ MOOD_APPRAISAL_INSTRUCTIONS = """## 评价对象与尺度
 - concerns.target=relationship 关乎信任、亲近与关系延续;暂时不能聊天可影响 self_goal 的交流愿望。未联系、忙碌、独处或正常边界不自动代表关系受损,缺少回应不等于拒绝。
 - intrinsic_quality 是内容或体验本身的吸引/排斥,不是目标受挫程度;strongly_aversive 要有强烈排斥的依据。
 - engagement 是活动是否提供所需投入。想投入却重复且无收获可为 understimulated;自愿休息、安静等待或持续进展不因此判为该项。
+- expectedness 只允许 expected/somewhat_unexpected/expectation_broken/unknown;轻微意外也用 somewhat_unexpected,不另造同义枚举值。
+- transition=new 时不填写 episode_ref 或 change_from_previous;reinforce/reappraise/resolve 必须同时填写已有事件的 episode_ref 和 change_from_previous。即使没有变化,后者也要明确写 unchanged,不能省略。
 
 ## 准则、归因与不确定性
 - standards 只评价有依据的个人准则或社会规范。偏好落空、暂无进展、休息或独处本身不是准则冲突。无相关准则用 not_applicable,资料不足用 unknown。
 - 自我标准冲突的 action 指具体行为违背准则;global 需要明确的整体自我否定,不能由一次失误推断。
-- self_evaluation=aligned 仅表示符合准则,不代表值得自豪的成就;无相关准则用 not_applicable。
+- self_evaluation.compatibility=aligned 仅表示符合准则,不代表值得自豪的成就;无相关准则用 not_applicable。
 - self_evaluation.scope 仅用于 compatibility 为 violation/tension/mixed 的分支;aligned/not_applicable/unknown 分支不能附带 scope。
 - causality 是事件责任和控制来源,不因发生在自己身上就归为 self。intentionality 是是否有意造成被评价的后果,不等于动作有意识;不清楚时用 unclear 或 unknown,不从正常边界推断有意伤害。
-- anticipated.direction 评价预期后果对目标的方向;outcome_certainty 单独判断是否发生。已知负向影响不能因发生概率不确定而改成 unknown;只有方向也不明时才用 unknown。
+- event_phase=anticipated 时,concerns[].direction 评价预期后果对目标的方向;outcome_certainty 单独判断是否发生。已知负向影响不能因发生概率不确定而改成 unknown;只有方向也不明时才用 unknown。
 - 愿望未满足也可能愉快,不愉快也不必归咎自己,各维度无需刻意一致。"""
 
 Gist = Annotated[

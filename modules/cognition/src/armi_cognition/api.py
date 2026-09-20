@@ -47,6 +47,7 @@ from armi_runtime_foundation import (
 from armi_web_observation.api import WebResearchRequestDraft
 
 from ._dialogue_output import (
+    dialogue_output_instructions,
     dialogue_output_kind,
     dialogue_output_schema,
     flatten_dialogue_output,
@@ -806,6 +807,7 @@ __all__ = (
     "CognitiveBranchRole",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
+    "dialogue_output_instructions",
     "dialogue_output_kind",
     "dialogue_output_schema",
     "flatten_dialogue_output",
