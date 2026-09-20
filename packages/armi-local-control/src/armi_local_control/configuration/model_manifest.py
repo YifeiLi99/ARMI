@@ -1,4 +1,4 @@
-"""Strict shared shape of the model manifest consumed by model adapters."""
+"""Shared manifest shape for adapters, management and retained-data upgrades."""
 
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ class RecognitionModelSettings(ManifestSection):
 
 
 class ModelManifest(ManifestSection):
-    schema_version: Literal["armi.model-bindings.v3"]
+    schema_version: Literal["armi.model-bindings.v4"]
     active_binding: str
     bindings: Annotated[list[PrimaryModelSettings], Field(min_length=1, max_length=1)]
     voice_binding: VoiceModelSettings

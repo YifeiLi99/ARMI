@@ -23,6 +23,10 @@ from armi_runtime_foundation import PostgreSQLAdminTransaction
 from armi_admin.persistence.runtime_foundation import RuntimeFoundationAdminAdapter
 
 from .configuration import load_admin_config, synchronize_environment_incarnation
+from .configuration_upgrade import (
+    prepare_configuration_upgrade,
+    publish_configuration_upgrade,
+)
 from .credentials import AdminCredentialPort
 from .deployment import environment_binding
 from .distribution import ProgramBundle
@@ -66,6 +70,10 @@ def database_upgrade(
     )
 
     def execute() -> dict[str, Any]:
+        configuration_changes = prepare_configuration_upgrade(
+            paths.environment_root,
+            config.runtime_defaults_path or runtime_defaults_file(),
+        )
         if action == "apply":
             controller.database("start")
         with credentials.resolve(
@@ -108,6 +116,7 @@ def database_upgrade(
                 )
             # Database commit precedes binding refresh. A later status/apply can recover this gap.
             if action == "apply":
+                publish_configuration_upgrade(configuration_changes)
                 # The registered DB generation is authoritative after reset.
                 # Explicit stopped-environment apply also repairs an interrupted
                 # publication to Admin/issuer files; never lower the DB generation.

@@ -15,6 +15,7 @@ dependencies = [
     "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
     "armi-live-vision==0.0.0",
+    "armi-live-voice==0.0.0",
     "armi-material==0.0.0",
     "armi-memory==0.0.0",
     "armi-mood==0.0.0",
@@ -43,6 +44,7 @@ armi-expression = { workspace = true }
 armi-interaction = { workspace = true }
 armi-kernel = { workspace = true }
 armi-live-vision = { workspace = true }
+armi-live-voice = { workspace = true }
 armi-material = { workspace = true }
 armi-memory = { workspace = true }
 armi-mood = { workspace = true }

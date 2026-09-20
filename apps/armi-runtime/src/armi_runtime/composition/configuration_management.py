@@ -14,6 +14,7 @@ from armi_cognition.bootstrap import load_active_model_binding, load_voice_model
 from armi_context.api import load_embedding_binding
 from armi_kernel import load_yaml_mapping
 from armi_kernel.application import ModelViolation, load_price_catalog
+from armi_local_control.configuration import ModelManifest
 from armi_local_control.configuration.editing import EnvironmentConfiguration
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.maintenance import ConfigurationInvocation
@@ -23,7 +24,6 @@ from armi_web_observation.bootstrap import validate_web_search_configuration
 from armi_runtime.adapters.model.external_content import (
     load_external_recognition_binding,
 )
-from armi_runtime.application.model_manifest import ModelManifest
 
 from .config_assets import runtime_config_path
 

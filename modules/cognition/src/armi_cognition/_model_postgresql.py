@@ -7,8 +7,9 @@ from dataclasses import dataclass, replace
 from typing import cast
 from uuid import UUID, uuid7
 
-from armi_attention.api import OpportunityCognitionSelectionPort
+from armi_attention.api import LifeViolation, OpportunityCognitionSelectionPort
 from armi_context.api import ContextCognitionReadPort
+from armi_interaction.api import human_input_activity
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
@@ -25,6 +26,7 @@ from armi_kernel.application import (
     ProviderCallReceipt,
     WorkLease,
     WorkRecord,
+    WorkResultRef,
     WorkStatus,
     WorkType,
     WorkViolation,
@@ -35,9 +37,11 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_live_voice.api import voice_activity
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
+    subject_context_current,
 )
 
 from .api import CognitionArtifactCatalogPort
@@ -405,6 +409,18 @@ class PostgreSQLCognitiveModelRepository:
         if updated is None:
             raise ModelViolation("MODEL-ATTEMPT-STATE")
 
+        episode = await (
+            await connection.execute(
+                "SELECT opportunity_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                (episode_id,),
+            )
+        ).fetchone()
+        if episode is None:
+            raise ModelViolation("MODEL-WORK-STALE")
+        await self._opportunities.mark_autonomy_check_started(
+            connection, opportunity_id=episode[0]
+        )
+
     async def settle_success(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -520,6 +536,71 @@ class PostgreSQLCognitiveModelRepository:
         response_artifact: ArtifactRef,
     ) -> None:
         await self._mark_episode_returned(unit_of_work, snapshot.episode_id)
+
+    async def finalize_autonomy_check(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: ModelEpisodeSnapshot,
+        engage: bool,
+    ) -> None:
+        await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
+        if not await subject_context_current(
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
+            subject_version=snapshot.base_subject_version,
+            state_epoch=snapshot.base_state_epoch,
+            bundle_activation_id=snapshot.bundle_activation_id,
+        ):
+            raise ModelViolation("MODEL-WORK-STALE")
+        row = await (
+            await unit_of_work.transaction.execute(
+                """SELECT e.opportunity_id FROM armi.cognitive_episodes e
+               WHERE e.cognitive_episode_id=%s AND e.purpose='consider_autonomy_check'
+                 AND e.status='finalizing'
+               FOR UPDATE OF e""",
+                (snapshot.episode_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise ModelViolation("MODEL-WORK-STALE")
+        # DESIGN: a check commits only Attention scheduling, never subject state.
+        input_pending, _ = await human_input_activity(
+            unit_of_work.transaction, subject_id=snapshot.subject_id
+        )
+        voice_active, _ = await voice_activity(
+            unit_of_work.transaction, subject_id=snapshot.subject_id
+        )
+        if (
+            input_pending
+            or voice_active
+            or await self._opportunities.has_pending_human_input(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+            )
+        ):
+            raise ModelViolation("MODEL-WORK-STALE")
+        try:
+            await self._opportunities.resolve_autonomy_check(
+                unit_of_work.transaction,
+                opportunity_id=row[0],
+                episode_id=snapshot.episode_id,
+                engage=engage,
+            )
+        except LifeViolation as exc:
+            raise ModelViolation("MODEL-WORK-STALE") from exc
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.cognitive_episodes SET status='completed',
+                   final_disposition='no_change',application_resolution='no_change',
+                   validated_at=statement_timestamp(),committed_at=statement_timestamp()
+               WHERE cognitive_episode_id=%s""",
+            (snapshot.episode_id,),
+        )
+        await unit_of_work.work.complete(
+            lease,
+            WorkResultRef("cognitive_episode", snapshot.episode_id),
+        )
 
     async def fail_episode(
         self,
@@ -643,13 +724,13 @@ class PostgreSQLCognitiveModelRepository:
     ) -> None:
         row = await (
             await unit_of_work.transaction.execute(
-                "SELECT opportunity_id FROM armi.cognitive_episodes "
+                "SELECT opportunity_id,failure_code FROM armi.cognitive_episodes "
                 "WHERE cognitive_episode_id=%s",
                 (episode_id,),
             )
         ).fetchone()
         if row is None or not await self._opportunities.resolve_cognition_failure(
-            unit_of_work.transaction, opportunity_id=row[0]
+            unit_of_work.transaction, opportunity_id=row[0], failure_code=row[1]
         ):
             raise ModelViolation("MODEL-OPPORTUNITY-STATE")
 

@@ -1111,7 +1111,7 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             status=CandidateApplicationStatus.APPLIED,
             result_ref=application_id.value,
-            next_consideration_seconds=change_set.next_consideration_seconds,
+            autonomy_acted=change_set.autonomy_acted,
         )
         await unit_of_work.audit.append(
             _audit(
@@ -1271,7 +1271,7 @@ async def _settle_without_commit(
         snapshot=snapshot,
         status=status,
         result_ref=application_id.value,
-        next_consideration_seconds=change_set.next_consideration_seconds,
+        autonomy_acted=change_set.autonomy_acted,
     )
     audit_status = (
         AuditResultStatus.COMPLETED
@@ -1364,8 +1364,20 @@ async def _finish_episode_and_work(
     snapshot: SubjectCommitSnapshot,
     status: CandidateApplicationStatus,
     result_ref: UUID,
-    next_consideration_seconds: int | None = None,
+    autonomy_acted: bool | None = None,
 ) -> None:
+    if autonomy_acted is not None:
+        from armi_interaction.api import human_input_activity
+        from armi_live_voice.api import voice_activity
+
+        pending, _ = await human_input_activity(
+            unit_of_work.transaction, subject_id=snapshot.subject_id
+        )
+        voice_active, _ = await voice_activity(
+            unit_of_work.transaction, subject_id=snapshot.subject_id
+        )
+        if pending or voice_active:
+            raise SubjectCommitViolation("SUBJECT-HUMAN-INPUT-PREEMPTED")
     await cognition_commit.finish_episode(
         unit_of_work.transaction,
         episode_id=snapshot.episode_id,
@@ -1376,10 +1388,8 @@ async def _finish_episode_and_work(
         await opportunity_transition.resolve_subject_commit(
             unit_of_work.transaction,
             opportunity_id=snapshot.opportunity_id,
-            next_consideration_seconds=next_consideration_seconds,
-            source_episode_id=(
-                snapshot.episode_id if next_consideration_seconds is not None else None
-            ),
+            autonomy_acted=autonomy_acted,
+            source_episode_id=snapshot.episode_id,
         )
     except LifeViolation:
         raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE") from None

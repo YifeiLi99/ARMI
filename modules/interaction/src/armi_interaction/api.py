@@ -808,6 +808,14 @@ class InteractionSceneTransitionPort(Protocol):
     ) -> None: ...
 
 
+async def human_input_activity(
+    transaction: PostgreSQLTransaction, *, subject_id: UUID
+) -> tuple[bool, datetime | None]:
+    from ._autonomy_read import human_input_activity as read
+
+    return await read(transaction, subject_id=subject_id)
+
+
 __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
@@ -918,4 +926,5 @@ __all__ = (
     "SystemNotificationEffectDraft",
     "SystemNotificationEffectPort",
     "TimelineItemId",
+    "human_input_activity",
 )

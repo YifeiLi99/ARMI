@@ -1,11 +1,16 @@
 """The actual Runtime credential grants and their effect-free diagnostics."""
 
+import hashlib
+import json
+from pathlib import Path
+
 from armi_capability.api import CapabilityAvailability
 from armi_codex.api import CodexRunnerViolation
 from armi_codex.bootstrap import check_local_runner
 from armi_kernel.application import CredentialPurpose
 from armi_local_control.configuration import ConfigurationViolation
 
+from .configuration_consumption import ConfigurationConsumption
 from .creator_session import (
     CREATOR_BEARER_LOCATOR,
     CREATOR_CURSOR_PURPOSE,
@@ -18,6 +23,36 @@ from .qq_channel import (
     QQ_NAPCAT_EVENT_SECRET_LOCATOR,
     QQ_NAPCAT_EVENT_SECRET_PURPOSE,
 )
+
+
+def autonomy_model_revision(
+    prepared: PreparedEnvironment,
+    consumption: ConfigurationConsumption,
+) -> str:
+    """Observe adopted bindings and credential replacement without reading secrets."""
+    metadata: list[tuple[str, str, int | None]] = []
+    for name in ("model.deepseek_api_key", "model.qwen_api_key"):
+        locator = prepared.effective.config.secret_locators.get(name)
+        if locator is None:
+            metadata.append((name, "missing", None))
+        elif locator.scheme == "file":
+            path = Path(locator.target).resolve()
+            if not path.is_relative_to(prepared.secrets_root.resolve()):
+                metadata.append((name, "outside_scope", None))
+                continue
+            try:
+                modified = path.stat(follow_symlinks=False).st_mtime_ns
+            except OSError:
+                modified = None
+            metadata.append((name, locator.identity(), modified))
+        else:
+            # Environment credentials are frozen for the lifetime of the process.
+            metadata.append((name, locator.identity(), None))
+    state = {
+        "bindings": consumption.snapshot()["model-bindings"],
+        "credentials": metadata,
+    }
+    return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
 
 
 def runtime_credential_scope() -> dict[str, str]:

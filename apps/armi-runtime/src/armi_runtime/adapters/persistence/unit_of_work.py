@@ -111,7 +111,6 @@ class PostgreSQLUnitOfWorkFactory:
         "_environment_id",
         "_expected_role",
         "_pool",
-        "_provider_admission",
         "_require_runtime_fence",
         "_statement_timeout_milliseconds",
     )
@@ -127,10 +126,6 @@ class PostgreSQLUnitOfWorkFactory:
         statement_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence] | None = None,
         require_runtime_fence: bool = True,
-        provider_admission: Callable[
-            [PostgreSQLUnitOfWork, ProviderCallReceipt], Awaitable[None]
-        ]
-        | None = None,
     ) -> None:
         if environment_id.version != 7:
             raise ValueError("environment_id must be UUIDv7")
@@ -140,7 +135,6 @@ class PostgreSQLUnitOfWorkFactory:
         self._statement_timeout_milliseconds = statement_timeout_seconds * 1000
         self._authority_admission = authority_admission
         self._require_runtime_fence = require_runtime_fence
-        self._provider_admission = provider_admission
 
         async def check(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -212,13 +206,6 @@ class PostgreSQLUnitOfWorkFactory:
         self, *, receipt: ProviderCallReceipt
     ) -> PostgreSQLUnitOfWork:
         if receipt.registration:
-            admission = self._provider_admission
-            if receipt.billable and admission is not None:
-
-                async def check_admission(unit: PostgreSQLUnitOfWork) -> None:
-                    await admission(unit, receipt)
-
-                return self.unit_of_work(before_commit=check_admission)
             return self.unit_of_work()
         # Observed consumption can arrive after authority loss. Owners update
         # only an existing provider_calls entry, never resume the old operation.

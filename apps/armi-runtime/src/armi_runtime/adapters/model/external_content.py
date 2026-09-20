@@ -20,6 +20,7 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
 )
+from armi_local_control.configuration import load_model_manifest
 from armi_perception.api import (
     ExternalContentRecognitionPort,
     ExternalContentRecognitionRequest,
@@ -31,8 +32,6 @@ from armi_perception.api import (
     VisualRecognitionResult,
 )
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
-
-from armi_runtime.application.model_manifest import load_model_manifest
 
 from ._metered_ark import metered_ark_response
 from .doubao_speech import DoubaoSpeechRecognitionBinding

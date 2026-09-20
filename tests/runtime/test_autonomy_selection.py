@@ -18,9 +18,21 @@ from armi_runtime.application.cognition_cycle import (
 )
 
 
+@pytest.fixture(autouse=True)
+def no_pending_raw_input(monkeypatch):
+    monkeypatch.setattr(
+        "armi_runtime.application.cognition_cycle.voice_activity",
+        AsyncMock(return_value=(False, None)),
+    )
+    monkeypatch.setattr(
+        "armi_runtime.application.cognition_cycle.human_input_activity",
+        AsyncMock(return_value=(False, None)),
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("origin", "quota_available", "already_thinking", "selected"),
+    ("origin", "autonomy_enabled", "already_thinking", "selected"),
     [
         ("consider_autonomous_life", False, False, False),
         ("consider_autonomous_life", True, True, False),
@@ -35,8 +47,8 @@ from armi_runtime.application.cognition_cycle import (
         ("consider_other_human_input", False, False, True),
     ],
 )
-async def test_result_opportunity_waits_for_quota_and_single_subject_round(
-    origin, quota_available, already_thinking, selected
+async def test_result_opportunity_waits_for_enablement_and_single_subject_round(
+    origin, autonomy_enabled, already_thinking, selected
 ):
     subject, generation, root, current = (uuid7() for _ in range(4))
     unit = SimpleNamespace(
@@ -69,7 +81,8 @@ async def test_result_opportunity_waits_for_quota_and_single_subject_round(
         ),
         None,
     ]
-    opportunities.can_consider_autonomy.return_value = quota_available
+    opportunities.has_pending_human_input.return_value = False
+    opportunities.can_consider_autonomy.return_value = autonomy_enabled
     opportunities.select_for_cognition.return_value = True
     episodes.active_opportunities.return_value = (uuid7(),) if already_thinking else ()
     episodes.create_context_episode.return_value = True
@@ -121,7 +134,7 @@ async def test_result_opportunity_waits_for_quota_and_single_subject_round(
             ),
         ):
             result = await selector.select_once()
-        if quota_available or origin in {
+        if autonomy_enabled or origin in {
             "consider_creator_input",
             "consider_other_human_input",
         }:

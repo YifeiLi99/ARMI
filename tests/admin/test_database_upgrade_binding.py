@@ -56,6 +56,7 @@ def test_explicit_upgrade_recovers_only_the_next_registered_incarnation(
         patch(module + "environment_binding", return_value=bound),
         patch(module + "package_identity", return_value=None),
         patch(module + "verify_upgrade_resources"),
+        patch(module + "prepare_configuration_upgrade", return_value=[]),
         patch(module + "AdminCredentialPort"),
         patch(module + "LocalEnvironmentController", return_value=controller),
         patch(module + "psycopg.connect") as connect,

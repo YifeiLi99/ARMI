@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from armi_kernel.application import ConsiderationSignal
@@ -89,6 +89,12 @@ def project_signal_status(
     base = datetime.fromisoformat(str(result["next_consideration_at"]))
     effective = min((signal.eligible_at for signal in pending), default=base)
     effective = min(base, effective)
+    if result.get("last_check_started_at") is not None:
+        effective = max(
+            effective,
+            datetime.fromisoformat(str(result["last_check_started_at"]))
+            + timedelta(seconds=60),
+        )
     result["effective_consideration_at"] = effective.isoformat()
     if result["state"] in {"scheduled", "ready"}:
         as_of = datetime.fromisoformat(str(result["observed_at"]))

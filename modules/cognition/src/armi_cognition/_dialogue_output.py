@@ -233,10 +233,7 @@ def dialogue_output_schema(envelope: dict[str, Any]) -> dict[str, Any]:
             if isinstance(value, dict):
                 node = cast(dict[str, Any], value)
                 properties = node.get("properties", {})
-                if (
-                    "next_consideration_seconds" in properties
-                    and "expression" in properties
-                ):
+                if "kind" in properties and "expression" in properties:
                     properties["expression"] = _message_schema(
                         properties["expression"], root
                     )
@@ -373,6 +370,9 @@ def expand_dialogue_output(
     Never repair JSON, drop unknown fields, infer state or supply missing content.
     Raw provider output remains in the response artifact. See DESIGN.md.
     """
+    if expected_version == "armi.autonomy-check-candidate.v1":
+        # The check has its own single-field wire contract, no candidate wrapper.
+        return value
     other = expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
     if expected_version not in {
         CREATOR_COGNITIVE_ACT_VERSION,

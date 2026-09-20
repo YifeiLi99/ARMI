@@ -645,6 +645,17 @@ class ContextProjectionInvalidationPort(Protocol):
     ) -> None: ...
 
 
+def autonomy_check_items(
+    items: list[ContextItemCandidate],
+    *,
+    signalled_refs: frozenset[str],
+) -> list[ContextItemCandidate]:
+    """Project owner candidates into the bounded, source-preserving idle check."""
+    from ._autonomy_check import check_context_items
+
+    return check_context_items(items, signalled_refs=signalled_refs)
+
+
 def _require_uuid7(value: object) -> None:
     if type(value) is not UUID or value.version != 7:
         raise ContextViolation("CTX-ID")
@@ -701,5 +712,6 @@ __all__ = (
     "EmbeddingPort",
     "EmbeddingResponse",
     "RecallStatus",
+    "autonomy_check_items",
     "load_embedding_binding",
 )

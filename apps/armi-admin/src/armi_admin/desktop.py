@@ -1097,18 +1097,6 @@ class Desktop:
                         {
                             ("autonomy",): "自主生活",
                             ("autonomy", "enabled"): "启用自主生活",
-                            (
-                                "autonomy",
-                                "daily_request_limit",
-                            ): "每日自主云端请求额度（北京时间）",
-                            (
-                                "autonomy",
-                                "minimum_consideration_seconds",
-                            ): "最短考虑间隔（秒）",
-                            (
-                                "autonomy",
-                                "maximum_consideration_seconds",
-                            ): "最长考虑间隔（秒）",
                             ("autonomy", "outlet"): "主动表达出口",
                         },
                     ).get(parts, key),

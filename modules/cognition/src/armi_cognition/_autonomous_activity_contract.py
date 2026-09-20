@@ -25,7 +25,7 @@ from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v10"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v11"
 
 
 class _StrictModel(BaseModel):
@@ -33,7 +33,6 @@ class _StrictModel(BaseModel):
     mind_change: GroundedMindChange | None = None
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    next_consideration_seconds: int = Field(ge=60, le=21_600)
     expression: Text65536 | None = None
 
     @property
@@ -103,7 +102,7 @@ class AutonomousAbandonDecision(_StrictModel, InternalWorkAbandonDecision):
 
 
 class AutonomousNoResultDecision(_StrictModel, InternalWorkNoResultDecision):
-    pass
+    review_after_seconds: int = Field(ge=60, le=21_600)
 
 
 AutonomousActivityCandidate = Annotated[
@@ -148,7 +147,6 @@ def autonomous_schema_for_context(compiled_context: bytes) -> dict[str, Any]:
                 if item["item_kind"] == "current_life_opportunity"
             )
         )
-        policy = opportunity["autonomy"]["policy"]
         enabled = {
             entry["capability_kind"]
             for entry in catalog["capabilities"]
@@ -186,13 +184,6 @@ def autonomous_schema_for_context(compiled_context: bytes) -> dict[str, Any]:
         ] = {"type": "string", "enum": sources}
     for definition in definitions.values():
         properties = definition.get("properties", {})
-        if "next_consideration_seconds" in properties:
-            properties["next_consideration_seconds"]["minimum"] = policy[
-                "minimum_consideration_seconds"
-            ]
-            properties["next_consideration_seconds"]["maximum"] = policy[
-                "maximum_consideration_seconds"
-            ]
         if "expression" in properties and (
             not opportunity["autonomy"]["outlet_bound"]
             or opportunity["autonomy"]["outlet_state"] != "ready"

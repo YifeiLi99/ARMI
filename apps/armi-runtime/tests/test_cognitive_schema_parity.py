@@ -149,10 +149,9 @@ def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, ac
             ("decision", "content"),
         ),
         (
-            "armi.autonomous-activity-candidate.v10",
+            "armi.autonomous-activity-candidate.v11",
             {
                 "kind": "no_activity",
-                "next_consideration_seconds": 60,
                 "expression": "ok",
             },
             ("expression",),
@@ -205,10 +204,13 @@ def test_expression_and_summary_rules_match_on_all_channels(
     [(60, True), (60.0, True), (60.5, False), ("60", False), (True, False)],
 )
 def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted):
-    version = "armi.autonomous-activity-candidate.v10"
+    version = "armi.autonomous-activity-candidate.v11"
     value = {
-        "kind": "no_activity",
-        "next_consideration_seconds": seconds,
+        "kind": "no_result",
+        "reason": "No new evidence",
+        "next_step": "Reconsider the activity later",
+        "resumption_cue": "review time",
+        "review_after_seconds": seconds,
         "mind_appraisals": [],
         "concern_changes": [],
         "mind_change": None,
@@ -224,7 +226,7 @@ def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted
             expected_version=version,
             allowed_context_refs=frozenset(),
         )
-        decoded_seconds = parsed.model_dump()["next_consideration_seconds"]
+        decoded_seconds = parsed.model_dump()["review_after_seconds"]
         assert type(decoded_seconds) is int
         assert decoded_seconds == 60
     else:

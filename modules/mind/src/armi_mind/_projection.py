@@ -30,6 +30,13 @@ def mind_context_items(
     motivations = MOTIVATION_RECORDS.validate_json(
         json.dumps(document.pop("motivation_states")), strict=True
     )
+    if purpose == "consider_autonomy_check":
+        document["open_concerns_count"] = sum(
+            c.state in {"open", "waiting"} for c in records
+        )
+        document["open_motivations_count"] = sum(
+            m.parameters.resolution == "open" for m in motivations
+        )
     result = [
         PsychologicalContextItem(
             "mind",
@@ -68,7 +75,7 @@ def mind_context_items(
     # This is a per-context attention window, never a persistent record cap.
     # Explicit object links come first; autonomous review rotates unconsumed due
     # signals ahead of recency. See DESIGN.md: persistent motivation selection.
-    autonomous = purpose == "consider_autonomous_life"
+    autonomous = purpose in {"consider_autonomous_life", "consider_autonomy_check"}
     selected = sorted(
         (m for m in motivations if m.parameters.resolution == "open"),
         key=lambda m: (

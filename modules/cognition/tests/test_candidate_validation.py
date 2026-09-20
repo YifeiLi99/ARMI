@@ -794,7 +794,7 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
     validated = result.change_set
     assert validated.disposition.value == disposition
     if draft_type is not None:
@@ -1266,7 +1266,7 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert result.change_set is not None
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
 
 
 def _maintenance_fixture(
@@ -1357,7 +1357,7 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v36" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in changed.change_set.canonical_bytes
 
     unchanged = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "memory_unchanged", "summary": "界" * 512}),
@@ -1654,7 +1654,6 @@ def test_autonomous_life_can_request_one_active_visual_source() -> None:
             {
                 "kind": "visual_observation",
                 "source_kind": "camera",
-                "next_consideration_seconds": 60,
             }
         ),
         bases=bases,
@@ -1697,7 +1696,6 @@ def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> N
         _bytes(
             {
                 "kind": "start_activity",
-                "next_consideration_seconds": 60,
                 "goal": goal,
                 "next_step": "review my current self",
                 "appraisal": _appraisal_signal(basis_ref="ctx:4"),
@@ -1717,7 +1715,7 @@ def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> N
     assert (
         bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
     )
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
 
@@ -1747,7 +1745,6 @@ def test_autonomous_codex_task_is_subject_authored_and_can_express(
                 "kind": "codex_delegation",
                 "objective": "整理已知资料中的概念并给出简短说明",
                 "expression": "我打算整理一下刚才想到的问题。",
-                "next_consideration_seconds": 300,
             }
         ),
         bases=(*bases, source),
@@ -1764,7 +1761,7 @@ def test_autonomous_codex_task_is_subject_authored_and_can_express(
     assert b"subject_commit" in result.change_set.canonical_bytes
     assert len(result.change_set.action_choices) == 1
     assert result.change_set.experiences == ()
-    assert result.change_set.next_consideration_seconds == 300
+    assert result.change_set.autonomy_acted is True
 
 
 @pytest.mark.parametrize(
@@ -1800,7 +1797,6 @@ def test_autonomous_progress_and_expression_share_one_candidate(
                 "progress_summary": "整理出一个新的比较角度",
                 "next_step": "核对尚不确定的细节",
                 "expression": "我想到一个新角度。想听听吗?",
-                "next_consideration_seconds": 120,
             }
         ),
         bases=(*bases, source),
@@ -1818,7 +1814,7 @@ def test_autonomous_progress_and_expression_share_one_candidate(
         )
         == 1
     )
-    assert result.change_set.next_consideration_seconds == 120
+    assert result.change_set.autonomy_acted is True
 
 
 def test_autonomous_candidate_rejects_scene_or_missing_source() -> None:
@@ -1830,7 +1826,7 @@ def test_autonomous_candidate_rejects_scene_or_missing_source() -> None:
         opportunity_id=uuid7(),
     )
     result = DeterministicCandidateValidator(autonomous).validate(
-        b'{"kind":"no_activity","next_consideration_seconds":60}',
+        b'{"kind":"no_activity"}',
         bases=bases,
     )
     assert result.status is CandidateValidationStatus.REJECTED
@@ -1865,7 +1861,7 @@ def test_autonomous_context_does_not_bind_attention_resource_authority() -> None
         "internal",
     )
     result = DeterministicCandidateValidator(autonomous).validate(
-        b'{"kind":"no_activity","next_consideration_seconds":60}',
+        b'{"kind":"no_activity"}',
         bases=(*bases, source, unrelated_resources),
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -1909,19 +1905,19 @@ def test_autonomous_progress_binds_activity_authority_without_permission_round()
         "internal",
     )
     result = DeterministicCandidateValidator(attention).validate(
-        b'{"kind":"progress","progress_summary":"made progress","next_step":"continue","next_consideration_seconds":60}',
+        b'{"kind":"progress","progress_summary":"made progress","next_step":"continue"}',
         bases=(*bases, current, resources),
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
     assert len(_validation_drafts(result.change_set)) == 1
 
 
-def test_autonomous_progress_cannot_omit_next_consideration() -> None:
+def test_autonomous_progress_does_not_choose_global_check_time() -> None:
     context, bases = _fixture()
     revision_id = uuid7()
     attention = replace(
@@ -1948,8 +1944,9 @@ def test_autonomous_progress_cannot_omit_next_consideration() -> None:
         b'{"kind":"progress","progress_summary":"step","next_step":"next"}',
         bases=(*bases, current),
     )
-    assert result.status is CandidateValidationStatus.REJECTED
-    assert result.error_code == "CANDIDATE-CONTRACT"
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.autonomy_acted is True
 
 
 @pytest.mark.parametrize(
@@ -2011,7 +2008,10 @@ def test_autonomous_progress_cannot_omit_next_consideration() -> None:
 def test_autonomous_activity_work_maps_real_outcomes_atomically(
     candidate: Mapping[str, object], decision_kind: str
 ) -> None:
-    candidate = {**candidate, "next_consideration_seconds": 300}
+    candidate = {
+        **candidate,
+        **({"review_after_seconds": 300} if candidate["kind"] == "no_result" else {}),
+    }
     context, bases = _fixture()
     activity_id, revision_id, subject_party_id = uuid7(), uuid7(), uuid7()
     work = replace(
@@ -2050,7 +2050,7 @@ def test_autonomous_activity_work_maps_real_outcomes_atomically(
 
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
     if decision_kind == "complete":
         assert len(_materials(result.change_set)) == 1
@@ -2115,7 +2115,6 @@ def test_autonomous_activity_work_rejects_completed_head() -> None:
             {
                 "kind": "progress",
                 "progress_summary": "不应被接受",
-                "next_consideration_seconds": 60,
                 "next_step": "不应继续",
             }
         ),
@@ -2186,7 +2185,6 @@ def test_internal_activity_work_updates_only_a_frozen_owned_material_head() -> N
             {
                 "kind": "progress",
                 "progress_summary": "已把已有草稿整理成完整段落",
-                "next_consideration_seconds": 60,
                 "next_step": "下一轮检查结构",
                 "material_change": {
                     "action": "update",
@@ -2292,10 +2290,11 @@ def test_autonomous_activity_enforces_complete_status_matrix(
             "reason": "no reliable result",
             "next_step": "review",
             "resumption_cue": "next review",
+            "review_after_seconds": 60,
         },
     }
     result = DeterministicCandidateValidator(attention).validate(
-        _bytes({**payloads[kind], "next_consideration_seconds": 60}),
+        _bytes(payloads[kind]),
         bases=(*bases, current, resources),
     )
     assert (result.status is CandidateValidationStatus.ACCEPTED) is accepted
@@ -2519,7 +2518,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
     assert len(first.change_set.web_research_requests) == 1
-    assert b"armi.subject-change-set.v36" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
 
     candidate["web_research_requests"][0]["payload"]["query"] = (  # type: ignore[index]
         "https://example.com/"
@@ -2596,7 +2595,7 @@ def test_creator_cognitive_act_web_research_binds_authority_deterministically() 
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v36" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
     assert (
         first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
         == candidate["decision"]["query"]
@@ -2644,7 +2643,7 @@ def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v36" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
     assert query.record_kind == LifeRecordKind("memory")
@@ -2903,7 +2902,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     assert {item.proposal_ref for item in persisted_drafts} == {
         item.proposal_ref for item in (*first.change_set.codex_delegations,)
     }
-    assert b"armi.subject-change-set.v36" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
 
     mismatched = replace(active_context, codex_task_sources=())
     rejected = DeterministicCandidateValidator(mismatched).validate(
@@ -3024,7 +3023,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -3084,7 +3083,7 @@ def test_creator_cognitive_act_reply_is_bound_to_authority_deterministically() -
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v36" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
 
 
 def test_creator_cognitive_act_no_change_does_not_create_component_revision() -> None:
@@ -3168,7 +3167,7 @@ def test_creator_cognitive_act_creates_runtime_owned_life_material_deterministic
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v36" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
     assert len(_materials(first.change_set)) == 1
     material = _materials(first.change_set)[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -3490,7 +3489,7 @@ def test_creator_cognitive_act_establishes_relationship_from_same_experience() -
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -4126,7 +4125,7 @@ def test_creator_cognitive_act_forms_grounded_reported_memory_in_same_change_set
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v36" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "memory"
         for item in _validation_drafts(result.change_set)

@@ -17,7 +17,7 @@ def _capabilities(
 
 
 _RUNTIME_INSERT = """
-autonomy_plans autonomy_request_admissions
+autonomy_plans
 accepted_experiences action_intent_revisions action_intents activities
 activity_decisions activity_revisions artifact_object_deletion_attempts
 artifact_object_deletions artifact_objects artifact_publications artifacts audit_events

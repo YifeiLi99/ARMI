@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import jsonschema
 import pytest
-from armi_cognition.api import CognitionSchemaDocument
+from armi_cognition.api import CognitionSchemaDocument, parse_autonomy_check
 from armi_kernel import load_yaml_file
 from armi_kernel.application import ModelResultStatus, ModelViolation
 from armi_runtime.adapters.model.structured import (
@@ -33,6 +33,7 @@ def _schema(version, purpose=None):
 
 
 _PURPOSE_KINDS = {
+    "consider_autonomy_check": "wait",
     "consider_creator_input": "no_change",
     "consider_life_query_result": "no_change",
     "consider_requested_visual_observation": "no_change",
@@ -63,6 +64,11 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     version = manifest["purpose_profiles"][purpose]["response_contract_version"]
     kind = _PURPOSE_KINDS[purpose]
     value: dict[str, Any] = {"kind": kind}
+    if purpose == "consider_autonomy_check":
+        value = {"engage": False}
+        jsonschema.validate(value, candidate_schema(version))
+        assert parse_autonomy_check(value).engage is False
+        return
     if version == "armi.creator-cognitive-act-candidate.v7":
         value = {
             "decision": {**value, "content": None},
@@ -107,7 +113,6 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     }:
         value["appraisal"] = None
         if purpose == "consider_autonomous_life":
-            value["next_consideration_seconds"] = 60
             value["expression"] = None
             value["mind_change"] = None
     elif version == "armi.cognition-candidate.v17":
@@ -145,7 +150,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     if "concern_changes" in schema["properties"]["candidate"].get(
         "properties", {}
     ) or version in {
-        "armi.autonomous-activity-candidate.v10",
+        "armi.autonomous-activity-candidate.v11",
         "armi.visual-observation-candidate.v4",
     }:
         value["concern_changes"] = []

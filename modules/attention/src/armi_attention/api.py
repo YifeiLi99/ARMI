@@ -20,7 +20,7 @@ from armi_runtime_foundation import (
     PostgreSQLTransaction,
 )
 
-from ._autonomy_policy import AutonomyPolicy, quota_day, quota_reset_at
+from ._autonomy_policy import AutonomyPolicy
 from ._signals import project_signal_status
 
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
@@ -79,19 +79,9 @@ class AutonomyPort(Protocol):
         expected_version: int,
         episode_id: UUID,
         opportunity_id: UUID,
-        delay_seconds: int,
+        acted: bool,
         policy: AutonomyPolicy,
     ) -> None: ...
-
-    async def register_request(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        root_opportunity_id: UUID | None,
-        call_id: str,
-        policy: AutonomyPolicy,
-    ) -> bool: ...
 
 
 class LifeOpportunitySourceKind(StrEnum):
@@ -186,6 +176,15 @@ class CreatorOutreachFacts:
 
 @runtime_checkable
 class LifeOpportunityFactsPort(Protocol):
+    def model_configuration_revision(self) -> str: ...
+
+    async def autonomy_idle(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> bool: ...
+
     async def consideration_signals(
         self,
         transaction: PostgreSQLTransaction,
@@ -319,6 +318,40 @@ class OpportunityCognitionCandidate:
 
 @runtime_checkable
 class OpportunityCognitionSelectionPort(Protocol):
+    async def interrupt_autonomy(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> None: ...
+
+    async def mark_autonomy_check_started(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+    ) -> None: ...
+
+    async def has_pending_human_input(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> bool: ...
+
+    async def interrupt_cognition(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_ids: tuple[UUID, ...],
+    ) -> None: ...
+
+    async def resolve_autonomy_check(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+        episode_id: UUID,
+        engage: bool,
+    ) -> None: ...
+
     async def freeze_signals(
         self,
         transaction: PostgreSQLTransaction,
@@ -352,6 +385,7 @@ class OpportunityCognitionSelectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         opportunity_id: UUID,
+        failure_code: str | None = None,
     ) -> bool: ...
 
 
@@ -450,7 +484,7 @@ class OpportunityTransitionPort(Protocol):
         *,
         opportunity_id: UUID,
         disposition: str = "resolved",
-        next_consideration_seconds: int | None = None,
+        autonomy_acted: bool | None = None,
         source_episode_id: UUID | None = None,
     ) -> None: ...
 
@@ -522,6 +556,16 @@ class OpportunityAdminPort(Protocol):
     ) -> tuple[UUID, ...]: ...
 
 
+async def human_opportunity_pending(
+    transaction: PostgreSQLTransaction, *, subject_id: UUID
+) -> bool:
+    from ._owner import PostgreSQLOpportunityOwner
+
+    return await PostgreSQLOpportunityOwner().has_pending_human_input(
+        transaction, subject_id=subject_id
+    )
+
+
 __all__ = (
     "AutonomyPlan",
     "AutonomyPolicy",
@@ -553,7 +597,6 @@ __all__ = (
     "OpportunitySelectionCursor",
     "OpportunityTransitionPort",
     "OpportunityWakeupPort",
+    "human_opportunity_pending",
     "project_signal_status",
-    "quota_day",
-    "quota_reset_at",
 )

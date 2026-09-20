@@ -307,7 +307,8 @@ class PostgreSQLContextRepository:
         if opportunity.activity_id is not None and (
             target_activity is None
             or (
-                episode.purpose != "consider_autonomous_life"
+                episode.purpose
+                not in {"consider_autonomous_life", "consider_autonomy_check"}
                 and target_activity.status is not ActivityStatus.IN_PROGRESS
             )
         ):
@@ -392,7 +393,8 @@ class PostgreSQLContextRepository:
                 before_interaction_id=current_interaction_id,
                 before_time=(
                     opportunity.available_after
-                    if episode.purpose == "consider_autonomous_life"
+                    if episode.purpose
+                    in {"consider_autonomous_life", "consider_autonomy_check"}
                     else None
                 ),
                 limit=8,
@@ -594,7 +596,9 @@ class PostgreSQLContextRepository:
             unit_of_work.transaction, episode_id=episode_id, error_code=code
         )
         if not await self._opportunity_transitions.resolve_cognition_failure(
-            unit_of_work.transaction, opportunity_id=episode.opportunity_id
+            unit_of_work.transaction,
+            opportunity_id=episode.opportunity_id,
+            failure_code=code,
         ):
             raise ContextViolation("CTX-OPPORTUNITY-STATE")
         await unit_of_work.work.fail(lease, error_code=code)

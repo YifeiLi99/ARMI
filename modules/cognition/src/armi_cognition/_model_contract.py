@@ -109,7 +109,7 @@ from ._visual_observation_contract import (
     visual_observation_candidate_schema,
 )
 
-MODEL_BINDING_VERSION = "armi.model-bindings.v3"
+MODEL_BINDING_VERSION = "armi.model-bindings.v4"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
 CANDIDATE_VERSION = "armi.cognition-candidate.v17"
 ACTIVE_MODEL_ID = "qwen3.8-flash"
@@ -453,6 +453,10 @@ def candidate_schema(
     *,
     purpose: str | None = None,
 ) -> dict[str, Any]:
+    if version == "armi.autonomy-check-candidate.v1":
+        from ._autonomy_check_contract import autonomy_check_schema
+
+        return autonomy_check_schema()
     if version == "armi.owner-reflection-candidate.v4":
         from ._reflection_contract import owner_reflection_schema
 
@@ -768,6 +772,11 @@ def load_active_binding(
                 "profile": "visual_observation",
                 "response_contract_version": VISUAL_OBSERVATION_CANDIDATE_VERSION,
                 "output_token_limit": 768,
+            },
+            "consider_autonomy_check": {
+                "profile": "autonomy_check",
+                "response_contract_version": "armi.autonomy-check-candidate.v1",
+                "output_token_limit": 64,
             },
             "consider_requested_visual_observation": {
                 "profile": "creator_cognitive_act",

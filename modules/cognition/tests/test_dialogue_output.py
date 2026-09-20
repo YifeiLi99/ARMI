@@ -14,7 +14,7 @@ OTHER = "armi.other-human-dialogue-candidate.v9"
 
 
 @pytest.mark.parametrize(
-    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate.v10"]
+    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate.v11"]
 )
 @pytest.mark.parametrize(
     "messages",
@@ -39,7 +39,6 @@ def test_message_boundary_contract_rejects_ambiguous_or_invalid_outputs(
             "candidate": {
                 "kind": "no_activity",
                 "expression": messages,
-                "next_consideration_seconds": 300,
             }
         }
         if "autonomous" in version

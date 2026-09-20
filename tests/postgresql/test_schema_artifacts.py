@@ -115,7 +115,7 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "reflect_mood" in baseline
     for contract in (
         "armi.other-human-dialogue-candidate.v9",
-        "armi.autonomous-activity-candidate.v10",
+        "armi.autonomous-activity-candidate.v11",
         "armi.activity-attention-candidate.v5",
         "armi.activity-internal-work-candidate.v5",
     ):
@@ -129,7 +129,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v29" in (
+    assert "armi.schema-baseline.v30" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

@@ -237,7 +237,7 @@ from .live_voice import compose_runtime_live_voice
 from .napcat_process import compose_qq_health, disabled_qq_health
 from .owner_roster import compose_runtime_owner_roster
 from .qq_channel import QQChannelBinding, compose_qq_channel
-from .runtime_credentials import codex_local_availability
+from .runtime_credentials import autonomy_model_revision, codex_local_availability
 from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
 from .work_wakeup import WorkWakeupBus
@@ -1087,6 +1087,9 @@ async def _serve(
                     mood=mood_module.read,
                     mind=mind_module.read,
                     outlet_health=autonomy_outlet_health,
+                    model_revision=lambda: autonomy_model_revision(
+                        prepared, configuration_consumption
+                    ),
                 ),
                 activity_read=activity_module.read,
                 sleep_maintenance=sleep_module.maintenance,
@@ -2623,6 +2626,9 @@ async def _serve(
                 mood=mood_module.read,
                 mind=mind_module.read,
                 outlet_health=autonomy_outlet_health,
+                model_revision=lambda: autonomy_model_revision(
+                    prepared, configuration_consumption
+                ),
             ),
         ),
         usage_query=None

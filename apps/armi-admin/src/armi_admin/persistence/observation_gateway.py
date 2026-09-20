@@ -256,12 +256,7 @@ class AdminObservationGateway:
                 mood_signals = self._mood.consideration_signals(
                     uow.transaction,
                     as_of=datetime.fromisoformat(str(result["observed_at"])),
-                    minimum_delay_seconds=cast(
-                        int,
-                        cast(dict[str, object], result["policy"])[
-                            "minimum_consideration_seconds"
-                        ],
-                    ),
+                    minimum_delay_seconds=60,
                 )
                 own_commits = self._cognition.autonomous_commit_ids(
                     uow.transaction,

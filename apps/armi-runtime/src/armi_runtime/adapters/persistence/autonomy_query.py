@@ -62,12 +62,7 @@ class PostgreSQLAutonomyQuery:
                 signals = await self._facts.consideration_signals(
                     unit.transaction,
                     subject_id=unit.runtime_fence.subject_id,
-                    minimum_delay_seconds=cast(
-                        int,
-                        cast(dict[str, object], result["policy"])[
-                            "minimum_consideration_seconds"
-                        ],
-                    ),
+                    minimum_delay_seconds=60,
                 )
                 project_signal_status(result, signals, consumed)
                 result["concerns"] = await self._mind.attention_status(

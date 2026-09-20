@@ -66,7 +66,6 @@ async def test_model_messages_become_exact_qq_sends(purpose, messages):
             "candidate": {
                 "kind": "no_activity",
                 "expression": messages,
-                "next_consideration_seconds": 300,
             }
         }
         if autonomous

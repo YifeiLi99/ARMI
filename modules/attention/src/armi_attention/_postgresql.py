@@ -55,6 +55,7 @@ class PostgreSQLLifeOpportunityRepository:
         policy: AutonomyPolicy,
         model_concurrency: int,
         outlet_health: tuple[str, str | None],
+        model_revision: str,
     ) -> OpportunityAdmissionOutcome:
         fence = unit_of_work.runtime_fence
         if fence is None:
@@ -68,6 +69,15 @@ class PostgreSQLLifeOpportunityRepository:
             state_epoch=await self._facts.state_epoch(
                 transaction, subject_id=fence.subject_id
             ),
+        )
+        await transaction.execute(
+            """UPDATE armi.autonomy_plans SET model_configuration_revision=%s,
+                   phase=CASE WHEN phase='blocked' THEN 'waiting' ELSE phase END,
+                   blocked_reason_code=NULL,failure_streak=0,
+                   next_consideration_at=CASE WHEN phase='blocked'
+                     THEN statement_timestamp()+interval '60 seconds' ELSE next_consideration_at END
+               WHERE subject_id=%s AND model_configuration_revision IS DISTINCT FROM %s""",
+            (model_revision, fence.subject_id, model_revision),
         )
         outlet = await self._facts.outreach(unit_of_work, outlet=policy.outlet)
         outlet_state, outlet_reason = outlet_health
@@ -89,11 +99,19 @@ class PostgreSQLLifeOpportunityRepository:
         active = await self._facts.active_cognition_count(
             transaction, subject_id=fence.subject_id
         )
-        if active >= max(1, model_concurrency - 1):
+        if active > 0:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-BACKPRESSURE-COGNITION-CAPACITY",
+            )
+        if not await self._facts.autonomy_idle(
+            transaction, subject_id=fence.subject_id
+        ):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-AUTONOMY-NOT-IDLE",
             )
         signals = await self._facts.consideration_signals(
             transaction,
@@ -103,6 +121,28 @@ class PostgreSQLLifeOpportunityRepository:
         heads = await self._activities.scheduling_heads(
             transaction, subject_id=fence.subject_id
         )
+        # An activity's deadline is a stable event, unlike periodic scheduler
+        # refreshes. Consume its timestamp once so a waiting task cannot keep
+        # resetting the backoff every tick.
+        due_at = max(
+            (
+                head.resume_not_before
+                for head in heads
+                if head.resume_not_before is not None
+                and head.resume_not_before <= datetime.now(UTC)
+                and head.status in {ActivityStatus.WAITING, ActivityStatus.IN_PROGRESS}
+            ),
+            default=None,
+        )
+        if due_at is not None:
+            await transaction.execute(
+                """UPDATE armi.autonomy_plans SET last_event_at=%s,idle_streak=0,
+                       next_consideration_at=LEAST(next_consideration_at,
+                         statement_timestamp()+interval '60 seconds')
+                   WHERE subject_id=%s AND opportunity_id IS NULL AND phase='waiting'
+                     AND (last_event_at IS NULL OR last_event_at<%s)""",
+                (due_at, fence.subject_id, due_at),
+            )
         focus = await self._subject_state.life_mode(
             transaction, subject_id=fence.subject_id
         )

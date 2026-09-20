@@ -7,7 +7,7 @@ import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 from uuid import uuid7
 
 import pytest
@@ -49,6 +49,7 @@ class _Execution(model.ModelPipeline):
         self.input_evidence = b'{"schema_version":"armi.model-input-evidence.v1","provider_request":{"instructions":"saved"}}'
         self._failure_notification = AsyncMock()
         self._stop = asyncio.Event()
+        self._wakeups = model._LocalWakeups()
         self._diagnostic = lambda _event: None
         self._factory = cast(
             Any, SimpleNamespace(environment_id=uuid7(), unit_of_work=_unit)
@@ -338,6 +339,38 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("engage", [False, True])
+async def test_light_check_only_resolves_attention_after_format_validation(
+    monkeypatch, engage
+):
+    from dataclasses import replace
+
+    pipeline, record, frozen, response = _format_retry_execution(monkeypatch)
+    pipeline.episode = replace(pipeline.episode, purpose="consider_autonomy_check")
+    pipeline.adapter.binding.response_contract_version = (
+        "armi.autonomy-check-candidate.v1"
+    )
+    pipeline._repository.finalize_autonomy_check = AsyncMock()
+    pipeline.adapter.invoke.side_effect = [
+        response('{"engage":"true"}'),
+        response(json.dumps({"engage": engage})),
+    ]
+    await pipeline._execute(cast(Any, record))
+    assert pipeline.adapter.invoke.await_count == 2
+    assert all(
+        call.args[0] is frozen for call in pipeline.adapter.invoke.await_args_list
+    )
+    pipeline._finalization.finalize.assert_not_awaited()
+    pipeline._repository.finalize_autonomy_check.assert_awaited_once_with(
+        ANY,
+        lease=record.lease,
+        snapshot=pipeline.episode,
+        engage=engage,
+    )
+    pipeline._failure_notification.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["deepseek", "qwen"])
 @pytest.mark.parametrize("other", [False, True])
 @pytest.mark.parametrize("failures", [0, 1, 4, 5])
@@ -525,6 +558,7 @@ async def test_cancellation_during_second_generation_never_finalizes(monkeypatch
 class _Renewal(model.ModelPipeline):
     def __init__(self):
         self._stop = asyncio.Event()
+        self._wakeups = model._LocalWakeups()
         self._diagnostic = lambda _event: None
         self._work = cast(Any, SimpleNamespace(renew=AsyncMock(return_value=object())))
         self.entered = asyncio.Event()

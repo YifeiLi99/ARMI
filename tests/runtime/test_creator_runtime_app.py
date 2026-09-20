@@ -1955,7 +1955,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "contract_version": "1.0",
                     "objective": "查询今天的公开新闻并附来源。",
                     "model_id": "gpt-5.6-luna",
-                    "reasoning_effort": "low",
+                    "reasoning_effort": "medium",
                     "web_search": True,
                 },
             )

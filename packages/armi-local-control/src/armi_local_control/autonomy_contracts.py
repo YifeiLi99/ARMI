@@ -11,9 +11,6 @@ class AutonomyResponse(BaseModel):
 
 class AutonomyPolicyResponse(AutonomyResponse):
     enabled: bool
-    daily_request_limit: int
-    minimum_consideration_seconds: int
-    maximum_consideration_seconds: int
     outlet: Literal["qq", "creator_web"]
 
 
@@ -54,7 +51,22 @@ class ConsiderationSignals(AutonomyResponse):
     frozen_at: str | None
 
 
+class AutonomyStageUsage(AutonomyResponse):
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    elapsed_ms: float
+    unknown_calls: int
+
+
 class AutonomyStatus(AutonomyResponse):
+    phase: Literal["waiting", "check", "execute", "blocked"] | None = None
+    idle_streak: int | None = None
+    failure_streak: int | None = None
+    last_engage: bool | None = None
+    last_check_started_at: str | None = None
+    blocked_reason_code: str | None = None
+    stage_usage: dict[Literal["check", "execute"], AutonomyStageUsage] = {}
     consideration_signals: list[ConsiderationSignalItem] = []
     effective_consideration_at: str | None = None
     concerns: list[ConcernAttentionStatus] = []
@@ -66,7 +78,7 @@ class AutonomyStatus(AutonomyResponse):
         "disabled",
         "runtime_stopped",
         "sleeping",
-        "quota_exhausted",
+        "blocked",
         "thinking",
         "resource_busy",
         "scheduled",
@@ -80,13 +92,13 @@ class AutonomyStatus(AutonomyResponse):
     outlet_state: Literal["ready", "disabled", "unbound", "unavailable"] | None = None
     outlet_reason_code: str | None = None
     outlet_observed_at: str | None = None
-    used_requests: int | None = None
-    remaining_requests: int | None = None
-    quota_resets_at: str | None = None
     timezone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
 
 
 class AutonomyHistoryItem(AutonomyResponse):
+    stage: Literal["check", "execute"]
+    root_opportunity_id: str
+    predecessor_opportunity_id: str | None
     consideration_signals: ConsiderationSignals | None
 
     operation_id: str

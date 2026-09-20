@@ -1033,27 +1033,45 @@ export interface components {
       final_disposition: string | null;
       /** Operation Id */
       operation_id: string;
+      /** Predecessor Opportunity Id */
+      predecessor_opportunity_id: string | null;
       /** Resolution Reason Code */
       resolution_reason_code: string | null;
+      /** Root Opportunity Id */
+      root_opportunity_id: string;
+      /**
+       * Stage
+       * @enum {string}
+       */
+      stage: "check" | "execute";
     };
     /** AutonomyPolicyResponse */
     AutonomyPolicyResponse: {
-      /** Daily Request Limit */
-      daily_request_limit: number;
       /** Enabled */
       enabled: boolean;
-      /** Maximum Consideration Seconds */
-      maximum_consideration_seconds: number;
-      /** Minimum Consideration Seconds */
-      minimum_consideration_seconds: number;
       /**
        * Outlet
        * @enum {string}
        */
       outlet: "qq" | "creator_web";
     };
+    /** AutonomyStageUsage */
+    AutonomyStageUsage: {
+      /** Calls */
+      calls: number;
+      /** Elapsed Ms */
+      elapsed_ms: number;
+      /** Input Tokens */
+      input_tokens: number;
+      /** Output Tokens */
+      output_tokens: number;
+      /** Unknown Calls */
+      unknown_calls: number;
+    };
     /** AutonomyStatus */
     AutonomyStatus: {
+      /** Blocked Reason Code */
+      blocked_reason_code?: string | null;
       /**
        * Concerns
        * @default []
@@ -1066,8 +1084,16 @@ export interface components {
       consideration_signals: components["schemas"]["ConsiderationSignalItem"][];
       /** Effective Consideration At */
       effective_consideration_at?: string | null;
+      /** Failure Streak */
+      failure_streak?: number | null;
+      /** Idle Streak */
+      idle_streak?: number | null;
+      /** Last Check Started At */
+      last_check_started_at?: string | null;
       /** Last Considered At */
       last_considered_at?: string | null;
+      /** Last Engage */
+      last_engage?: boolean | null;
       /**
        * Motivations
        * @default []
@@ -1085,15 +1111,20 @@ export interface components {
       outlet_reason_code?: string | null;
       /** Outlet State */
       outlet_state?: ("ready" | "disabled" | "unbound" | "unavailable") | null;
+      /** Phase */
+      phase?: ("waiting" | "check" | "execute" | "blocked") | null;
       /** Plan Version */
       plan_version?: number | null;
       policy?: components["schemas"]["AutonomyPolicyResponse"] | null;
-      /** Quota Resets At */
-      quota_resets_at?: string | null;
-      /** Remaining Requests */
-      remaining_requests?: number | null;
       /** Source Episode Id */
       source_episode_id?: string | null;
+      /**
+       * Stage Usage
+       * @default {}
+       */
+      stage_usage: {
+        [key: string]: components["schemas"]["AutonomyStageUsage"];
+      };
       /**
        * State
        * @enum {string}
@@ -1103,7 +1134,7 @@ export interface components {
         | "disabled"
         | "runtime_stopped"
         | "sleeping"
-        | "quota_exhausted"
+        | "blocked"
         | "thinking"
         | "resource_busy"
         | "scheduled"
@@ -1114,8 +1145,6 @@ export interface components {
        * @constant
        */
       timezone: "Asia/Shanghai";
-      /** Used Requests */
-      used_requests?: number | null;
     };
     /** BrowserSessionCurrentResponse */
     BrowserSessionCurrentResponse: {

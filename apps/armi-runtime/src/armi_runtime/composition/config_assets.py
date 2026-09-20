@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from armi_runtime.application.model_manifest import load_model_manifest
+from armi_local_control.configuration import load_model_manifest
 
 _CONFIG_NAMES = frozenset(
     {"runtime.yaml", "model-bindings.yaml", "web-search.yaml", "provider-pricing.yaml"}

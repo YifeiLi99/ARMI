@@ -24,6 +24,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         "_cognition",
         "_interaction",
         "_mind",
+        "_model_revision",
         "_mood",
         "_outlet_health",
     )
@@ -36,12 +37,17 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         mood: MoodReadPort,
         mind: MindReadPort,
         outlet_health: Callable[[str], Awaitable[tuple[str, str | None]]],
+        model_revision: Callable[[], str],
     ) -> None:
         self._cognition = cognition
         self._interaction = interaction
         self._mood = mood
         self._mind = mind
         self._outlet_health = outlet_health
+        self._model_revision = model_revision
+
+    def model_configuration_revision(self) -> str:
+        return self._model_revision()
 
     async def outlet_health(self, outlet: str) -> tuple[str, str | None]:
         return await self._outlet_health(outlet)
@@ -87,6 +93,43 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> int:
         return await self._cognition.active_count(transaction, subject_id=subject_id)
+
+    async def autonomy_idle(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> bool:
+        from armi_attention.api import human_opportunity_pending
+        from armi_effect.api import response_delivery_activity
+        from armi_expression.api import response_intent_ids
+        from armi_interaction.api import human_input_activity
+        from armi_live_voice.api import voice_activity
+
+        input_busy, input_at = await human_input_activity(
+            transaction, subject_id=subject_id
+        )
+        voice_busy, voice_at = await voice_activity(transaction, subject_id=subject_id)
+        reply_busy, reply_at = await response_delivery_activity(
+            transaction,
+            action_intent_ids=await response_intent_ids(
+                transaction, subject_id=subject_id
+            ),
+        )
+        if (
+            input_busy
+            or voice_busy
+            or reply_busy
+            or await human_opportunity_pending(transaction, subject_id=subject_id)
+        ):
+            return False
+        row = await (
+            await transaction.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if row is None:
+            return False
+        times = [value for value in (input_at, voice_at, reply_at) if value is not None]
+        return not times or (row[0] - max(times)).total_seconds() >= 60
 
     async def outreach(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, *, outlet: str | None = None

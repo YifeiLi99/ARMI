@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ._autonomy_check import CHECK_KINDS
 from .api import (
     ContextItemCandidate,
     ContextLayer,
@@ -26,6 +27,8 @@ class ContextAssemblyProfile:
     retrieval_kinds: frozenset[str]
 
     def allows(self, item_kind: str) -> bool:
+        if self.purpose == "consider_autonomy_check":
+            return item_kind in CHECK_KINDS
         return item_kind not in self.forbidden_kinds
 
     def policy_for(
@@ -130,6 +133,23 @@ def _profile(
 
 
 _PROFILES = {
+    "consider_autonomy_check": ContextAssemblyProfile(
+        "consider_autonomy_check",
+        frozenset(
+            {
+                "runtime_identity",
+                "current_purpose",
+                "fixed_prompt",
+                "self",
+                "mind",
+                "mood",
+                "life_mode",
+                "current_life_opportunity",
+            }
+        ),
+        _PRIVATE_RECALL,
+        frozenset(),
+    ),
     "consider_creator_input": _profile(
         "consider_creator_input",
         required=frozenset(

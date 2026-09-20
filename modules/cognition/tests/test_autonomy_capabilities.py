@@ -22,10 +22,7 @@ def compiled(capabilities, *, outlet=True, outlet_state="ready"):
                                     "autonomy": {
                                         "outlet_bound": outlet,
                                         "outlet_state": outlet_state,
-                                        "policy": {
-                                            "minimum_consideration_seconds": 120,
-                                            "maximum_consideration_seconds": 3600,
-                                        },
+                                        "policy": {"enabled": True, "outlet": "qq"},
                                     }
                                 }
                             ),
@@ -52,8 +49,7 @@ def test_disabled_tools_have_no_schema_entry_and_outlet_is_explicit():
     for branch in schema["oneOf"]:
         properties = schema["$defs"][branch["$ref"].split("/")[-1]]["properties"]
         assert properties["expression"] == {"type": "null", "default": None}
-        assert properties["next_consideration_seconds"]["minimum"] == 120
-        assert properties["next_consideration_seconds"]["maximum"] == 3600
+        assert "next_consideration_seconds" not in properties
 
 
 def test_enabled_but_temporarily_unavailable_tools_remain_explicit_choices():
@@ -90,7 +86,7 @@ def test_unavailable_outlet_allows_thinking_without_queued_expression(state):
     for branch in schema["oneOf"]:
         properties = schema["$defs"][branch["$ref"].split("/")[-1]]["properties"]
         assert properties["expression"] == {"type": "null", "default": None}
-        assert "next_consideration_seconds" in properties
+        assert "next_consideration_seconds" not in properties
 
 
 def test_activity_work_needs_an_actual_activity_but_concerns_do_not():

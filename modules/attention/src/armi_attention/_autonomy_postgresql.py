@@ -1,4 +1,4 @@
-"""Attention-owned plans and atomic paid-request admission."""
+"""Attention-owned idle checks and their single-use execution opportunities."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLTransaction
 
+from ._autonomy_schedule import AutonomySchedule
 from ._signals import signal_metadata, unconsumed_signals
 from .api import (
     AutonomyPlan,
@@ -16,7 +17,6 @@ from .api import (
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
-    quota_day,
 )
 
 
@@ -50,25 +50,6 @@ class PostgreSQLAutonomyOwner:
             ).fetchone()
             if previous is None:
                 raise LifeViolation("LIFE-AUTONOMY-OPPORTUNITY-MISSING")
-            if (
-                previous[0] == "open"
-                and plan.next_consideration_at > previous[1]
-                and (signal_at is None or signal_at > previous[1])
-            ):
-                await transaction.execute(
-                    """UPDATE armi.opportunities SET current_disposition='cancelled',
-                       resolved_at=statement_timestamp(),resolution_reason_code='LIFE-SIGNAL-WITHDRAWN'
-                       WHERE opportunity_id=%s AND current_disposition='open'""",
-                    (plan.opportunity_id,),
-                )
-                await transaction.execute(
-                    """UPDATE armi.autonomy_plans SET opportunity_id=NULL,plan_version=plan_version+1
-                       WHERE subject_id=%s""",
-                    (subject_id,),
-                )
-                return OpportunityAdmissionOutcome(
-                    OpportunityAdmissionStatus.REJECTED, None, "LIFE-SIGNAL-WITHDRAWN"
-                )
             if previous[0] in {"open", "selected"}:
                 return OpportunityAdmissionOutcome(
                     OpportunityAdmissionStatus.DUPLICATE, plan.opportunity_id
@@ -78,7 +59,7 @@ class PostgreSQLAutonomyOwner:
             await transaction.execute(
                 """UPDATE armi.autonomy_plans
                    SET plan_version=plan_version+1,opportunity_id=NULL,
-                       next_consideration_at=statement_timestamp() + %s * interval '1 second',
+                       phase='waiting',next_consideration_at=statement_timestamp() + %s * interval '1 second',
                        updated_at=statement_timestamp()
                    WHERE subject_id=%s""",
                 (policy.minimum_consideration_seconds, subject_id),
@@ -91,6 +72,9 @@ class PostgreSQLAutonomyOwner:
         ready = await (
             await transaction.execute(
                 """SELECT LEAST(next_consideration_at,%s::timestamptz) <= statement_timestamp()
+                     AND (last_check_started_at IS NULL OR
+                          last_check_started_at<=statement_timestamp()-interval '60 seconds')
+                     AND phase<>'blocked'
                    FROM armi.autonomy_plans WHERE subject_id=%s""",
                 (signal_at, subject_id),
             )
@@ -99,26 +83,12 @@ class PostgreSQLAutonomyOwner:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED, None, "LIFE-AUTONOMY-NOT-DUE"
             )
-        usage = await (
-            await transaction.execute(
-                """SELECT count(*) FROM armi.autonomy_request_admissions
-                   WHERE subject_id=%s
-                     AND quota_date=(statement_timestamp() AT TIME ZONE 'Asia/Shanghai')::date""",
-                (subject_id,),
-            )
-        ).fetchone()
-        if usage is None or int(usage[0]) >= policy.daily_request_limit:
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.REJECTED,
-                None,
-                "LIFE-AUTONOMY-QUOTA-EXHAUSTED",
-            )
         opportunity_id = uuid7()
         await transaction.execute(
             """INSERT INTO armi.opportunities
                (opportunity_id,subject_id,purpose,eligibility_status,current_disposition,
                 root_opportunity_id,source_kind,source_ref,source_version,scene_id,context_party_id,activity_id,consideration_signals)
-               VALUES (%s,%s,'consider_autonomous_life','eligible','open',%s,
+               VALUES (%s,%s,'consider_autonomy_check','eligible','open',%s,
                        'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb)""",
             (
                 opportunity_id,
@@ -133,9 +103,11 @@ class PostgreSQLAutonomyOwner:
             ),
         )
         await transaction.execute(
-            """UPDATE armi.autonomy_plans SET opportunity_id=%s
+            """UPDATE armi.autonomy_plans SET opportunity_id=%s,phase='check',
+                      idle_streak=CASE WHEN %s THEN 0 ELSE idle_streak END,
+                      last_check_started_at=statement_timestamp()
                WHERE subject_id=%s""",
-            (opportunity_id, subject_id),
+            (opportunity_id, bool(signals), subject_id),
         )
         return OpportunityAdmissionOutcome(
             OpportunityAdmissionStatus.ADMITTED, opportunity_id
@@ -160,8 +132,6 @@ class PostgreSQLAutonomyOwner:
                      WHEN NOT (autonomy_plans.policy->>'enabled')::boolean
                       AND (excluded.policy->>'enabled')::boolean
                      THEN excluded.next_consideration_at
-                     WHEN autonomy_plans.observed_state_epoch <> %s
-                     THEN LEAST(autonomy_plans.next_consideration_at,excluded.next_consideration_at)
                      ELSE autonomy_plans.next_consideration_at END,
                    updated_at=statement_timestamp()
                WHERE autonomy_plans.policy IS DISTINCT FROM excluded.policy
@@ -170,7 +140,6 @@ class PostgreSQLAutonomyOwner:
                 subject_id,
                 policy.minimum_consideration_seconds,
                 json.dumps(asdict(policy)),
-                state_epoch,
                 state_epoch,
                 state_epoch,
                 state_epoch,
@@ -188,6 +157,79 @@ class PostgreSQLAutonomyOwner:
             raise LifeViolation("LIFE-AUTONOMY-PLAN-MISSING")
         return AutonomyPlan(row[0], int(row[1]), row[2], row[3], row[4])
 
+    async def commit_check(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+        episode_id: UUID,
+        engage: bool,
+        policy: AutonomyPolicy,
+    ) -> None:
+        if not policy.enabled:
+            raise LifeViolation("LIFE-AUTONOMY-DISABLED")
+        row = await (
+            await transaction.execute(
+                """SELECT o.subject_id,p.plan_version,p.idle_streak,
+                      o.scene_id,o.context_party_id,o.activity_id,o.consideration_signals
+               FROM armi.opportunities o JOIN armi.autonomy_plans p
+                 ON p.subject_id=o.subject_id AND p.opportunity_id=o.opportunity_id
+               WHERE o.opportunity_id=%s AND o.purpose='consider_autonomy_check'
+                 AND o.current_disposition='selected' AND o.source_version=p.plan_version
+               FOR UPDATE OF o,p""",
+                (opportunity_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-AUTONOMY-PLAN-STALE")
+        successor = uuid7() if engage else None
+        if successor is not None:
+            await transaction.execute(
+                """INSERT INTO armi.opportunities
+                   (opportunity_id,subject_id,purpose,eligibility_status,current_disposition,
+                    root_opportunity_id,predecessor_opportunity_id,source_kind,source_ref,
+                    source_version,scene_id,context_party_id,activity_id,consideration_signals,reconsideration_no)
+                   VALUES (%s,%s,'consider_autonomous_life','eligible','open',%s,%s,
+                           'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb,1)""",
+                (
+                    successor,
+                    row[0],
+                    opportunity_id,
+                    opportunity_id,
+                    row[0],
+                    int(row[1]) + 1,
+                    row[3],
+                    row[4],
+                    row[5],
+                    json.dumps({**(row[6] or {}), "frozen_at": None}),
+                ),
+            )
+        schedule = AutonomySchedule(int(row[2]))
+        if not engage:
+            schedule = schedule.settled(acted=False)
+        await transaction.execute(
+            """UPDATE armi.opportunities SET current_disposition='resolved',
+                   resolved_at=statement_timestamp(),resolution_reason_code='LIFE-AUTONOMY-CHECKED'
+               WHERE opportunity_id=%s""",
+            (opportunity_id,),
+        )
+        await transaction.execute(
+            """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,
+                   source_episode_id=%s,opportunity_id=%s,last_engage=%s,
+                   idle_streak=%s,failure_streak=0,phase=%s,
+                   next_consideration_at=statement_timestamp()+%s*interval '1 second',
+                   updated_at=statement_timestamp() WHERE subject_id=%s""",
+            (
+                episode_id,
+                successor,
+                engage,
+                schedule.idle_streak,
+                "execute" if engage else "waiting",
+                schedule.interval_seconds,
+                row[0],
+            ),
+        )
+
     async def commit_plan(
         self,
         transaction: PostgreSQLTransaction,
@@ -196,73 +238,35 @@ class PostgreSQLAutonomyOwner:
         expected_version: int,
         episode_id: UUID,
         opportunity_id: UUID,
-        delay_seconds: int,
+        acted: bool,
         policy: AutonomyPolicy,
     ) -> None:
         if not policy.enabled:
             raise LifeViolation("LIFE-AUTONOMY-DISABLED")
-        if (
-            type(delay_seconds) is not int
-            or not policy.minimum_consideration_seconds
-            <= delay_seconds
-            <= policy.maximum_consideration_seconds
-        ):
-            raise LifeViolation("LIFE-AUTONOMY-SCHEDULE-RANGE")
+        row = await (
+            await transaction.execute(
+                "SELECT idle_streak FROM armi.autonomy_plans WHERE subject_id=%s FOR UPDATE",
+                (subject_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-AUTONOMY-PLAN-MISSING")
+        schedule = AutonomySchedule(int(row[0])).settled(acted=acted)
         result = await transaction.execute(
             """UPDATE armi.autonomy_plans
                SET plan_version=plan_version+1,source_episode_id=%s,
                    next_consideration_at=statement_timestamp() + %s * interval '1 second',
-                   opportunity_id=NULL,updated_at=statement_timestamp()
+                   opportunity_id=NULL,phase='waiting',idle_streak=%s,failure_streak=0,
+                   updated_at=statement_timestamp()
                WHERE subject_id=%s AND plan_version=%s AND opportunity_id=%s""",
-            (episode_id, delay_seconds, subject_id, expected_version, opportunity_id),
+            (
+                episode_id,
+                schedule.interval_seconds,
+                schedule.idle_streak,
+                subject_id,
+                expected_version,
+                opportunity_id,
+            ),
         )
         if result.rowcount != 1:
             raise LifeViolation("LIFE-AUTONOMY-PLAN-STALE")
-
-    async def register_request(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        root_opportunity_id: UUID | None,
-        call_id: str,
-        policy: AutonomyPolicy,
-    ) -> bool:
-        # The caller's owner receipt write shares this transaction. A rollback of
-        # either write prevents the external request; settlement never calls here.
-        await self.ensure_plan(transaction, subject_id=subject_id, policy=policy)
-        existing = await (
-            await transaction.execute(
-                """SELECT subject_id,root_opportunity_id
-                   FROM armi.autonomy_request_admissions WHERE call_id=%s""",
-                (call_id,),
-            )
-        ).fetchone()
-        if existing is not None:
-            if existing != (subject_id, root_opportunity_id):
-                raise LifeViolation("LIFE-AUTONOMY-CALL-CONFLICT")
-            return False
-        if not policy.enabled:
-            raise LifeViolation("LIFE-AUTONOMY-DISABLED")
-        clock = await (
-            await transaction.execute("SELECT statement_timestamp()", ())
-        ).fetchone()
-        if clock is None:
-            raise LifeViolation("LIFE-AUTONOMY-TIME")
-        day = quota_day(clock[0])
-        count = await (
-            await transaction.execute(
-                """SELECT count(*) FROM armi.autonomy_request_admissions
-                   WHERE subject_id=%s AND quota_date=%s""",
-                (subject_id, day),
-            )
-        ).fetchone()
-        if count is None or int(count[0]) >= policy.daily_request_limit:
-            raise LifeViolation("LIFE-AUTONOMY-QUOTA-EXHAUSTED")
-        await transaction.execute(
-            """INSERT INTO armi.autonomy_request_admissions
-               (call_id,subject_id,root_opportunity_id,quota_date)
-               VALUES (%s,%s,%s,%s)""",
-            (call_id, subject_id, root_opportunity_id, day),
-        )
-        return True

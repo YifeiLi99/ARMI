@@ -313,6 +313,7 @@ def _life_opportunity_facts(
         mood=bootstrap_mood().read,
         mind=bootstrap_mind().read,
         outlet_health=outlet_health,
+        model_revision=lambda: "isolated-model-config",
     )
 
 
@@ -967,7 +968,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(operation_only.totals.billable_calls, 0)
 
     @pytest.mark.test_group("attention", "activity")
-    def test_autonomy_persistent_plan_and_concurrent_quota(self) -> None:
+    def test_autonomy_persistent_two_stage_plan_without_quota(self) -> None:
         self._exercise_autonomy_plan(psychological=False)
 
     @pytest.mark.test_group("attention", "cognition", "mind", "mood")
@@ -994,7 +995,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self._install_current(
             fixture.migrator_dsn, environment_id=fixture.environment_id
         )
-        policy = AutonomyPolicy(daily_request_limit=2)
+        policy = AutonomyPolicy()
         owner = bootstrap_autonomy()
 
         async def exercise(root: Path) -> None:
@@ -1070,9 +1071,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         policy=policy,
                         state_epoch=1,
                     )
-                    self.assertLess(
+                    self.assertGreater(
                         changed.next_consideration_at,
-                        datetime.now(UTC) + timedelta(minutes=2),
+                        datetime.now(UTC) + timedelta(hours=5),
                     )
                     repeated = await owner.ensure_plan(
                         unit.transaction,
@@ -1268,224 +1269,207 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         frozen_at=datetime.now(UTC),
                     )
 
-                async def register(call_id: str, *, rollback: bool = False) -> bool:
-                    async with factory.unit_of_work() as unit:
-                        changed = await owner.register_request(
-                            unit.transaction,
-                            subject_id=born.subject_id,
-                            root_opportunity_id=admitted.opportunity_id,
-                            call_id=call_id,
-                            policy=policy,
-                        )
-                        if rollback:
-                            raise RuntimeError("isolated owner receipt failure")
-                        return changed
+                assert admitted.opportunity_id is not None
 
-                with self.assertRaisesRegex(
-                    RuntimeError, "isolated owner receipt failure"
-                ):
-                    await register(str(uuid7()), rollback=True)
-                first = str(uuid7())
-                self.assertTrue(await register(first))
-                self.assertFalse(await register(first))
-                outcomes = await asyncio.gather(
-                    register(str(uuid7())),
-                    register(str(uuid7())),
-                    return_exceptions=True,
-                )
-                self.assertEqual(sum(value is True for value in outcomes), 1)
-                failures = [
-                    value for value in outcomes if isinstance(value, LifeViolation)
-                ]
-                self.assertEqual(
-                    [value.code for value in failures],
-                    ["LIFE-AUTONOMY-QUOTA-EXHAUSTED"],
-                )
-                async with factory.unit_of_work() as unit:
-                    allowed = await cognition_owner.can_consider_autonomy(
-                        unit.transaction,
-                        subject_id=born.subject_id,
-                    )
-                    self.assertFalse(allowed)
+                async def finish_check(opportunity_id: UUID, engage: bool) -> UUID:
+                    episode = uuid7()
+                    async with factory.unit_of_work() as unit:
+                        await unit.transaction.execute(
+                            """INSERT INTO armi.cognitive_episodes (
+                                cognitive_episode_id,opportunity_id,subject_id,purpose,status,
+                                base_subject_version,base_state_epoch,bundle_activation_id,
+                                mechanism_identity,trace_id)
+                               SELECT %s,%s,subject_id,'consider_autonomy_check','preparing',
+                                      subject_version,state_epoch,current_bundle_activation_id,
+                                      'armi.context-compiler.layered-v3',%s
+                               FROM armi.subjects WHERE subject_id=%s""",
+                            (episode, opportunity_id, "3" * 32, born.subject_id),
+                        )
+                        await cognition_owner.resolve_autonomy_check(
+                            unit.transaction,
+                            opportunity_id=opportunity_id,
+                            episode_id=episode,
+                            engage=engage,
+                        )
+                        await unit.transaction.execute(
+                            """UPDATE armi.cognitive_episodes SET status='completed',
+                               final_disposition='no_change',application_resolution='no_change',
+                               committed_at=statement_timestamp(),validated_at=statement_timestamp()
+                               WHERE cognitive_episode_id=%s""",
+                            (episode,),
+                        )
+                    return episode
+
+                await finish_check(admitted.opportunity_id, False)
                 async with factory.unit_of_work(read_only=True) as unit:
                     statement, parameters = autonomy_statement("status")
                     row = await (
                         await unit.transaction.execute(
-                            cast(LiteralString, statement), parameters
+                            cast(LiteralString, statement),
+                            parameters,
                         )
                     ).fetchone()
-                    raw_status = autonomy_result(row)
-                    raw_status.pop("consumed_signal_keys")
-                    status = AutonomyStatus.model_validate(raw_status)
-                    self.assertEqual(
-                        (status.used_requests, status.remaining_requests), (2, 0)
+                    raw = autonomy_result(row)
+                    raw.pop("consumed_signal_keys")
+                    status = AutonomyStatus.model_validate(raw)
+                    self.assertEqual(status.phase, "waiting")
+                    self.assertEqual(status.idle_streak, 1)
+                    self.assertIs(status.last_engage, False)
+                    self.assertEqual(status.stage_usage["check"].calls, 0)
+                    self.assertGreater(
+                        datetime.fromisoformat(cast(str, status.next_consideration_at)),
+                        datetime.now(UTC) + timedelta(seconds=110),
                     )
-                    statement, parameters = autonomy_statement("history", 1, 0)
-                    row = await (
-                        await unit.transaction.execute(
-                            cast(LiteralString, statement), parameters
+                    statement, parameters = autonomy_statement("history")
+                    history = AutonomyHistory.model_validate(
+                        autonomy_result(
+                            await (
+                                await unit.transaction.execute(
+                                    cast(LiteralString, statement),
+                                    parameters,
+                                )
+                            ).fetchone()
                         )
-                    ).fetchone()
-                    history = AutonomyHistory.model_validate(autonomy_result(row))
+                    )
                     self.assertEqual(history.total, 1)
-                    self.assertEqual(
-                        history.items[0].operation_id, str(admitted.opportunity_id)
-                    )
-                # Advance only this isolated database's deadlines/day assignments.
-                # Exercise real Owner SQL over three quota days without wall-clock
-                # sleeps, provider calls, or any installed environment data.
-                assert admitted.opportunity_id is not None
-                async with factory.unit_of_work() as unit:
-                    await cognition_owner.interrupt_cognition(
-                        unit.transaction, opportunity_ids=(admitted.opportunity_id,)
-                    )
-                    await owner.admit_due(
-                        unit.transaction,
-                        subject_id=born.subject_id,
-                        policy=policy,
-                        signals=await facts.consideration_signals(
-                            unit.transaction,
-                            subject_id=born.subject_id,
-                            minimum_delay_seconds=60,
-                        ),
-                    )
-                    if concern:
-                        self.assertEqual(
-                            await cognition_owner.unconsumed_signals(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                signals=await facts.consideration_signals(
-                                    unit.transaction,
-                                    subject_id=born.subject_id,
-                                    minimum_delay_seconds=60,
-                                ),
-                            ),
-                            (),
-                        )
-                        row = await (
-                            await unit.transaction.execute(
-                                "SELECT count(*) FROM armi.opportunities WHERE subject_id=%s AND purpose='consider_autonomous_life'",
-                                (born.subject_id,),
-                            )
-                        ).fetchone()
-                        assert row is not None
-                        self.assertEqual(row[0], 1)
-                for day in range(3):
-                    # Test clock travel needs the isolated fixture administrator:
-                    # Runtime deliberately cannot rewrite admission history.
-                    async with await psycopg.AsyncConnection.connect(
-                        fixture.provisioner_dsn
-                    ) as clock_connection:
-                        await clock_connection.execute(
-                            "UPDATE armi.autonomy_request_admissions SET quota_date=quota_date-1 WHERE subject_id=%s",
-                            (born.subject_id,),
-                        )
-                    for round_no in range(policy.daily_request_limit):
-                        async with factory.unit_of_work() as unit:
-                            await unit.transaction.execute(
-                                "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second' WHERE subject_id=%s",
-                                (born.subject_id,),
-                            )
-                            current = await owner.admit_due(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                policy=policy,
-                                signals=await facts.consideration_signals(
-                                    unit.transaction,
-                                    subject_id=born.subject_id,
-                                    minimum_delay_seconds=60,
-                                ),
-                            )
-                            self.assertEqual(
-                                current.status, OpportunityAdmissionStatus.ADMITTED
-                            )
-                            assert current.opportunity_id is not None
-                            self.assertTrue(
-                                await cognition_owner.select_for_cognition(
-                                    unit.transaction,
-                                    opportunity_id=current.opportunity_id,
-                                )
-                            )
-                            episode = uuid7()
-                            await unit.transaction.execute(
-                                """INSERT INTO armi.cognitive_episodes (
-                                    cognitive_episode_id,opportunity_id,subject_id,purpose,status,
-                                    base_subject_version,base_state_epoch,bundle_activation_id,
-                                    mechanism_identity,trace_id)
-                                   SELECT %s,%s,subject_id,'consider_autonomous_life','preparing',
-                                          subject_version,state_epoch,current_bundle_activation_id,
-                                          'armi.context-compiler.layered-v3',%s
-                                   FROM armi.subjects WHERE subject_id=%s""",
-                                (
-                                    episode,
-                                    current.opportunity_id,
-                                    "3" * 32,
-                                    born.subject_id,
-                                ),
-                            )
-                            await owner.register_request(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                root_opportunity_id=current.opportunity_id,
-                                call_id=f"virtual-day-{day}-round-{round_no}",
-                                policy=policy,
-                            )
-                            await bootstrap_opportunity_transition().resolve_subject_commit(
-                                unit.transaction,
-                                opportunity_id=current.opportunity_id,
-                                source_episode_id=episode,
-                                next_consideration_seconds=3600,
-                            )
-                            planned = await owner.ensure_plan(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                policy=policy,
-                                state_epoch=1,
-                            )
-                            self.assertEqual(planned.source_episode_id, episode)
-                            self.assertIsNone(planned.opportunity_id)
-                            self.assertGreater(
-                                planned.next_consideration_at,
-                                datetime.now(UTC) + timedelta(minutes=59),
-                            )
-                        for _ in range(3):
-                            async with factory.unit_of_work() as unit:
-                                await facts.consideration_signals(
-                                    unit.transaction,
-                                    subject_id=born.subject_id,
-                                    minimum_delay_seconds=60,
-                                )
-                                no_loop = await owner.admit_due(
-                                    unit.transaction,
-                                    subject_id=born.subject_id,
-                                    policy=policy,
-                                    signals=await facts.consideration_signals(
-                                        unit.transaction,
-                                        subject_id=born.subject_id,
-                                        minimum_delay_seconds=60,
-                                    ),
-                                )
-                                self.assertEqual(
-                                    no_loop.reason_code, "LIFE-AUTONOMY-NOT-DUE"
-                                )
+                    self.assertEqual(history.items[0].stage, "check")
+
+                # Virtual time: no quota after repeated checks and no catch-up burst.
+                last_check_id = admitted.opportunity_id
+                for round_no in range(52):
                     async with factory.unit_of_work() as unit:
                         await unit.transaction.execute(
-                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second' WHERE subject_id=%s",
+                            """UPDATE armi.autonomy_plans SET
+                                 next_consideration_at=statement_timestamp()-interval '3 days',
+                                 last_check_started_at=statement_timestamp()-interval '60 seconds'
+                               WHERE subject_id=%s""",
                             (born.subject_id,),
                         )
-                        blocked = await owner.admit_due(
+                        current = await owner.admit_due(
                             unit.transaction,
                             subject_id=born.subject_id,
                             policy=policy,
-                            signals=await facts.consideration_signals(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                minimum_delay_seconds=60,
-                            ),
                         )
                         self.assertEqual(
-                            blocked.reason_code, "LIFE-AUTONOMY-QUOTA-EXHAUSTED"
+                            current.status, OpportunityAdmissionStatus.ADMITTED
                         )
+                        assert current.opportunity_id is not None
+                        last_check_id = current.opportunity_id
+                        self.assertTrue(
+                            await cognition_owner.select_for_cognition(
+                                unit.transaction,
+                                opportunity_id=current.opportunity_id,
+                            )
+                        )
+                    await finish_check(current.opportunity_id, round_no == 51)
+                    async with factory.unit_of_work() as unit:
+                        plan = await owner.ensure_plan(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            policy=policy,
+                        )
+                        if round_no < 51:
+                            self.assertIsNone(plan.opportunity_id)
+                            self.assertGreater(
+                                plan.next_consideration_at,
+                                datetime.now(UTC) + timedelta(seconds=290),
+                            )
+                            not_due = await owner.admit_due(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                policy=policy,
+                            )
+                            self.assertEqual(
+                                not_due.reason_code, "LIFE-AUTONOMY-NOT-DUE"
+                            )
+                        else:
+                            assert plan.opportunity_id is not None
+                            self.assertTrue(
+                                await cognition_owner.select_for_cognition(
+                                    unit.transaction,
+                                    opportunity_id=plan.opportunity_id,
+                                )
+                            )
+                            self.assertFalse(
+                                await cognition_owner.select_for_cognition(
+                                    unit.transaction,
+                                    opportunity_id=plan.opportunity_id,
+                                )
+                            )
+                # Duplicate settlement cannot create a second full cognition.
+                with self.assertRaisesRegex(LifeViolation, "LIFE-AUTONOMY-PLAN-STALE"):
+                    async with factory.unit_of_work() as unit:
+                        await cognition_owner.resolve_autonomy_check(
+                            unit.transaction,
+                            opportunity_id=last_check_id,
+                            episode_id=uuid7(),
+                            engage=True,
+                        )
+                # Preemption also discards an execution opportunity before it has
+                # an episode. The next idle period must start a fresh light check.
+                async with factory.unit_of_work() as unit:
+                    await cognition_owner.interrupt_autonomy(
+                        unit.transaction, subject_id=born.subject_id
+                    )
+                    reset = await owner.ensure_plan(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    self.assertIsNone(reset.opportunity_id)
+                    self.assertGreater(
+                        reset.next_consideration_at,
+                        datetime.now(UTC) + timedelta(seconds=50),
+                    )
+                for index, code in enumerate(
+                    (
+                        "MODEL-CONNECTION",
+                        "MODEL-CONNECTION",
+                        "MODEL-CONNECTION",
+                        "MODEL-CREDENTIAL",
+                    )
+                ):
+                    async with factory.unit_of_work() as unit:
+                        await unit.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second',last_check_started_at=statement_timestamp()-interval '61 seconds' WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
+                        check = await owner.admit_due(
+                            unit.transaction, subject_id=born.subject_id, policy=policy
+                        )
+                        assert check.opportunity_id is not None
+                        await cognition_owner.select_for_cognition(
+                            unit.transaction, opportunity_id=check.opportunity_id
+                        )
+                        self.assertTrue(
+                            await cognition_owner.resolve_cognition_failure(
+                                unit.transaction,
+                                opportunity_id=check.opportunity_id,
+                                failure_code=code,
+                            )
+                        )
+                        state = await (
+                            await unit.transaction.execute(
+                                "SELECT phase,failure_streak,EXTRACT(EPOCH FROM next_consideration_at-statement_timestamp()) FROM armi.autonomy_plans WHERE subject_id=%s",
+                                (born.subject_id,),
+                            )
+                        ).fetchone()
+                        assert state is not None
+                        self.assertEqual(
+                            state[0],
+                            "blocked" if code == "MODEL-CREDENTIAL" else "waiting",
+                        )
+                        self.assertEqual(state[1], min(index + 1, 3))
+                        self.assertAlmostEqual(
+                            float(state[2]), (60, 120, 300, 300)[index], delta=2
+                        )
+                async with factory.unit_of_work() as unit:
+                    await unit.transaction.execute(
+                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 hour',last_check_started_at=NULL WHERE subject_id=%s",
+                        (born.subject_id,),
+                    )
+                    blocked = await owner.admit_due(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    self.assertEqual(blocked.reason_code, "LIFE-AUTONOMY-NOT-DUE")
             finally:
                 await factory.close()
 
@@ -1530,6 +1514,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     @pytest.mark.test_group("schema", "cognition", "admin")
     def test_supported_v28_database_upgrade_preserves_artifacts(self) -> None:
         self._assert_upgrade_preserves_codex_artifacts("v28")
+
+    @pytest.mark.test_group("schema", "cognition", "attention", "admin")
+    def test_supported_v29_database_upgrade_preserves_subject_and_history(self) -> None:
+        self._assert_supported_database_upgrade("v29")
 
     def _assert_upgrade_preserves_codex_artifacts(self, source_version: str) -> None:
         from zipfile import ZipFile
@@ -1679,7 +1667,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 revision_id = uuid7()
                 await transaction.execute(
                     "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb,'private')"
-                    if source_version in {"v24", "v25"}
+                    if source_version in {"v24", "v25", "v29"}
                     else "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,'mind',1,'bootstrap',%s,%s::jsonb,'private')",
                     (
                         revision_id,
@@ -1690,7 +1678,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 await transaction.execute(
                     "INSERT INTO armi.mind_heads (subject_id,current_revision_id,mind_version) VALUES (%s,%s,1)"
-                    if source_version in {"v24", "v25"}
+                    if source_version in {"v24", "v25", "v29"}
                     else "INSERT INTO armi.subject_component_heads (subject_id,component_kind,current_revision_id,component_version) VALUES (%s,'mind',%s,1)",
                     (subject_id, revision_id),
                 )
@@ -1719,7 +1707,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
 
         historical_birth_digest = (
-            "sha256:509201df7bf69f24e3a701e7904fcf43fa075d5aeffda7cb71cc709a142e0a61"
+            packaged_birth_digests()["birth_contract_digest"].value
+            if source_version == "v29"
+            else "sha256:509201df7bf69f24e3a701e7904fcf43fa075d5aeffda7cb71cc709a142e0a61"
             if source_version == "v21"
             else "sha256:0a90eadd62ff80c41fb32368f6e0edc06e99951a50441bac667e4023d9e04131"
         )
@@ -1741,8 +1731,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ArtifactCatalogRepository(),
                 BirthRepository(
                     bootstrap_subject_state().birth,
-                    cast(Any, SourceSchemaMindFixture()),
-                    cast(Any, SourceSchemaMoodFixture()),
+                    bootstrap_mind().birth
+                    if source_version == "v29"
+                    else cast(Any, SourceSchemaMindFixture()),
+                    bootstrap_mood().birth
+                    if source_version == "v29"
+                    else cast(Any, SourceSchemaMoodFixture()),
                     bootstrap_prompt().birth,
                     bootstrap_interaction_birth(),
                 ),
@@ -1762,7 +1756,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             voice_style="约 16 岁少女口吻",
                             traits=("清醒",),
                         ),
-                        birth_contract_digest=Digest(historical_birth_digest),
+                        birth_contract_digest=packaged_birth_digests()[
+                            "birth_contract_digest"
+                        ]
+                        if source_version == "v29"
+                        else Digest(historical_birth_digest),
                         request_digest=Digest.from_bytes(b"usage-upgrade-fixture"),
                     )
                 )
@@ -1811,7 +1809,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                    SELECT %s,subject_id,2,mind_revision_id,'admin_correction',%s,
                           semantic_payload,'private'
                    FROM armi.mind_revisions WHERE subject_id=%s"""
-                if source_version in {"v24", "v25"}
+                if source_version in {"v24", "v25", "v29"}
                 else """INSERT INTO armi.subject_component_revisions
                    (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,
                     origin_kind,origin_ref,semantic_payload,privacy_scope)
@@ -1822,13 +1820,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=2 WHERE subject_id=%s"
-                if source_version in {"v24", "v25"}
+                if source_version in {"v24", "v25", "v29"}
                 else "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=2 WHERE subject_id=%s AND component_kind='mind'",
                 (revision_id, born.subject_id),
             )
             old_mind_history = connection.execute(
                 "SELECT to_jsonb(r) FROM armi.mind_revisions r WHERE subject_id=%s ORDER BY mind_version"
-                if source_version in {"v24", "v25"}
+                if source_version in {"v24", "v25", "v29"}
                 else """SELECT to_jsonb(r)-'component_kind'-'component_revision_id'-'component_version'
                           || jsonb_build_object('mind_revision_id',r.component_revision_id,'mind_version',r.component_version)
                    FROM armi.subject_component_revisions r WHERE subject_id=%s AND component_kind='mind'
@@ -1837,12 +1835,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchall()
             old_mind = connection.execute(
                 "SELECT mind_revision_id,mind_version,semantic_payload FROM armi.mind_revisions WHERE subject_id=%s ORDER BY mind_version DESC LIMIT 1"
-                if source_version in {"v24", "v25"}
+                if source_version in {"v24", "v25", "v29"}
                 else "SELECT component_revision_id,component_version,semantic_payload "
                 "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind' ORDER BY component_version DESC LIMIT 1",
                 (born.subject_id,),
             ).fetchone()
             assert old_mind is not None
+            old_mood_history = connection.execute(
+                "SELECT origin_kind,semantic_payload FROM armi.mood_revisions WHERE subject_id=%s ORDER BY mood_version",
+                (born.subject_id,),
+            ).fetchall()
             connection.execute(
                 """INSERT INTO armi.runtime_instances
                 (runtime_instance_id, subject_id, life_generation_id, bundle_activation_id, fence_token, status, lease_expires_at, stopped_at)
@@ -1932,9 +1934,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (born.subject_id,),
             ).fetchone()
             assert migrated_mind is not None
-            self.assertEqual(migrated_mind[0], "module_migration")
             self.assertEqual(
-                migrated_mind[2], old_mind[1] + (2 if source_version == "v21" else 1)
+                migrated_mind[0],
+                "admin_correction" if source_version == "v29" else "module_migration",
+            )
+            self.assertEqual(
+                migrated_mind[2],
+                old_mind[1]
+                + (
+                    0
+                    if source_version == "v29"
+                    else 2
+                    if source_version == "v21"
+                    else 1
+                ),
             )
             self.assertEqual(
                 migrated_mind[3],
@@ -1951,7 +1964,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchall()
             self.assertEqual(
                 mood_rows,
-                [
+                old_mood_history
+                if source_version == "v29"
+                else [
                     ("bootstrap", historical_psychology["mood"]),
                     (
                         "module_migration",
@@ -4024,7 +4039,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     async with factories[0].unit_of_work() as uow:
                         await uow.transaction.execute(
-                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second'"
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second', last_check_started_at=statement_timestamp()-interval '61 seconds'"
                         )
                     fresh, concurrent = await asyncio.gather(
                         pipelines[0].admit_once(),
@@ -7556,7 +7571,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             document = json.loads(change_set.canonical_bytes)
             document["experiences"] = []
-            document["next_consideration_seconds"] = 3600
+            document["autonomy_acted"] = True
             document["codex_delegations"] = [
                 {
                     "source_origin": "subject_commit",
@@ -7575,7 +7590,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 canonical_bytes=rfc8785.dumps(document),
                 experiences=(),
                 codex_delegations=(task,),
-                next_consideration_seconds=3600,
+                autonomy_acted=True,
             )
         if concerns:
             from armi_mind.api import (
@@ -8523,9 +8538,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         json.dumps(
                             {
                                 "enabled": True,
-                                "daily_request_limit": 48,
-                                "minimum_consideration_seconds": 60,
-                                "maximum_consideration_seconds": 21600,
                                 "outlet": "creator_web",
                             }
                         ),

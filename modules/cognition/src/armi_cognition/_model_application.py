@@ -63,6 +63,12 @@ from armi_runtime_foundation import (
 )
 
 from ._autonomous_activity_contract import autonomous_schema_for_context
+from ._autonomy_check_contract import (
+    AUTONOMY_CHECK_INSTRUCTIONS,
+    AUTONOMY_CHECK_VERSION,
+    autonomy_check_schema,
+    parse_autonomy_check,
+)
 from ._candidate_application import model_response_candidate
 from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
@@ -143,6 +149,9 @@ def _text_structure_error(
             cast(bytes, result.response_bytes),
             expected_version=binding.response_contract_version,
         )
+        if binding.response_contract_version == AUTONOMY_CHECK_VERSION:
+            parse_autonomy_check(value)
+            return None
         parse_candidate(
             value,
             expected_version=binding.response_contract_version,
@@ -406,6 +415,12 @@ class ModelPipeline:
         self._failure_notification = failure_notification
         self._storage = storage
         self._adapters = {
+            "consider_autonomy_check": build_adapter(
+                binding=load_purpose_binding("consider_autonomy_check", binding_path),
+                candidate_schema=autonomy_check_schema(),
+                instructions=AUTONOMY_CHECK_INSTRUCTIONS,
+                schema_name="armi_autonomy_check_candidate_v1",
+            ),
             "consider_creator_input": build_adapter(
                 binding=creator_input_binding,
                 candidate_schema=creator_cognitive_act_schema(
@@ -582,7 +597,8 @@ class ModelPipeline:
                     )
                 )
             if (
-                snapshot.purpose == "consider_autonomous_life"
+                snapshot.purpose
+                in {"consider_autonomous_life", "consider_autonomy_check"}
                 and snapshot.scene_id is not None
             ):
                 custody_requests.append(
@@ -774,6 +790,21 @@ class ModelPipeline:
                         lease, snapshot, result.response_error_code
                     )
                     return
+                if snapshot.purpose == "consider_autonomy_check":
+                    decision = parse_autonomy_check(
+                        model_response_candidate(
+                            cast(bytes, result.response_bytes),
+                            expected_version=AUTONOMY_CHECK_VERSION,
+                        )
+                    )
+                    async with self._factory.unit_of_work() as unit_of_work:
+                        await self._repository.finalize_autonomy_check(
+                            unit_of_work,
+                            lease=lease,
+                            snapshot=snapshot,
+                            engage=decision.engage,
+                        )
+                    return
                 await self._finalization.finalize(
                     record, attempt_id, cast(bytes, result.response_bytes)
                 )
@@ -939,11 +970,21 @@ class ModelPipeline:
             self._execute(record), name=f"cognition-{lease.attempt_id}"
         )
         stopped = asyncio.create_task(self._stop.wait())
+        channel = "cognition.context.prepare"
+        observed = self._wakeups.version(channel)
+        changed: asyncio.Task[int] | None = None
         try:
             while True:
+                changed = asyncio.create_task(
+                    self._wakeups.wait(
+                        channel,
+                        observed,
+                        stop=self._stop,
+                        timeout_seconds=_RENEW_SECONDS,
+                    )
+                )
                 done, _ = await asyncio.wait(
-                    {task, stopped},
-                    timeout=_RENEW_SECONDS,
+                    {task, stopped, changed},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if stopped in done:
@@ -953,6 +994,7 @@ class ModelPipeline:
                 if task in done:
                     await task
                     return
+                observed = await changed
                 try:
                     lease = await self._work.renew(lease, lease_seconds=_LEASE_SECONDS)
                 except WorkViolation:
@@ -961,6 +1003,9 @@ class ModelPipeline:
                     self._diagnostic("cognition.work.stale")
                     return
         finally:
+            if changed is not None:
+                changed.cancel()
+                await asyncio.gather(changed, return_exceptions=True)
             stopped.cancel()
             task.cancel()
             await asyncio.gather(task, stopped, return_exceptions=True)
@@ -979,7 +1024,7 @@ class ModelPipeline:
                     )
                 ),
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
-                schema_name="armi_autonomous_activity_candidate_v9",
+                schema_name="armi_autonomous_activity_candidate_v11",
             )
         try:
             adapter = self._adapters[purpose]

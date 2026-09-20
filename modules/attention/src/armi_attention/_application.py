@@ -206,12 +206,14 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
             outlet_health = await self._facts.outlet_health(
                 self._autonomy_policy.outlet
             )
+            model_revision = self._facts.model_configuration_revision()
             async with self._factory.unit_of_work() as unit_of_work:
                 result = await self._repository.admit_autonomy(
                     unit_of_work,
                     policy=self._autonomy_policy,
                     model_concurrency=self._model_concurrency,
                     outlet_health=outlet_health,
+                    model_revision=model_revision,
                 )
         except LifeViolation:
             raise

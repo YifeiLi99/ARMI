@@ -137,14 +137,10 @@ def prepare_case(
                 "autonomy": {
                     "current_time": now.isoformat(),
                     "timezone": "Asia/Shanghai",
-                    "remaining_requests": 48,
                     "outlet_bound": True,
                     "outlet_state": "ready",
                     "outlet": "isolated_text",
-                    "policy": {
-                        "minimum_consideration_seconds": 60,
-                        "maximum_consideration_seconds": 21600,
-                    },
+                    "policy": {"enabled": True, "outlet": "creator_web"},
                 },
             },
             "runtime_authority",
@@ -442,6 +438,7 @@ class MindTrajectory:
 
     def __init__(self) -> None:
         self.now = datetime(2026, 9, 17, 6, tzinfo=UTC)
+        self.idle_streak = 0
         self.head = MindHead(identity(1), 1, initial_mind_state())
         self.consumed: set[tuple[str, str, str]] = set()
         self.feedback_at = self.now + timedelta(hours=2)
@@ -511,7 +508,8 @@ class MindTrajectory:
         row["motivation_projection"] = mind_motivation_projection(
             self.head.canonical_state, as_of=self.now, consumed=frozenset(self.consumed)
         )
-        next_at = self.now + timedelta(seconds=candidate["next_consideration_seconds"])
+        self.idle_streak = 0 if expression else min(2, self.idle_streak + 1)
+        next_at = self.now + timedelta(seconds=(60, 120, 300)[self.idle_streak])
         for signal in mind_signals(self.head.canonical_state):
             if signal.identity not in self.consumed:
                 next_at = min(

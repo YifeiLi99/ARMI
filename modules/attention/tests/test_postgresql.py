@@ -173,6 +173,7 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
             policy=AutonomyPolicy(),
             model_concurrency=1,
             outlet_health=outlet_health,
+            model_revision="test-adopted-model",
         )
         assert result.status is OpportunityAdmissionStatus.ADMITTED
         owner.admit_due.assert_awaited_once_with(
@@ -222,6 +223,7 @@ async def test_runtime_blockers_do_not_become_subjective_silence(
             policy=AutonomyPolicy(),
             model_concurrency=1,
             outlet_health=("ready", None),
+            model_revision="test-adopted-model",
         )
         assert result.reason_code == reason
         assert result.status is OpportunityAdmissionStatus.REJECTED

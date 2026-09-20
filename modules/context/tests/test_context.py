@@ -318,6 +318,120 @@ def test_autonomy_opportunity_is_required_runtime_evidence() -> None:
     assert evidence.trust_class.value == "runtime_authority"
 
 
+def test_light_check_uses_bounded_owner_projections_without_private_recall() -> None:
+    from dataclasses import replace
+
+    from armi_context.api import autonomy_check_items
+
+    component_id = uuid7()
+    components = (
+        (
+            "self",
+            component_id,
+            7,
+            rfc8785.dumps({"name": "ARMI", "self_description": "independent " * 300}),
+        ),
+        (
+            "mind",
+            uuid7(),
+            2,
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.mind.v4",
+                    "thoughts": [],
+                    "concerns": [],
+                    "motivation_states": [],
+                }
+            ),
+        ),
+        (
+            "mood",
+            uuid7(),
+            3,
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.mood-snapshot.v2",
+                    "active_episodes": [],
+                    "current": {"valence": 0, "arousal": 0, "dominance": 0},
+                }
+            ),
+        ),
+        ("life_mode", uuid7(), 1, b'{"mode":"awake"}'),
+    )
+    snapshot = _snapshot(
+        (_memory("accessible"),),
+        purpose="consider_autonomy_check",
+        component_payloads=components,
+        capability_state_payloads=(
+            (
+                uuid7(),
+                1,
+                rfc8785.dumps(
+                    {
+                        "capability_kind": "codex.delegated-work",
+                        "availability_status": "available",
+                        "authorization_status": "authorized",
+                        "tool_instructions": "FORBIDDEN_TOOL_BODY",
+                    }
+                ),
+                "authorized",
+            ),
+        ),
+        opportunity_source_kind="autonomy_plan",
+    )
+    snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(
+            **{
+                **vars(snapshot),
+                "autonomy_context": b'{"current_time":"2026-01-01T00:00:00Z","last_engage":false}',
+            }
+        ),
+    )
+    request = _context_request(
+        snapshot, None, b"personality " * 500, web_search_active=False
+    )
+    contents = {
+        item.item_kind: json.loads(item.content)
+        for item in request.items
+        if item.content is not None
+    }
+    assert "current_memory" not in contents
+    assert "tool_instructions" not in json.dumps(contents)
+    assert (
+        contents["capability_catalog"]["codex.delegated-work"]["authorization"]
+        == "authorized"
+    )
+    source = next(item for item in request.items if item.item_kind == "self")
+    assert source.source.reference == component_id and source.source.version == 7
+    assert contents["self"]["self_description"]["omitted_characters"] > 0
+    assert contents["mind"] == {"open_concerns": 0, "open_motivations": 0}
+    concern_template = replace(
+        source,
+        item_kind="current_concern",
+        content='{"question":"unfinished","state":"waiting"}',
+    )
+    raw = [
+        replace(
+            source,
+            item_kind="mind",
+            content='{"open_concerns_count":12,"open_motivations_count":5}',
+        ),
+        replace(
+            source, item_kind="current_life_opportunity", content='{"autonomy":{}}'
+        ),
+    ]
+    projected = autonomy_check_items(
+        raw + [concern_template] * 12, signalled_refs=frozenset()
+    )
+    assert sum(item.item_kind == "current_concern" for item in projected) == 4
+    opportunity = next(
+        item for item in projected if item.item_kind == "current_life_opportunity"
+    )
+    assert opportunity.content is not None
+    assert json.loads(opportunity.content)["omitted_concerns_and_motivations"] == 13
+
+
 def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:
     revision_id = uuid7()
     snapshot = _snapshot(

@@ -440,6 +440,14 @@ class VoiceCognitionResultPort(Protocol):
     ) -> None: ...
 
 
+async def voice_activity(
+    transaction: PostgreSQLTransaction, *, subject_id: UUID
+) -> tuple[bool, datetime | None]:
+    from ._autonomy_read import voice_activity as read
+
+    return await read(transaction, subject_id=subject_id)
+
+
 __all__ = (
     "AcceptedVoiceInput",
     "AttemptOutcome",
@@ -465,4 +473,5 @@ __all__ = (
     "VoiceProviderService",
     "VoiceTimelinePort",
     "VoiceTurnSnapshot",
+    "voice_activity",
 )

@@ -24,9 +24,6 @@ def autonomy_statement(
             """
         WITH current AS (
           SELECT p.*, o.current_disposition,
-            (SELECT count(*) FROM armi.autonomy_request_admissions a
-             WHERE a.subject_id=p.subject_id
-               AND a.quota_date=(statement_timestamp() AT TIME ZONE 'Asia/Shanghai')::date) AS used,
             EXISTS(SELECT 1 FROM armi.runtime_instances r WHERE r.subject_id=p.subject_id
                    AND r.status='active' AND r.lease_expires_at>statement_timestamp()) AS running,
             EXISTS(SELECT 1 FROM armi.cognitive_episodes e WHERE e.subject_id=p.subject_id
@@ -38,7 +35,7 @@ def autonomy_statement(
           'state', CASE WHEN NOT (policy->>'enabled')::boolean THEN 'disabled'
                    WHEN NOT running THEN 'runtime_stopped'
                    WHEN %s THEN 'sleeping'
-                   WHEN used >= (policy->>'daily_request_limit')::integer THEN 'quota_exhausted'
+                   WHEN phase='blocked' THEN 'blocked'
                    WHEN current_disposition='selected' THEN 'thinking'
                    WHEN busy THEN 'resource_busy'
                    WHEN next_consideration_at>statement_timestamp() THEN 'scheduled'
@@ -53,13 +50,30 @@ def autonomy_statement(
              FROM armi.opportunities o,LATERAL jsonb_array_elements(o.consideration_signals->'signals') entry
              WHERE o.subject_id=current.subject_id AND o.consideration_signals->>'frozen_at' IS NOT NULL
           ),'[]'::jsonb),
-          'policy',policy,'used_requests',used,
+          'policy',policy,'phase',phase,'idle_streak',idle_streak,'failure_streak',failure_streak,
+          'last_engage',last_engage,'last_check_started_at',last_check_started_at,
+          'blocked_reason_code',blocked_reason_code,
+          'stage_usage',(SELECT jsonb_object_agg(stage,usage) FROM (
+            SELECT stage,jsonb_build_object(
+              'calls',count(receipt),
+              'input_tokens',COALESCE(sum((SELECT sum((q->>'quantity')::bigint)
+                FROM jsonb_array_elements(receipt->'quantities') q WHERE q->>'unit'='input_tokens')),0),
+              'output_tokens',COALESCE(sum((SELECT sum((q->>'quantity')::bigint)
+                FROM jsonb_array_elements(receipt->'quantities') q WHERE q->>'unit'='output_tokens')),0),
+              'elapsed_ms',COALESCE(sum(EXTRACT(EPOCH FROM
+                ((receipt->>'finished_at')::timestamptz-(receipt->>'started_at')::timestamptz))*1000),0),
+              'unknown_calls',count(receipt) FILTER (WHERE receipt->>'outcome' IN ('pending','unknown')
+                OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(receipt->'quantities') q WHERE q->>'unit'='input_tokens'))
+            ) usage FROM (VALUES ('check','consider_autonomy_check'),
+                                ('execute','consider_autonomous_life')) stages(stage,purpose)
+            LEFT JOIN armi.provider_usage_calls calls ON calls.owner='cognition'
+              AND calls.receipt->>'purpose'=stages.purpose
+              AND EXISTS(SELECT 1 FROM armi.cognitive_episodes e
+                WHERE e.cognitive_episode_id=calls.reference_id AND e.subject_id=current.subject_id)
+            GROUP BY stage) totals),
           'outlet_state',CASE WHEN running THEN outlet_state ELSE 'unavailable' END,
           'outlet_reason_code',CASE WHEN running THEN outlet_reason_code ELSE 'LIFE-RUNTIME-STOPPED' END,
           'outlet_observed_at',outlet_observed_at,
-          'remaining_requests',GREATEST(0,(policy->>'daily_request_limit')::integer-used),
-          'quota_resets_at',((statement_timestamp() AT TIME ZONE 'Asia/Shanghai')::date + 1)::timestamp
-                             AT TIME ZONE 'Asia/Shanghai',
           'timezone','Asia/Shanghai') FROM current LIMIT 1),
           jsonb_build_object('state','not_initialized'))
         """,
@@ -71,6 +85,8 @@ def autonomy_statement(
         """
       WITH page AS (
         SELECT o.opportunity_id AS operation_id,o.available_after,o.current_disposition,
+               CASE WHEN o.purpose='consider_autonomy_check' THEN 'check' ELSE 'execute' END AS stage,
+               o.root_opportunity_id,o.predecessor_opportunity_id,
                o.consideration_signals,
                o.resolution_reason_code,e.cognitive_episode_id AS episode_id,e.status AS cognition_status,
                e.final_disposition,e.failure_code,delivery.effect_id,delivery.status AS effect_status
@@ -82,7 +98,8 @@ def autonomy_statement(
         LEFT JOIN LATERAL (
           SELECT effect.effect_id,effect.status FROM armi.action_intents intent
           JOIN armi.effects effect USING(action_intent_id)
-          WHERE intent.root_opportunity_id=o.opportunity_id AND intent.action_kind='party_response'
+          WHERE o.purpose='consider_autonomous_life' AND intent.root_opportunity_id=o.root_opportunity_id
+            AND intent.action_kind='party_response'
           ORDER BY effect.registered_at DESC,effect.effect_id DESC LIMIT 1
         ) delivery ON true
         WHERE o.source_kind='autonomy_plan'

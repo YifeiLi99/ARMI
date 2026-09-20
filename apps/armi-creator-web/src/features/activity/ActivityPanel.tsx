@@ -39,7 +39,7 @@ const AUTONOMY_LABELS: Record<string, string> = {
   disabled: "自主生活未开启",
   runtime_stopped: "Runtime 已停止",
   sleeping: "睡眠维护中",
-  quota_exhausted: "今日自主额度已用完",
+  blocked: "自主判断等待配置修正",
   thinking: "正在自主考虑",
   resource_busy: "等待认知资源",
   scheduled: "等待下次考虑时间",
@@ -196,7 +196,7 @@ export function ActivityPanel({
             <h3>{AUTONOMY_LABELS[autonomy.data.state]}</h3>
             {autonomy.data.next_consideration_at ? (
               <p>
-                下次期望时间：
+                下次检查时间：
                 {localTime(
                   autonomy.data.effective_consideration_at ??
                     autonomy.data.next_consideration_at,
@@ -206,8 +206,7 @@ export function ActivityPanel({
             ) : null}
             {autonomy.data.policy ? (
               <p>
-                今日自主请求：{autonomy.data.used_requests} /{" "}
-                {autonomy.data.policy.daily_request_limit}；主动出口：
+                主动出口：
                 {autonomy.data.policy.outlet === "qq" ? "QQ" : "Creator 网页"}
               </p>
             ) : null}
@@ -219,10 +218,39 @@ export function ActivityPanel({
                 。仍可自主思考，不切换渠道。
               </p>
             ) : null}
-            {autonomy.data.state === "quota_exhausted" &&
-            autonomy.data.quota_resets_at ? (
-              <p>额度恢复：{localTime(autonomy.data.quota_resets_at)}</p>
+            <p>
+              当前阶段：
+              {autonomy.data.phase === "check"
+                ? "轻量判断"
+                : autonomy.data.phase === "execute"
+                  ? "完整认知"
+                  : autonomy.data.phase === "blocked"
+                    ? "等待配置修正"
+                    : "等待"}
+              ； 空闲退避档位：{autonomy.data.idle_streak ?? 0}；失败退避档位：
+              {autonomy.data.failure_streak ?? 0}
+            </p>
+            <p>
+              最近判断：
+              {autonomy.data.last_engage == null
+                ? "尚无判断"
+                : autonomy.data.last_engage
+                  ? "进入完整认知"
+                  : "继续等待"}
+            </p>
+            {autonomy.data.blocked_reason_code ? (
+              <p>{autonomy.data.blocked_reason_code}</p>
             ) : null}
+            {Object.entries(autonomy.data.stage_usage ?? {}).map(
+              ([stage, usage]) => (
+                <p key={stage}>
+                  {stage === "check" ? "轻判" : "完整认知"}：{usage.calls}{" "}
+                  次调用，输入 {usage.input_tokens} / 输出 {usage.output_tokens}{" "}
+                  tokens，累计 {(usage.elapsed_ms / 1000).toFixed(1)}{" "}
+                  秒；用量或结果未知 {usage.unknown_calls} 次
+                </p>
+              ),
+            )}
           </>
         ) : null}
         <button
@@ -251,22 +279,25 @@ export function ActivityPanel({
                       {localTime(item.available_after)}
                     </time>
                     <p>
-                      {item.effect_status === "unknown"
-                        ? "发送结果未知"
-                        : item.failure_code
-                          ? "执行失败"
-                          : item.effect_status
-                            ? `表达交付：${item.effect_status}`
-                            : item.final_disposition === "no_change" ||
-                                item.final_disposition === "no_action"
-                              ? "本轮自主沉默"
-                              : item.final_disposition === "defer"
-                                ? "本轮延期"
-                                : item.cognition_status === null
-                                  ? "尚未开始认知"
-                                  : item.current_disposition === "resolved"
-                                    ? "本轮决定已结算"
-                                    : "正在处理"}
+                      {item.stage === "check" &&
+                      item.cognition_status === "completed"
+                        ? "轻量判断已完成"
+                        : item.effect_status === "unknown"
+                          ? "发送结果未知"
+                          : item.failure_code
+                            ? "执行失败"
+                            : item.effect_status
+                              ? `表达交付：${item.effect_status}`
+                              : item.final_disposition === "no_change" ||
+                                  item.final_disposition === "no_action"
+                                ? "本轮自主沉默"
+                                : item.final_disposition === "defer"
+                                  ? "本轮延期"
+                                  : item.cognition_status === null
+                                    ? "尚未开始认知"
+                                    : item.current_disposition === "resolved"
+                                      ? "本轮决定已结算"
+                                      : "正在处理"}
                     </p>
                     {item.consideration_signals === null ? (
                       <p>本轮未记录考虑信号明细</p>
@@ -284,6 +315,9 @@ export function ActivityPanel({
                     <details>
                       <summary>操作引用</summary>
                       <code>{item.operation_id}</code>
+                      <p>
+                        同次自主机会：<code>{item.root_opportunity_id}</code>
+                      </p>
                       {item.episode_id ? (
                         <p>
                           认知：<code>{item.episode_id}</code>
@@ -294,7 +328,7 @@ export function ActivityPanel({
                       type="button"
                       className="secondary"
                       onClick={() => {
-                        setOperationRef(item.operation_id);
+                        setOperationRef(item.root_opportunity_id);
                         setEffectRef(null);
                       }}
                     >

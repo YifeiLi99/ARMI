@@ -1,4 +1,4 @@
--- Attention owns scheduling and request admission, never a duplicate cost ledger.
+-- Attention owns two-stage scheduling. Provider owners retain physical call usage.
 CREATE TABLE armi.autonomy_plans (
     subject_id uuid PRIMARY KEY REFERENCES armi.subjects(subject_id),
     plan_version bigint NOT NULL CHECK (plan_version > 0),
@@ -11,16 +11,13 @@ CREATE TABLE armi.autonomy_plans (
     next_consideration_at timestamptz NOT NULL,
     source_episode_id uuid REFERENCES armi.cognitive_episodes(cognitive_episode_id),
     opportunity_id uuid REFERENCES armi.opportunities(opportunity_id),
-    updated_at timestamptz NOT NULL DEFAULT statement_timestamp()
+    updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    phase text NOT NULL DEFAULT 'waiting' CHECK (phase IN ('waiting','check','execute','blocked')),
+    idle_streak integer NOT NULL DEFAULT 0 CHECK (idle_streak BETWEEN 0 AND 2),
+    failure_streak integer NOT NULL DEFAULT 0 CHECK (failure_streak BETWEEN 0 AND 3),
+    last_check_started_at timestamptz,
+    last_event_at timestamptz,
+    last_engage boolean,
+    blocked_reason_code text,
+    model_configuration_revision text
 );
-
-CREATE TABLE armi.autonomy_request_admissions (
-    call_id text PRIMARY KEY,
-    subject_id uuid NOT NULL REFERENCES armi.subjects(subject_id),
-    root_opportunity_id uuid REFERENCES armi.opportunities(opportunity_id),
-    quota_date date NOT NULL,
-    registered_at timestamptz NOT NULL DEFAULT statement_timestamp(),
-    CONSTRAINT autonomy_request_admissions_call_id_check CHECK (length(call_id) BETWEEN 1 AND 128)
-);
-CREATE INDEX autonomy_request_admissions_day_idx
-    ON armi.autonomy_request_admissions(subject_id, quota_date);

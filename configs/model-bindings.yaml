@@ -1,4 +1,4 @@
-schema_version: armi.model-bindings.v3
+schema_version: armi.model-bindings.v4
 active_binding: armi.model-adapter.qwen-responses-v1
 
 bindings:
@@ -36,6 +36,10 @@ voice_binding:
   startup_compatibility_check: strict_minimal_json
 
 purpose_profiles:
+  consider_autonomy_check:
+    profile: autonomy_check
+    response_contract_version: armi.autonomy-check-candidate.v1
+    output_token_limit: 64
   consider_creator_input:
     profile: creator_cognitive_act
     response_contract_version: armi.creator-cognitive-act-candidate.v7
@@ -60,7 +64,7 @@ purpose_profiles:
     output_token_limit: 2048
   consider_autonomous_life:
     profile: autonomous_activity
-    response_contract_version: armi.autonomous-activity-candidate.v10
+    response_contract_version: armi.autonomous-activity-candidate.v11
     output_token_limit: 4096
   consider_sleep:
     profile: sleep_decision

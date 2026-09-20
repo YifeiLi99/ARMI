@@ -1,4 +1,4 @@
-schema_version: armi.runtime-config.v4
+schema_version: armi.runtime-config.v5
 
 environment: {}
 
@@ -107,9 +107,6 @@ maintenance:
 
 autonomy:
   enabled: true
-  daily_request_limit: 48
-  minimum_consideration_seconds: 60
-  maximum_consideration_seconds: 21600
   outlet: qq
 
 secret_locators: {}

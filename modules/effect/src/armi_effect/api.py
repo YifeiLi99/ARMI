@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from asyncio import Event
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
@@ -606,6 +607,14 @@ def _uuid7(value: object) -> None:
         raise EffectViolation("CON-EFFECT-ID")
 
 
+async def response_delivery_activity(
+    transaction: PostgreSQLTransaction, *, action_intent_ids: tuple[UUID, ...]
+) -> tuple[bool, datetime | None]:
+    from ._autonomy_read import response_delivery_activity as read
+
+    return await read(transaction, action_intent_ids=action_intent_ids)
+
+
 __all__ = (
     "ActionAdapterPort",
     "EffectAdapterReceipt",
@@ -638,4 +647,5 @@ __all__ = (
     "EffectViolation",
     "EffectWakeupPort",
     "FrozenEffectRequest",
+    "response_delivery_activity",
 )

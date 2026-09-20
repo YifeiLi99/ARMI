@@ -33,7 +33,6 @@ def test_pairs_share_contract_and_accept_silence_without_forcing_emotion(experim
     for case in cases:
         response = {
             "kind": "no_activity",
-            "next_consideration_seconds": 300,
             "expression": None,
             "concern_changes": [],
         }
@@ -187,7 +186,6 @@ def test_autonomous_mind_change_can_coexist_with_silence_and_rejects_unknown_bas
     case = experiment["prepare_case"](experiment["CASES"][4][1])
     candidate = {
         "kind": "no_activity",
-        "next_consideration_seconds": 300,
         "expression": None,
         "concern_changes": [],
         "mind_change": {
@@ -224,7 +222,7 @@ def test_autonomous_mind_change_can_coexist_with_silence_and_rejects_unknown_bas
 
 def test_provider_response_uses_production_envelope_extraction(experiment):
     case = experiment["prepare_case"](experiment["CASES"][0][1])
-    value = {"kind": "no_activity", "next_consideration_seconds": 300}
+    value = {"kind": "no_activity"}
     envelope = json.dumps(
         {
             "schema_version": "armi.model-response-artifact.v3",
@@ -272,7 +270,6 @@ def test_autonomous_mind_and_concern_changes_form_one_owner_draft(experiment):
     case = experiment["prepare_case"](experiment["CASES"][0][1])
     candidate = {
         "kind": "defer",
-        "next_consideration_seconds": 300,
         "mind_change": {
             "change": {"motivations": {"values": ["理解观察到的变化"]}},
             "basis_refs": ["ctx:5"],
@@ -318,7 +315,6 @@ def test_trajectory_carries_owner_state_consumes_signals_and_closes(experiment):
         case = host.prepare()
         candidate = {
             "kind": "no_activity",
-            "next_consideration_seconds": 21600,
             "expression": expression,
             "mind_appraisals": [] if assessment is None else [assessment],
         }
@@ -346,15 +342,17 @@ def test_trajectory_carries_owner_state_consumes_signals_and_closes(experiment):
         explanation="不知道合成装置的规则",
     )
     _, first = step(assessment)
-    assert host.now == start + timedelta(minutes=30)
+    assert host.now == start + timedelta(minutes=2)
     assert first["mind_version"] == 2
     case, second = step(expression="这个装置为何变色?")
     assert any(b.item_kind == "current_motivation" for b in case["bases"])
     assert second["motivation_projection"][0]["level"] > 0
-    assert host.now == start + timedelta(minutes=35)
+    assert host.now == start + timedelta(minutes=3)
     assert (
         second["mind_version"] == 2
     )  # Silence/text never erases or invents a revision.
+    host.now = host.feedback_at
+    feedback_at = host.now
     _, third = step(
         assessment
         | {
@@ -368,7 +366,7 @@ def test_trajectory_carries_owner_state_consumes_signals_and_closes(experiment):
     assert third["feedback_present"]
     assert third["motivation_projection"] == []
     assert experiment["mind_signals"](host.head.canonical_state) == ()
-    assert host.now == start + timedelta(minutes=35, hours=6)
+    assert host.now == feedback_at + timedelta(minutes=2)
 
 
 def test_trajectory_stops_instead_of_faking_activity_or_accepting_rejection(experiment):

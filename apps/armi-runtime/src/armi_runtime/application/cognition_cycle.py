@@ -18,6 +18,7 @@ from armi_cognition.api import (
     CognitionContextEpisodeSnapshot,
     CognitionContextLifecyclePort,
     CognitionRuntimeStateSnapshot,
+    autonomy_check_current,
 )
 from armi_context.api import (
     ContextEpisodeState,
@@ -29,7 +30,7 @@ from armi_data_rights.api import DataRightsCognitionGate
 from armi_effect.api import EffectOperationReadPort
 from armi_evidence.api import EvidenceId, EvidenceReadPort
 from armi_expression.api import ExpressionIntentReadPort
-from armi_interaction.api import InteractionCognitionReadPort
+from armi_interaction.api import InteractionCognitionReadPort, human_input_activity
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -51,6 +52,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_live_voice.api import voice_activity
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -183,6 +185,32 @@ class RuntimeCognitionCycleSelector:
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f"armi.cognition.selection:{fence.subject_id}",),
             )
+            input_pending, last_input_at = await human_input_activity(
+                unit.transaction, subject_id=fence.subject_id
+            )
+            voice_active, _ = await voice_activity(
+                unit.transaction, subject_id=fence.subject_id
+            )
+            if (
+                input_pending
+                or voice_active
+                or await self._opportunities.has_pending_human_input(
+                    unit.transaction,
+                    subject_id=fence.subject_id,
+                )
+            ):
+                interrupted = await self._episodes.interrupt_autonomy(
+                    unit.transaction,
+                    subject_id=fence.subject_id,
+                )
+                if interrupted:
+                    await self._opportunities.interrupt_cognition(
+                        unit.transaction,
+                        opportunity_ids=interrupted,
+                    )
+                await self._opportunities.interrupt_autonomy(
+                    unit.transaction, subject_id=fence.subject_id
+                )
             if await self._episodes.active_opportunities(
                 unit.transaction, subject_id=fence.subject_id
             ):
@@ -223,6 +251,22 @@ class RuntimeCognitionCycleSelector:
                     candidate.opportunity_id,
                     candidate.selection_priority,
                 )
+                if (
+                    candidate.purpose == "consider_autonomous_life"
+                    and candidate.source_kind == "autonomy_plan"
+                    and not await autonomy_check_current(
+                        unit.transaction,
+                        root_opportunity_id=candidate.root_opportunity_id,
+                        subject_version=state.subject_version,
+                        state_epoch=state.state_epoch,
+                        bundle_activation_id=state.bundle_activation_id,
+                        last_input_at=last_input_at,
+                    )
+                ):
+                    await self._opportunities.interrupt_autonomy(
+                        unit.transaction, subject_id=fence.subject_id
+                    )
+                    continue
                 _, origin_purpose = await self._origins.resolve(
                     unit.transaction, candidate.root_opportunity_id
                 )

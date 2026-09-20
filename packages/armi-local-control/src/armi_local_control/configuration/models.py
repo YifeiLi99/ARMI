@@ -1,4 +1,4 @@
-"""Strict immutable models for ``armi.runtime-config.v4``."""
+"""Strict immutable models for ``armi.runtime-config.v5``."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v4"
+RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v5"
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -329,22 +329,13 @@ class CodexConfig(_FrozenModel):
 
 class AutonomyConfig(_FrozenModel):
     enabled: bool = True
-    daily_request_limit: PositiveInt = 48
-    minimum_consideration_seconds: Annotated[int, Field(ge=60, le=21_600)] = 60
-    maximum_consideration_seconds: Annotated[int, Field(ge=60, le=21_600)] = 21_600
     outlet: Literal["qq", "creator_web"] = "qq"
-
-    @model_validator(mode="after")
-    def validate_consideration_bounds(self) -> Self:
-        if self.minimum_consideration_seconds > self.maximum_consideration_seconds:
-            raise ValueError("autonomy minimum must not exceed maximum")
-        return self
 
 
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
-    schema_version: Literal["armi.runtime-config.v4"]
+    schema_version: Literal["armi.runtime-config.v5"]
     environment: EnvironmentConfig
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()

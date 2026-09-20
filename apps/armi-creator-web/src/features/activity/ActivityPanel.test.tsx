@@ -43,10 +43,12 @@ describe("Creator Activity panel", () => {
       const path = String(input);
       if (path === "/v1/autonomy/status") {
         return jsonResponse({
-          state: "quota_exhausted",
-          used_requests: 48,
-          quota_resets_at: "2026-09-16T16:00:00Z",
-          policy: { daily_request_limit: 48, outlet: "qq" },
+          state: "blocked",
+          phase: "blocked",
+          idle_streak: 2,
+          failure_streak: 1,
+          last_engage: false,
+          policy: { enabled: true, outlet: "qq" },
         });
       }
       if (path.startsWith("/v1/activities?")) {
@@ -81,7 +83,7 @@ describe("Creator Activity panel", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     renderPanel();
-    expect(await screen.findByText("今日自主额度已用完")).toBeInTheDocument();
+    expect(await screen.findByText("自主判断等待配置修正")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "查看自主记录" }));
     expect(await screen.findByText("本轮自主沉默")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "加载更早自主记录" }));
@@ -103,8 +105,8 @@ describe("Creator Activity panel", () => {
         return jsonResponse({
           state: "scheduled",
           next_consideration_at: "2026-08-04T12:00:00Z",
-          used_requests: 3,
-          policy: { daily_request_limit: 48, outlet: "qq" },
+          phase: "waiting",
+          policy: { enabled: true, outlet: "qq" },
         });
       }
       if (String(input).startsWith("/v1/activities?")) {

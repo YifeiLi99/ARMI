@@ -46,6 +46,12 @@ from armi_runtime_foundation import (
 )
 from armi_web_observation.api import WebResearchRequestDraft
 
+from ._autonomy_check_contract import (
+    AUTONOMY_CHECK_INSTRUCTIONS,
+    AUTONOMY_CHECK_VERSION,
+    autonomy_check_schema,
+    parse_autonomy_check,
+)
 from ._dialogue_output import (
     dialogue_output_instructions,
     dialogue_output_kind,
@@ -126,7 +132,7 @@ class SubjectChangeSet:
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
-    next_consideration_seconds: int | None = None
+    autonomy_acted: bool | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -300,6 +306,13 @@ class CognitionContextEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionContextLifecyclePort(Protocol):
+    async def interrupt_autonomy(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> tuple[UUID, ...]: ...
+
     async def active_opportunities(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[UUID, ...]: ...
@@ -768,7 +781,30 @@ class CognitionAdminAttempt:
     error_code: str | None
 
 
+async def autonomy_check_current(
+    transaction: PostgreSQLTransaction,
+    *,
+    root_opportunity_id: UUID,
+    subject_version: int,
+    state_epoch: int,
+    bundle_activation_id: UUID,
+    last_input_at: datetime | None,
+) -> bool:
+    from ._context_postgresql import autonomy_check_current as read
+
+    return await read(
+        transaction,
+        root_opportunity_id=root_opportunity_id,
+        subject_version=subject_version,
+        state_epoch=state_epoch,
+        bundle_activation_id=bundle_activation_id,
+        last_input_at=last_input_at,
+    )
+
+
 __all__ = (
+    "AUTONOMY_CHECK_INSTRUCTIONS",
+    "AUTONOMY_CHECK_VERSION",
     "CandidateDiagnostic",
     "CandidateExactLifeQueryDraft",
     "CandidateValidationResult",
@@ -807,8 +843,11 @@ __all__ = (
     "CognitiveBranchRole",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
+    "autonomy_check_current",
+    "autonomy_check_schema",
     "dialogue_output_instructions",
     "dialogue_output_kind",
     "dialogue_output_schema",
     "flatten_dialogue_output",
+    "parse_autonomy_check",
 )

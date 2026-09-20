@@ -75,6 +75,7 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 "consider_creator_input",
                 "consider_codex_task",
                 "consider_autonomous_life",
+                "consider_autonomy_check",
             }:
                 raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
             evidence = (
@@ -95,7 +96,10 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 )
                 codex_digest = task.task_manifest_digest
             acceptance = None
-            if opportunity.purpose != "consider_autonomous_life":
+            if opportunity.purpose not in {
+                "consider_autonomous_life",
+                "consider_autonomy_check",
+            }:
                 if (
                     evidence is None
                     or opportunity.scene_id is None

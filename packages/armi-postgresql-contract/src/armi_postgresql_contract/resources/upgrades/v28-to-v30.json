@@ -4,15 +4,14 @@
     "postgresql": "18.4",
     "vector": "0.8.6",
     "pg_trgm": "1.6",
-    "baseline": "armi.schema-baseline.v26",
-    "schema_digest": "sha256:eaf08dc7ec32d0ff70fc42ddbbe9bb856c68ad22e64e5305c4afb063be452e07",
+    "baseline": "armi.schema-baseline.v28",
+    "schema_digest": "sha256:824eac59c3a44c3fe96d6b454383a5c23ed26b339cddca101a5ced2cb72828db",
     "role_policy_digest": "sha256:f884ef1827ef6eb01a8804fb75cbe46845580ebc7bb869bc304a786ddd11342d"
   },
-  "target_baseline": "armi.schema-baseline.v29",
+  "target_baseline": "armi.schema-baseline.v30",
   "steps": [
-    "../upgrades/v26-to-v27.sql",
-    "../upgrades/v27-to-v28.sql",
     "../upgrades/v28-to-v29.sql",
+    "../upgrades/v29-to-v30.sql",
     "baseline/99_privileges.sql"
   ]
 }

@@ -15,6 +15,7 @@ class CognitionPurpose(StrEnum):
     CONSIDER_CODEX_TASK = "consider_codex_task"
     CONSIDER_CODEX_RESULT = "consider_codex_result"
     CONSIDER_AUTONOMOUS_LIFE = "consider_autonomous_life"
+    CONSIDER_AUTONOMY_CHECK = "consider_autonomy_check"
     CONSIDER_SLEEP = "consider_sleep"
     CONSIDER_LIFE_QUERY_RESULT = "consider_life_query_result"
     MAINTAIN_SUBJECTIVE_MEMORY = "maintain_subjective_memory"
@@ -53,7 +54,11 @@ COGNITION_PURPOSES: Final = MappingProxyType(
     {
         purpose: CognitionPurposeDefinition(
             "optional"
-            if purpose is CognitionPurpose.CONSIDER_AUTONOMOUS_LIFE
+            if purpose
+            in {
+                CognitionPurpose.CONSIDER_AUTONOMOUS_LIFE,
+                CognitionPurpose.CONSIDER_AUTONOMY_CHECK,
+            }
             else "forbidden"
             if purpose in _SCENELESS
             else "required",

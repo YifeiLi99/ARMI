@@ -9,7 +9,10 @@ from uuid import UUID, uuid7
 from armi_experience.api import AcceptedExperienceSnapshot, ExperienceReadPort
 from armi_kernel.application import CandidateViolation
 from armi_kernel.contracts import Digest, TraceId
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLTransaction,
+    cancel_cognition_work,
+)
 
 from .api import (
     CognitionContextEpisodeDraft,
@@ -35,6 +38,38 @@ class PostgreSQLCognitionContextLifecycle:
             )
         ).fetchall()
         return tuple(row[0] for row in rows)
+
+    async def interrupt_autonomy(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> tuple[UUID, ...]:
+        rows = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes SET status='cancelled',
+                   failure_code='COGNITION-HUMAN-INPUT-PREEMPTED'
+               WHERE subject_id=%s AND purpose IN
+                   ('consider_autonomy_check','consider_autonomous_life')
+                 AND status IN ('preparing','prepared','calling_model','finalizing')
+               RETURNING cognitive_episode_id,opportunity_id""",
+                (subject_id,),
+            )
+        ).fetchall()
+        if not rows:
+            return ()
+        episodes = [row[0] for row in rows]
+        await transaction.execute(
+            """UPDATE armi.cognitive_attempts SET dispatch_status='settled',
+                   result_status=CASE dispatch_status WHEN 'prepared' THEN 'cancelled'
+                     ELSE 'outcome_unknown' END,
+                   error_code='MODEL-HUMAN-INPUT-PREEMPTED',settled_at=statement_timestamp()
+               WHERE cognitive_episode_id=ANY(%s::uuid[])
+                 AND dispatch_status IN ('prepared','dispatched')""",
+            (episodes,),
+        )
+        await cancel_cognition_work(transaction, episode_ids=tuple(episodes))
+        return tuple(row[1] for row in rows)
 
     async def create_context_episode(
         self, transaction: PostgreSQLTransaction, draft: CognitionContextEpisodeDraft
@@ -335,6 +370,30 @@ def _experience_context(
             maintenance_source=maintenance_source,
         )
         for snapshot, ordinal in zip(snapshots, ordinals, strict=True)
+    )
+
+
+async def autonomy_check_current(
+    transaction: PostgreSQLTransaction,
+    *,
+    root_opportunity_id: UUID,
+    subject_version: int,
+    state_epoch: int,
+    bundle_activation_id: UUID,
+    last_input_at: object,
+) -> bool:
+    row = await (
+        await transaction.execute(
+            """SELECT base_subject_version,base_state_epoch,bundle_activation_id,created_at
+           FROM armi.cognitive_episodes WHERE opportunity_id=%s
+             AND purpose='consider_autonomy_check' AND status='completed'""",
+            (root_opportunity_id,),
+        )
+    ).fetchone()
+    return (
+        row is not None
+        and tuple(row[:3]) == (subject_version, state_epoch, bundle_activation_id)
+        and (last_input_at is None or row[3] >= last_input_at)
     )
 
 

@@ -520,6 +520,14 @@ def _uuid7(value: UUID, code: str) -> None:
         raise ResponseViolation(code)
 
 
+async def response_intent_ids(
+    transaction: PostgreSQLTransaction, *, subject_id: UUID
+) -> tuple[UUID, ...]:
+    from ._autonomy_read import response_intent_ids as read
+
+    return await read(transaction, subject_id=subject_id)
+
+
 __all__ = (
     "ActionIntentId",
     "CodexEffectDraft",
@@ -545,4 +553,5 @@ __all__ = (
     "OtherHumanReplyDraft",
     "ResponseChoiceDraft",
     "ResponseViolation",
+    "response_intent_ids",
 )

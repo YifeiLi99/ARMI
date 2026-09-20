@@ -30,7 +30,6 @@ from armi_attention.api import (
     OpportunityTransitionPort,
 )
 from armi_attention.bootstrap import (
-    bootstrap_autonomy,
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
     bootstrap_opportunity_cognition,
@@ -307,7 +306,6 @@ from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkF
 from armi_runtime.application.action_lifecycle import (
     RuntimeCodexArtifactReference,
 )
-from armi_runtime.application.autonomy_usage import AutonomyRequestAdmission
 from armi_runtime.application.cognition_cycle import (
     RuntimeCognitionCycleSelector,
     RuntimeCognitionState,
@@ -945,17 +943,6 @@ def compose_runtime_unit_of_work_factory(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
-                    provider_admission=AutonomyRequestAdmission(
-                        bootstrap_autonomy(),
-                        AutonomyPolicy(**config.autonomy.model_dump()),
-                        RuntimeOpportunityOrigin(
-                            opportunities=bootstrap_opportunity_transition(),
-                            evidence=bootstrap_evidence().read,
-                            codex=bootstrap_codex_read_ports().context,
-                            effects=bootstrap_effect_operation_read(),
-                            expression=bootstrap_expression_action_ports().intents,
-                        ),
-                    ).admit,
                 )
 
             return handle.consume(create)

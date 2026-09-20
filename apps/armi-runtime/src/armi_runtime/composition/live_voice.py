@@ -70,7 +70,7 @@ def compose_runtime_live_voice(
         model_locator_name = str(voice_binding["credential_locator"])
         model_purpose = CredentialPurpose(str(voice_binding["credential_purpose"]))
         if (
-            bindings.get("schema_version") != "armi.model-bindings.v3"
+            bindings.get("schema_version") != "armi.model-bindings.v4"
             or voice_provider != "volcengine_ark"
             or not voice_api_base.startswith("https://")
             or voice_binding.get("profile") != "creator_voice_act"

@@ -247,7 +247,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "subjects",
         ),
         revision="0000",
-        baseline_identity="armi.schema-baseline.v29",
+        baseline_identity="armi.schema-baseline.v30",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,

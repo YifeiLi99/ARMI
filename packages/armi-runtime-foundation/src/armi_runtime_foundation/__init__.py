@@ -17,6 +17,7 @@ from .admin_transactions import (
     PostgreSQLAdminUnitOfWorkFactory,
 )
 from .autonomy_query import autonomy_result, autonomy_statement
+from .cognition_guard import cancel_cognition_work, subject_context_current
 from .projection_cursor import (
     ProjectionCursorCodec,
     ProjectionCursorInvalid,
@@ -96,6 +97,8 @@ __all__ = (
     "StopSignal",
     "autonomy_result",
     "autonomy_statement",
+    "cancel_cognition_work",
+    "subject_context_current",
     "usage_result",
     "usage_statement",
 )

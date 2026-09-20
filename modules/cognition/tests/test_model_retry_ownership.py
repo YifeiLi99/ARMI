@@ -99,8 +99,11 @@ def test_model_attempt_reclaim_ends_unfinished_attempt(
             return _Cursor((1,))
         if "UPDATE armi.cognitive_episodes" in statement and "RETURNING" in statement:
             return _Cursor((episode_id,))
-        if "SELECT opportunity_id FROM armi.cognitive_episodes" in statement:
-            return _Cursor((uuid7(),))
+        if (
+            "SELECT opportunity_id,failure_code FROM armi.cognitive_episodes"
+            in statement
+        ):
+            return _Cursor((uuid7(), "COGNITION-EXECUTION-INTERRUPTED"))
         return _Cursor()
 
     connection = SimpleNamespace(execute=AsyncMock(side_effect=execute))

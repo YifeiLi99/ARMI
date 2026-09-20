@@ -66,6 +66,7 @@ from armi_runtime_foundation import (
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
+from ._autonomy_check import check_context_items
 from ._compiler import CONTEXT_POLICY_VERSION, DeterministicContextCompiler
 from ._embedding import QUERY_MAX_CHARS
 from ._embedding_postgresql import PostgreSQLContextEmbeddingRepository, RecalledContext
@@ -326,7 +327,8 @@ class ContextPipeline:
                     )
                 )
             if (
-                snapshot.purpose == "consider_autonomous_life"
+                snapshot.purpose
+                in {"consider_autonomous_life", "consider_autonomy_check"}
                 and snapshot.scene_id is not None
             ):
                 requests.append(
@@ -1332,6 +1334,13 @@ def _context_request(
                 relevance=100,
                 source_kind=snapshot.evidence.source_kind,
             )
+        )
+    if snapshot.purpose == "consider_autonomy_check":
+        items = check_context_items(
+            items,
+            signalled_refs=frozenset(
+                str(signal.object_ref) for signal in snapshot.consideration_signals
+            ),
         )
     dialogue_purpose = snapshot.purpose in {
         "consider_creator_input",

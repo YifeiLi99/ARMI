@@ -199,7 +199,7 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
 
 def test_autonomous_activity_contract_is_strict_and_character_bounded() -> None:
     parsed = parse_candidate(
-        b'{"kind":"start_activity","goal":"learn","next_step":"read","next_consideration_seconds":60}',
+        b'{"kind":"start_activity","goal":"learn","next_step":"read"}',
         allowed_context_refs=frozenset(),
         expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     )
@@ -210,13 +210,12 @@ def test_autonomous_activity_contract_is_strict_and_character_bounded() -> None:
     }
 
     for value in (
-        b'{"kind":"start_activity","goal":"learn","next_step":"read","status":"ready","next_consideration_seconds":60}',
+        b'{"kind":"start_activity","goal":"learn","next_step":"read","status":"ready"}',
         json.dumps(
             {
                 "kind": "start_activity",
                 "goal": "界" * 2049,
                 "next_step": "read",
-                "next_consideration_seconds": 60,
             }
         ).encode(),
     ):
@@ -249,7 +248,6 @@ def test_autonomous_activity_progress_preserves_materials_and_schedule() -> None
             {
                 "kind": "progress",
                 "progress_summary": "formed a real outline",
-                "next_consideration_seconds": 60,
                 "next_step": "review one section later",
                 "material_change": {
                     "action": "create",
@@ -284,7 +282,7 @@ def test_autonomous_activity_progress_preserves_materials_and_schedule() -> None
                     "reason": "nothing reliable",
                     "next_step": "retry later",
                     "resumption_cue": "scheduled review",
-                    "next_consideration_seconds": 1,
+                    "review_after_seconds": 1,
                 }
             ).encode(),
             allowed_context_refs=frozenset(),

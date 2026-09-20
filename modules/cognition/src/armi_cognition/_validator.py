@@ -216,7 +216,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v36"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v37"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -1856,7 +1856,14 @@ class DeterministicCandidateValidator:
                 _exact_life_query_wire(item) for item in exact_queries
             ],
             "rejections": [],
-            "next_consideration_seconds": candidate.next_consideration_seconds,
+            "autonomy_acted": bool(
+                expressions
+                or web_requests
+                or visual_requests
+                or codex_delegations
+                or exact_queries
+                or isinstance(candidate, StartActivityDecision)
+            ),
         }
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
@@ -1878,7 +1885,14 @@ class DeterministicCandidateValidator:
             rejections=(),
             visual_observation_requests=visual_requests,
             owner_drafts=tuple(owner_drafts),
-            next_consideration_seconds=candidate.next_consideration_seconds,
+            autonomy_acted=bool(
+                expressions
+                or web_requests
+                or visual_requests
+                or codex_delegations
+                or exact_queries
+                or isinstance(candidate, StartActivityDecision)
+            ),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
@@ -2039,7 +2053,14 @@ class DeterministicCandidateValidator:
                     candidate.expression.encode("utf-8"),
                 ),
             )
-        next_consideration = candidate.next_consideration_seconds
+        autonomy_acted = bool(expressions) or isinstance(
+            candidate,
+            (
+                AutonomousProgressDecision,
+                AutonomousCompleteDecision,
+                AutonomousAbandonDecision,
+            ),
+        )
 
         progress = next_step = waiting = cue = terminal = None
         waiting_kind = None
@@ -2068,7 +2089,7 @@ class DeterministicCandidateValidator:
             waiting = candidate.reason
             cue = candidate.resumption_cue
             waiting_kind = ActivityWaitingKind.SCHEDULED_REVIEW
-            delay = candidate.next_consideration_seconds
+            delay = candidate.review_after_seconds
 
         decision = CandidateActivityDecisionDraft(
             "proposal:1",
@@ -2137,7 +2158,7 @@ class DeterministicCandidateValidator:
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
             "rejections": [],
-            "next_consideration_seconds": next_consideration,
+            "autonomy_acted": autonomy_acted,
         }
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
@@ -2156,7 +2177,7 @@ class DeterministicCandidateValidator:
             web_research_requests=(),
             rejections=(),
             owner_drafts=tuple(owner_drafts),
-            next_consideration_seconds=next_consideration,
+            autonomy_acted=autonomy_acted,
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
