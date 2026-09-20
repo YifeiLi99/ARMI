@@ -79,11 +79,14 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             # Qwen Responses documents no text.format constraint. Never send an
             # ignored parameter and claim it enforces JSON. Disable server storage.
             parameters["store"] = False
+            # Provider-specific chat sampling; keep Qwen's default top_p. DESIGN.md.
+            parameters["temperature"] = 1.0
         elif binding.provider == "deepseek":
             parameters["text"] = {"format": {"type": "json_object"}}
-            # Non-thinking sampling must favor the nested contract over variation.
-            # Live default-temperature replies broke JSON; keep backend validation.
-            parameters["temperature"] = 0.2
+            # Chat variation is intentional; never replace strict validation with
+            # lower temperature. DeepSeek fixes non-thinking top_p at 1.0.
+            parameters["temperature"] = 0.9
+            parameters["top_p"] = 1.0
             example = _dialogue_example(
                 set(properties), self.context_refs(request)
             )

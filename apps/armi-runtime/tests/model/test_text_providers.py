@@ -169,12 +169,14 @@ async def test_sdk_wire_usage_and_failure_preserve_single_responses_call(
         )
         if provider == "qwen":
             assert "text" not in wire
-            assert "temperature" not in wire
+            assert wire["temperature"] == 1.0
+            assert "top_p" not in wire
             assert wire["store"] is False
         else:
             assert requests[0].url.path == "/responses"
             assert wire["text"] == {"format": {"type": "json_object"}}
-            assert wire["temperature"] == 0.2
+            assert wire["temperature"] == 0.9
+            assert wire["top_p"] == 1.0
             assert "thinking" not in wire and "store" not in wire
         settled = adapter._settle_response(result, request())
         assert settled.response_bytes is not None and settled.usage is not None
