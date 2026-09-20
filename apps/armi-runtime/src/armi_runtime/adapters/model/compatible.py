@@ -44,12 +44,28 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
                     "social": None,
                 }
             }
+            experience_example = {
+                "candidate": {
+                    "decision": {"kind": "reply", "content": "示例回复"},
+                    "appraisal": None,
+                    "social": {
+                        "experience": {
+                            "first_person_gist": "这次交谈让我有了一段新的个人经历。",
+                            "uncertainty": None,
+                        },
+                        "relationship_change": None,
+                    },
+                }
+            }
             instructions += (
                 "\n\n合法 JSON 格式示例（仅示意层级，实际内容按本轮判断）：\n"
                 + json.dumps(example, ensure_ascii=False)
                 + "\n注意 decision、appraisal、social 都在 candidate 对象内部。"
                 + "若填写 appraisal，事件元数据与内部 appraisal 评价对象应分别遵循 Schema；"
                 + "不要把它们混为同一层。示例中的 null 不要求省略本轮实际形成的评价或经历。"
+                + "\n\n仅形成经历、没有关系变化的合法示例：\n"
+                + json.dumps(experience_example, ensure_ascii=False)
+                + "\nrelationship_change 为 null 与内部字段全为 null 的对象不同；后者非法。"
             )
         parameters: dict[str, Any] = {
             "model": binding.model_id,

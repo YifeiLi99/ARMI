@@ -355,6 +355,17 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
                 .split("\n注意", 1)[0]
             )
             Draft202012Validator(expected).validate(json.loads(example_text))
+            experience_text = (
+                wire["instructions"]
+                .split("仅形成经历、没有关系变化的合法示例：\n", 1)[1]
+                .split("\nrelationship_change", 1)[0]
+            )
+            value = json.loads(experience_text)
+            Draft202012Validator(expected).validate(value)
+            value["candidate"]["social"]["relationship_change"] = dict.fromkeys(
+                ("interpretation", "fact", "boundary", "commitment_change")
+            )
+            assert not Draft202012Validator(expected).is_valid(value)
 
 
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])

@@ -266,7 +266,7 @@ Mind 与 Mood 各自拥有评价提示语义。Mood 公开 `MOOD_APPRAISAL_INSTR
 
 正式接线后六次隔离调用全部通过新版自主 Schema 和候选校验，并将原返回交给正式 Mind 变换离线准备；估算 ¥0.222360，无未知用量。长交流间隔、重复无进展分别产生 contact/change_activity 倾向，两小时投影约 7.03125；刚交流未形成动机，持续投入目标为零。未解释新现象未形成好奇，不能宣称三种心理稳定涌现。实验未提交日常主体或执行效果，原子提交另由隔离数据库测试验证。完整真实模型的持续行动及反馈结束轨迹仍未验证。
 
-文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。两家均通过 OpenAI SDK 使用官方 Responses 接口，`reasoning.effort:none`。Qwen Responses 当前未列出 JSON 格式约束参数，因此只通过提示词要求 JSON，并显式设置 `store:false`；不发送可能被忽略的格式参数。DeepSeek 使用官方 `text.format.type:json_object`，不发送 `strict` 或服务端 Schema。两家的原认知提示后追加同一份完整候选 Schema，对普通他人对话追加经该 Schema 验证的合法层级示例。模型侧生成控制可以不同，后端仍使用同一套严格 Schema 与领域校验，不修补非法 JSON、不放宽字段、不自动重试或切换模型。出现格式问题应检查请求、原始返回和结构化输出适配，不能关闭后端校验。原 Context、purpose 合同、Subject Commit 和 Effect 链保持不变，单轮仍只有一次生成。
+文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。两家均通过 OpenAI SDK 使用官方 Responses 接口，`reasoning.effort:none`。Qwen Responses 当前未列出 JSON 格式约束参数，因此只通过提示词要求 JSON，并显式设置 `store:false`；不发送可能被忽略的格式参数。DeepSeek 使用官方 `text.format.type:json_object`，不发送 `strict` 或服务端 Schema。两家的原认知提示后追加同一份完整候选 Schema，对普通他人对话追加经该 Schema 验证的合法层级示例，分别覆盖无经历和仅有经历但无关系变化。无关系变化必须将 relationship_change 整体置 null，不能填写全空对象；承诺引用只能指向冻结 Context 中的关系承诺，普通调侃不自动形成承诺冲突。模型侧生成控制可以不同，后端仍使用同一套严格 Schema 与领域校验，不修补非法 JSON、不放宽字段、不自动重试或切换模型。出现格式问题应检查请求、原始返回和结构化输出适配，不能关闭后端校验。原 Context、purpose 合同、Subject Commit 和 Effect 链保持不变，单轮仍只有一次生成。
 
 两家各自使用 `model.qwen_api_key`、`model.deepseek_api_key`，目的分别为 `model.request.qwen`、`model.request.deepseek`。官方域名与供应商对应校验，千问允许北京通用域名和北京 Workspace 域名；不能通过模型配置把 Key 发到任意代理地址。`model.ark_api_key` 仅供独立豆包语音认知、视觉识别与网页搜索等原有方舟用途。语音绑定保持独立，不因未配置方舟 Key 阻断文本模型构造；实际语音调用缺凭据仍明确失败。
 
@@ -342,7 +342,7 @@ ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 ve
 
 Work 以 ready/leased/completed/failed/cancelled 管理执行资格；业务 owner 决定 attempt/result 和是否可恢复。慢 I/O 前短事务登记，事务外调用，结算事务重新检查 lease/fence/generation/current state。重启后由固定 recovery roster 检查 owner head、过期 work、artifact、effect unknown 和投影 coverage；框架不猜业务修复。
 
-活动注意与内部工作在模型并发为 1 且空闲时仍可获得执行机会；已有认知占用唯一容量时明确背压。并发大于 1 时继续为交互保留一个槽位。容量不足不登记活动机会，也不记作主体选择沉默。
+活动注意与内部工作在模型并发为 1 且空闲时仍可获得执行机会；容量不足不登记活动机会，也不记作主体选择沉默。模型并发配置是 worker 上限，不允许同一主体同时冻结多轮 Context；已有认知时，其他机会留待上一轮结束后再选取。
 
 Creator export 使用 `armi.creator-export.v5`，由 Data Rights 管理导出路径及涉及的 party scope；外部副本无法删除时必须保持 partial/operator action，而非伪报完成。
 
@@ -369,7 +369,7 @@ Effect 领取后的续租覆盖等待执行锁和实际发送全程。过期尝�
 
 ### 持续自主生活
 
-Attention 的 `autonomy_plans` 管理下一次考虑时间、版本、来源认知及当前机会，沿用 Opportunity 和 durable work，不建立另一套调度器。首次启用在一分钟后考虑；每个自主候选都必须提交下一次考虑间隔，默认一分钟至六小时。正常外部处理结束及管理员改变主体状态可提前下一次机会。自身提交只更新计划，不立即唤醒自身。用户输入优先，同一主体只允许一轮未完成的自主认知；单并发模型仍可在空闲时自主行动。等待中的活动不独占注意，历史 considering 活动也可以由新自主认知推进。
+Attention 的 `autonomy_plans` 管理下一次考虑时间、版本、来源认知及当前机会，沿用 Opportunity 和 durable work，不建立另一套调度器。首次启用在一分钟后考虑；每个自主候选都必须提交下一次考虑间隔，默认一分钟至六小时。正常外部处理结束及管理员改变主体状态可提前下一次机会。自身提交只更新计划，不立即唤醒自身。同一主体从 Context 准备、模型调用到提交结束，只允许一轮未完成认知，覆盖聊天、自主生活及其他 purpose。选择入口以主体级事务 advisory lock 原子核对活动认知并登记下一轮，锁不跨模型 I/O；等待机会尚未冻结 Context，上一轮结束后读取最新主体版本。用户输入在等待机会中优先，不中断已经开始的认知。管理员校正、generation 变化等仍可能使候选过期，保留全部版本校验。等待中的活动不独占注意，历史 considering 活动也可以由新自主认知推进。
 
 `configs/runtime.yaml` 的 autonomy 配置管理启用状态、每日请求额度、考虑时间上下限及唯一主动出口。默认 48 次，按北京时间换日。每次自主收费请求的 Owner 记录和 Attention 额度登记共用一个事务，以调用 ID 幂等；失败、取消和 unknown 不退还已登记次数。回执和费用结算不经过额度拒绝。分词、轮询、Codex 订阅不计收费次数；Creator 输入及其工具结果沿真实来源排除。嵌套 Codex 结果通过各 Owner 的读取接口追溯，不由候选填写来源，也不因产生独立结果机会而失去归属。
 

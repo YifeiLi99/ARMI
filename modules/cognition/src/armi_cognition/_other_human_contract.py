@@ -268,6 +268,13 @@ OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = (
 仅当本轮真实形成经历时填写 experience;关系变化必须基于 experience,只属于当前精确
 对方,首次形成关系时包含 interpretation。明确拒绝才可收紧边界,承诺不授予权限。
 首次为当前对方形成 relationship_change 时必须同时提供 interpretation。
+只有经历、没有关系变化时保留 social.experience,并将 relationship_change 整体写为 null;
+不能用 interpretation、fact、boundary、commitment_change 全为 null 的对象表示没有变化。
+commitment_change 只记录真实承诺的建立或变化,普通调侃、疑问和意见不同不自动构成承诺冲突。
+commitment_ref 和 conflicts_with_ref 只能引用 Context 中标题为“关系承诺”、来源为
+relationship_commitment 的条目;“当前关系”、历史消息、心情等条目不是承诺。
+note_conflict 必须有两个不同的现有承诺及真实冲突依据;没有这些条件就不输出该动作。
+不形成承诺变化时将 commitment_change 写为 null,不能为填满字段而编造变化或引用。
 若本轮事件意义发生变化,可填写 appraisal;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足,不适用的可选评价组省略。
 """
     + "\n\n# 表达方式\n\n"

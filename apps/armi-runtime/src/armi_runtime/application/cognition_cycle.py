@@ -177,6 +177,16 @@ class RuntimeCognitionCycleSelector:
             fence = unit.runtime_fence
             if fence is None:
                 raise ContextViolation("CTX-RUNTIME-FENCE-REQUIRED")
+            # DESIGN: one subject, one live cognition from Context to commit.
+            # Serialize admission only; never hold a database lock across model I/O.
+            await unit.transaction.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"armi.cognition.selection:{fence.subject_id}",),
+            )
+            if await self._episodes.active_opportunities(
+                unit.transaction, subject_id=fence.subject_id
+            ):
+                return None
             state = await RuntimeCognitionState().current_subject(
                 unit.transaction, subject_id=fence.subject_id
             )
@@ -216,23 +226,13 @@ class RuntimeCognitionCycleSelector:
                 _, origin_purpose = await self._origins.resolve(
                     unit.transaction, candidate.root_opportunity_id
                 )
-                if origin_purpose not in HUMAN_INPUT_PURPOSES:
-                    if not await self._opportunities.can_consider_autonomy(
-                        unit.transaction, subject_id=fence.subject_id
-                    ):
-                        continue
-                    active = await self._episodes.active_opportunities(
+                if (
+                    origin_purpose not in HUMAN_INPUT_PURPOSES
+                    and not await self._opportunities.can_consider_autonomy(
                         unit.transaction, subject_id=fence.subject_id
                     )
-                    active_origins = [
-                        await self._origins.resolve(unit.transaction, identity)
-                        for identity in active
-                    ]
-                    if any(
-                        purpose not in HUMAN_INPUT_PURPOSES
-                        for _, purpose in active_origins
-                    ):
-                        continue
+                ):
+                    continue
                 if (
                     candidate.context_party_id is not None
                     and await self._data_rights.blocks_cognition(
