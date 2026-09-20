@@ -7,6 +7,7 @@ from armi_cognition.bootstrap import (
     autonomous_schema_for_context,
     bind_context_schema,
     load_purpose_binding,
+    load_voice_model_binding,
     model_response_candidate,
 )
 from armi_cognition.bootstrap import (
@@ -40,6 +41,7 @@ __all__ = (
     "checked_model_request",
     "load_active_binding",
     "load_purpose_binding",
+    "load_voice_model_binding",
     "model_response_candidate",
     "parse_candidate",
 )

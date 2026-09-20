@@ -11,7 +11,7 @@ from armi_kernel.application import (
     ProviderMeterScope,
     provider_meter_scope,
 )
-from armi_runtime.adapters.model import volcengine_ark as ark
+from armi_runtime.adapters.model import structured as ark
 from armi_runtime.composition.model_verification import (
     GENERIC_COGNITION_INSTRUCTIONS,
     candidate_schema,
@@ -40,7 +40,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
         responses=SimpleNamespace(with_raw_response=SimpleNamespace(create=create)),
         close=AsyncMock(),
     )
-    clients = ark.ArkClients()
+    clients = ark.ModelClients()
     monkeypatch.setattr(clients, "get", lambda *_args: client)
     schema = candidate_schema("armi.cognition-candidate.v17")
     transport = ark.OfficialArkTransport(

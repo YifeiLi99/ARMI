@@ -21,6 +21,9 @@ from armi_kernel.application import (
 from armi_local_control import ProviderCheckReceipts
 from armi_runtime.composition.config_assets import runtime_config_path
 from armi_runtime.composition.environment import prepare_environment
+from armi_runtime.composition.model_verification import (
+    load_active_binding as load_active_model_binding,
+)
 
 _LOCATOR_NAME = "model.ark_api_key"
 _PURPOSE = CredentialPurpose("model.request")
@@ -47,7 +50,11 @@ def live_provider_meter(environment_root: Path) -> Generator[LiveProviderMeter]:
     async def save(receipt: ProviderCallReceipt) -> None:
         journal.save(
             verification_id=identity,
-            credential_name=_LOCATOR_NAME,
+            credential_name={
+                "volcengine_ark": _LOCATOR_NAME,
+                "qwen": "model.qwen_api_key",
+                "deepseek": "model.deepseek_api_key",
+            }[receipt.provider],
             call=receipt.document(),
         )
         meter.receipts[receipt.call_id] = receipt
@@ -65,9 +72,10 @@ def live_provider_meter(environment_root: Path) -> Generator[LiveProviderMeter]:
 class LiveArkCredential:
     port: CredentialPort
     locator: CredentialLocator
+    purpose: CredentialPurpose = _PURPOSE
 
     def read_text(self) -> str:
-        with self.port.resolve(self.locator, _PURPOSE) as handle:
+        with self.port.resolve(self.locator, self.purpose) as handle:
             value = handle.consume(
                 lambda secret: bytes(secret).decode("utf-8", errors="strict")
             )
@@ -87,7 +95,23 @@ def load_live_ark_credential(environment_root: Path) -> LiveArkCredential:
     return LiveArkCredential(prepared.credential_port, locator)
 
 
+def load_live_text_credential(environment_root: Path) -> LiveArkCredential:
+    binding = load_active_model_binding(
+        runtime_config_path("model-bindings.yaml", environment_root=environment_root)
+    )
+    name = f"model.{binding.provider}_api_key"
+    purpose = CredentialPurpose(f"model.request.{binding.provider}")
+    prepared = prepare_environment(
+        environment_root, credential_scope={purpose.value: name}
+    )
+    locator = prepared.effective.config.secret_locators.get(name)
+    if locator is None:
+        raise ValueError("live text credential is unavailable")
+    return LiveArkCredential(prepared.credential_port, locator, purpose)
+
+
 __all__ = (
     "LiveArkCredential",
     "load_live_ark_credential",
+    "load_live_text_credential",
 )

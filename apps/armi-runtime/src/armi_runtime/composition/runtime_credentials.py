@@ -27,6 +27,8 @@ def runtime_credential_scope() -> dict[str, str]:
         CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
         "data_rights.identity_token": "data_rights.identity_token_key",
         "model.request": "model.ark_api_key",
+        "model.request.qwen": "model.qwen_api_key",
+        "model.request.deepseek": "model.deepseek_api_key",
         "speech.recognition": "speech.volc_credentials",
         "web.search": "model.ark_api_key",
         "codex.runner.auth": "codex.auth_json",

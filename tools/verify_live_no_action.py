@@ -1,4 +1,4 @@
-"""Run one bounded S031 Seed Evolving formal-no-action live attempt.
+"""Run one bounded selected-text-provider formal-no-action live attempt.
 
 This explicit entry is outside the offline quality path. It never prints the
 credential or model content and only records bounded, non-sensitive evidence.
@@ -27,10 +27,11 @@ from armi_kernel.application import (
     ModelResultStatus,
 )
 from armi_kernel.contracts import Digest
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.composition.candidate_validation_tool import (
     build_candidate_validator,
 )
+from armi_runtime.composition.config_assets import runtime_config_path
+from armi_runtime.composition.model_adapter import create_model_adapter
 from armi_runtime.composition.model_verification import (
     GENERIC_COGNITION_INSTRUCTIONS,
     CandidateValidationContext,
@@ -42,7 +43,7 @@ from armi_runtime.composition.model_verification import (
 from live_ark_credential import (
     LiveProviderMeter,
     live_provider_meter,
-    load_live_ark_credential,
+    load_live_text_credential,
 )
 
 
@@ -55,8 +56,10 @@ async def _verify(environment_root: Path) -> dict[str, object]:
 async def _verify_metered(
     environment_root: Path, meter: LiveProviderMeter
 ) -> dict[str, object]:
-    credential = load_live_ark_credential(environment_root)
-    binding = load_active_binding()
+    credential = load_live_text_credential(environment_root)
+    binding = load_active_binding(
+        runtime_config_path("model-bindings.yaml", environment_root=environment_root)
+    )
     subject_id = uuid7()
     generation_id = uuid7()
     episode_id = uuid7()
@@ -174,7 +177,7 @@ async def _verify_metered(
             },
         ),
     )
-    adapter = VolcengineArkModelAdapter(
+    adapter = create_model_adapter(
         instructions=GENERIC_COGNITION_INSTRUCTIONS,
         schema_name="armi_cognition_candidate_v12",
         binding=binding,

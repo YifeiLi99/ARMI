@@ -165,6 +165,8 @@ class RuntimeCliTests(unittest.TestCase):
             "creator.timeline.cursor": "creator.bearer",
             "data_rights.identity_token": "data_rights.identity_token_key",
             "model.request": "model.ark_api_key",
+            "model.request.qwen": "model.qwen_api_key",
+            "model.request.deepseek": "model.deepseek_api_key",
             "speech.recognition": "speech.volc_credentials",
             "web.search": "model.ark_api_key",
             "codex.runner.auth": "codex.auth_json",

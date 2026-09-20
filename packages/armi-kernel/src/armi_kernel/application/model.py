@@ -87,8 +87,14 @@ class ModelBinding:
             self.credential_identity,
         ):
             _require_token(value)
-        if type(self.api_base) is not str or self.api_base != (
-            "https://ark.cn-beijing.volces.com/api/v3"
+        bases = {
+            "volcengine_ark": r"https://ark\.cn-beijing\.volces\.com/api/v3",
+            "qwen": r"https://(?:dashscope\.aliyuncs\.com|[a-zA-Z0-9-]+\.cn-beijing\.maas\.aliyuncs\.com)/compatible-mode/v1",
+            "deepseek": r"https://api\.deepseek\.com",
+        }
+        if (
+            type(self.api_base) is not str
+            or re.fullmatch(bases.get(self.provider, r"(?!)"), self.api_base) is None
         ):
             raise ModelViolation("MODEL-BINDING-API-BASE")
         if type(self.model_id) is not str or _MODEL_ID.fullmatch(self.model_id) is None:

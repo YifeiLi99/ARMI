@@ -270,7 +270,6 @@ from armi_web_observation.bootstrap import (
     bootstrap_web_research_commit,
 )
 
-from armi_runtime.adapters.model.ark_clients import ArkClients
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
@@ -279,9 +278,7 @@ from armi_runtime.adapters.model.external_content import (
 from armi_runtime.adapters.model.local_embedding import (
     LocalLlamaCppEmbeddingAdapter,
 )
-from armi_runtime.adapters.model.volcengine_ark import (
-    VolcengineArkModelAdapter,
-)
+from armi_runtime.adapters.model.model_clients import ModelClients
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
@@ -334,6 +331,7 @@ from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
 )
+from .model_adapter import create_model_adapter
 from .owner_roster import RuntimeOwnerRoster
 from .subject_commit_pipeline import (
     SubjectCommitPipeline,
@@ -1586,7 +1584,7 @@ def _cognition_failure_notification(
 def compose_model_pipeline(
     prepared: PreparedEnvironment,
     *,
-    clients: ArkClients,
+    clients: ModelClients,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     context: ContextCognitionReadPort,
     opportunities: OpportunityCognitionSelectionPort,
@@ -1599,9 +1597,6 @@ def compose_model_pipeline(
 ) -> CognitionWorkerPort:
     """Resolve the Runtime and model credentials for the active S024 worker."""
 
-    model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
-    if model_locator is None:
-        raise ModelViolation("MODEL-CREDENTIAL")
     config = prepared.effective.config
 
     def adapter_factory(
@@ -1611,7 +1606,15 @@ def compose_model_pipeline(
         instructions: str,
         schema_name: str,
     ) -> CognitionModelPort:
-        return VolcengineArkModelAdapter(
+        locator_name = {
+            "volcengine_ark": MODEL_LOCATOR_NAME,
+            "qwen": "model.qwen_api_key",
+            "deepseek": "model.deepseek_api_key",
+        }[binding.provider]
+        model_locator = config.secret_locators.get(locator_name)
+        if model_locator is None and binding.profile != "creator_voice_act":
+            raise ModelViolation("MODEL-CREDENTIAL")
+        return create_model_adapter(
             clients=clients,
             binding=binding,
             credential_port=prepared.credential_port,

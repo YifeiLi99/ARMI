@@ -1,4 +1,4 @@
-"""Runtime-owned official Ark clients and content-free transport diagnostics."""
+"""Runtime-owned vendor clients; credentials and connections remain separate."""
 
 from __future__ import annotations
 
@@ -13,15 +13,17 @@ import httpx
 # Official SDK 0.8.0 has inline annotations but does not ship py.typed.
 from arkruntime import AsyncArk  # pyright: ignore[reportMissingTypeStubs]
 from armi_kernel.application import ModelBinding, ModelViolation
+from openai import AsyncOpenAI
 
 ArkDiagnostic = Callable[[str, int, tuple[str, ...]], None]
 
 
-class ArkClients(AbstractAsyncContextManager["ArkClients"]):
+class ModelClients(AbstractAsyncContextManager["ModelClients"]):
     """Share connections across per-context adapters; close after workers stop."""
 
     def __init__(self, diagnostic: ArkDiagnostic | None = None) -> None:
         self._clients: dict[tuple[str, float, bytes], AsyncArk] = {}
+        self._compatible_clients: dict[tuple[str, float, bytes], AsyncOpenAI] = {}
         self._diagnostic = diagnostic
         self._closed = False
 
@@ -56,13 +58,44 @@ class ArkClients(AbstractAsyncContextManager["ArkClients"]):
             )
         return self._clients[identity]
 
+    def get_compatible(self, api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
+        if self._closed:
+            raise ModelViolation("MODEL-CLIENT-CLOSED")
+        try:
+            key = bytes(api_key).decode("utf-8")
+        except UnicodeDecodeError:
+            raise ModelViolation("MODEL-CREDENTIAL") from None
+        identity = (
+            binding.api_base,
+            binding.timeout_seconds,
+            hashlib.sha256(api_key).digest(),
+        )
+        if identity not in self._compatible_clients:
+            self._compatible_clients[identity] = AsyncOpenAI(
+                api_key=key,
+                base_url=binding.api_base,
+                timeout=binding.timeout_seconds,
+                max_retries=0,
+                http_client=httpx.AsyncClient(
+                    trust_env=False,
+                    event_hooks={
+                        "request": [self._on_request],
+                        "response": [self._on_response],
+                    },
+                ),
+            )
+        return self._compatible_clients[identity]
+
     async def close(self) -> None:
         self._closed = True
         try:
             for client in self._clients.values():
                 await client.close()
+            for client in self._compatible_clients.values():
+                await client.close()
         finally:
             self._clients.clear()
+            self._compatible_clients.clear()
 
     async def __aexit__(self, *args: object) -> None:
         await self.close()
@@ -76,6 +109,15 @@ class ArkClients(AbstractAsyncContextManager["ArkClients"]):
         )
         request.extensions["armi_started"] = started
         request.extensions["armi_service"] = service
+        host = request.url.host
+        provider = (
+            "deepseek"
+            if host == "api.deepseek.com"
+            else "qwen"
+            if host.endswith("aliyuncs.com")
+            else "ark"
+        )
+        request.extensions["armi_provider"] = provider
 
         async def trace(event: str, info: dict[str, object]) -> None:
             if self._diagnostic is None:
@@ -92,7 +134,7 @@ class ArkClients(AbstractAsyncContextManager["ArkClients"]):
             }:
                 return
             self._diagnostic(
-                f"model.ark.{service}.{event}",
+                f"model.{provider}.{service}.{event}",
                 round((monotonic() - started) * 1000),
                 _exception_codes(info.get("exception")),
             )
@@ -102,7 +144,7 @@ class ArkClients(AbstractAsyncContextManager["ArkClients"]):
     async def _on_response(self, response: httpx.Response) -> None:
         if self._diagnostic is not None:
             self._diagnostic(
-                f"model.ark.{response.request.extensions['armi_service']}.response",
+                f"model.{response.request.extensions['armi_provider']}.{response.request.extensions['armi_service']}.response",
                 round(
                     (monotonic() - response.request.extensions["armi_started"]) * 1000
                 ),

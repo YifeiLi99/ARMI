@@ -145,7 +145,6 @@ from armi_perception.api import (
     ExternalContentRecognitionStatus,
     ExternalMediaContent,
 )
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
 from armi_runtime.adapters.persistence.birth import (
     BirthRepository,
@@ -198,6 +197,7 @@ from armi_runtime.composition.data_rights_contracts import (
     DATA_RIGHTS_OWNER_CONTRACTS,
 )
 from armi_runtime.composition.database import compose_mind_module as bootstrap_mind
+from armi_runtime.composition.model_adapter import create_model_adapter
 from armi_runtime.composition.model_verification import GENERIC_COGNITION_INSTRUCTIONS
 from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_runtime.composition.postgresql_test import (
@@ -277,7 +277,10 @@ from playwright.sync_api import sync_playwright
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from tools.live_ark_credential import load_live_ark_credential
+from tools.live_ark_credential import (
+    load_live_ark_credential,
+    load_live_text_credential,
+)
 
 
 class _TestIdentityTokens:
@@ -1523,6 +1526,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     @pytest.mark.test_group("schema", "codex", "admin")
     def test_supported_v27_database_upgrade_preserves_artifacts(self) -> None:
         self._assert_upgrade_preserves_codex_artifacts("v27")
+
+    @pytest.mark.test_group("schema", "cognition", "admin")
+    def test_supported_v28_database_upgrade_preserves_artifacts(self) -> None:
+        self._assert_upgrade_preserves_codex_artifacts("v28")
 
     def _assert_upgrade_preserves_codex_artifacts(self, source_version: str) -> None:
         from zipfile import ZipFile
@@ -7373,7 +7380,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         else:
             try:
-                live_credential = load_live_ark_credential(
+                live_credential = load_live_text_credential(
                     Path(live_environment_root).resolve()
                 )
             except Exception:
@@ -7391,7 +7398,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             async def metered_live_candidate(
                 prices: PriceCatalog,
             ) -> tuple[Any, dict[str, object]]:
-                binding = load_active_binding()
+                from armi_runtime.composition.config_assets import runtime_config_path
+
+                binding = load_active_binding(
+                    runtime_config_path(
+                        "model-bindings.yaml",
+                        environment_root=Path(live_environment_root).resolve(),
+                    )
+                )
                 request_bytes = build_request_bytes(
                     binding=binding,
                     compiled_context=compiled_context,
@@ -7417,7 +7431,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         },
                     ),
                 )
-                adapter = VolcengineArkModelAdapter(
+                adapter = create_model_adapter(
                     binding=binding,
                     credential_port=live_credential.port,
                     locator=live_credential.locator,

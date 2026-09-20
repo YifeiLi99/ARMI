@@ -25,7 +25,7 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
 豆包语音的流式 ASR、双向 TTS 和录音识别统一使用新版语音控制台 API Key，通过 `X-Api-Key` 发送。`speech.volc_credentials` locator 指向单 Key 文本，设置与 CLI/MCP 共用保存用例；不解析旧 App ID/Access Token JSON，不复用方舟模型凭据。资源 ID、音色与凭据分别配置。
 
-Setup 的凭据验证通过有界私有 worker 调用真实 Provider，独立于 Runtime 生命周期和 Subject Commit；不赋予交互端安装管理权限。模型验证普通与语音专用模型，语音验证 TTS 生成及 ASR 识别。保存状态与本次验证结果分开，错误只输出安全错误码与中文说明；验证期间凭据改变则结果失效。网络 I/O 不占用设置文件锁。Responses 适配器同时接纳正式绑定的 evolving 模型与固定语音模型，固定模型响应校验其模型身份；启动失败保留具体 ModelViolation 错误码。语音 WebSocket 与模型 HTTP 均不自动继承环境代理。
+Setup 的凭据验证通过有界私有 worker 调用真实 Provider，独立于 Runtime 生命周期和 Subject Commit；不赋予交互端安装管理权限。各 Key 只验证所属供应商的已选模型，语音另验证 TTS 生成及 ASR 识别；未选择相应文本供应商时明确要求先选择。保存状态与本次验证结果分开，错误只输出安全错误码与中文说明；验证期间凭据改变则结果失效。网络 I/O 不占用设置文件锁。模型响应核验其身份；启动失败保留具体 ModelViolation 错误码。语音 WebSocket 与模型 HTTP 均不自动继承环境代理。
 
 Windows 安装版采用 MSIX。Windows 管理只读程序目录，入口通过包身份查找资源；Known Folder API 定位的 `%LOCALAPPDATA%\ARMI` 保存永久数据。其下 `environments/active/` 保存数据库、配置、凭据、模型与生活数据，`control/` 保存设置、环境索引和独立管理与更新记录，`cache/`、`tmp/` 保存缓存与临时文件。MSIX 的目录虚拟化排除声明使这些数据实际落盘并在卸载后保留。开发验收使用独立包身份和 `ARMI.Acceptance` 数据目录。源码使用明确资源绑定；本次不迁移或修改旧 Inno 安装与数据。
 
@@ -266,9 +266,15 @@ Mind 与 Mood 各自拥有评价提示语义。Mood 公开 `MOOD_APPRAISAL_INSTR
 
 正式接线后六次隔离调用全部通过新版自主 Schema 和候选校验，并将原返回交给正式 Mind 变换离线准备；估算 ¥0.222360，无未知用量。长交流间隔、重复无进展分别产生 contact/change_activity 倾向，两小时投影约 7.03125；刚交流未形成动机，持续投入目标为零。未解释新现象未形成好奇，不能宣称三种心理稳定涌现。实验未提交日常主体或执行效果，原子提交另由隔离数据库测试验证。完整真实模型的持续行动及反馈结束轨迹仍未验证。
 
-认知模型传输采用火山官方 `arkruntime==0.8.0`，分词调用 `tokenization.create`，生成调用 `responses.create`。按[官方 SDK 使用建议](https://docs.volcengine.com/docs/ark/sdk-common-examples?lang=zh)，Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离；不同上下文的适配器及分词/生成共用连接池，凭据变化不修改在途请求的认证，停机在工作退出后关闭全部客户端。SDK 自动重试保持关闭，由认知现有预算负责有限分词重试，生成结果未知不自动重放。传输诊断只记录阶段、耗时、HTTP 状态和异常类型链，不记录凭据、提示词或响应正文；返回的服务端请求 ID 沿 Provider 回执留存。严格结构化输出约定不变。
+文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。按供应商官方文档使用 OpenAI SDK：Qwen 使用 Chat Completions 的 `response_format.json_schema` 和 `strict:true`，`enable_thinking:false`；DeepSeek 使用 Responses 的 `text.format` 和 `strict:true`，`reasoning.effort:none`。Qwen 不使用未明确支持该格式的 Responses 入口，也不发送会使 Schema 降级的多模态输入。原 Context、提示词、purpose 合同、候选校验、Subject Commit 和 Effect 链保持不变。不同协议只在适配器边界归一化，单轮仍只有一次生成，不自动切换模型或降级为 JSON Object。
 
-供应商适配器使用 Responses `text.format.type=json_schema`、`strict=true`，与[官方结构化输出入口](https://www.volcengine.com/docs/82379/1958523)一致。发送前将联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；不能沿用规范化存储的字母顺序，让回复正文先于 `kind`。这只调整生成顺序，不改变可接受的候选或校验合同。实验额外保留供应商原响应的 status、incomplete_details 和回显格式，不能仅凭请求设置推断每种复杂 Schema 都得到保证。收到可留存的返回与其可用于认知分开：`ModelInvocationResult.response_error_code` 标记非 completed 返回；Cognition 先保存原始正文和用量，再以具体错误结束 episode，不解析、提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。旧实验未保存供应商完成状态，旧两次结构错误的根因仍未确定；本轮未复现，不归咎于模型或宣称已修复其根因。
+两家各自使用 `model.qwen_api_key`、`model.deepseek_api_key`，目的分别为 `model.request.qwen`、`model.request.deepseek`。官方域名与供应商对应校验，千问允许北京通用域名和北京 Workspace 域名；不能通过模型配置把 Key 发到任意代理地址。`model.ark_api_key` 仅供独立豆包语音认知、视觉识别与网页搜索等原有方舟用途。语音绑定保持独立，不因未配置方舟 Key 阻断文本模型构造；实际语音调用缺凭据仍明确失败。
+
+Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离，停机在工作退出后关闭全部客户端。SDK 自动重试关闭，生成结果未知不自动重放。Qwen/DeepSeek 没有复用方舟分词接口：预检将实际请求（含 Schema）的 UTF-8 字节数加 1024 作为保守本地输入预算估计，可能比真实 token 数大；它不是服务商分词结果，不写成收费 usage。实际用量只来自响应，Qwen 的 prompt/completion/cache 字段明确映射到共同计量单位，原 usage 保留。缺失价格沿既有合同显示待计价，不套用方舟价格。独立方舟语音仍使用官方 `arkruntime` 的 tokenization/Responses。服务端请求 ID 留在 Provider 回执，错误诊断不暴露凭据或正文。
+
+接入依据（2026-09-20 核对）：[Qwen 结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)、[Qwen 思考开关](https://help.aliyun.com/zh/model-studio/deep-thinking)、[DeepSeek Responses 兼容说明](https://api-docs.deepseek.com/guides/responses_api/)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。严格 Schema 参数不等于已经实测所有复杂候选；新供应商仍需填写 Key 后做正式对话验收。
+
+各供应商按自己的协议发送严格 Schema。发送前将联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；这只调整生成顺序，不改变可接受的候选或校验合同。收到可留存的返回与其可用于认知分开：Responses 要求 completed，Chat Completions 要求唯一 choice、finish_reason=stop 且没有工具调用、拒绝或思考正文。Cognition 先保存原始正文和用量，再以具体错误结束失败 episode，不解析、提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。
 
 ### 心理与自主行动的目标架构
 
@@ -514,6 +520,6 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 
 ### 心理合同 v26 数据升级
 
-当前 baseline 为 v28，支持 v21–v27 精确前向升级。v27→v28 接受新增的文本/语音 v7 决策合同，保留历史候选与制品。其中 v25→v26 分别追加 Mind v4 / Mood v4 的 module_migration revision，保留旧 ID、payload、来源和情绪评分；不重复出生、不重算旧情绪。Mind 新动机为空，不补造历史需求。旧 Mood 评价只为轨迹比较读取，旧候选不执行。表、Owner 和权限不变；升级事务核验来源摘要及目标结构，失败完整回滚。安装更新由明确授权的签名验收包流程执行，部署事实与真实心理行为验收分别记录。
+当前 baseline 为 v29，支持 v21–v28 精确前向升级。v27→v28 接受新增的文本/语音 v7 决策合同，保留历史候选与制品。其中 v25→v26 分别追加 Mind v4 / Mood v4 的 module_migration revision，保留旧 ID、payload、来源和情绪评分；不重复出生、不重算旧情绪。Mind 新动机为空，不补造历史需求。旧 Mood 评价只为轨迹比较读取，旧候选不执行。表、Owner 和权限不变；升级事务核验来源摘要及目标结构，失败完整回滚。安装更新由明确授权的签名验收包流程执行，部署事实与真实心理行为验收分别记录。
 
 出生合同摘要是出生时的历史身份，不随心理模板更新改写。启动连续性检查接受当前合同及受支持 v21–v25 来源的明确历史摘要，未知摘要仍拒绝；不执行旧候选或恢复旧出生流程。升级回归必须使用对应历史出生摘要，并验证升级后连续性与未知摘要拒绝，不能只用当前出生模板构造旧库。

@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 from armi_kernel.application import ModelViolation
-from armi_runtime.adapters.model.volcengine_ark import (
+from armi_runtime.adapters.model.structured import (
     OfficialArkTransport,
     _available_refs,
     _provider_input,

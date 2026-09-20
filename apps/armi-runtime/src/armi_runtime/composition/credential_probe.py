@@ -15,16 +15,20 @@ from uuid import UUID
 import httpx
 from armi_cognition.bootstrap import load_active_model_binding, load_voice_model_binding
 from armi_kernel.application import (
+    ModelRequest,
+    ModelViolation,
     ProviderCallReceipt,
     ProviderMeterScope,
     load_price_catalog,
     provider_meter_scope,
 )
+from armi_kernel.contracts import Digest
 from armi_local_control import ProviderCheckReceipts
 from armi_local_control.configuration import load_effective_config
 from openai import AsyncOpenAI
 
 from armi_runtime.adapters.model._metered_ark import metered_ark_response
+from armi_runtime.adapters.model.compatible import CompatibleStructuredTransport
 from armi_runtime.adapters.voice.volc import (
     VolcStreamingAsr,
     VolcStreamingTts,
@@ -72,6 +76,44 @@ def _failure(error: Exception) -> dict[str, Any]:
 
 
 async def _model_check(key: str, binding: Any) -> dict[str, Any]:
+    if binding.provider in {"qwen", "deepseek"}:
+        transport = CompatibleStructuredTransport(
+            {
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+                "required": ["ok"],
+                "additionalProperties": False,
+            },
+            instructions='连接测试，请输出 {"candidate":{"ok":true}}。',
+            schema_name="armi_connection_check",
+        )
+        try:
+            request_bytes = json.dumps(
+                {
+                    "schema_version": "armi.model-request.v1",
+                    "compiled_context": {
+                        "purpose": "consider_creator_input",
+                        "layers": [],
+                    },
+                    "included_context_refs": [],
+                }
+            ).encode()
+            response = await transport.invoke(
+                api_key=memoryview(key.encode()),
+                binding=binding,
+                request=ModelRequest(
+                    request_bytes, Digest("sha256:" + "0" * 64), 1, 64
+                ),
+            )
+            if (
+                response["raw"].get("status") != "completed"
+                or response["model_id"] != binding.model_id
+                or json.loads(response["output_text"]) != {"candidate": {"ok": True}}
+            ):
+                raise ModelViolation("MODEL-PROVIDER-RESPONSE")
+            return {"status": "passed", "model": binding.model_id}
+        finally:
+            await transport.close()
     async with AsyncOpenAI(
         api_key=key,
         base_url=binding.api_base,
@@ -133,15 +175,25 @@ async def verify(
 
 async def _verify(name: str, key: str, root: Path) -> dict[str, Any]:
     checks: dict[str, Any] = {}
-    if name == "model.ark_api_key":
+    if name in {"model.ark_api_key", "model.qwen_api_key", "model.deepseek_api_key"}:
         path = runtime_config_path("model-bindings.yaml", environment_root=root)
-        for label, loader in (
-            ("model", load_active_model_binding),
-            ("voice_model", load_voice_model_binding),
-        ):
+        provider = {
+            "model.ark_api_key": "volcengine_ark",
+            "model.qwen_api_key": "qwen",
+            "model.deepseek_api_key": "deepseek",
+        }[name]
+        loaders = (
+            (("voice_model", load_voice_model_binding),)
+            if provider == "volcengine_ark"
+            else (("model", load_active_model_binding),)
+        )
+        for label, loader in loaders:
             try:
+                binding = loader(path)
+                if binding.provider != provider:
+                    continue
                 async with asyncio.timeout(30):
-                    checks[label] = await _model_check(key, loader(path))
+                    checks[label] = await _model_check(key, binding)
             except Exception as error:
                 checks[label] = _failure(error)
     elif name == "speech.volc_credentials":
@@ -209,6 +261,13 @@ async def _verify(name: str, key: str, root: Path) -> dict[str, Any]:
             }
     else:
         raise ValueError("unsupported credential")
+    if not checks:
+        return {
+            "status": "failed",
+            "error_code": "MODEL-BINDING-NOT-SELECTED",
+            "message": "请先在模型设置中选择此供应商的型号，再验证 Key。",
+            "checks": {},
+        }
     return {
         "status": "passed"
         if all(item["status"] == "passed" for item in checks.values())

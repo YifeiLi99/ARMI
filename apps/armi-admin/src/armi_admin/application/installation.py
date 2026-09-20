@@ -11,10 +11,11 @@ import socket
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 from uuid import UUID, uuid7
 
 import psycopg
+from armi_kernel import load_yaml_file
 from armi_kernel.application import PersonalityAnchor
 from armi_local_control import (
     NativePostgreSQL,
@@ -63,6 +64,8 @@ class SetupNapcatRequest(BaseModel):
 
 ProviderCredential = Literal[
     "model.ark_api_key",
+    "model.qwen_api_key",
+    "model.deepseek_api_key",
     "speech.volc_credentials",
     "codex.auth_json",
     "channel.qq.napcat_access_token",
@@ -70,6 +73,8 @@ ProviderCredential = Literal[
 ]
 _PROVIDER_CREDENTIALS = (
     "model.ark_api_key",
+    "model.qwen_api_key",
+    "model.deepseek_api_key",
     "speech.volc_credentials",
     "codex.auth_json",
     "channel.qq.napcat_access_token",
@@ -559,7 +564,13 @@ class SetupApplication:
         saved = b""
         verify = request.action in {"put_and_verify", "verify"}
         if verify and (
-            request.name not in {"model.ark_api_key", "speech.volc_credentials"}
+            request.name
+            not in {
+                "model.ark_api_key",
+                "model.qwen_api_key",
+                "model.deepseek_api_key",
+                "speech.volc_credentials",
+            }
             or self._verify_credential is None
         ):
             raise SetupError("SETUP-CREDENTIAL-VERIFY-UNSUPPORTED")
@@ -567,6 +578,27 @@ class SetupApplication:
             if self._read().stage != "ready":
                 raise SetupError("SETUP-INITIALIZATION-INCOMPLETE")
             path = self.root / "secrets" / ("provider-" + request.name)
+            added_locator = False
+            environment_update: dict[str, object] | None = None
+            if request.action in {"put", "put_and_verify"} and request.name in {
+                "model.qwen_api_key",
+                "model.deepseek_api_key",
+            }:
+                environment_path = self.root / "environment.yaml"
+                environment = load_yaml_file(environment_path)
+                locators = cast(
+                    dict[str, object], environment.setdefault("secret_locators", {})
+                )
+                expected_locator = self._locator("provider-" + request.name)
+                if (
+                    request.name in locators
+                    and locators[request.name] != expected_locator
+                ):
+                    raise SetupError("SETUP-CREDENTIAL-LOCATOR-CONFLICT")
+                if request.name not in locators:
+                    locators[request.name] = expected_locator
+                    environment_update = environment
+                    added_locator = True
             if has_reparse_point(path, root=self.root):
                 raise SetupError("SETUP-CREDENTIAL-PATH")
             if request.action in {"put", "put_and_verify"}:
@@ -598,13 +630,18 @@ class SetupApplication:
                     os.replace(temporary, path)
                 finally:
                     temporary.unlink(missing_ok=True)
+                if environment_update is not None:
+                    write_control(self.root / "environment.yaml", environment_update)
             elif request.action == "remove":
                 path.unlink(missing_ok=True)
             result: dict[str, object] = {
                 "status": "configured" if path.is_file() else "missing",
                 "name": request.name,
-                "restart_required": request.action != "status"
-                and request.name.startswith("channel.qq."),
+                "restart_required": added_locator
+                or (
+                    request.action != "status"
+                    and request.name.startswith("channel.qq.")
+                ),
             }
             if verify:
                 if not path.is_file():

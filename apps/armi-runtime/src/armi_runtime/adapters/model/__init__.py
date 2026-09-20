@@ -1,5 +1,5 @@
 """External model adapters."""
 
-from .volcengine_ark import VolcengineArkModelAdapter
+from .structured import StructuredModelAdapter
 
-__all__ = ("VolcengineArkModelAdapter",)
+__all__ = ("StructuredModelAdapter",)

@@ -17,7 +17,7 @@ class ManifestSection(BaseModel):
 
 
 class PrimaryModelSettings(ManifestSection):
-    provider: str
+    provider: Literal["qwen", "deepseek"]
     api_base: str
     model_id: str
     version_policy: str

@@ -121,11 +121,11 @@ from armi_web_observation.bootstrap import bootstrap_web_context_read
 from starlette.responses import Response as StarletteResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from armi_runtime.adapters.model.ark_clients import ArkClients
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.model.model_clients import ModelClients
 from armi_runtime.adapters.persistence.autonomy_query import PostgreSQLAutonomyQuery
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.provider_usage import PostgreSQLUsageQuery
@@ -1312,10 +1312,17 @@ async def _serve(
                         level=logging.WARNING,
                         result_code="SEMANTIC_RECALL_UNAVAILABLE",
                     )
-            if "model.ark_api_key" in config.secret_locators:
+            if any(
+                name in config.secret_locators
+                for name in (
+                    "model.ark_api_key",
+                    "model.qwen_api_key",
+                    "model.deepseek_api_key",
+                )
+            ):
                 try:
                     with configuration_consumption.consumer("cognition"):
-                        model_clients = ArkClients(
+                        model_clients = ModelClients(
                             lambda event, duration_ms, reasons: diagnostic.emit(
                                 event,
                                 duration_ms=duration_ms,

@@ -15,7 +15,7 @@ from armi_mood.api import (
     MoodViolation,
     semantic_appraisal_from_command,
 )
-from armi_runtime.adapters.model.volcengine_ark import _provider_output_schema
+from armi_runtime.adapters.model.structured import _provider_output_schema
 from armi_runtime.composition.model_verification import (
     candidate_schema,
     parse_candidate,

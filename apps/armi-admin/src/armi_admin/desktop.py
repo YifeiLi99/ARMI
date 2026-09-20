@@ -39,7 +39,9 @@ from armi_admin.composition import bootstrap_setup
 from armi_admin.windows_tray import WindowsTray
 
 _CREDENTIAL_NAMES = {
-    "火山方舟 API Key（模型与网页搜索）": "model.ark_api_key",
+    "火山方舟 API Key（豆包模型、视觉与网页搜索）": "model.ark_api_key",
+    "千问 API Key（北京地域文本模型）": "model.qwen_api_key",
+    "DeepSeek API Key（官方文本模型）": "model.deepseek_api_key",
     "豆包语音 API Key（识别与合成）": "speech.volc_credentials",
     "Codex 登录凭据": "codex.auth_json",
 }
@@ -340,6 +342,27 @@ class Desktop:
         ttk.Button(bar, text="读取设置", command=self.load_configuration).pack(
             side="left", padx=8
         )
+        model_bar = ttk.Frame(frame)
+        model_bar.pack(fill="x", pady=8)
+        ttk.Label(model_bar, text="文本模型").pack(side="left")
+        self.text_provider = tk.StringVar(value="qwen")
+        ttk.Combobox(
+            model_bar,
+            textvariable=self.text_provider,
+            values=("qwen", "deepseek"),
+            state="readonly",
+            width=12,
+        ).pack(side="left", padx=6)
+        self.text_model = tk.StringVar(value="qwen3.8-flash")
+        ttk.Entry(model_bar, textvariable=self.text_model, width=25).pack(side="left")
+        ttk.Button(model_bar, text="保存文本模型", command=self._save_text_model).pack(
+            side="left", padx=6
+        )
+        ttk.Label(
+            frame,
+            text="填写供应商支持严格结构化输出的型号。保存后重启 Runtime 生效；Key 在凭据页填写。",
+            wraplength=760,
+        ).pack(anchor="w")
         self.tree = ttk.Treeview(
             frame, columns=("value",), show="tree headings", selectmode="browse"
         )
@@ -427,7 +450,12 @@ class Desktop:
         self.secret.pack_forget()
         self.codex_import.pack_forget()
         name = _CREDENTIAL_NAMES[self.credential_name.get()]
-        provider_key = name in {"model.ark_api_key", "speech.volc_credentials"}
+        provider_key = name in {
+            "model.ark_api_key",
+            "model.qwen_api_key",
+            "model.deepseek_api_key",
+            "speech.volc_credentials",
+        }
         self.credential_save_button.configure(
             text="保存并验证" if provider_key else "导入并保存"
         )
@@ -437,6 +465,11 @@ class Desktop:
         if name == "model.ark_api_key":
             self.credential_help.set(
                 "填写火山方舟控制台创建的 API Key，用于模型调用及已启用的网页搜索。\n保存后后续请求读取新 Key，无需为更换 Key 重启；保存不代表服务商验证通过。"
+            )
+            self.secret.pack(fill="x", before=self.credential_actions)
+        elif name in {"model.qwen_api_key", "model.deepseek_api_key"}:
+            self.credential_help.set(
+                "填写所选供应商官方控制台创建的 API Key；千问使用北京地域。先在“功能与模型”选择对应文本模型，再验证。\n首次添加凭据配置需要重启 Runtime；之后替换 Key 在后续请求生效。保存状态与实际验证结果分别显示。"
             )
             self.secret.pack(fill="x", before=self.credential_actions)
         elif name == "speech.volc_credentials":
@@ -985,6 +1018,54 @@ class Desktop:
             lambda outcome: self._configuration_loaded(target, outcome),
         )
 
+    def _save_text_model(self) -> None:
+        provider = self.text_provider.get()
+        model = self.text_model.get().strip()
+
+        def apply(outcome: dict[str, Any]) -> None:
+            if outcome.get("status") != "succeeded":
+                return
+            payload = outcome["result"]
+            values: dict[str, Any] = (
+                payload.get("effective_on_next_start") or payload.get("values") or {}
+            )
+            binding = dict(values["bindings"][0])
+            previous_provider = binding["provider"]
+            binding.update(
+                provider=provider,
+                model_id=model,
+                api_base=binding["api_base"]
+                if previous_provider == provider
+                else (
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    if provider == "qwen"
+                    else "https://api.deepseek.com"
+                ),
+                credential_identity=f"armi.model.{provider}-api-key.v1",
+                credential_locator=f"model.{provider}_api_key",
+                credential_purpose=f"model.request.{provider}",
+                version_policy="provider_evolving_alias",
+            )
+            self.target.set("model-bindings")
+            self.admin(
+                "configuration",
+                {
+                    "target": "model-bindings",
+                    "action": "apply",
+                    "patch": {
+                        "active_binding": f"armi.model-adapter.{provider}-{'chat' if provider == 'qwen' else 'responses'}-v1",
+                        "bindings": [binding],
+                    },
+                    "expected_version": payload["version"],
+                    "idempotency_key": str(uuid7()),
+                },
+                lambda result: self._configuration_loaded("model-bindings", result),
+            )
+
+        self.admin(
+            "configuration", {"target": "model-bindings", "action": "read"}, apply
+        )
+
     def _configuration_loaded(self, target: str, outcome: dict[str, Any]) -> None:
         if outcome.get("status") != "succeeded":
             return
@@ -997,6 +1078,9 @@ class Desktop:
         values: dict[str, Any] = (
             payload.get("effective_on_next_start") or payload.get("values") or {}
         )
+        if target == "model-bindings":
+            self.text_provider.set(values["bindings"][0]["provider"])
+            self.text_model.set(values["bindings"][0]["model_id"])
 
         def add(
             parent: str, values: dict[str, Any], path: tuple[str, ...] = ()

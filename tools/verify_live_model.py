@@ -1,4 +1,4 @@
-"""Run one explicit Seed Evolving Responses conformance call.
+"""Run one explicit conformance call against the selected text provider.
 
 This entry is intentionally separate from the offline quality gates. It reads the
 configured ARMI environment only when invoked directly and emits no credential or
@@ -20,7 +20,8 @@ import rfc8785
 from armi_cognition.api import CognitionSchemaDocument
 from armi_kernel.application import ModelResultStatus, ModelUsage
 from armi_kernel.contracts import Digest
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
+from armi_runtime.composition.config_assets import runtime_config_path
+from armi_runtime.composition.model_adapter import create_model_adapter
 from armi_runtime.composition.model_verification import (
     GENERIC_COGNITION_INSTRUCTIONS,
     build_request_bytes,
@@ -31,7 +32,7 @@ from armi_runtime.composition.model_verification import (
 from live_ark_credential import (
     LiveProviderMeter,
     live_provider_meter,
-    load_live_ark_credential,
+    load_live_text_credential,
 )
 
 
@@ -44,8 +45,10 @@ async def _verify(environment_root: Path) -> dict[str, object]:
 async def _verify_metered(
     environment_root: Path, meter: LiveProviderMeter
 ) -> dict[str, object]:
-    credential = load_live_ark_credential(environment_root)
-    binding = load_active_binding()
+    credential = load_live_text_credential(environment_root)
+    binding = load_active_binding(
+        runtime_config_path("model-bindings.yaml", environment_root=environment_root)
+    )
     context_bytes = (
         b'{"items":[{"ref":"ctx:1","section":"current_evidence",'
         b'"trust":"external_claim","content":"\\u8bf7\\u7406\\u89e3\\u8fd9\\u6761'
@@ -69,7 +72,7 @@ async def _verify_metered(
             },
         ),
     )
-    adapter = VolcengineArkModelAdapter(
+    adapter = create_model_adapter(
         instructions=GENERIC_COGNITION_INSTRUCTIONS,
         schema_name="armi_cognition_candidate_v12",
         binding=binding,

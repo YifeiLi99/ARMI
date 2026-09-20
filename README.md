@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v28`，支持精确 v21–v27 → v28 保留数据升级 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v29`，支持精确 v21–v28 → v29 保留数据升级 |
 | 物理 schema | 当前 baseline 107 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -84,7 +84,7 @@ tests/                          架构、合同、Runtime、PostgreSQL 与系统
 docs/                           私有设计和外部研究，Git 忽略
 ```
 
-Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；已有数据库只接受包内声明的精确前向升级路径，当前支持 v21–v27 → v28，不通过重装替代升级。
+Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；已有数据库只接受包内声明的精确前向升级路径，当前支持 v21–v28 → v29，不通过重装替代升级。
 
 ## 日常启动
 
@@ -127,7 +127,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 该命令重新构建网页、wheels 和完整 payload，自动选择高于已安装版本与本地构建记录的四段版本，再签名并调用 Windows 安装。它仅使用 `YifeiLi99.ARMI.Acceptance` 身份和独立验收数据，软件显示名统一为 `ARMI`；已有环境先检查数据库合同，再通过 Admin 正常停机，停机失败则不请求更新。部署后核对 Windows 实际版本，关闭验收版的 GitHub 自动更新，保持环境停止，随后从开始菜单打开“ARMI”即可测试。构建默认使用已准备的离线依赖缓存；缺少依赖时失败，不自动联网补齐。
 
-默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。当前源码提供 v21–v27 → v28 精确前向升级；v27 将 Codex 持久化简化为委托与结果，保留历史制品和其他主体数据。源码变更不会自动更新安装版。此前独立签名测试包验证了 v16 到 v17 的升级、身份与凭据保留及中断状态；2026-09-15 经用户授权原位安装验收包 `2026.9.15.3` 并升级到 v19，数据库为 current、Runtime 与 QQ 为 ready，启动后新的自主认知完成。该历史记录不代表当前源码经过真实收费调用或 QQ 消息验收。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。当前源码提供 v21–v28 → v29 精确前向升级；v27 将 Codex 持久化简化为委托与结果，保留历史制品和其他主体数据。源码变更不会自动更新安装版。此前独立签名测试包验证了 v16 到 v17 的升级、身份与凭据保留及中断状态；2026-09-15 经用户授权原位安装验收包 `2026.9.15.3` 并升级到 v19，数据库为 current、Runtime 与 QQ 为 ready，启动后新的自主认知完成。该历史记录不代表当前源码经过真实收费调用或 QQ 消息验收。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
 
 版本格式为 `年.月.日.当日序号`，例如 `2026.9.15.1`，日期取构建电脑的本地日期。同日序号高于发布配置、已安装版本及本地构建记录，换日从 1 开始。日期早于已知最高版本或同日序号达到 65535 时明确失败；旧 `0.1.0.x` 可直接升级到日期版本。本地生成的 release tag 同步为 `v<完整版本>`，不上传 GitHub。发布配置中的 `.0` 是未发布基准，正式发布需填写实际日期及序号并同步 tag。
 
@@ -198,7 +198,11 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 保留资源按用途分目录：`models/semantic-recall/` 保存模型，`tools/semantic-recall/cache/` 保存安装包，`secrets/` 下按 `ark`、`codex`、`volc` 分别保存账号凭据，`config/` 保存配置参考；这些路径均相对于 `.armi/reusable/`。目录内的 `README.md` 说明用途与复用方式。
 
-账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存。页面使用中文名称：火山方舟 API Key 供模型与网页搜索共用；豆包语音只填写新版语音控制台的一个 API Key；Codex 导入已有登录文件；QQ 通信凭据由接入流程自动生成。模型后续请求、新语音会话及后续 Codex 委托读取新凭据，无需仅为更换这些凭据重启环境；当前会话或任务不切换。功能开关、配置变更及启动失败仍按各自合同处理。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`。当前内容未加密，依靠文件权限保护，界面不回显已保存内容；项目文档不保存凭据值。普通升级和默认卸载保留这些文件，明确选择清理数据才删除。保存只证明本地文件已更新，不代表服务商认证、模型可用或真实对话已通过。
+账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存。千问文本模型使用 `model.qwen_api_key`，DeepSeek 文本模型使用 `model.deepseek_api_key`；方舟 Key 仅用于独立豆包语音认知、视觉识别与网页搜索等原有用途。豆包语音识别/合成使用新版语音控制台 Key；Codex 导入登录文件；QQ 通信凭据自动生成。已有 locator 的 Key 更换在后续请求生效，当前任务不切换；旧环境首次添加千问或 DeepSeek locator 后需要重启 Runtime。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，依靠文件权限保护，不回显已保存内容。普通升级和默认卸载保留这些文件。保存只证明本地文件已更新，不代表服务商认证、模型或真实对话已通过。
+
+主文本模型在“功能与模型”页选择 `qwen` 或 `deepseek`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持千问 `qwen3.8-flash`（默认）、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`，以及 DeepSeek `deepseek-flash`、`deepseek-v4-pro`；这些型号使用官方严格 JSON Schema 接口，统一关闭思考。新增型号必须先确认其结构化输出与非思考能力，不能仅换名字猜测兼容。
+
+机器沿用 Admin `configuration` 的 `model-bindings` target，读取当前版本后以同一个 apply 补丁更新 `active_binding` 和唯一 `bindings` 项（保留所有 purpose、预算和独立 voice binding）。千问 adapter 为 `armi.model-adapter.qwen-chat-v1`，北京地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`；也允许官方北京 Workspace 域名。DeepSeek adapter 为 `armi.model-adapter.deepseek-responses-v1`，地址 `https://api.deepseek.com`。各自使用 `armi.model.qwen-api-key.v1` / `armi.model.deepseek-api-key.v1` 的 credential identity、上述 locator 和 `model.request.qwen` / `model.request.deepseek` purpose。设置页保存模型也调用同一用例。协议和官方来源见 [模型设计](DESIGN.md)；缺少价格继续按现有规则显示待计价，不继承方舟单价。
 
 语音凭据名称保持 `speech.volc_credentials`，CLI/MCP setup 的 `credential.put.value` 直接接收 API Key 文本，不再接收 App ID/Access Token JSON。流式 ASR、双向 TTS 和录音识别共用该语音 Key，通过 `X-Api-Key` 鉴权；资源 ID 和音色仍由配置指定。请在[豆包语音新版控制台](https://console.volcengine.com/speech/new/setting/apikeys?projectName=default)创建 Key 并开通所需服务，不自动复用方舟模型 Key。已有旧格式文件须重新录入语音 Key，不会自动转换或删除。依据：[流式识别](https://docs.volcengine.com/docs/6561/1354869)、[双向合成](https://docs.volcengine.com/docs/6561/1329505)、[录音识别](https://docs.volcengine.com/docs/6561/1354868)官方鉴权说明（2026-09-11 核对）。
 
@@ -212,7 +216,7 @@ QQ 已登录但 NapCat API 端口被 Windows 禁止绑定时，可调用 `{"acti
 
 QQ 页面分别显示组件安装、账号登录和连接状态；进度条仅用于下载与安装。`refresh` 用例读取当前登录和渠道健康，`open_login` 打开已有登录页并启动必要环境，不重新安装或重做绑定。首次配置后的重启可能需要 QQ 再次扫码验证，此时显示 `login_required`；再次登录后仅核验连接，不循环重启。已保存的安装进度不代表当前在线，`ready` 也不等于真实消息收发已验证。
 
-模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。普通模型和语音专用模型分别检查真实 Responses 严格 JSON；语音以当前配置的 TTS 资源和音色生成测试句，再以当前 ASR 资源识别并核对文本。全部成功才返回 `verification.status=passed`；失败或尚未测试逐项显示。`status=configured` 只代表已保存。状态读取不联网、不沿用历史通过结果。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
+模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。文本 Key 只检查所属供应商的当前选定型号；千问用 Chat Completions，DeepSeek 用 Responses，均发送严格 Schema。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。未选中相应文本供应商时要求先选择，不拿该 Key 尝试另一家。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。状态读取不联网。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
 
 ## 统一 MCP 与数据库管理
 

@@ -79,7 +79,7 @@ def test_experiment_evidence_matches_actual_transport_schema_order(
         schema_name="test",
         output=tmp_path / "response.json",
     )
-    adapter = experiment["VolcengineArkModelAdapter"](
+    adapter = experiment["create_model_adapter"](
         binding=case["binding"],
         credential_port=None,  # No tokenization or network invocation in this test.
         locator=None,

@@ -1,4 +1,4 @@
-"""Single-provider Volcengine Ark Responses adapter."""
+"""Shared structured cognition boundary and official Ark transport."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from arkruntime._exceptions import (  # pyright: ignore[reportMissingTypeStubs]
 from arkruntime.types.responses.response import (  # pyright: ignore[reportMissingTypeStubs]
     Response,
 )
-from armi_cognition.api import CognitionSchemaDocument
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -32,17 +31,23 @@ from armi_kernel.application import (
     provider_call,
 )
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
+from openai import APIConnectionError, APIStatusError, APITimeoutError
 
-from .ark_clients import ArkClients
+from .model_clients import ModelClients
 
 _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
-_EVOLVING_MODEL_ID = "doubao-seed-evolving"
 _PROVIDER_MODEL_ID = re.compile(r"^doubao-seed-[a-z0-9-]{1,96}$", re.ASCII)
 _CONTEXT_REF_PATTERN = r"^ctx:[1-9][0-9]{0,2}$"
 
 
-class ArkTransport(Protocol):
+class StructuredTransport(Protocol):
+    def request_parameters(
+        self, binding: ModelBinding, request: ModelRequest
+    ) -> dict[str, Any]: ...
+
+    async def close(self) -> None: ...
+
     async def tokenize(
         self,
         *,
@@ -60,8 +65,8 @@ class ArkTransport(Protocol):
     ) -> dict[str, Any]: ...
 
 
-class OfficialArkTransport:
-    """Official Ark SDK transport pinned to the Ark API base."""
+class StructuredRequestRenderer:
+    """Common cognition prompt and strict output schema, independent of wire API."""
 
     __slots__ = ("_candidate_schema", "_clients", "_instructions", "_schema_name")
 
@@ -71,9 +76,9 @@ class OfficialArkTransport:
         *,
         instructions: str,
         schema_name: str,
-        clients: ArkClients | None = None,
+        clients: ModelClients | None = None,
     ) -> None:
-        self._clients = clients if clients is not None else ArkClients()
+        self._clients = clients if clients is not None else ModelClients()
         self._candidate_schema = candidate_schema
         markdown_lines: list[str] = []
         for line in instructions.splitlines():
@@ -89,6 +94,26 @@ class OfficialArkTransport:
 
     async def close(self) -> None:
         await self._clients.close()
+
+    def render_input(self, request: ModelRequest) -> list[dict[str, str]]:
+        return _provider_input(request.canonical_bytes)
+
+    def output_format(self, request: ModelRequest) -> dict[str, Any]:
+        # 所有认知合同统一使用严格结构化输出。见 DESIGN.md。
+        # 异常排查 Schema 与供应商协议,禁止关闭 strict、修补或宽松解析。
+        return {
+            "type": "json_schema",
+            "name": self._schema_name,
+            "strict": True,
+            "schema": _provider_output_schema(
+                self._candidate_schema,
+                available_refs=_available_refs(request.canonical_bytes),
+            ),
+        }
+
+
+class OfficialArkTransport(StructuredRequestRenderer):
+    """Official Ark SDK transport retained for the independent voice binding."""
 
     async def tokenize(
         self,
@@ -211,19 +236,7 @@ class OfficialArkTransport:
             "store": False,
             "max_output_tokens": request.max_output_tokens,
             "tools": [],
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": self._schema_name,
-                    # 所有认知合同统一使用严格结构化输出。见 DESIGN.md。
-                    # 异常应排查 Schema、供应商结构化输出及适配。禁止关闭 strict 绕过。
-                    "strict": True,
-                    "schema": _provider_output_schema(
-                        self._candidate_schema,
-                        available_refs=_available_refs(request.canonical_bytes),
-                    ),
-                }
-            },
+            "text": {"format": self.output_format(request)},
             "thinking": {"type": "disabled"},
         }
 
@@ -256,8 +269,8 @@ def _provider_input(request_bytes: bytes) -> list[dict[str, str]]:
     raise ModelViolation("MODEL-REQUEST")
 
 
-class VolcengineArkModelAdapter(ModelPort):
-    """Resolve one credential and invoke the only active Ark binding."""
+class StructuredModelAdapter(ModelPort):
+    """Resolve one credential and preserve the common cognition result contract."""
 
     __slots__ = (
         "_binding",
@@ -272,25 +285,19 @@ class VolcengineArkModelAdapter(ModelPort):
         *,
         binding: ModelBinding,
         credential_port: CredentialPort,
-        locator: CredentialLocator,
-        candidate_schema: CognitionSchemaDocument,
-        instructions: str,
-        schema_name: str,
-        transport: ArkTransport | None = None,
-        clients: ArkClients | None = None,
+        locator: CredentialLocator | None,
+        renderer: StructuredTransport,
+        transport: StructuredTransport | None = None,
     ) -> None:
         if (
-            binding.provider != "volcengine_ark"
-            or not (
+            not (
                 (
-                    binding.model_id == _EVOLVING_MODEL_ID
-                    and binding.version_policy == "provider_evolving_alias"
-                )
-                or (
-                    binding.model_id == "doubao-seed-character-260628"
+                    binding.provider == "volcengine_ark"
+                    and binding.model_id == "doubao-seed-character-260628"
                     and binding.version_policy == "fixed_provider_model"
                     and binding.profile == "creator_voice_act"
                 )
+                or binding.provider in {"qwen", "deepseek"}
             )
             or not binding.response_model_identity_required
         ):
@@ -298,15 +305,7 @@ class VolcengineArkModelAdapter(ModelPort):
         self._binding = binding
         self._credential_port = credential_port
         self._locator = locator
-        provider_schema = cast(
-            dict[str, Any], json.loads(candidate_schema.canonical_bytes)
-        )
-        self._renderer = OfficialArkTransport(
-            provider_schema,
-            instructions=instructions,
-            schema_name=schema_name,
-            clients=clients,
-        )
+        self._renderer = renderer
         self._transport = transport or self._renderer
 
     def request_evidence(self, request: ModelRequest) -> bytes:
@@ -351,11 +350,11 @@ class VolcengineArkModelAdapter(ModelPort):
             )
         except ModelViolation:
             raise
-        except ArkAPITimeoutError:
+        except ArkAPITimeoutError, APITimeoutError:
             raise ModelViolation("MODEL-TOKENIZATION-TIMEOUT", retryable=True) from None
-        except ArkAPIConnectionError as error:
+        except (ArkAPIConnectionError, APIConnectionError) as error:
             raise ModelViolation("MODEL-CONNECTION", retryable=True) from error
-        except ArkAPIStatusError as error:
+        except (ArkAPIStatusError, APIStatusError) as error:
             raise _status_violation(error.status_code, dispatched=False) from None
         except Exception:
             raise ModelViolation("MODEL-TOKENIZATION") from None
@@ -375,17 +374,17 @@ class VolcengineArkModelAdapter(ModelPort):
             return self._settle_response(response, request)
         except ModelViolation:
             raise
-        except ArkAPITimeoutError:
+        except ArkAPITimeoutError, APITimeoutError:
             return _failure(
                 ModelResultStatus.TIMED_OUT,
                 "MODEL-REQUEST-TIMEOUT",
             )
-        except ArkAPIConnectionError:
+        except ArkAPIConnectionError, APIConnectionError:
             return _failure(
                 ModelResultStatus.OUTCOME_UNKNOWN,
                 "MODEL-OUTCOME-UNKNOWN",
             )
-        except ArkAPIStatusError as error:
+        except (ArkAPIStatusError, APIStatusError) as error:
             raise _status_violation(error.status_code, dispatched=True) from None
         except Exception:
             return _failure(
@@ -397,7 +396,14 @@ class VolcengineArkModelAdapter(ModelPort):
 
     def _copy_secret(self) -> bytearray:
         try:
-            with self._credential_port.resolve(self._locator, _PURPOSE) as handle:
+            if self._locator is None:
+                raise ModelViolation("MODEL-CREDENTIAL")
+            purpose = (
+                _PURPOSE
+                if self._binding.provider == "volcengine_ark"
+                else CredentialPurpose(f"model.request.{self._binding.provider}")
+            )
+            with self._credential_port.resolve(self._locator, purpose) as handle:
                 return handle.consume(lambda value: bytearray(value))
         except Exception:
             raise ModelViolation("MODEL-CREDENTIAL") from None
@@ -421,7 +427,14 @@ class VolcengineArkModelAdapter(ModelPort):
             type(provider_request_id) is not str
             or not provider_request_id
             or type(model_id) is not str
-            or _PROVIDER_MODEL_ID.fullmatch(model_id) is None
+            or (
+                self._binding.provider == "volcengine_ark"
+                and _PROVIDER_MODEL_ID.fullmatch(model_id) is None
+            )
+            or (
+                self._binding.provider != "volcengine_ark"
+                and model_id != self._binding.model_id
+            )
             or (
                 self._binding.version_policy == "fixed_provider_model"
                 and model_id != self._binding.model_id
@@ -741,7 +754,7 @@ def _wipe(value: bytearray) -> None:
 
 
 __all__ = (
-    "ArkTransport",
     "OfficialArkTransport",
-    "VolcengineArkModelAdapter",
+    "StructuredModelAdapter",
+    "StructuredTransport",
 )

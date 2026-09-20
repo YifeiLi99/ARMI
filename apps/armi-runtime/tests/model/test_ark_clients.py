@@ -15,8 +15,8 @@ from armi_kernel.application import (
     ProviderMeterScope,
     provider_meter_scope,
 )
-from armi_runtime.adapters.model import ark_clients
-from armi_runtime.adapters.model.volcengine_ark import OfficialArkTransport
+from armi_runtime.adapters.model import model_clients
+from armi_runtime.adapters.model.structured import OfficialArkTransport
 
 
 def binding():
@@ -105,7 +105,7 @@ async def test_official_sdk_reuses_client_across_contexts_and_preserves_wire(
         clients.append(client)
         return client
 
-    monkeypatch.setattr(ark_clients, "AsyncArk", make_client)
+    monkeypatch.setattr(model_clients, "AsyncArk", make_client)
 
     async def record(receipt):
         receipts.append(receipt)
@@ -126,7 +126,7 @@ async def test_official_sdk_reuses_client_across_contexts_and_preserves_wire(
             max_output_tokens=2048,
         ),
     )
-    async with ark_clients.ArkClients() as pool:
+    async with model_clients.ModelClients() as pool:
         for name in ("first_context", "second_context"):
             transport = OfficialArkTransport(
                 {"type": "object", "properties": {}, "$defs": {}},
@@ -170,7 +170,7 @@ async def test_official_sdk_reuses_client_across_contexts_and_preserves_wire(
 
 @pytest.mark.asyncio
 async def test_credential_rotation_does_not_mutate_inflight_client():
-    async with ark_clients.ArkClients() as pool:
+    async with model_clients.ModelClients() as pool:
         first = pool.get(memoryview(b"first-key"), binding())
         second = pool.get(memoryview(b"second-key"), binding())
         assert first is not second
@@ -183,7 +183,7 @@ async def test_credential_rotation_does_not_mutate_inflight_client():
 @pytest.mark.asyncio
 async def test_tls_diagnostic_keeps_cause_and_never_logs_messages():
     events = []
-    async with ark_clients.ArkClients(lambda *args: events.append(args)) as pool:
+    async with model_clients.ModelClients(lambda *args: events.append(args)) as pool:
         request = httpx.Request(
             "POST",
             "https://ark.example/api/v3/tokenization",
@@ -211,7 +211,7 @@ async def test_connection_failure_has_no_hidden_sdk_retry(monkeypatch):
         calls += 1
         raise httpx.ConnectError("controlled", request=request)
 
-    async with ark_clients.ArkClients() as pool:
+    async with model_clients.ModelClients() as pool:
         client = pool.get(memoryview(b"test-key"), binding())
         client._client._transport = httpx.MockTransport(fail)
         with pytest.raises(ArkAPIConnectionError):
@@ -227,7 +227,7 @@ async def test_http_rejection_preserves_request_id_and_failed_receipt(status):
     async def record(receipt):
         receipts.append(receipt)
 
-    async with ark_clients.ArkClients() as pool:
+    async with model_clients.ModelClients() as pool:
         client = pool.get(memoryview(b"test-key"), binding())
         client._client._transport = httpx.MockTransport(
             lambda request: httpx.Response(

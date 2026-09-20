@@ -1,18 +1,18 @@
 schema_version: armi.model-bindings.v3
-active_binding: armi.model-adapter.volcengine-ark-responses-v1
+active_binding: armi.model-adapter.qwen-chat-v1
 
 bindings:
-  - provider: volcengine_ark
-    api_base: https://ark.cn-beijing.volces.com/api/v3
-    model_id: doubao-seed-evolving
+  - provider: qwen
+    api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model_id: qwen3.8-flash
     version_policy: provider_evolving_alias
     profile: creator_input_cognition
     request_contract_version: armi.model-request.v1
     response_contract_version: armi.cognition-candidate.v17
     response_model_identity_required: true
-    credential_identity: armi.model.ark-api-key.v1
-    credential_locator: model.ark_api_key
-    credential_purpose: model.request
+    credential_identity: armi.model.qwen-api-key.v1
+    credential_locator: model.qwen_api_key
+    credential_purpose: model.request.qwen
     input_token_limit: 65536
     output_token_limit: 4096
     timeout_seconds: 180

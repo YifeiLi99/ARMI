@@ -52,12 +52,11 @@ from armi_mood.api import (
     preview_appraisal,
     semantic_appraisal_from_command,
 )
-from armi_runtime.adapters.model.ark_clients import ArkClients
-from armi_runtime.adapters.model.volcengine_ark import (
-    OfficialArkTransport,
-    VolcengineArkModelAdapter,
-)
+from armi_runtime.adapters.model.compatible import CompatibleStructuredTransport
+from armi_runtime.adapters.model.model_clients import ModelClients
 from armi_runtime.composition.candidate_validation_tool import build_candidate_validator
+from armi_runtime.composition.config_assets import runtime_config_path
+from armi_runtime.composition.model_adapter import create_model_adapter
 from armi_runtime.composition.model_verification import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     CandidateOwner,
@@ -69,7 +68,7 @@ from armi_runtime.composition.model_verification import (
     load_purpose_binding,
     model_response_candidate,
 )
-from live_ark_credential import load_live_ark_credential
+from live_ark_credential import load_live_text_credential
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 # Pair labels and evaluation hypotheses are deliberately absent from model input.
@@ -299,9 +298,14 @@ def appraisal_case(text: str) -> dict[str, Any]:
     case["schema"] = PsychologicalEvaluation.model_json_schema()
     case["request"] = rfc8785.dumps(
         {
-            "synthetic": True,
-            "available_refs": ["ctx:1"],
-            "context": {"ctx:1": text},
+            "schema_version": "armi.model-request.v1",
+            "compiled_context": {
+                "purpose": "consider_autonomous_life",
+                "layers": [
+                    {"items": [{"item_kind": "current_evidence", "content": text}]}
+                ],
+            },
+            "included_context_refs": [{"ref": "ctx:1"}],
         }
     )
     return case
@@ -351,7 +355,7 @@ def validate_appraisal_response(
         return {"validation": "rejected", "error": str(error)}
 
 
-class EvidenceTransport(OfficialArkTransport):
+class EvidenceTransport(CompatibleStructuredTransport):
     def __init__(
         self, schema: dict[str, Any], *args: Any, output: Path, **kwargs: Any
     ) -> None:
@@ -551,7 +555,7 @@ async def run(
     credential = None
     if live:
         assert environment is not None
-        credential = load_live_ark_credential(environment)
+        credential = load_live_text_credential(environment)
 
     async def record(receipt: ProviderCallReceipt) -> None:
         nonlocal count
@@ -561,14 +565,14 @@ async def run(
             count += 1
         journal.save(
             verification_id=verification_id,
-            credential_name="model.ark_api_key",
+            credential_name=f"model.{receipt.provider}_api_key",
             call=receipt.document(),
         )
         receipts[receipt.call_id] = receipt
 
     results = []
     trajectory = MindTrajectory() if mode == "trajectory" else None
-    clients = ArkClients()
+    clients = ModelClients()
     try:
         with provider_meter_scope(
             ProviderMeterScope(
@@ -602,6 +606,20 @@ async def run(
                 )
                 if mode == "schema_probe":
                     case["schema"] = SchemaProbe.model_json_schema()
+                if live:
+                    selected = load_purpose_binding(
+                        "consider_autonomous_life",
+                        runtime_config_path(
+                            "model-bindings.yaml", environment_root=environment
+                        ),
+                    )
+                    case["binding"] = selected
+                    request_document = json.loads(case["request"])
+                    request_document["binding"] = {
+                        key: getattr(selected, key)
+                        for key in request_document["binding"]
+                    }
+                    case["request"] = rfc8785.dumps(request_document)
                 prefix = f"{index:02d}-{label}"
                 save(output / f"{prefix}-context.json", case["compiled"])
                 save(output / f"{prefix}-request.json", case["request"])
@@ -612,7 +630,7 @@ async def run(
                     continue
                 assert credential is not None
                 binding = case["binding"]
-                adapter = VolcengineArkModelAdapter(
+                adapter = create_model_adapter(
                     binding=binding,
                     credential_port=credential.port,
                     locator=credential.locator,

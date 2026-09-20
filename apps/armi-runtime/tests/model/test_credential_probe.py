@@ -5,14 +5,14 @@ from uuid import uuid7
 
 import pytest
 from armi_cognition.api import CognitionSchemaDocument
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.composition import credential_probe as probe
 from armi_runtime.composition.config_assets import runtime_config_path
+from armi_runtime.composition.model_adapter import create_model_adapter
 
 
 def test_actual_voice_binding_initializes_responses_adapter():
     binding = probe.load_voice_model_binding(runtime_config_path("model-bindings.yaml"))
-    adapter = VolcengineArkModelAdapter(
+    adapter = create_model_adapter(
         binding=binding,
         credential_port=Mock(),
         locator=Mock(),
@@ -87,7 +87,7 @@ async def test_models_are_checked_separately_and_errors_are_redacted(monkeypatch
     result = await probe.verify(
         "model.ark_api_key", "test-key", Path("."), str(uuid7())
     )
-    assert len(calls) == 2
+    assert calls == ["doubao-seed-character-260628"]
     assert result["status"] == "failed"
-    assert result["checks"]["model"]["status"] == "passed"
+    assert "model" not in result["checks"]
     assert "private-key" not in str(result)

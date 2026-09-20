@@ -112,8 +112,8 @@ from ._visual_observation_contract import (
 MODEL_BINDING_VERSION = "armi.model-bindings.v3"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
 CANDIDATE_VERSION = "armi.cognition-candidate.v17"
-ACTIVE_MODEL_ID = "doubao-seed-evolving"
-ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
+ACTIVE_MODEL_ID = "qwen3.8-flash"
+ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-chat-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
 
 ProposalRef = Annotated[
@@ -717,8 +717,7 @@ def load_active_binding(
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     if (
         value.get("schema_version") != MODEL_BINDING_VERSION
-        or value.get("active_binding") != ACTIVE_MODEL_ADAPTER
-        or binding.get("model_id") != ACTIVE_MODEL_ID
+        or not _supported_text_binding(value.get("active_binding"), binding)
         or binding.get("version_policy") != ACTIVE_VERSION_POLICY
         or binding.get("response_contract_version") != CANDIDATE_VERSION
         or binding.get("response_model_identity_required") is not True
@@ -809,6 +808,48 @@ def load_active_binding(
     ):
         raise ModelViolation("MODEL-BINDING-MANIFEST")
     return _binding_from_manifest(binding)
+
+
+def _supported_text_binding(adapter: object, binding: dict[str, Any]) -> bool:
+    provider = binding.get("provider")
+    if not isinstance(provider, str) or not isinstance(binding.get("model_id"), str):
+        return False
+    identities = {
+        "qwen": (
+            "armi.model-adapter.qwen-chat-v1",
+            "model.qwen_api_key",
+            "model.request.qwen",
+            "armi.model.qwen-api-key.v1",
+        ),
+        "deepseek": (
+            "armi.model-adapter.deepseek-responses-v1",
+            "model.deepseek_api_key",
+            "model.request.deepseek",
+            "armi.model.deepseek-api-key.v1",
+        ),
+    }
+    models = {
+        # Officially documented schema + disabled-thinking combinations only.
+        "qwen": {
+            "qwen3.8-flash",
+            "qwen3.8-max",
+            "qwen3.7-flash",
+            "qwen3.7-plus",
+            "qwen3.7-max",
+        },
+        "deepseek": {"deepseek-flash", "deepseek-v4-pro"},
+    }
+    return (
+        provider in identities
+        and (
+            adapter,
+            binding.get("credential_locator"),
+            binding.get("credential_purpose"),
+            binding.get("credential_identity"),
+        )
+        == identities[provider]
+        and binding.get("model_id") in models[provider]
+    )
 
 
 def load_purpose_binding(

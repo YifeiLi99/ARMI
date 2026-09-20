@@ -1,8 +1,10 @@
 import json
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
 from armi_admin.application.installation import SetupCredentialRequest, SetupError
+from armi_kernel import load_yaml_file
 from pydantic import SecretStr
 
 from tests.admin.test_napcat_setup import application
@@ -95,3 +97,54 @@ def test_verify_changed_secret_cannot_claim_success(tmp_path):
     verification = result["verification"]
     assert isinstance(verification, dict)
     assert verification["error_code"] == "SETUP-CREDENTIAL-CHANGED"
+
+
+@pytest.mark.parametrize("name", ["model.qwen_api_key", "model.deepseek_api_key"])
+def test_new_provider_key_adds_locator_once_and_preserves_other_configuration(
+    tmp_path, name
+):
+    service = application(tmp_path / "environments/active")
+    environment = service.root / "environment.yaml"
+    environment.write_text(
+        json.dumps(
+            {
+                "voice": {"enabled": False},
+                "secret_locators": {"model.ark_api_key": "file:old-key"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with patch.object(service, "_read", return_value=Mock(stage="ready")):
+        first = service.credential(
+            SetupCredentialRequest(
+                name=name, action="put", value=SecretStr("isolated-key")
+            )
+        )
+        second = service.credential(
+            SetupCredentialRequest(
+                name=name, action="put", value=SecretStr("replacement-key")
+            )
+        )
+    assert first["restart_required"] is True
+    assert second["restart_required"] is False
+    document = cast(dict[str, Any], load_yaml_file(environment))
+    assert document["voice"] == {"enabled": False}
+    assert document["secret_locators"]["model.ark_api_key"] == "file:old-key"
+    assert document["secret_locators"][name].endswith("provider-" + name)
+    assert "isolated-key" not in environment.read_text(encoding="utf-8")
+
+
+def test_invalid_new_key_does_not_add_locator(tmp_path):
+    service = application(tmp_path / "environments/active")
+    environment = service.root / "environment.yaml"
+    environment.write_text("{}", encoding="utf-8")
+    with (
+        patch.object(service, "_read", return_value=Mock(stage="ready")),
+        pytest.raises(SetupError),
+    ):
+        service.credential(
+            SetupCredentialRequest(
+                name="model.qwen_api_key", action="put", value=SecretStr("")
+            )
+        )
+    assert environment.read_text(encoding="utf-8") == "{}"
