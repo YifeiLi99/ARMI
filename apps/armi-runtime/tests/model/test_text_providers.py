@@ -177,6 +177,7 @@ async def test_sdk_wire_usage_and_failure_preserve_single_responses_call(
         else:
             assert requests[0].url.path == "/responses"
             assert wire["text"] == {"format": {"type": "json_object"}}
+            assert wire["tool_choice"] == "none"
             assert wire["temperature"] == 1.0
             assert wire["top_p"] == 1.0
             assert "thinking" not in wire and "store" not in wire
@@ -370,21 +371,26 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
         if purpose == "consider_other_human_input":
             example_text = (
                 wire["instructions"]
-                .split("合法 JSON 格式示例（仅示意层级，实际内容按本轮判断）：\n", 1)[1]
+                .split(
+                    "完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n",
+                    1,
+                )[1]
                 .split("\n注意", 1)[0]
             )
-            Draft202012Validator(expected).validate(json.loads(example_text))
-            experience_text = (
-                wire["instructions"]
-                .split("仅形成经历、没有关系变化的合法示例：\n", 1)[1]
-                .split("\nrelationship_change", 1)[0]
-            )
-            value = json.loads(experience_text)
+            value = json.loads(example_text)
             Draft202012Validator(expected).validate(value)
+            relationship = value["candidate"]["social"]["relationship_change"]
+            assert relationship["fact"]["kind"] == "party_expression"
+            assert relationship["boundary"] is None
+            assert relationship["commitment_change"] is None
             value["candidate"]["social"]["relationship_change"] = dict.fromkeys(
                 ("interpretation", "fact", "boundary", "commitment_change")
             )
             assert not Draft202012Validator(expected).is_valid(value)
+            value["candidate"]["social"]["relationship_change"] = None
+            Draft202012Validator(expected).validate(value)
+            value["candidate"]["social"] = None
+            Draft202012Validator(expected).validate(value)
 
 
 @pytest.mark.parametrize(

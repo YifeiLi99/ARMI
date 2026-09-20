@@ -934,6 +934,37 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
     assert relationship.commitments[0].party_role is RelationshipPartyRole.OTHER
     assert isinstance(result.change_set.action_choices[0], OtherHumanReplyDraft)
 
+    # A conversational preference can be remembered without blocking contact.
+    candidate["experience"] = {"first_person_gist": "对方要求别拿笨手笨脚开玩笑。"}
+    candidate["relationship_change"] = {
+        "interpretation": "对方希望继续聊天,但不喜欢这种玩笑。",
+        "fact": {"kind": "party_expression", "summary": "别拿笨手笨脚开玩笑。"},
+        "boundary": None,
+        "commitment_change": None,
+    }
+    preference = DeterministicCandidateValidator(context).validate(
+        _other_human_bytes(candidate), bases=bases
+    )
+    assert preference.status is CandidateValidationStatus.ACCEPTED
+    assert preference.change_set is not None
+    assert not _relationships(preference.change_set)[0].boundaries
+    assert any(
+        fact.summary == "别拿笨手笨脚开玩笑。"
+        for fact in _relationships(preference.change_set)[0].facts
+    )
+
+    candidate["relationship_change"]["boundary"] = {
+        "party": "other",
+        "kind": "contact",
+        "action": "restrict",
+        "summary": "请停止联系。",
+    }
+    stopped = DeterministicCandidateValidator(context).validate(
+        _other_human_bytes(candidate), bases=bases
+    )
+    assert stopped.status is CandidateValidationStatus.REJECTED
+    assert stopped.error_code == "CANDIDATE-RELATIONSHIP-BOUNDARY"
+
 
 def test_two_other_human_relationship_candidates_keep_separate_party_identity() -> None:
     subject_id = uuid7()

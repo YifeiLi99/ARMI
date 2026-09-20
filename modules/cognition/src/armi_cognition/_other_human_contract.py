@@ -57,7 +57,14 @@ class _RelationshipBoundary(_StrictModel, frozen=True):
 
 
 class _RestrictedBoundary(_RelationshipBoundary, frozen=True):
-    kind: Literal["contact", "address", "privacy", "disclosure"]
+    # Match the existing reply/contact policy; see DESIGN.md, model contracts.
+    kind: Literal["contact", "address", "privacy", "disclosure"] = Field(
+        description=(
+            "contact=停止联系,会阻止本轮回复;address=称呼限制;"
+            "privacy=隐私限制;disclosure=信息披露限制。"
+            "普通语气、玩笑和建议偏好记录为关系事实,不归入 contact。"
+        )
+    )
     action: Literal["refuse", "restrict"]
 
 
@@ -267,6 +274,12 @@ OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = (
 
 仅当本轮真实形成经历时填写 experience;关系变化必须基于 experience,只属于当前精确
 对方。明确拒绝才可收紧边界,承诺不授予权限。
+boundary 是具有具体效果的限制,不是所有聊天偏好的统称。
+contact 表示停止联系,exit 表示结束联系;已有或本轮新增这两种边界时不能选择 reply。
+address 只表示称呼限制,privacy 表示隐私限制,disclosure 表示信息披露限制。
+“别拿这件事开玩笑”“先别给建议”等仍允许聊天的偏好,可在 fact 中记录对方原意,
+并在 interpretation 中理解这种偏好;boundary 为 null,不扩大成停止联系,不自动建立承诺。
+boundary.party 指提出限制的一方:对方提出填 other,ARMI 自己提出填 armi。
 只要填写 relationship_change,interpretation 就必须为非空的关系理解;已有关系且理解未变时可保留原解释,不为填字段编造新判断。
 fact、boundary、commitment_change 按实际变化填写,无相应变化时为 null。
 只有经历、没有关系变化时保留 social.experience,并将 relationship_change 整体写为 null;
@@ -276,7 +289,7 @@ commitment_ref 和 conflicts_with_ref 只能引用 Context 中标题为“关系
 relationship_commitment 的条目;“当前关系”、历史消息、心情等条目不是承诺。
 note_conflict 必须有两个不同的现有承诺及真实冲突依据;没有这些条件就不输出该动作。
 不形成承诺变化时将 commitment_change 写为 null,不能为填满字段而编造变化或引用。
-若本轮事件意义发生变化,可填写 appraisal;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足,不适用的可选评价组省略。
+若本轮事件意义发生变化,可填写 appraisal;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足。是否可省略字段由 Schema 的 required 决定;允许 null 的评价组不形成评价时填 null,枚举中有 not_applicable 时用它表示不适用。
 """
     + "\n\n# 表达方式\n\n"
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS

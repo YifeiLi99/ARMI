@@ -47,41 +47,12 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             + "\n\n输出必须是单个完整 JSON 对象，不含 Markdown 代码围栏、解释或额外对象。"
             + "格式检查只在内部进行；任何层级都不得添加 Schema 未定义的字段，"
             + "包括说明、注释、格式检查记录或推理过程。"
-            + "以下是后端验证使用的完整 JSON Schema，必须满足全部字段、类型和约束：\n"
+            + "字段是否必须出现由 required 决定；可为 null 不等于可省略。"
+            + "无变化时使用 Schema 允许的 null 或空数组，不为填字段编造内容。"
+            + "以下是从后端合同生成的完整 JSON Schema，必须满足全部字段、类型和约束：\n"
             + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
         )
         properties = self._candidate_schema.get("properties", {})
-        if set(properties) == {"decision", "appraisal", "social"}:
-            example = {
-                "candidate": {
-                    "decision": {"kind": "reply", "content": "示例回复"},
-                    "appraisal": None,
-                    "social": None,
-                }
-            }
-            experience_example = {
-                "candidate": {
-                    "decision": {"kind": "reply", "content": "示例回复"},
-                    "appraisal": None,
-                    "social": {
-                        "experience": {
-                            "first_person_gist": "这次交谈让我有了一段新的个人经历。",
-                            "uncertainty": None,
-                        },
-                        "relationship_change": None,
-                    },
-                }
-            }
-            instructions += (
-                "\n\n合法 JSON 格式示例（仅示意层级，实际内容按本轮判断）：\n"
-                + json.dumps(example, ensure_ascii=False)
-                + "\n注意 decision、appraisal、social 都在 candidate 对象内部。"
-                + "若填写 appraisal，事件元数据与内部 appraisal 评价对象应分别遵循 Schema；"
-                + "不要把它们混为同一层。示例中的 null 不要求省略本轮实际形成的评价或经历。"
-                + "\n\n仅形成经历、没有关系变化的合法示例：\n"
-                + json.dumps(experience_example, ensure_ascii=False)
-                + "\nrelationship_change 为 null 与内部字段全为 null 的对象不同；后者非法。"
-            )
         parameters: dict[str, Any] = {
             "model": binding.model_id,
             "instructions": instructions,
@@ -98,6 +69,8 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             parameters["temperature"] = 1.0
         elif binding.provider == "deepseek":
             parameters["text"] = {"format": {"type": "json_object"}}
+            # Responses carries a candidate message, not a tool invocation. DESIGN.md.
+            parameters["tool_choice"] = "none"
             # Chat variation is intentional; never replace strict validation with
             # lower temperature. DeepSeek fixes non-thinking top_p at 1.0.
             parameters["temperature"] = 1.0
@@ -282,7 +255,23 @@ def _dialogue_example(
         else None,
     }
     if other_human:
-        candidate["social"] = None
+        # One complete example demonstrates a preference without a contact ban.
+        # Do not multiply partial response shapes; see DESIGN.md.
+        candidate["social"] = {
+            "experience": {
+                "first_person_gist": "对方希望我听完倾诉再提建议。",
+                "uncertainty": None,
+            },
+            "relationship_change": {
+                "interpretation": "对方愿意继续交流，希望先被倾听。",
+                "fact": {
+                    "kind": "party_expression",
+                    "summary": "对方表示先别给建议。",
+                },
+                "boundary": None,
+                "commitment_change": None,
+            },
+        }
     else:
         candidate.update(
             experience=None, changes=[], mind_appraisals=[], concern_changes=[]
