@@ -81,6 +81,21 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             parameters["store"] = False
         elif binding.provider == "deepseek":
             parameters["text"] = {"format": {"type": "json_object"}}
+            example = _dialogue_example(
+                set(properties), self.context_refs(request)
+            )
+            if example is not None:
+                # DeepSeek's JSON guide requires an example, not just a schema.
+                # Show the non-null nested appraisal that failed live; DESIGN.md.
+                parameters["instructions"] += (
+                    "\n\n完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n"
+                    + json.dumps(example, ensure_ascii=False, indent=2)
+                    + "\n注意 candidate.appraisal 是完整事件；其内部 appraisal 才是评价维度。"
+                    + "gist、basis_refs、event_phase、trajectory 与内部 appraisal 同级；"
+                    + "decision 等其他候选字段仍在 candidate 内部。"
+                    + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
+                    + "需要引用时选择本轮实际支持判断的 Context 条目。"
+                )
         else:
             raise ModelViolation("MODEL-BINDING")
         return parameters
@@ -164,3 +179,55 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             "usage": normalized_usage,
             "raw": document,
         }
+
+
+def _dialogue_example(
+    properties: set[str], available_refs: tuple[str, ...]
+) -> dict[str, Any] | None:
+    other_human = properties == {"decision", "appraisal", "social"}
+    creator = properties == {
+        "decision",
+        "appraisal",
+        "experience",
+        "changes",
+        "mind_appraisals",
+        "concern_changes",
+    }
+    if not (creator or other_human):
+        return None
+    candidate: dict[str, Any] = {
+        "decision": {"kind": "reply", "content": "示例回复"},
+        "appraisal": {
+            "gist": "一次普通交谈",
+            "basis_refs": list(available_refs[:1]),
+            "event_phase": "realized",
+            "trajectory": {"transition": "new"},
+            "appraisal": {
+                "causality": None,
+                "concerns": [
+                    {
+                        "direction": "unchanged",
+                        "significance": "peripheral",
+                        "target": "relationship",
+                    }
+                ],
+                "coping": None,
+                "demand": None,
+                "engagement": "not_applicable",
+                "expectedness": "expected",
+                "intrinsic_quality": "neutral",
+                "outcome_certainty": "settled",
+                "self_involvement": "limited",
+                "standards": None,
+            },
+        }
+        if available_refs
+        else None,
+    }
+    if other_human:
+        candidate["social"] = None
+    else:
+        candidate.update(
+            experience=None, changes=[], mind_appraisals=[], concern_changes=[]
+        )
+    return {"candidate": candidate}

@@ -98,6 +98,9 @@ class StructuredRequestRenderer:
     def render_input(self, request: ModelRequest) -> list[dict[str, str]]:
         return _provider_input(request.canonical_bytes)
 
+    def context_refs(self, request: ModelRequest) -> tuple[str, ...]:
+        return _available_refs(request.canonical_bytes)
+
     def output_format(self, request: ModelRequest) -> dict[str, Any]:
         # Keep one strict backend contract; generation follows each vendor's API.
         # DESIGN.md forbids relaxing validation, repairing JSON or hidden retries.
@@ -107,7 +110,7 @@ class StructuredRequestRenderer:
             "strict": True,
             "schema": _provider_output_schema(
                 self._candidate_schema,
-                available_refs=_available_refs(request.canonical_bytes),
+                available_refs=self.context_refs(request),
             ),
         }
 

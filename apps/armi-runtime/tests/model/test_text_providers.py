@@ -346,8 +346,21 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
                 wire["instructions"]
                 .split("完整 JSON Schema，必须满足全部字段、类型和约束：\n", 1)[1]
                 .split("\n\n合法 JSON 格式示例", 1)[0]
+                .split("\n\n完整对话 JSON 层级示例", 1)[0]
             )
             assert json.loads(rendered) == expected
+            if "完整对话 JSON 层级示例" in wire["instructions"]:
+                example_text = (
+                    wire["instructions"]
+                    .split(
+                        "完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n",
+                        1,
+                    )[1]
+                    .split("\n注意 candidate.appraisal", 1)[0]
+                )
+                example = json.loads(example_text)
+                Draft202012Validator(expected).validate(example)
+                assert "appraisal" in example["candidate"]["appraisal"]
         if purpose == "consider_other_human_input":
             example_text = (
                 wire["instructions"]
@@ -366,6 +379,52 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
                 ("interpretation", "fact", "boundary", "commitment_change")
             )
             assert not Draft202012Validator(expected).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    "purpose", ["consider_creator_input", "consider_other_human_input"]
+)
+def test_deepseek_dialogue_example_covers_nested_appraisal_with_bound_refs(
+    purpose,
+):
+    from armi_runtime.composition.model_verification import (
+        candidate_schema,
+        load_purpose_binding,
+    )
+
+    selected = load_purpose_binding(purpose)
+    schema = candidate_schema(selected.response_contract_version, purpose=purpose)
+    renderer = CompatibleStructuredTransport(
+        schema, instructions="", schema_name="test"
+    )
+    data = json.loads(request().canonical_bytes)
+    data["included_context_refs"] = [{"ref": "ctx:7"}]
+    payload = json.dumps(data).encode()
+    current = ModelRequest(payload, Digest.from_bytes(payload), 10, 2048)
+    wire = renderer.request_parameters(binding("deepseek"), current)
+    value = json.loads(
+        wire["instructions"]
+        .split("完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n", 1)[1]
+        .split("\n注意 candidate.appraisal", 1)[0]
+    )
+    expected = renderer.output_format(current)["schema"]
+    Draft202012Validator(expected).validate(value)
+    event = value["candidate"]["appraisal"]
+    assert event["basis_refs"] == ["ctx:7"]
+    assert set(event) == {
+        "appraisal",
+        "gist",
+        "basis_refs",
+        "trajectory",
+        "event_phase",
+    }
+    # The observed failure lost this event envelope; backend must still reject it.
+    value["candidate"]["appraisal"] = event["appraisal"]
+    assert not Draft202012Validator(expected).is_valid(value)
+    assert (
+        "完整对话 JSON 层级示例"
+        not in renderer.request_parameters(binding("qwen"), current)["instructions"]
+    )
 
 
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])
