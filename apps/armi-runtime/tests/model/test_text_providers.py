@@ -351,7 +351,7 @@ def test_optional_state_can_be_omitted_but_required_and_unknown_fields_stay_stri
         schema, instructions="", schema_name="test"
     )
     validator = Draft202012Validator(renderer.output_format(request())["schema"])
-    value = {"action": "reply", "content": "在呢"}
+    value = {"action": "reply", "content": ["在呢"]}
     validator.validate(value)
     parse_candidate(
         json.dumps({"decision": {"kind": "reply", "content": "在呢"}}).encode(),
@@ -367,7 +367,7 @@ def test_optional_state_can_be_omitted_but_required_and_unknown_fields_stay_stri
     assert "required 之外且无变化的字段直接省略" in wire["instructions"]
     del value["content"]
     assert not validator.is_valid(value)
-    value["content"] = "在呢"
+    value["content"] = ["在呢"]
     value["note"] = "检查通过"
     assert not validator.is_valid(value)
 
@@ -516,7 +516,7 @@ def test_prefixed_event_fields_keep_coping_standards_and_trajectory_constraints(
     validator = Draft202012Validator(renderer.output_format(current)["schema"])
     value = {
         "action": "reply",
-        "content": "Understood",
+        "content": ["Understood"],
         "event_gist": "A conversation",
         "event_basis_refs": ["ctx:1"],
         "event_phase": "realized",

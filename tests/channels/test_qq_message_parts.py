@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, cast
@@ -20,11 +21,105 @@ from armi_effect.api import (
     EffectViolation,
     FrozenEffectRequest,
 )
+from armi_kernel.application import ModelRequest
 from armi_kernel.contracts import Digest, TraceId
+from armi_runtime.adapters.model.compatible import CompatibleStructuredTransport
+from armi_runtime.composition.model_verification import (
+    candidate_schema,
+    load_purpose_binding,
+    model_response_candidate,
+    parse_candidate,
+)
 from armi_runtime.composition.postgresql_test import (
     bootstrap_effect_runtime,
     compose_effect_dispatch_repository,
 )
+from jsonschema import Draft202012Validator
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "purpose",
+    [
+        "consider_creator_input",
+        "consider_other_human_input",
+        "consider_autonomous_life",
+    ],
+)
+@pytest.mark.parametrize(
+    "messages", [["嗯"], ["嗯", "我在呀"], ["嗯", "我在呀", "怎么啦？"]]
+)
+async def test_model_messages_become_exact_qq_sends(purpose, messages):
+    selected = load_purpose_binding(purpose)
+    renderer = CompatibleStructuredTransport(
+        candidate_schema(selected.response_contract_version, purpose=purpose),
+        instructions="",
+        schema_name="test",
+    )
+    request_body = b'{"included_context_refs":[]}'
+    schema = renderer.output_format(
+        ModelRequest(request_body, Digest.from_bytes(request_body), 1, 2048)
+    )["schema"]
+    autonomous = purpose == "consider_autonomous_life"
+    wire = (
+        {
+            "candidate": {
+                "kind": "no_activity",
+                "expression": messages,
+                "next_consideration_seconds": 300,
+            }
+        }
+        if autonomous
+        else {"action": "reply", "content": messages}
+    )
+    Draft202012Validator(schema).validate(wire)
+    native = model_response_candidate(
+        json.dumps(
+            {
+                "schema_version": "armi.model-response-artifact.v3",
+                "output_text": json.dumps(wire),
+            }
+        ).encode(),
+        expected_version=selected.response_contract_version,
+    )
+    parsed = parse_candidate(
+        json.dumps(native).encode(),
+        expected_version=selected.response_contract_version,
+        allowed_context_refs=frozenset(),
+    )
+    decoded = cast(Any, parsed)
+    content = decoded.expression if autonomous else decoded.decision.content
+    sent = []
+
+    class Gateway:
+        async def send_private_text(self, *, user_id, text, echo):
+            sent.append(text)
+            return NapCatActionResponse("ok", 0, str(len(sent)), echo)
+
+    adapter = QQEffectAdapter(
+        QQEgressAdapter(
+            config=QQAdapterConfig(10001, 90009, {}, frozenset()),
+            gateway=cast(Any, Gateway()),
+        )
+    )
+    payload = content.encode("utf-8")
+    request = FrozenEffectRequest(
+        EffectId(uuid7()),
+        EffectAttemptId(uuid7()),
+        uuid7(),
+        uuid7(),
+        uuid7(),
+        "external_private",
+        "qq",
+        "10001",
+        "90009",
+        Digest.from_bytes(payload),
+        len(payload),
+        TraceId(uuid7().hex),
+    )
+    for part in adapter.payload_parts(request, payload):
+        await adapter.dispatch(request, part)
+    assert sent == messages
 
 
 @pytest.mark.asyncio

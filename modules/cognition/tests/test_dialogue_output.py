@@ -13,6 +13,42 @@ CREATOR = "armi.creator-cognitive-act-candidate.v7"
 OTHER = "armi.other-human-dialogue-candidate.v9"
 
 
+@pytest.mark.parametrize(
+    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate.v10"]
+)
+@pytest.mark.parametrize(
+    "messages",
+    [
+        "old string",
+        [],
+        ["a", "b", "c", "d"],
+        [""],
+        [" "],
+        [42],
+        ["a\n\nb"],
+        ["a\n"],
+        ["\nb"],
+        ["bad\x00text"],
+    ],
+)
+def test_message_boundary_contract_rejects_ambiguous_or_invalid_outputs(
+    version, messages
+):
+    wire = (
+        {
+            "candidate": {
+                "kind": "no_activity",
+                "expression": messages,
+                "next_consideration_seconds": 300,
+            }
+        }
+        if "autonomous" in version
+        else {"action": "reply", "content": messages}
+    )
+    with pytest.raises((CandidateViolation, ModelViolation)):
+        decode(wire, version)
+
+
 def decode(value, version) -> Any:
     artifact = json.dumps(
         {
@@ -32,7 +68,7 @@ def decode(value, version) -> Any:
 def test_flat_appraisal_preserves_existing_event_and_all_dimensions(version):
     value = {
         "action": "reply",
-        "content": "Got it",
+        "content": ["Got it"],
         "event_gist": "A new understanding",
         "event_basis_refs": ["ctx:1"],
         "event_transition": "reappraise",
@@ -62,7 +98,7 @@ def test_flat_appraisal_preserves_existing_event_and_all_dimensions(version):
 def test_other_experience_relation_boundary_and_commitment_reach_domain():
     value = {
         "action": "reply",
-        "content": "Understood",
+        "content": ["Understood"],
         "experience": "They stated a preference",
         "experience_uncertainty": "The scope needs clarification",
         "relationship_interpretation": "We can talk directly",
@@ -132,7 +168,7 @@ def test_creator_motivation_and_concern_are_not_lost():
     result = decode(
         {
             "action": "reply",
-            "content": "I will think about it",
+            "content": ["I will think about it"],
             "mind_appraisals": [appraisal],
             "concern_changes": [concern],
         },
@@ -148,10 +184,10 @@ def test_creator_motivation_and_concern_are_not_lost():
         {"candidate": {"decision": {"kind": "reply", "content": "Old wrapper"}}},
         {"action": "reply"},
         {"action": "reply", "content": 42},
-        {"action": "reply", "content": "Hi", "query": "Wrong action field"},
-        {"action": "reply", "content": "Hi", "_note": "Do not silently drop"},
-        {"action": "reply", "content": "Hi", "event_appraisal": {"appraisal": {}}},
-        {"action": "reply", "content": "Hi", "memory_summary": "No experience"},
+        {"action": "reply", "content": ["Hi"], "query": "Wrong action field"},
+        {"action": "reply", "content": ["Hi"], "_note": "Do not silently drop"},
+        {"action": "reply", "content": ["Hi"], "event_appraisal": {"appraisal": {}}},
+        {"action": "reply", "content": ["Hi"], "memory_summary": "No experience"},
     ],
 )
 def test_invalid_shallow_output_is_rejected_without_repair(value):
@@ -176,4 +212,4 @@ def test_invalid_shallow_output_is_rejected_without_repair(value):
 )
 def test_other_cannot_bypass_relationship_dependencies_or_creator_scope(extra):
     with pytest.raises((CandidateViolation, ModelViolation)):
-        decode({"action": "reply", "content": "Hi", **extra}, OTHER)
+        decode({"action": "reply", "content": ["Hi"], **extra}, OTHER)

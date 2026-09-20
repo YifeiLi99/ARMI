@@ -347,8 +347,8 @@ async def test_format_retry_preserves_request_and_finalizes_once(
     pipeline, record, request, response = _format_retry_execution(
         monkeypatch, provider=provider, other=other
     )
-    invalid = response('{"action":"reply","content":"bad","event_null":false}')
-    valid = response('{"action":"reply","content":"hello"}')
+    invalid = response('{"action":"reply","content":["bad"],"event_null":false}')
+    valid = response('{"action":"reply","content":["hello"]}')
     pipeline.adapter.invoke.side_effect = [invalid] * failures + [valid]
     if failures == 5:
         pipeline._finalization.finalize.side_effect = CandidateViolation(

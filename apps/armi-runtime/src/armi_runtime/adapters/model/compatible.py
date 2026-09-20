@@ -57,6 +57,15 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             set(self._candidate_schema.get("properties", {}))
         )
         business_instructions = self._instructions
+        if (
+            dialogue is not None
+            or "AutonomousTerminalDecision" in self._candidate_schema.get("$defs", {})
+        ):
+            business_instructions += (
+                "\n本轮的对外表达字段(content 或 expression)是含 1–3 个非空字符串的数组,每项就是一条独立消息。"
+                "由你决定条数与每条的内容,不要用换行假装多条消息,每项内部不得出现空白段落。"
+                '例如 ["嗯", "我在呀", "怎么啦？"] 会依次发送三条;只需一句就填 ["在呢"]。'
+            )
         if dialogue is not None:
             business_instructions = dialogue_output_instructions(business_instructions)
             business_instructions = business_instructions.replace(
@@ -115,7 +124,7 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
                 + "没有事件评价时省略全部 event_ 字段；填写时必须包含事件描述、依据、阶段、轨迹及必需评价维度。"
                 + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
                 + "需要引用时选择本轮实际支持判断的 Context 条目。"
-                + '\n没有评价、经历或状态变化的普通回复只需：{"action":"reply","content":"在呢"}。'
+                + '\n没有评价、经历或状态变化的普通回复只需：{"action":"reply","content":["在呢"]}。'
                 + "experience 是经历正文字符串；experience_uncertainty 是可选的不确定性说明。"
                 + "不输出 candidate、decision、social 或 relationship_change 包装对象；不确定字段位置时以 Schema 为准。"
             )

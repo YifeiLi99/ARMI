@@ -9,8 +9,42 @@ from typing import Any, cast
 from armi_kernel.application import CandidateViolation
 from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS
 
+from ._autonomous_activity_contract import AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
 from ._creator_cognitive_act_contract import CREATOR_COGNITIVE_ACT_VERSION
 from ._other_human_contract import OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+
+
+def _message_schema(text: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
+    while "$ref" in text:
+        text = root["$defs"][text["$ref"].removeprefix("#/$defs/")]
+    if "anyOf" in text:
+        return {"anyOf": [_message_schema(item, root) for item in text["anyOf"]]}
+    if text.get("type") != "string":
+        return text
+    # Model selects actual messages. Blank paragraphs cannot introduce hidden
+    # extra messages in the owner's existing text representation (DESIGN.md).
+    return {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 3,
+        "items": {**text, "not": {"pattern": r"\r?\n[ \t]*\r?\n|^[\r\n]|[\r\n]$"}},
+    }
+
+
+def _join_messages(value: Any) -> str:
+    if not isinstance(value, list):
+        raise CandidateViolation("CANDIDATE-CONTRACT")
+    messages = cast(list[Any], value)
+    if not 1 <= len(messages) <= 3 or any(
+        not isinstance(part, str)
+        or not part.strip()
+        or "\x00" in part
+        or re.search(r"\r?\n[ \t]*\r?\n|^[\r\n]|[\r\n]$", part)
+        for part in messages
+    ):
+        raise CandidateViolation("CANDIDATE-CONTRACT")
+    return "\n\n".join(messages)
+
 
 _DECISION = {
     "action": "kind",
@@ -194,7 +228,33 @@ def dialogue_output_schema(envelope: dict[str, Any]) -> dict[str, Any]:
     props = candidate.get("properties", {})
     kind = dialogue_output_kind(set(props))
     if kind is None:
-        return envelope
+
+        def project_expression(value: Any) -> None:
+            if isinstance(value, dict):
+                node = cast(dict[str, Any], value)
+                properties = node.get("properties", {})
+                if (
+                    "next_consideration_seconds" in properties
+                    and "expression" in properties
+                ):
+                    properties["expression"] = _message_schema(
+                        properties["expression"], root
+                    )
+                for child in node.values():
+                    project_expression(child)
+            elif isinstance(value, list):
+                for child in cast(list[Any], value):
+                    project_expression(child)
+
+        project_expression(root)
+        return root
+    # Replace only the decision's outward text; memory/relationship content stays
+    # plain text. Both providers see the same message-array contract.
+    for branch in objects(props["decision"]):
+        if "content" in branch["properties"]:
+            branch["properties"]["content"] = _message_schema(
+                branch["properties"]["content"], root
+            )
     result = new_object()
     lift(result, props["decision"], _DECISION, optional=False)
     event = objects(props["appraisal"])[0]
@@ -320,7 +380,16 @@ def expand_dialogue_output(
     }:
         if set(value) != {"candidate"} or not isinstance(value["candidate"], dict):
             raise CandidateViolation("CANDIDATE-CONTRACT")
-        return cast(dict[str, Any], value["candidate"])
+        candidate = cast(dict[str, Any], value["candidate"])
+        if (
+            expected_version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
+            and candidate.get("expression") is not None
+        ):
+            candidate = {
+                **candidate,
+                "expression": _join_messages(candidate["expression"]),
+            }
+        return candidate
     allowed = set(_DECISION) | set(_EXPERIENCE) | set(_EVENT_NAMES.values())
     allowed |= set(_RELATIONSHIP) if other else _CREATOR_STATE
     if other:
@@ -337,6 +406,8 @@ def expand_dialogue_output(
     result: dict[str, Any] = {
         "decision": {old: value[new] for new, old in _DECISION.items() if new in value}
     }
+    if "content" in result["decision"] and result["decision"]["content"] is not None:
+        result["decision"]["content"] = _join_messages(result["decision"]["content"])
     experience = {old: value[new] for new, old in _EXPERIENCE.items() if new in value}
     if other:
         relationship = {
@@ -376,6 +447,8 @@ def flatten_dialogue_output(candidate: dict[str, Any]) -> dict[str, Any]:
         for new, old in _DECISION.items()
         if old in candidate["decision"]
     }
+    if value.get("content") is not None:
+        value["content"] = [value["content"]]
     social: dict[str, Any] = candidate.get("social") or {}
     experience: dict[str, Any] = (
         candidate.get("experience") or social.get("experience") or {}
