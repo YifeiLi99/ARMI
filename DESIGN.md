@@ -282,6 +282,8 @@ Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离
 
 接入依据（2026-09-20 核对）：[Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)、[DeepSeek Responses](https://api-docs.deepseek.com/zh-cn/api/create-response/)、[DeepSeek JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)。JSON 模式只约束 JSON 格式，不保证符合业务 Schema；完整 Schema 提示及合法示例帮助生成，后端校验才决定候选能否继续。官方工具调用的 strict 说明不能直接当作 Responses 严格 Schema 能力的证明。单次回放通过不代表全部 purpose 或长期稳定性通过，新供应商仍需正式对话验收。
 
+2026-09-20 格式约束复核：[DeepSeek Responses 兼容说明](https://api-docs.deepseek.com/guides/responses_api/) 声明支持 text.format，但实测不能将请求被接受视为硬约束已经生效。原始 HTTP 单个 output_text 在 json_object 的 none/low 思考对照中都出现过非法 JSON，响应仍为 completed；改用文档列出的 json_schema 后，非创造者冻结请求也复现了非法 JSON。进一步去掉 ARMI Context、人设和业务 Schema，只要求一个 reply 字段且 enum 唯一值为 SCHEMA_OK：提示要求不同值的八次对照中两次违反 enum（未指定 strict、试验性 strict:true 各一次），提示与 Schema 一致的四次对照均通过。该反例说明问题不只发生在复杂业务合同，也不能由 SDK 拼接解释；它不证明服务端内部故障原因，亦不证明所有业务错误都来自供应商。证据位于本地 .tmp/deepseek-documented-schema-20260920、.tmp/deepseek-schema-enforcement-20260920 和 .tmp/deepseek-schema-enforcement-repeat-20260920。保留当前生成配置及后端严格校验，不为宣称修复而补括号、删字段或静默重试；稳定性问题尚未解决。
+
 模型侧按上述协议提供生成控制，独立方舟语音仍发送严格 Schema。Schema 中联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；这只调整提示顺序，不改变可接受的候选或校验合同。收到可留存的返回与其可用于认知分开：Responses 要求 completed，且没有工具调用、拒绝或思考正文。Cognition 先保存原始正文和用量；无效返回以具体错误结束失败 episode，不提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。
 
 ### 心理与自主行动的目标架构
