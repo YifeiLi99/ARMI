@@ -276,6 +276,8 @@ DeepSeek 的 JSON Output 指南同时要求 JSON 指令与输出格式样例，�
 
 Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离，停机在工作退出后关闭全部客户端。SDK 自动重试关闭，生成结果未知不自动重放。Qwen/DeepSeek 没有复用方舟分词接口：预检将实际请求（含 Schema）的 UTF-8 字节数加 1024 作为保守本地输入预算估计，可能比真实 token 数大；它不是服务商分词结果，不写成收费 usage。实际用量只来自 Responses 的 input/output/cache 字段，映射到共同计量单位并保留原 usage。缺失价格沿既有合同显示待计价，不套用方舟价格。独立方舟语音仍使用官方 `arkruntime` 的 tokenization/Responses。服务端请求 ID 留在 Provider 回执，错误诊断不暴露凭据或正文。
 
+实验选型约定（2026-09-20）：后续主聊天实验优先使用 DeepSeek `deepseek-flash`；Qwen `qwen3.8-flash` 保留可选，结构化输出稳定性与响应耗时仍有待调整、验证的问题，仅在明确进行 Qwen 专项或供应商对照时测试。该约定指定实验优先级，不表示 DeepSeek 已长期稳定，也不等于已切换安装环境或修改产品默认模型；两家的后端严格 Schema 校验要求一致。
+
 接入依据（2026-09-20 核对）：[Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)、[DeepSeek Responses](https://api-docs.deepseek.com/zh-cn/api/create-response/)、[DeepSeek JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)。JSON 模式只约束 JSON 格式，不保证符合业务 Schema；完整 Schema 提示及合法示例帮助生成，后端校验才决定候选能否继续。官方工具调用的 strict 说明不能直接当作 Responses 严格 Schema 能力的证明。单次回放通过不代表全部 purpose 或长期稳定性通过，新供应商仍需正式对话验收。
 
 模型侧按上述协议提供生成控制，独立方舟语音仍发送严格 Schema。Schema 中联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；这只调整提示顺序，不改变可接受的候选或校验合同。收到可留存的返回与其可用于认知分开：Responses 要求 completed，且没有工具调用、拒绝或思考正文。Cognition 先保存原始正文和用量；无效返回以具体错误结束失败 episode，不提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。
