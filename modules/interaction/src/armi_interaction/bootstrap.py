@@ -67,7 +67,6 @@ from .api import (
     OtherHumanInputPort,
     SceneTimelineCodexTaskProjectionPort,
     SceneTimelineQueryPort,
-    SystemNotificationEffectPort,
 )
 
 
@@ -80,10 +79,6 @@ def bootstrap_interaction_failure_notifications(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     opportunities: OpportunityContextReadPort,
     evidence: EvidenceReadPort,
-    routes: InteractionEffectRoutePort,
-    catalog: InteractionArtifactCatalogPort,
-    storage: ContentAddressedArtifactStore,
-    effects: SystemNotificationEffectPort,
     diagnostic: Callable[[str], None],
     voice_failure: Callable[[UUID], Awaitable[None]] | None = None,
     derived_origin: Callable[
@@ -97,10 +92,6 @@ def bootstrap_interaction_failure_notifications(
         factory=factory,
         opportunities=opportunities,
         evidence=evidence,
-        routes=routes,
-        catalog=catalog,
-        storage=storage,
-        effects=effects,
         diagnostic=diagnostic,
     )
 

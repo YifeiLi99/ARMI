@@ -1,15 +1,14 @@
-"""Interaction-owned, once-per-input technical failure notices."""
+"""Interaction-owned silent failure diagnostics and voice turn cleanup."""
 
 # ruff: noqa: RUF001
 
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from uuid import UUID, uuid7
+from uuid import UUID
 
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import LifeViolation, OpportunityContextReadPort
 from armi_evidence.api import (
     EvidenceId,
@@ -17,33 +16,13 @@ from armi_evidence.api import (
     EvidenceSnapshot,
     EvidenceViolation,
 )
-from armi_kernel.application import (
-    ArtifactId,
-    ArtifactPolicy,
-    ArtifactPrivacyScope,
-    ArtifactViolation,
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
-    RuntimeFence,
-)
-from armi_kernel.contracts import ContractViolation, Purpose, SubjectId, TraceId
+from armi_kernel.application import RuntimeFence
+from armi_kernel.contracts import ContractViolation, TraceId
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
     RuntimeTransactionFailure,
-)
-
-from .api import (
-    InteractionArtifactCatalogPort,
-    InteractionEffectRoute,
-    InteractionEffectRoutePort,
-    OtherHumanInputViolation,
-    SystemNotificationEffectDraft,
-    SystemNotificationEffectPort,
 )
 
 
@@ -52,6 +31,7 @@ class NotificationSourceViolation(RuntimeError):
 
 
 def failure_notification_text(*, send_unknown: bool) -> str:
+    """Render historical timeline records only; new failures never create these."""
     if send_unknown:
         return "ARMI 系统提示：本轮消息的发送结果暂时无法确认；消息可能已送达，系统不会重复发送。"
     return "ARMI 系统提示：本轮处理遇到技术错误，未能正常完成。"
@@ -71,10 +51,6 @@ class _Source:
     runtime_fence: RuntimeFence
 
 
-async def _chunk(value: bytes) -> AsyncIterator[bytes]:
-    yield value
-
-
 class InteractionFailureNotifications:
     def __init__(
         self,
@@ -82,10 +58,6 @@ class InteractionFailureNotifications:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         opportunities: OpportunityContextReadPort,
         evidence: EvidenceReadPort,
-        routes: InteractionEffectRoutePort,
-        catalog: InteractionArtifactCatalogPort,
-        storage: ContentAddressedArtifactStore,
-        effects: SystemNotificationEffectPort,
         diagnostic: Callable[[str], None],
         voice_failure: Callable[[UUID], Awaitable[None]] | None = None,
         derived_origin: Callable[
@@ -96,10 +68,6 @@ class InteractionFailureNotifications:
         self._factory = factory
         self._opportunities = opportunities
         self._evidence = evidence
-        self._routes = routes
-        self._catalog = catalog
-        self._storage = storage
-        self._effects = effects
         self._diagnostic = diagnostic
         self._voice_failure = voice_failure
         self._derived_origin = derived_origin
@@ -121,24 +89,29 @@ class InteractionFailureNotifications:
         failure_code: str,
         send_unknown: bool,
     ) -> None:
-        # This entry is called only for settled technical failures. Notice failure
-        # is reported to management and never submitted to this entry recursively.
+        # All technical failures stay silent in chat, including exhausted retries
+        # and unknown delivery. See DESIGN.md: failure handling. Never enqueue a
+        # notification here; failure facts remain owned by their original owners.
         if re.fullmatch(r"[A-Z][A-Z0-9_-]{0,127}", failure_code) is None:
             raise ValueError("invalid failure code")
+        self._diagnostic(
+            f"interaction.processing.failed code={failure_code}"
+            f" opportunity_id={opportunity_id} interaction_id={interaction_id}"
+            f" send_unknown={send_unknown}"
+        )
+        if self._voice_failure is None:
+            return
         try:
-            await self._notify(
-                opportunity_id, interaction_id, failure_code, send_unknown
-            )
+            await self._finish_voice(opportunity_id, interaction_id)
         except (
             ContractViolation,
-            ArtifactViolation,
             RuntimeTransactionFailure,
             OSError,
             NotificationSourceViolation,
             LifeViolation,
             EvidenceViolation,
         ):
-            self._diagnostic("interaction.system_notification.failed")
+            self._diagnostic("interaction.failure_cleanup.failed")
 
     async def _source(
         self, uow: PostgreSQLRuntimeUnitOfWork, opportunity_id: UUID
@@ -222,35 +195,6 @@ class InteractionFailureNotifications:
             uow.runtime_fence,
         )
 
-    async def _route(
-        self, uow: PostgreSQLRuntimeUnitOfWork, source: _Source
-    ) -> InteractionEffectRoute | None:
-        # Voice needs the current session's state/output owner, never a text
-        # channel fallback. A management receipt still records the failure.
-        if source.modality == "live_voice":
-            return None
-        intended = (
-            None
-            if source.binding_id is not None
-            else (
-                "creator_inbox"
-                if source.purpose != "other_human_message"
-                else "other_human_inbox"
-            )
-        )
-        try:
-            route = await self._routes.effect_route(
-                uow.transaction,
-                scene_id=source.scene_id,
-                context_party_id=source.party_id,
-                intended_destination_kind=intended,
-            )
-        except OtherHumanInputViolation:
-            return None
-        if route.destination_binding_id != source.binding_id:
-            return None
-        return route
-
     async def _locate(
         self,
         uow: PostgreSQLRuntimeUnitOfWork,
@@ -262,102 +206,16 @@ class InteractionFailureNotifications:
         assert interaction_id is not None
         return await self._input_source(uow, interaction_id, None)
 
-    async def _notify(
+    async def _finish_voice(
         self,
         opportunity_id: UUID | None,
         interaction_id: UUID | None,
-        code: str,
-        unknown: bool,
     ) -> None:
-        async with self._factory.unit_of_work() as uow:
+        async with self._factory.unit_of_work(read_only=True) as uow:
             source = await self._locate(uow, opportunity_id, interaction_id)
-            if source is None:
-                return
-            existing = await (
-                await uow.transaction.execute(
-                    "SELECT notification_id FROM armi.system_notifications WHERE interaction_id=%s",
-                    (source.interaction_id,),
-                )
-            ).fetchone()
-            if existing is not None:
-                return
-        payload = failure_notification_text(send_unknown=unknown).encode("utf-8")
-        publication = await self._storage.publish(
-            await self._storage.stage(
-                _chunk(payload),
-                ArtifactPolicy(
-                    "text/plain",
-                    "interaction.system_notification",
-                    "interaction.system",
-                    source.trace_id,
-                    ArtifactPrivacyScope.CREATOR_VISIBLE,
-                ),
-            )
-        )
-        async with self._factory.unit_of_work() as uow:
-            # No notice can move from the failed round into a different Runtime,
-            # receiver, or data-rights state during artifact preparation.
-            current = await self._locate(uow, opportunity_id, interaction_id)
-            if current != source:
-                return
-            route = await self._route(uow, source)
-            registration = await self._catalog.register(
-                uow, ArtifactId(uuid7()), publication
-            )
-            notification_id = uuid7()
-            inserted = await (
-                await uow.transaction.execute(
-                    """INSERT INTO armi.system_notifications (
-                    notification_id,interaction_id,operation_id,subject_id,scene_id,
-                    destination_party_id,category,failure_code,send_unknown,payload_artifact_id,
-                    delivery_status,trace_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,'technical_failure',%s,%s,%s,%s,%s)
-                   ON CONFLICT (interaction_id) DO NOTHING RETURNING notification_id""",
-                    (
-                        notification_id,
-                        source.interaction_id,
-                        source.operation_id,
-                        source.subject_id,
-                        source.scene_id,
-                        source.party_id,
-                        code,
-                        unknown,
-                        registration.ref.artifact_id.value,
-                        "unavailable" if route is None else "registered",
-                        source.trace_id.value,
-                    ),
-                )
-            ).fetchone()
-            if inserted is None:
-                return
-            if registration.inserted:
-                await uow.audit.append(
-                    AuditDraft(
-                        AuditEventId(uuid7()),
-                        AuditReference("runtime", uow.environment_id),
-                        Purpose("interaction.system_notification"),
-                        "artifact.catalog.registered",
-                        AuditReference("artifact", registration.ref.artifact_id.value),
-                        AuditResultStatus.APPLIED,
-                        source.trace_id,
-                        AuditSensitivity.RESTRICTED,
-                        subject_id=SubjectId(source.subject_id),
-                        request=AuditReference("system_notification", notification_id),
-                    )
-                )
-            if route is not None:
-                await self._effects.register_system_notification(
-                    uow.transaction,
-                    SystemNotificationEffectDraft(
-                        notification_id,
-                        source.subject_id,
-                        route,
-                        registration.ref,
-                        source.trace_id,
-                    ),
-                )
         if (
-            source.modality == "live_voice"
+            source is not None
+            and source.modality == "live_voice"
             and self._voice_failure is not None
             and source.operation_id is not None
         ):

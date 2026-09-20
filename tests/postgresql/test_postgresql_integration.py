@@ -7021,16 +7021,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self._exercise_creator_reply()
 
     @pytest.mark.test_group("interaction", "expression", "effect")
-    def test_system_notifications_are_atomic_deduplicated_and_not_replayed(
-        self,
-    ) -> None:
-        for stage in (
-            "delivered",
-            "registered",
-            "unknown",
-            "input",
-            "prepared_expired",
-        ):
+    def test_technical_failures_remain_silent(self) -> None:
+        for stage in ("failure", "unknown", "input"):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(system_notification=stage)
 
@@ -8270,15 +8262,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
 
         if system_notification is not None:
-            from types import SimpleNamespace
-
             from armi_runtime.composition.postgresql_test import (
-                bootstrap_effect_recovery,
                 bootstrap_interaction_failure_notifications,
-                bootstrap_system_notification_effects,
             )
 
-            async def exercise_notice(root: Path) -> None:
+            async def exercise_silent_failure() -> None:
                 factory = PostgreSQLUnitOfWorkFactory(
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
@@ -8288,175 +8276,64 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     statement_timeout_seconds=5,
                     authority_admission=lambda: fence,
                 )
-                storage = ContentAddressedArtifactStore(
-                    root,
-                    max_object_bytes=1024 * 1024,
-                    publication_catalog=ArtifactCatalogRepository(),
-                    publication_uow_factory=factory,
-                )
                 diagnostics: list[str] = []
-                notices = bootstrap_interaction_failure_notifications(
+                failures = bootstrap_interaction_failure_notifications(
                     factory=factory,
                     opportunities=bootstrap_opportunity_cognition(),
                     evidence=bootstrap_evidence().read,
-                    routes=bootstrap_interaction_action_ports().routes,
-                    catalog=ArtifactCatalogRepository(),
-                    storage=storage,
-                    effects=bootstrap_system_notification_effects(),
                     diagnostic=diagnostics.append,
                 )
                 await factory.open()
                 try:
                     if system_notification == "input":
-                        await notices.notify_input_failure(
+                        await failures.notify_input_failure(
                             interaction_id=ids["interaction"],
                             failure_code="EXTERNAL-CONTENT-RECOGNITION",
                         )
-                    await notices.notify_failure(
-                        opportunity_id=ids["opportunity"],
-                        failure_code="CANDIDATE-CONTRACT",
-                    )
-                    await notices.notify_failure(
-                        opportunity_id=ids["opportunity"],
-                        failure_code="MODEL-PROVIDER-FAILED",
-                    )
-                    self.assertEqual(diagnostics, [])
-                    async with factory.unit_of_work(read_only=True) as uow:
-                        row = await (
-                            await uow.transaction.execute(
-                                """SELECT notice.notification_id,effect.effect_id,effect.action_intent_id,
-                                      effect.action_intent_revision_id,outbox.max_attempts
-                               FROM armi.system_notifications AS notice JOIN armi.effects AS effect
-                                 ON effect.system_notification_id=notice.notification_id
-                               JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id""",
-                            )
-                        ).fetchall()
-                    self.assertEqual(len(row), 1)
-                    self.assertEqual(row[0][2:], (None, None, 1))
-                    notification_id, effect_id = row[0][0], row[0][1]
-                    dispatcher = PostgreSQLEffectDispatchRepository(
-                        bootstrap_interaction_action_ports().routes
-                    )
-                    if system_notification != "registered":
-                        async with factory.unit_of_work() as uow:
-                            snapshot = await dispatcher.claim(
-                                uow, claim_owner=ids["runtime"]
-                            )
-                        assert snapshot is not None
-                        self.assertEqual(
-                            snapshot.request.system_notification_id, notification_id
+                    for code in (
+                        "CANDIDATE-CONTRACT",
+                        "MODEL-PROVIDER-FAILED",
+                        "MODEL-RESPONSE-SCHEMA",
+                    ):
+                        await failures.notify_failure(
+                            opportunity_id=ids["opportunity"],
+                            failure_code=code,
+                            send_unknown=system_notification == "unknown",
                         )
-                        if system_notification == "prepared_expired":
-                            async with factory.unit_of_work() as uow:
-                                await dispatcher.renew_claim(uow, snapshot)
-                                await uow.transaction.execute(
-                                    "UPDATE armi.effect_outbox_items SET claim_expires_at=statement_timestamp()-interval '1 second' WHERE effect_id=%s",
-                                    (effect_id,),
-                                )
-                            async with factory.unit_of_work() as uow:
-                                self.assertIsNone(await dispatcher.expired(uow))
-                            async with factory.unit_of_work(read_only=True) as uow:
-                                settled = await (
+                    self.assertEqual(
+                        len(diagnostics), 4 if system_notification == "input" else 3
+                    )
+                    self.assertTrue(
+                        all(
+                            "interaction.processing.failed" in event
+                            for event in diagnostics
+                        )
+                    )
+                    async with factory.unit_of_work(read_only=True) as uow:
+                        for table in (
+                            "system_notifications",
+                            "effects",
+                            "effect_outbox_items",
+                            "action_intents",
+                            "subject_commits",
+                        ):
+                            self.assertEqual(
+                                await (
                                     await uow.transaction.execute(
-                                        "SELECT dispatch_state,result_status,dispatched_at FROM armi.effect_attempts WHERE effect_attempt_id=%s",
-                                        (snapshot.request.attempt_id.value,),
+                                        f"SELECT count(*) FROM armi.{table}"
                                     )
-                                ).fetchone()
-                            self.assertEqual(settled, ("settled", "cancelled", None))
-                            return
-                        async with factory.unit_of_work() as uow:
-                            await dispatcher.mark_dispatching(
-                                uow,
-                                snapshot,
-                                runtime_fence=fence,
-                                data_rights_fence=DataRightsFence(
-                                    creator_party_id, 1, 1
-                                ),
+                                ).fetchone(),
+                                (0,),
                             )
-                        if system_notification == "unknown":
-                            async with factory.unit_of_work() as uow:
-                                await dispatcher.settle_unknown(uow, snapshot)
-                            async with factory.unit_of_work() as uow:
-                                self.assertIsNone(await dispatcher.unknown(uow))
-                                self.assertIsNone(
-                                    await dispatcher.claim(
-                                        uow, claim_owner=ids["runtime"]
-                                    )
-                                )
-                        else:
-                            async with factory.unit_of_work(read_only=True) as uow:
-                                ref = await ArtifactCatalogRepository().get(
-                                    uow, ArtifactId(snapshot.artifact_id)
-                                )
-                            payload = b""
-                            async with await storage.open_verified(ref) as stream:
-                                payload = await stream.read()
-                            self.assertTrue(
-                                payload.decode().startswith("ARMI 系统提示")
-                            )
-                            receipt = await PostgreSQLLocalInbox(factory).dispatch(
-                                snapshot.request, payload
-                            )
-                            async with factory.unit_of_work() as uow:
-                                await dispatcher.settle_receipt(uow, snapshot, receipt)
-                                await PostgreSQLInteractionPerception().record_system_notification(
-                                    uow.transaction,
-                                    scene_id=scene_id,
-                                    notification_id=notification_id,
-                                    occurred_at=receipt.received_at,
-                                )
-                    async with factory.unit_of_work() as uow:
-                        await bootstrap_effect_recovery().recover(
-                            uow.transaction,
-                            cast(Any, SimpleNamespace(subject_id=born.subject_id)),
-                            (),
-                        )
-                    async with factory.unit_of_work(read_only=True) as uow:
-                        status = await (
-                            await uow.transaction.execute(
-                                "SELECT status FROM armi.effects WHERE effect_id=%s",
-                                (effect_id,),
-                            )
-                        ).fetchone()
-                        self.assertEqual(
-                            status,
-                            (
-                                {
-                                    "registered": "cancelled",
-                                    "unknown": "unknown",
-                                    "delivered": "completed",
-                                    "input": "completed",
-                                }[system_notification],
-                            ),
-                        )
-                        self.assertEqual(
-                            await (
-                                await uow.transaction.execute(
-                                    "SELECT count(*) FROM armi.action_intents"
-                                )
-                            ).fetchone(),
-                            (0,),
-                        )
-                        self.assertEqual(
-                            await (
-                                await uow.transaction.execute(
-                                    "SELECT count(*) FROM armi.subject_commits"
-                                )
-                            ).fetchone(),
-                            (0,),
-                        )
                 finally:
                     await factory.close()
 
-            with tempfile.TemporaryDirectory(
-                prefix="armi-notification-test-"
-            ) as directory:
-                asyncio.run(
-                    exercise_notice(Path(directory)),
-                    loop_factory=lambda: asyncio.SelectorEventLoop(
-                        selectors.SelectSelector()
-                    ),
-                )
+            asyncio.run(
+                exercise_silent_failure(),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
             return
 
         async def settle(

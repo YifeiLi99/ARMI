@@ -41,7 +41,7 @@
 - 慢模型、网络、文件、设备及 Codex I/O 在权威写事务外。先用短事务登记稳定 identity/work/effect，结算时重验 fence、lease、generation、subject/owner version 和幂等状态；旧候选 stale 后不能靠重放 JSON 或最后写入者覆盖解决。
 - Durable work 使用 `armi_kernel.application.durable_work.WorkType` 闭集与责任 registry，新增时同步 owner、reconciliation、恢复和测试。数据库承载耐久事实，进程 wakeup 只优化延迟。实验使用隔离环境、离线回放或只读 shadow，未激活前不写 Active 主体、work 或 effect。
 - 新能力先确定事实 owner；新增表或模块应有独立生命周期、关系、权限/保留策略或查询需求，不能只因渠道或枚举不同而拆分。替换机制后清理失效入口、接线与兼容路径，不为假想需求预建框架。
-- 标准认知不在同 episode 隐藏追加评价调用。Qwen/DeepSeek 文本生成仅在完整返回的 JSON 或候选结构不合格时，按同一冻结请求最多调用 5 次（含首次），成功即停；每次独立记录 attempt、原文和用量，业务校验及 Subject Commit 仍只执行一次。网络结果 unknown、权限/业务拒绝及状态冲突不重试；中断即结束，重启不续试。实时语音保持单次调用。Context 按 purpose profile 冻结来源与版本，落实 forbidden section；提示词不能替代隐私隔离。模型不直接填写 Mood VAD/强度。
+- 标准认知不在同 episode 隐藏追加评价调用。Qwen/DeepSeek 文本生成仅在完整返回的 JSON 或候选结构不合格时，按同一冻结请求最多调用 5 次（含首次），成功即停；每次独立记录 attempt、原文和用量，业务校验及 Subject Commit 仍只执行一次。网络结果 unknown、权限/业务拒绝及状态冲突不重试；中断即结束，重启不续试。实时语音保持单次调用。Context 按 purpose profile 冻结来源与版本，落实 forbidden section；提示词不能替代隐私隔离。模型不直接填写 Mood VAD/强度。 所有对话技术失败（含重试耗尽与发送 unknown）仅保留日志、诊断及真实失败状态，聊天渠道静默，不生成错误通知或补发。
 
 ## 4. 数据库与配置变更
 

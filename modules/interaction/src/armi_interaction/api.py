@@ -785,6 +785,8 @@ class SystemNotificationEffectPort(Protocol):
 
 @runtime_checkable
 class InteractionFailureNotificationPort(Protocol):
+    """Record failure diagnostics and finish voice waits; never send chat notices."""
+
     async def notify_input_failure(
         self, *, interaction_id: UUID, failure_code: str
     ) -> None: ...

@@ -117,7 +117,6 @@ from armi_effect.bootstrap import (
     bootstrap_effect_operation_read,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
-    bootstrap_system_notification_effects,
 )
 from armi_evidence.api import EvidenceReadPort, EvidenceSnapshot, EvidenceWritePort
 from armi_evidence.bootstrap import (
@@ -158,7 +157,6 @@ from armi_interaction.api import (
 from armi_interaction.bootstrap import (
     InteractionModule,
     bootstrap_interaction,
-    bootstrap_interaction_action_ports,
     bootstrap_interaction_birth,
     bootstrap_interaction_failure_notifications,
     bootstrap_interaction_identity,
@@ -1497,10 +1495,6 @@ def _interaction_failure_notifications(
         factory=factory,
         opportunities=bootstrap_opportunity_cognition(),
         evidence=bootstrap_evidence().read,
-        routes=bootstrap_interaction_action_ports().routes,
-        catalog=catalog,
-        storage=_artifact_storage(prepared, factory, catalog),
-        effects=bootstrap_system_notification_effects(),
         diagnostic=diagnostic or (lambda _event: None),
     )
 
