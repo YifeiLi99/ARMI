@@ -228,11 +228,9 @@ class OpenAIArkTransport:
                 "format": {
                     "type": "json_schema",
                     "name": self._schema_name,
-                    # Ark strict decoding loops or selects end_conversation for
-                    # this union. Keep the full schema and local validation;
-                    # use schema guidance for this contract (see DESIGN.md).
-                    "strict": binding.response_contract_version
-                    != "armi.other-human-dialogue-candidate.v9",
+                    # 所有认知合同统一使用严格结构化输出。见 DESIGN.md。
+                    # 异常应排查 Schema、供应商结构化输出及适配。禁止关闭 strict 绕过。
+                    "strict": True,
                     "schema": _provider_output_schema(
                         self._candidate_schema,
                         available_refs=_available_refs(request.canonical_bytes),

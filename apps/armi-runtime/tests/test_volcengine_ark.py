@@ -407,15 +407,13 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
 
 
 @pytest.mark.parametrize(
-    ("version", "strict"),
+    "version",
     [
-        ("armi.other-human-dialogue-candidate.v9", False),
-        ("armi.creator-cognitive-act-candidate.v7", True),
+        "armi.other-human-dialogue-candidate.v9",
+        "armi.creator-cognitive-act-candidate.v7",
     ],
 )
-def test_other_human_schema_guidance_preserves_schema_and_local_contract(
-    version, strict
-):
+def test_all_dialogue_contracts_require_strict_output_and_local_validation(version):
     from types import SimpleNamespace
 
     from armi_cognition._other_human_contract import (
@@ -454,7 +452,7 @@ def test_other_human_schema_guidance_preserves_schema_and_local_contract(
         ),
         cast(Any, request),
     )
-    assert params["text"]["format"]["strict"] is strict
+    assert params["text"]["format"]["strict"] is True
     assert (
         params["text"]["format"]["schema"]["properties"]["candidate"][
             "additionalProperties"
