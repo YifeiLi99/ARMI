@@ -268,7 +268,7 @@ Mind 与 Mood 各自拥有评价提示语义。Mood 公开 `MOOD_APPRAISAL_INSTR
 
 文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。两家均通过 OpenAI SDK 使用官方 Responses 接口，`reasoning.effort:none`。Qwen Responses 当前未列出 JSON 格式约束参数，因此只通过提示词要求 JSON，并显式设置 `store:false`；不发送可能被忽略的格式参数。DeepSeek 使用官方 `text.format.type:json_object`，不发送 `strict` 或服务端 Schema。两家的原认知提示后追加同一份完整候选 Schema，对普通他人对话追加经该 Schema 验证的合法层级示例，分别覆盖无经历和仅有经历但无关系变化。无关系变化必须将 relationship_change 整体置 null，不能填写全空对象；承诺引用只能指向冻结 Context 中的关系承诺，普通调侃不自动形成承诺冲突。模型侧生成控制可以不同，后端仍使用同一套严格 Schema 与领域校验，不修补非法 JSON、不放宽字段、不自动重试或切换模型。出现格式问题应检查请求、原始返回和结构化输出适配，不能关闭后端校验。原 Context、purpose 合同、Subject Commit 和 Effect 链保持不变，单轮仍只有一次生成。
 
-DeepSeek 的 JSON Output 指南同时要求 JSON 指令与输出格式样例，完整 Schema 不能代替样例。Creator cognitive act 与普通他人对话额外提供完整的非空评价样例：`candidate.appraisal` 保存事件，内部 `appraisal` 保存评价维度，事件元数据与内部评价同级，`decision` 等候选字段仍位于 `candidate` 内。样例使用本轮可用引用并明确仅示意格式，不要求复制判断、引用或形成评价；样例由原后端 Schema 回归验证。Qwen 的生成提示保持原样。排查格式错误时对照原始 HTTP 文本块与 SDK 提取值，不能将模型侧 JSON 模式误当成候选已验证。
+DeepSeek 的 JSON Output 指南同时要求 JSON 指令与输出格式样例，完整 Schema 不能代替样例。Creator cognitive act 与普通他人对话额外提供完整的非空评价样例：`candidate.appraisal` 保存事件，内部 `appraisal` 保存评价维度。层级说明使用完整路径，并从当前 Schema 的 properties 生成 candidate 直接字段清单，禁止将事件引用 `candidate.appraisal.basis_refs` 再复制为 `candidate.basis_refs`；其他嵌套字段也不得提升到 candidate 层。样例使用本轮可用引用并明确仅示意格式，不要求复制判断、引用或形成评价；样例与额外字段拒绝行为由原后端 Schema 回归验证。DeepSeek 非思考模式显式使用 `temperature:0.2`，降低默认采样下字段错层和非法 JSON 的波动；代价是措辞多样性可能减少，这不是服务端严格约束或成功保证。Qwen 的生成提示与采样参数保持原样。排查格式错误时对照原始 HTTP 文本块与 SDK 提取值，不能将模型侧 JSON 模式误当成候选已验证。
 
 两家各自使用 `model.qwen_api_key`、`model.deepseek_api_key`，目的分别为 `model.request.qwen`、`model.request.deepseek`。官方域名与供应商对应校验，千问允许北京通用域名和北京 Workspace 域名；不能通过模型配置把 Key 发到任意代理地址。`model.ark_api_key` 仅供独立豆包语音认知、视觉识别与网页搜索等原有方舟用途。语音绑定保持独立，不因未配置方舟 Key 阻断文本模型构造；实际语音调用缺凭据仍明确失败。
 

@@ -169,10 +169,12 @@ async def test_sdk_wire_usage_and_failure_preserve_single_responses_call(
         )
         if provider == "qwen":
             assert "text" not in wire
+            assert "temperature" not in wire
             assert wire["store"] is False
         else:
             assert requests[0].url.path == "/responses"
             assert wire["text"] == {"format": {"type": "json_object"}}
+            assert wire["temperature"] == 0.2
             assert "thinking" not in wire and "store" not in wire
         settled = adapter._settle_response(result, request())
         assert settled.response_bytes is not None and settled.usage is not None
@@ -418,6 +420,22 @@ def test_deepseek_dialogue_example_covers_nested_appraisal_with_bound_refs(
         "trajectory",
         "event_phase",
     }
+    # Preserve the event's valid refs, but reject a second copy on candidate.
+    value["candidate"]["basis_refs"] = event["basis_refs"]
+    errors = list(Draft202012Validator(expected).iter_errors(value))
+    assert any(
+        e.validator == "additionalProperties" and list(e.absolute_path) == ["candidate"]
+        for e in errors
+    )
+    del value["candidate"]["basis_refs"]
+    allowed_fields = (
+        wire["instructions"]
+        .split("candidate 的直接字段只能是：", 1)[1]
+        .split("。", 1)[0]
+        .split("、")
+    )
+    assert set(allowed_fields) == set(schema["properties"])
+    assert "不得在 candidate 下再复制一份 basis_refs" in wire["instructions"]
     # The observed failure lost this event envelope; backend must still reject it.
     value["candidate"]["appraisal"] = event["appraisal"]
     assert not Draft202012Validator(expected).is_valid(value)

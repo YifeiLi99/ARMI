@@ -81,6 +81,9 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             parameters["store"] = False
         elif binding.provider == "deepseek":
             parameters["text"] = {"format": {"type": "json_object"}}
+            # Non-thinking sampling must favor the nested contract over variation.
+            # Live default-temperature replies broke JSON; keep backend validation.
+            parameters["temperature"] = 0.2
             example = _dialogue_example(
                 set(properties), self.context_refs(request)
             )
@@ -91,8 +94,11 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
                     "\n\n完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n"
                     + json.dumps(example, ensure_ascii=False, indent=2)
                     + "\n注意 candidate.appraisal 是完整事件；其内部 appraisal 才是评价维度。"
-                    + "gist、basis_refs、event_phase、trajectory 与内部 appraisal 同级；"
-                    + "decision 等其他候选字段仍在 candidate 内部。"
+                    + "candidate.appraisal 内的直接字段为 gist、basis_refs、event_phase、trajectory、appraisal。"
+                    + "事件依据写在 candidate.appraisal.basis_refs，不得在 candidate 下再复制一份 basis_refs。"
+                    + "\ncandidate 的直接字段只能是："
+                    + "、".join(sorted(properties))
+                    + "。嵌套字段不得提到 candidate 层；输出前检查每个字段所属对象。"
                     + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
                     + "需要引用时选择本轮实际支持判断的 Context 条目。"
                 )
