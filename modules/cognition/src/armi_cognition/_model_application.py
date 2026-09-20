@@ -612,7 +612,7 @@ class ModelPipeline:
 
             usage_scope = ProviderMeterScope(save_usage, self._prices, snapshot.purpose)
             with provider_meter_scope(usage_scope):
-                input_tokens = await adapter.tokenize(request_bytes)
+                input_tokens = await self._tokenize(adapter, request_bytes, record)
             request = checked_model_request(
                 prices=self._prices,
                 binding=adapter.binding,
@@ -795,6 +795,26 @@ class ModelPipeline:
                 timeout_seconds=1,
             )
 
+    async def _tokenize(
+        self, adapter: CognitionModelPort, request_bytes: bytes, record: WorkRecord
+    ) -> int:
+        # DESIGN §6: retry only tokenization within this live lease and its
+        # remaining work budget; a prepared usage record is not model dispatch.
+        remaining = record.draft.max_attempts - record.attempt_count
+        while True:
+            if self._stop.is_set():
+                raise asyncio.CancelledError
+            try:
+                return await adapter.tokenize(request_bytes)
+            except ModelViolation as error:
+                if not error.retryable or remaining <= 0:
+                    raise
+                remaining -= 1
+                safe_code = error.code.lower().replace("-", "_")
+                self._diagnostic(f"model.tokenization.retry.{safe_code}")
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop.wait(), timeout=1)
+
     async def _snapshot(self, work: WorkRecord) -> ModelEpisodeSnapshot:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
@@ -856,12 +876,12 @@ class ModelPipeline:
                     timeout=_RENEW_SECONDS,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if task in done:
-                    await task
-                    return
                 if stopped in done:
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
+                    return
+                if task in done:
+                    await task
                     return
                 try:
                     lease = await self._work.renew(lease, lease_seconds=_LEASE_SECONDS)

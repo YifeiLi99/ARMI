@@ -214,7 +214,7 @@ Schema 的格式合法不等于业务提交必然成立。引用、版本、权�
 
 `system_notifications` 只记录系统事实。独立的 `system_notification` Effect 引用它，action intent 为空，复用 outbox、发送适配器、数据权利检查和核验；不创建 Subject Commit、主体意图或经历。正文明确标记“ARMI 系统提示”，发送 unknown 与普通失败使用不同措辞。每轮最多一次，通知失败不递归、渠道不可用不换渠道、Runtime 更换不补发，unknown 不重放。实时语音使用当前会话失败状态，不伪造主体语音。管理端 flow graph v2 关联输入、通知、制品和发送事实。
 
-任一 owner 失败不留下半个主体变化。并发版本已推进时旧候选 stale，不能最后写入者覆盖。模型明确失败可按同一 work 预算安全重试；Provider 已受理但结果 unknown 时不再调用。
+任一 owner 失败不留下半个主体变化。并发版本已推进时旧候选 stale，不能最后写入者覆盖。正式模型请求前的 token 计数暂时失败，在当前执行租约内按剩余 work 尝试预算重试，间隔 1 秒；每次物理调用保留独立 Provider 回执，已登记用量身份不等于模型请求已发送。重试不重新排队，停机、取消或租约丢失立即结束；正式模型请求不自动重发，Provider 已受理但结果 unknown 时不再调用。
 
 精确生命查询和网页研究是后续耐久 work：结果形成新证据和新 episode，并通过 Owner 的来源引用关联原操作，不在原 episode 偷加第二次模型调用。
 

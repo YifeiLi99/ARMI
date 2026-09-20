@@ -20,6 +20,7 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelUsage,
     ModelViolation,
+    WorkViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
 
@@ -149,7 +150,9 @@ async def test_model_success_survives_finalization_failure(monkeypatch, reject) 
         lambda **_kwargs: SimpleNamespace(canonical_bytes=b"{}"),
     )
     record = SimpleNamespace(
-        attempt_count=1, lease=object(), draft=SimpleNamespace(deadline_at=None)
+        attempt_count=1,
+        lease=object(),
+        draft=SimpleNamespace(deadline_at=None, max_attempts=2),
     )
 
     await pipeline._execute(cast(Any, record))
@@ -174,6 +177,119 @@ async def test_model_success_survives_finalization_failure(monkeypatch, reject) 
         assert finalization.await_args.args[2] is pipeline.result_bytes
     pipeline._repository.settle_failure.assert_not_awaited()
     assert pipeline._repository.fail_episode.await_count == int(bool(reject))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("errors", "attempt_count", "expected_calls", "succeeds"),
+    [
+        ([ModelViolation("MODEL-CONNECTION", retryable=True), 1], 1, 2, True),
+        ([ModelViolation("MODEL-CONNECTION", retryable=True)] * 2, 1, 2, False),
+        ([ModelViolation("MODEL-CONNECTION", retryable=True)], 2, 1, False),
+        ([ModelViolation("MODEL-TOKENIZATION")], 1, 1, False),
+    ],
+)
+async def test_tokenization_retry_before_single_model_dispatch(
+    monkeypatch, errors, attempt_count, expected_calls, succeeds
+) -> None:
+    pipeline = _Execution(AsyncMock())
+    pipeline.adapter.tokenize.side_effect = errors
+    pipeline._repository.end_abandoned_finalization = AsyncMock(return_value=False)
+    monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"{}")
+    monkeypatch.setattr(
+        model, "checked_model_request", lambda **_kwargs: SimpleNamespace()
+    )
+    record = SimpleNamespace(
+        attempt_count=attempt_count,
+        lease=object(),
+        draft=SimpleNamespace(deadline_at=None, max_attempts=2),
+    )
+
+    await pipeline._execute(cast(Any, record))
+
+    assert pipeline.adapter.tokenize.await_count == expected_calls
+    assert pipeline.adapter.invoke.await_count == int(succeeds)
+    assert pipeline._repository.mark_dispatched.await_count == int(succeeds)
+    assert pipeline._finalization.finalize.await_count == int(succeeds)
+    assert pipeline._failure_notification.await_count == int(not succeeds)
+    pipeline._repository.prepare_attempt.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_during_tokenization_retry_prevents_model_dispatch(monkeypatch):
+    pipeline = _Execution(AsyncMock())
+    pipeline.adapter.tokenize.side_effect = ModelViolation(
+        "MODEL-CONNECTION", retryable=True
+    )
+    retrying = asyncio.Event()
+    pipeline._diagnostic = lambda _event: retrying.set()
+    monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"{}")
+    record = SimpleNamespace(
+        attempt_count=1,
+        lease=SimpleNamespace(attempt_id=uuid7()),
+        draft=SimpleNamespace(deadline_at=None, max_attempts=2),
+    )
+    task = asyncio.create_task(pipeline._execute_with_renewal(cast(Any, record)))
+    await asyncio.wait_for(retrying.wait(), 1)
+    pipeline.stop()
+    await asyncio.wait_for(task, 1)
+
+    pipeline.adapter.tokenize.assert_awaited_once()
+    pipeline.adapter.invoke.assert_not_awaited()
+    pipeline._repository.mark_dispatched.assert_not_awaited()
+    pipeline._finalization.finalize.assert_not_awaited()
+    pipeline._failure_notification.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_result_is_not_retried(monkeypatch):
+    pipeline = _Execution(AsyncMock())
+    pipeline.adapter.invoke.return_value = ModelInvocationResult(
+        ModelResultStatus.OUTCOME_UNKNOWN,
+        None,
+        None,
+        None,
+        None,
+        error_code="MODEL-OUTCOME-UNKNOWN",
+    )
+    monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"{}")
+    monkeypatch.setattr(
+        model, "checked_model_request", lambda **_kwargs: SimpleNamespace()
+    )
+    record = SimpleNamespace(
+        attempt_count=1,
+        lease=object(),
+        draft=SimpleNamespace(deadline_at=None, max_attempts=2),
+    )
+    await pipeline._execute(cast(Any, record))
+
+    pipeline.adapter.invoke.assert_awaited_once()
+    pipeline._finalization.finalize.assert_not_awaited()
+    pipeline._repository.settle_failure.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_lease_loss_during_tokenization_retry_prevents_dispatch(monkeypatch):
+    pipeline = _Execution(AsyncMock())
+    pipeline.adapter.tokenize.side_effect = ModelViolation(
+        "MODEL-CONNECTION", retryable=True
+    )
+    pipeline._work = cast(
+        Any,
+        SimpleNamespace(renew=AsyncMock(side_effect=WorkViolation("WORK-LEASE-LOST"))),
+    )
+    monkeypatch.setattr(model, "_RENEW_SECONDS", 0.01)
+    monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"{}")
+    record = SimpleNamespace(
+        attempt_count=1,
+        lease=SimpleNamespace(attempt_id=uuid7()),
+        draft=SimpleNamespace(deadline_at=None, max_attempts=2),
+    )
+    await pipeline._execute_with_renewal(cast(Any, record))
+
+    pipeline.adapter.tokenize.assert_awaited_once()
+    pipeline.adapter.invoke.assert_not_awaited()
+    pipeline._failure_notification.assert_not_awaited()
 
 
 class _Renewal(model.ModelPipeline):
