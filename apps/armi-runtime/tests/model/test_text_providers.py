@@ -1,5 +1,7 @@
 """Real SDK serialization against isolated HTTP transports; no provider calls."""
 
+# ruff: noqa: RUF001 -- Match the Chinese instruction delimiters exactly.
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -11,6 +13,7 @@ import pytest
 from armi_cognition.api import CognitionSchemaDocument
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
+    CandidateViolation,
     CredentialLocator,
     ModelRequest,
     ModelViolation,
@@ -28,6 +31,7 @@ from armi_runtime.composition.model_verification import (
     load_active_binding as load_active_model_binding,
 )
 from armi_runtime.composition.model_verification import load_voice_model_binding
+from jsonschema import Draft202012Validator
 from openai import AsyncOpenAI
 
 
@@ -64,7 +68,7 @@ def request():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])
 @pytest.mark.parametrize("finish", ["completed", "incomplete"])
-async def test_sdk_wire_usage_and_failure_preserve_single_strict_call(
+async def test_sdk_wire_usage_and_failure_preserve_single_responses_call(
     monkeypatch, provider, finish
 ):
     requests, receipts = [], []
@@ -73,52 +77,31 @@ async def test_sdk_wire_usage_and_failure_preserve_single_strict_call(
 
     def respond(req):
         requests.append(req)
-        if provider == "qwen":
-            body = {
-                "id": "chat-test",
-                "object": "chat.completion",
-                "created": 1,
-                "model": selected.model_id,
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop" if finish == "completed" else "length",
-                        "message": {"role": "assistant", "content": output},
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 17,
-                    "completion_tokens": 9,
-                    "total_tokens": 26,
-                    "prompt_tokens_details": {"cached_tokens": 5},
-                },
-            }
-        else:
-            body = {
-                "id": "resp-test",
-                "object": "response",
-                "created_at": 1,
-                "model": selected.model_id,
-                "status": finish,
-                "output": [
-                    {
-                        "type": "message",
-                        "id": "msg",
-                        "role": "assistant",
-                        "status": "completed",
-                        "content": [
-                            {"type": "output_text", "text": output, "annotations": []}
-                        ],
-                    }
-                ],
-                "usage": {
-                    "input_tokens": 17,
-                    "output_tokens": 9,
-                    "total_tokens": 26,
-                    "input_tokens_details": {"cached_tokens": 5},
-                    "output_tokens_details": {"reasoning_tokens": 0},
-                },
-            }
+        body = {
+            "id": "resp-test",
+            "object": "response",
+            "created_at": 1,
+            "model": selected.model_id,
+            "status": finish,
+            "output": [
+                {
+                    "type": "message",
+                    "id": "msg",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "output_text", "text": output, "annotations": []}
+                    ],
+                }
+            ],
+            "usage": {
+                "input_tokens": 17,
+                "output_tokens": 9,
+                "total_tokens": 26,
+                "input_tokens_details": {"cached_tokens": 5},
+                "output_tokens_details": {"reasoning_tokens": 0},
+            },
+        }
         return httpx.Response(200, json=body)
 
     def make_client(**kwargs):
@@ -172,15 +155,24 @@ async def test_sdk_wire_usage_and_failure_preserve_single_strict_call(
             wire == json.loads(adapter.request_evidence(request()))["provider_request"]
         )
         assert requests[0].headers["authorization"] == "Bearer isolated-key"
+        assert requests[0].url.path.endswith("/responses")
+        assert wire["reasoning"] == {"effort": "none"}
+        assert "response_format" not in wire and "enable_thinking" not in wire
+        assert "保持原逻辑" in wire["instructions"]
+        assert (
+            json.dumps(
+                transport.output_format(request())["schema"],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            in wire["instructions"]
+        )
         if provider == "qwen":
-            assert requests[0].url.path.endswith("/chat/completions")
-            assert wire["response_format"]["json_schema"]["strict"] is True
-            assert wire["enable_thinking"] is False
             assert "text" not in wire
+            assert wire["store"] is False
         else:
             assert requests[0].url.path == "/responses"
-            assert wire["text"]["format"]["strict"] is True
-            assert wire["reasoning"] == {"effort": "none"}
+            assert wire["text"] == {"format": {"type": "json_object"}}
             assert "thinking" not in wire and "store" not in wire
         settled = adapter._settle_response(result, request())
         assert settled.response_bytes is not None and settled.usage is not None
@@ -319,9 +311,7 @@ def test_switching_binding_preserves_purpose_contract_and_voice(
         credential_locator=f"model.{provider}_api_key",
         credential_purpose=f"model.request.{provider}",
     )
-    manifest["active_binding"] = (
-        f"armi.model-adapter.{provider}-{'chat' if provider == 'qwen' else 'responses'}-v1"
-    )
+    manifest["active_binding"] = f"armi.model-adapter.{provider}-responses-v1"
     path = tmp_path / "bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     assert load_active_model_binding(path).model_id == model
@@ -332,3 +322,73 @@ def test_switching_binding_preserves_purpose_contract_and_voice(
         assert current.response_contract_version == original.response_contract_version
         assert current.output_token_limit == original.output_token_limit
     assert load_voice_model_binding(path) == load_voice_model_binding()
+
+
+def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
+    from armi_runtime.composition.model_verification import (
+        candidate_schema,
+        load_purpose_binding,
+    )
+
+    manifest = cast(dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml")))
+    for purpose in manifest["purpose_profiles"]:
+        selected = load_purpose_binding(purpose)
+        schema = candidate_schema(selected.response_contract_version, purpose=purpose)
+        renderer = CompatibleStructuredTransport(
+            schema, instructions="business instructions", schema_name="test"
+        )
+        expected = renderer.output_format(request())["schema"]
+        for provider in ("qwen", "deepseek"):
+            wire = renderer.request_parameters(
+                replace(binding(provider), profile=selected.profile), request()
+            )
+            rendered = (
+                wire["instructions"]
+                .split("完整 JSON Schema，必须满足全部字段、类型和约束：\n", 1)[1]
+                .split("\n\n合法 JSON 格式示例", 1)[0]
+            )
+            assert json.loads(rendered) == expected
+        if purpose == "consider_other_human_input":
+            example_text = (
+                wire["instructions"]
+                .split("合法 JSON 格式示例（仅示意层级，实际内容按本轮判断）：\n", 1)[1]
+                .split("\n注意", 1)[0]
+            )
+            Draft202012Validator(expected).validate(json.loads(example_text))
+
+
+@pytest.mark.parametrize("provider", ["qwen", "deepseek"])
+@pytest.mark.parametrize(
+    "output",
+    [
+        '{"candidate":{"decision":{"kind":"reply","content":"hello"},"appraisal":null,"social":null}}}',
+        '{"candidate":{},"decision":{"kind":"reply","content":"hello"}}',
+        '```json\n{"candidate":{}}\n```',
+    ],
+)
+def test_shared_backend_rejects_malformed_envelopes_without_repair(provider, output):
+    from armi_runtime.composition.model_verification import model_response_candidate
+
+    adapter = create_model_adapter(
+        binding=binding(provider),
+        credential_port=Mock(),
+        locator=None,
+        candidate_schema=CognitionSchemaDocument(b'{"type":"object"}'),
+        instructions="",
+        schema_name="test",
+        transport=Mock(),
+    )
+    result = adapter._settle_response(
+        {
+            "provider_request_id": "test",
+            "model_id": binding(provider).model_id,
+            "output_text": output,
+            "usage": {"input_tokens": 1, "output_tokens": 1, "cached_input_tokens": 0},
+            "raw": {"status": "completed", "output": [{"type": "message"}]},
+        },
+        request(),
+    )
+    assert result.response_bytes is not None
+    assert json.loads(result.response_bytes)["output_text"] == output
+    with pytest.raises(CandidateViolation, match="CANDIDATE-CONTRACT"):
+        model_response_candidate(result.response_bytes)

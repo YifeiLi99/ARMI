@@ -200,9 +200,9 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存。千问文本模型使用 `model.qwen_api_key`，DeepSeek 文本模型使用 `model.deepseek_api_key`；方舟 Key 仅用于独立豆包语音认知、视觉识别与网页搜索等原有用途。豆包语音识别/合成使用新版语音控制台 Key；Codex 导入登录文件；QQ 通信凭据自动生成。已有 locator 的 Key 更换在后续请求生效，当前任务不切换；旧环境首次添加千问或 DeepSeek locator 后需要重启 Runtime。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，依靠文件权限保护，不回显已保存内容。普通升级和默认卸载保留这些文件。保存只证明本地文件已更新，不代表服务商认证、模型或真实对话已通过。
 
-主文本模型在“功能与模型”页选择 `qwen` 或 `deepseek`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持千问 `qwen3.8-flash`（默认）、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`，以及 DeepSeek `deepseek-flash`、`deepseek-v4-pro`；这些型号使用官方严格 JSON Schema 接口，统一关闭思考。新增型号必须先确认其结构化输出与非思考能力，不能仅换名字猜测兼容。
+主文本模型在“功能与模型”页选择 `qwen` 或 `deepseek`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持千问 `qwen3.8-flash`（默认）、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`，以及 DeepSeek `deepseek-flash`、`deepseek-v4-pro`；两家统一使用官方 Responses 接口并关闭思考。Qwen 通过提示词提供完整 Schema 和格式要求，DeepSeek 另启用 JSON Object 模式；后端始终使用同一套严格候选校验。新增型号必须先确认其 Responses 与非思考能力，不能仅换名字猜测兼容。
 
-机器沿用 Admin `configuration` 的 `model-bindings` target，读取当前版本后以同一个 apply 补丁更新 `active_binding` 和唯一 `bindings` 项（保留所有 purpose、预算和独立 voice binding）。千问 adapter 为 `armi.model-adapter.qwen-chat-v1`，北京地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`；也允许官方北京 Workspace 域名。DeepSeek adapter 为 `armi.model-adapter.deepseek-responses-v1`，地址 `https://api.deepseek.com`。各自使用 `armi.model.qwen-api-key.v1` / `armi.model.deepseek-api-key.v1` 的 credential identity、上述 locator 和 `model.request.qwen` / `model.request.deepseek` purpose。设置页保存模型也调用同一用例。协议和官方来源见 [模型设计](DESIGN.md)；缺少价格继续按现有规则显示待计价，不继承方舟单价。
+机器沿用 Admin `configuration` 的 `model-bindings` target，读取当前版本后以同一个 apply 补丁更新 `active_binding` 和唯一 `bindings` 项（保留所有 purpose、预算和独立 voice binding）。千问 adapter 为 `armi.model-adapter.qwen-responses-v1`，北京地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`；也允许官方北京 Workspace 域名。DeepSeek adapter 为 `armi.model-adapter.deepseek-responses-v1`，地址 `https://api.deepseek.com`。各自使用 `armi.model.qwen-api-key.v1` / `armi.model.deepseek-api-key.v1` 的 credential identity、上述 locator 和 `model.request.qwen` / `model.request.deepseek` purpose。设置页保存模型也调用同一用例。协议和官方来源见 [模型设计](DESIGN.md)；缺少价格继续按现有规则显示待计价，不继承方舟单价。
 
 语音凭据名称保持 `speech.volc_credentials`，CLI/MCP setup 的 `credential.put.value` 直接接收 API Key 文本，不再接收 App ID/Access Token JSON。流式 ASR、双向 TTS 和录音识别共用该语音 Key，通过 `X-Api-Key` 鉴权；资源 ID 和音色仍由配置指定。请在[豆包语音新版控制台](https://console.volcengine.com/speech/new/setting/apikeys?projectName=default)创建 Key 并开通所需服务，不自动复用方舟模型 Key。已有旧格式文件须重新录入语音 Key，不会自动转换或删除。依据：[流式识别](https://docs.volcengine.com/docs/6561/1354869)、[双向合成](https://docs.volcengine.com/docs/6561/1329505)、[录音识别](https://docs.volcengine.com/docs/6561/1354868)官方鉴权说明（2026-09-11 核对）。
 
@@ -216,7 +216,7 @@ QQ 已登录但 NapCat API 端口被 Windows 禁止绑定时，可调用 `{"acti
 
 QQ 页面分别显示组件安装、账号登录和连接状态；进度条仅用于下载与安装。`refresh` 用例读取当前登录和渠道健康，`open_login` 打开已有登录页并启动必要环境，不重新安装或重做绑定。首次配置后的重启可能需要 QQ 再次扫码验证，此时显示 `login_required`；再次登录后仅核验连接，不循环重启。已保存的安装进度不代表当前在线，`ready` 也不等于真实消息收发已验证。
 
-模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。两家文本 Key 可独立验证：已选供应商检查所选型号，另一家使用默认测试型号（千问 `qwen3.8-flash`、DeepSeek `deepseek-flash`），不修改聊天配置，也不拿该 Key 尝试另一家。千问用 Chat Completions，DeepSeek 用 Responses，均发送严格 Schema。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。本地请求校验失败与服务商鉴权、响应错误分别说明。状态读取不联网。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
+模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。两家文本 Key 可独立验证：已选供应商检查所选型号，另一家使用默认测试型号（千问 `qwen3.8-flash`、DeepSeek `deepseek-flash`），不修改聊天配置，也不拿该 Key 尝试另一家。两家均用 Responses，并复用正式文本适配器的生成设置与后端严格 Schema 校验。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。本地请求校验失败与服务商鉴权、响应错误分别说明。状态读取不联网。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
 
 ## 统一 MCP 与数据库管理
 

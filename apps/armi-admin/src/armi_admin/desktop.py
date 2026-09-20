@@ -1053,7 +1053,7 @@ class Desktop:
                     "target": "model-bindings",
                     "action": "apply",
                     "patch": {
-                        "active_binding": f"armi.model-adapter.{provider}-{'chat' if provider == 'qwen' else 'responses'}-v1",
+                        "active_binding": f"armi.model-adapter.{provider}-responses-v1",
                         "bindings": [binding],
                     },
                     "expected_version": payload["version"],

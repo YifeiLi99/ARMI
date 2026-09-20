@@ -124,15 +124,15 @@ async def test_saved_key_verification_reaches_own_official_api(
         assert request.headers["authorization"] == "Bearer isolated-test-key"
         if provider == "qwen":
             assert request.url.host == "dashscope.aliyuncs.com"
-            assert request.url.path.endswith("/chat/completions")
-            assert body["enable_thinking"] is False
-            assert body["response_format"]["json_schema"]["strict"] is True
-            assert "连接测试" in str(body["messages"])
+            assert request.url.path.endswith("/responses")
+            assert body["reasoning"] == {"effort": "none"}
+            assert "text" not in body and body["store"] is False
+            assert "连接测试" in str(body["input"])
         else:
             assert request.url.host == "api.deepseek.com"
             assert request.url.path == "/responses"
             assert body["reasoning"] == {"effort": "none"}
-            assert body["text"]["format"]["strict"] is True
+            assert body["text"] == {"format": {"type": "json_object"}}
             assert body["model"] == (
                 "deepseek-v4-pro" if active == provider else "deepseek-flash"
             )
@@ -149,45 +149,25 @@ async def test_saved_key_verification_reaches_own_official_api(
         output = json.dumps({"candidate": {"ok": outcome == "valid"}})
         if outcome == "invalid_json":
             output = "not json"
-        if provider == "qwen":
-            response = {
-                "id": "chat-test",
-                "object": "chat.completion",
-                "created": 1,
-                "model": body["model"],
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": output},
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15,
-                },
-            }
-        else:
-            response = {
-                "id": "resp-test",
-                "object": "response",
-                "created_at": 1,
-                "model": body["model"],
-                "status": "completed",
-                "output": [
-                    {
-                        "id": "msg",
-                        "type": "message",
-                        "role": "assistant",
-                        "status": "completed",
-                        "content": [
-                            {"type": "output_text", "text": output, "annotations": []}
-                        ],
-                    }
-                ],
-                "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
-            }
+        response = {
+            "id": "resp-test",
+            "object": "response",
+            "created_at": 1,
+            "model": body["model"],
+            "status": "completed",
+            "output": [
+                {
+                    "id": "msg",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "output_text", "text": output, "annotations": []}
+                    ],
+                }
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+        }
         return httpx.Response(200, json=response)
 
     def client(**kwargs):

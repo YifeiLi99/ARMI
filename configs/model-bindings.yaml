@@ -1,5 +1,5 @@
 schema_version: armi.model-bindings.v3
-active_binding: armi.model-adapter.qwen-chat-v1
+active_binding: armi.model-adapter.qwen-responses-v1
 
 bindings:
   - provider: qwen

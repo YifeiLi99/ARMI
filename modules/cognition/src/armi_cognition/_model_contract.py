@@ -113,7 +113,7 @@ MODEL_BINDING_VERSION = "armi.model-bindings.v3"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
 CANDIDATE_VERSION = "armi.cognition-candidate.v17"
 ACTIVE_MODEL_ID = "qwen3.8-flash"
-ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-chat-v1"
+ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
 
 ProposalRef = Annotated[
@@ -816,7 +816,7 @@ def _supported_text_binding(adapter: object, binding: dict[str, Any]) -> bool:
         return False
     identities = {
         "qwen": (
-            "armi.model-adapter.qwen-chat-v1",
+            "armi.model-adapter.qwen-responses-v1",
             "model.qwen_api_key",
             "model.request.qwen",
             "armi.model.qwen-api-key.v1",
@@ -829,7 +829,7 @@ def _supported_text_binding(adapter: object, binding: dict[str, Any]) -> bool:
         ),
     }
     models = {
-        # Officially documented schema + disabled-thinking combinations only.
+        # Supported Responses models; backend candidate validation is shared.
         "qwen": {
             "qwen3.8-flash",
             "qwen3.8-max",

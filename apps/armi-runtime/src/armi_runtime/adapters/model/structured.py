@@ -99,8 +99,8 @@ class StructuredRequestRenderer:
         return _provider_input(request.canonical_bytes)
 
     def output_format(self, request: ModelRequest) -> dict[str, Any]:
-        # 所有认知合同统一使用严格结构化输出。见 DESIGN.md。
-        # 异常排查 Schema 与供应商协议,禁止关闭 strict、修补或宽松解析。
+        # Keep one strict backend contract; generation follows each vendor's API.
+        # DESIGN.md forbids relaxing validation, repairing JSON or hidden retries.
         return {
             "type": "json_schema",
             "name": self._schema_name,
