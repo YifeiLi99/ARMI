@@ -35,6 +35,7 @@ from armi_cognition.bootstrap import (
     load_active_model_binding,
     parse_model_candidate,
 )
+from armi_context.bootstrap import bootstrap_context_candidate_read
 from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
@@ -134,6 +135,7 @@ __all__ = (
     "bootstrap_codex_timeline_projection",
     "bootstrap_cognition_operation",
     "bootstrap_cognition_subject_commit",
+    "bootstrap_context_candidate_read",
     "bootstrap_data_rights_core",
     "bootstrap_effect_codex_lifecycle",
     "bootstrap_effect_operation_read",

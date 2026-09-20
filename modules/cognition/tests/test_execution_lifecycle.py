@@ -21,6 +21,7 @@ from armi_kernel.application import (
     ModelUsage,
     ModelViolation,
     WorkViolation,
+    provider_call,
 )
 from armi_kernel.contracts import Digest, TraceId
 
@@ -81,7 +82,7 @@ class _Execution(model.ModelPipeline):
             }
         ).encode()
         self.adapter = SimpleNamespace(
-            binding=object(),
+            binding=SimpleNamespace(provider="volcengine_ark"),
             tokenize=AsyncMock(return_value=1),
             request_evidence=lambda request: self.input_evidence,
             invoke=AsyncMock(
@@ -289,6 +290,235 @@ async def test_lease_loss_during_tokenization_retry_prevents_dispatch(monkeypatc
 
     pipeline.adapter.tokenize.assert_awaited_once()
     pipeline.adapter.invoke.assert_not_awaited()
+    pipeline._failure_notification.assert_not_awaited()
+
+
+def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
+    from dataclasses import replace
+
+    pipeline = _Execution(AsyncMock())
+    pipeline.adapter.binding = SimpleNamespace(
+        provider=provider,
+        response_contract_version=(
+            "armi.other-human-dialogue-candidate.v9"
+            if other
+            else "armi.creator-cognitive-act-candidate.v7"
+        ),
+    )
+    pipeline.episode = replace(
+        pipeline.episode,
+        purpose="consider_other_human_input" if other else "consider_creator_input",
+    )
+    pipeline._repository.prepare_attempt.side_effect = lambda *_a, **_k: (
+        model.ModelAttemptId(uuid7())
+    )
+    frozen_request = SimpleNamespace(canonical_bytes=b"frozen")
+    monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"frozen")
+    monkeypatch.setattr(
+        model, "checked_model_request", lambda **_kwargs: frozen_request
+    )
+    record = SimpleNamespace(
+        attempt_count=1,
+        lease=object(),
+        draft=SimpleNamespace(deadline_at=None, max_attempts=2),
+    )
+
+    def response(text):
+        return replace(
+            pipeline.adapter.invoke.return_value,
+            response_bytes=json.dumps(
+                {
+                    "schema_version": "armi.model-response-artifact.v3",
+                    "output_text": text,
+                }
+            ).encode(),
+        )
+
+    return pipeline, record, frozen_request, response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["deepseek", "qwen"])
+@pytest.mark.parametrize("other", [False, True])
+@pytest.mark.parametrize("failures", [0, 1, 4, 5])
+async def test_format_retry_preserves_request_and_finalizes_once(
+    monkeypatch, provider, other, failures
+):
+    pipeline, record, request, response = _format_retry_execution(
+        monkeypatch, provider=provider, other=other
+    )
+    invalid = response('{"action":"reply","content":"bad","event_null":false}')
+    valid = response('{"action":"reply","content":"hello"}')
+    pipeline.adapter.invoke.side_effect = [invalid] * failures + [valid]
+    if failures == 5:
+        pipeline._finalization.finalize.side_effect = CandidateViolation(
+            "CANDIDATE-CONTRACT"
+        )
+    await pipeline._execute(cast(Any, record))
+    calls = min(failures + 1, 5)
+    assert pipeline.adapter.invoke.await_count == calls
+    assert all(
+        item.args[0] is request for item in pipeline.adapter.invoke.await_args_list
+    )
+    assert pipeline._repository.prepare_attempt.await_count == calls
+    settlements = pipeline._repository.settle_success.await_args_list
+    assert len({item.kwargs["attempt_id"] for item in settlements}) == calls
+    assert [item.kwargs["result"].response_error_code for item in settlements] == (
+        ["MODEL-RESPONSE-SCHEMA"] * min(failures, 5) + ([None] if failures < 5 else [])
+    )
+    assert [kind for kind, _ in pipeline.published] == ["model.request"] + [
+        "model.response"
+    ] * calls
+    pipeline._repository.finalize_primary_success.assert_awaited_once()
+    pipeline._finalization.finalize.assert_awaited_once()
+    assert pipeline._finalization.finalize.await_args.args[2] == (
+        invalid.response_bytes if failures == 5 else valid.response_bytes
+    )
+    pipeline._repository.settle_failure.assert_not_awaited()
+    assert pipeline._failure_notification.await_count == int(failures == 5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ['{"action":', '{"action":"reply"}'])
+async def test_format_retry_covers_invalid_json_and_missing_required(monkeypatch, bad):
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    pipeline.adapter.invoke.side_effect = [
+        response(bad),
+        response('{"action":"no_action"}'),
+    ]
+    await pipeline._execute(cast(Any, record))
+    assert pipeline.adapter.invoke.await_count == 2
+    pipeline._finalization.finalize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_format_retry_does_not_retry_owner_failure(monkeypatch):
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    pipeline.adapter.invoke.return_value = response('{"action":"no_action"}')
+    pipeline._finalization.finalize.side_effect = CandidateViolation("CANDIDATE-STALE")
+    await pipeline._execute(cast(Any, record))
+    pipeline.adapter.invoke.assert_awaited_once()
+    pipeline._repository.fail_episode.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["MODEL-RESPONSE-INCOMPLETE", "MODEL-RESPONSE-FORBIDDEN"]
+)
+async def test_text_protocol_failure_is_not_a_format_retry(monkeypatch, code):
+    from dataclasses import replace
+
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    pipeline.adapter.invoke.return_value = replace(
+        response("invalid"), response_error_code=code
+    )
+    await pipeline._execute(cast(Any, record))
+    pipeline.adapter.invoke.assert_awaited_once()
+    pipeline._repository.fail_episode.assert_awaited_once()
+    pipeline._finalization.finalize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unknown", [False, True])
+async def test_transport_failure_after_invalid_response_ends_retries(
+    monkeypatch, unknown
+):
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    failure = ModelInvocationResult(
+        ModelResultStatus.OUTCOME_UNKNOWN
+        if unknown
+        else ModelResultStatus.PROVIDER_FAILED,
+        None,
+        None,
+        None,
+        None,
+        error_code="MODEL-OUTCOME-UNKNOWN" if unknown else "MODEL-CONNECTION",
+    )
+    pipeline.adapter.invoke.side_effect = [response("invalid"), failure]
+    await pipeline._execute(cast(Any, record))
+    assert pipeline.adapter.invoke.await_count == 2
+    pipeline._repository.settle_failure.assert_awaited_once()
+    pipeline._finalization.finalize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stop_after_invalid_response_prevents_next_generation(monkeypatch):
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    pipeline.adapter.invoke.return_value = response("invalid")
+    pipeline._repository.settle_success.side_effect = lambda *_a, **_k: pipeline.stop()
+    await pipeline._execute(cast(Any, record))
+    pipeline.adapter.invoke.assert_awaited_once()
+    pipeline._repository.prepare_attempt.assert_awaited_once()
+    pipeline._finalization.finalize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_regeneration_usage_is_bound_to_each_attempt(monkeypatch):
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    pipeline._factory.provider_usage_unit_of_work = lambda **_kwargs: _unit()
+    pipeline._repository.record_provider_call = AsyncMock()
+    results = iter([response("invalid"), response('{"action":"no_action"}')])
+
+    async def invoke(_request):
+        async with provider_call(
+            provider="deepseek", model="deepseek-flash", service="generation"
+        ) as call:
+            await call.capture(usage={"input_tokens": 20, "output_tokens": 10})
+        return next(results)
+
+    pipeline.adapter.invoke.side_effect = invoke
+    await pipeline._execute(cast(Any, record))
+    attempts = [
+        item.kwargs["attempt_id"]
+        for item in pipeline._repository.settle_success.await_args_list
+    ]
+    receipts = pipeline._repository.record_provider_call.await_args_list
+    registrations = [item for item in receipts if item.kwargs["receipt"].registration]
+    assert [item.kwargs["attempt_id"] for item in registrations] == attempts
+    assert len({item.kwargs["receipt"].call_id for item in registrations}) == 2
+    assert all(
+        any(
+            item.kwargs["attempt_id"] == attempt
+            and item.kwargs["receipt"].raw_usage is not None
+            for item in receipts
+        )
+        for attempt in attempts
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop", [False, True])
+async def test_cancellation_during_second_generation_never_finalizes(monkeypatch, stop):
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    record.lease = SimpleNamespace(attempt_id=uuid7())
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def invoke(_request):
+        if pipeline.adapter.invoke.await_count == 1:
+            return response("invalid")
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def renew(lease, **_kwargs):
+        if entered.is_set() and not stop:
+            raise WorkViolation("WORK-LEASE-LOST")
+        return lease
+
+    pipeline._work = cast(Any, SimpleNamespace(renew=AsyncMock(side_effect=renew)))
+    monkeypatch.setattr(model, "_RENEW_SECONDS", 0.01)
+    pipeline.adapter.invoke.side_effect = invoke
+    task = asyncio.create_task(pipeline._execute_with_renewal(cast(Any, record)))
+    await asyncio.wait_for(entered.wait(), 1)
+    if stop:
+        pipeline.stop()
+    await asyncio.wait_for(task, 1)
+    assert cancelled.is_set()
+    assert pipeline.adapter.invoke.await_count == 2
+    pipeline._repository.settle_success.assert_awaited_once()
+    pipeline._finalization.finalize.assert_not_awaited()
     pipeline._failure_notification.assert_not_awaited()
 
 

@@ -6,7 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -63,6 +63,7 @@ from armi_runtime_foundation import (
 )
 
 from ._autonomous_activity_contract import autonomous_schema_for_context
+from ._candidate_application import model_response_candidate
 from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
     CODEX_RESULT_ACT_INSTRUCTIONS,
@@ -87,6 +88,7 @@ from ._model_contract import (
     load_active_binding,
     load_purpose_binding,
     load_voice_binding,
+    parse_candidate,
 )
 from ._model_postgresql import ModelEpisodeSnapshot, PostgreSQLCognitiveModelRepository
 from ._other_human_contract import (
@@ -112,6 +114,7 @@ _WORK_KIND = WorkType.COGNITION_EXECUTE
 COGNITION_EXECUTE = _WORK_KIND
 _LEASE_SECONDS = 30
 _RENEW_SECONDS = 20
+_MAX_FORMAT_ATTEMPTS = 5
 Diagnostic = Callable[[str], None]
 
 
@@ -120,6 +123,40 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 
 def _ignore_diagnostic(_event: str) -> None:
+    return None
+
+
+def _text_structure_error(
+    binding: ModelBinding,
+    snapshot: ModelEpisodeSnapshot,
+    result: ModelInvocationResult,
+) -> str | None:
+    """Generation gate only; owner preparation and state validation run once later."""
+    if (
+        binding.provider not in {"qwen", "deepseek"}
+        or snapshot.purpose == "reflect_mood"
+        or result.response_error_code
+    ):
+        return None
+    try:
+        value = model_response_candidate(
+            cast(bytes, result.response_bytes),
+            expected_version=binding.response_contract_version,
+        )
+        parse_candidate(
+            value,
+            expected_version=binding.response_contract_version,
+            purpose=snapshot.purpose,
+            allowed_context_refs=frozenset(
+                str(item["ref"]) for item in snapshot.included_context_refs
+            ),
+        )
+    except CandidateViolation:
+        return "MODEL-RESPONSE-SCHEMA"
+    except ModelViolation as error:
+        if error.code == "MODEL-RESPONSE-SCHEMA":
+            return error.code
+        # Semantic/reference or owner failures are not a regeneration budget.
     return None
 
 
@@ -646,16 +683,31 @@ class ModelPipeline:
                     attempt_id=attempt_id,
                     request_artifact=request_registration.ref,
                 )
-            async with self._factory.unit_of_work() as unit_of_work:
-                await self._repository.mark_dispatched(
-                    unit_of_work,
-                    lease=lease,
-                    attempt_id=attempt_id,
-                    episode_id=snapshot.episode_id,
+            # DESIGN.md: only completed text with invalid candidate structure may
+            # regenerate. Keep the frozen request, lease and one final commit.
+            for generation in range(1, _MAX_FORMAT_ATTEMPTS + 1):
+                if self._stop.is_set():
+                    return
+                async with self._factory.unit_of_work() as unit_of_work:
+                    await self._repository.mark_dispatched(
+                        unit_of_work,
+                        lease=lease,
+                        attempt_id=attempt_id,
+                        episode_id=snapshot.episode_id,
+                    )
+                with provider_meter_scope(usage_scope):
+                    result = await adapter.invoke(request)
+                if result.status is not ModelResultStatus.SUCCEEDED:
+                    await self._settle_failure(
+                        lease=lease,
+                        snapshot=snapshot,
+                        attempt_id=attempt_id,
+                        result=result,
+                    )
+                    return
+                structure_error = _text_structure_error(
+                    adapter.binding, snapshot, result
                 )
-            with provider_meter_scope(usage_scope):
-                result = await adapter.invoke(request)
-            if result.status is ModelResultStatus.SUCCEEDED:
                 published_response = await self._publish(
                     cast(bytes, result.response_bytes),
                     logical_kind="model.response",
@@ -681,18 +733,42 @@ class ModelPipeline:
                         snapshot=snapshot,
                         attempt_id=attempt_id,
                         response_artifact=response_registration.ref,
-                        result=result,
+                        result=(
+                            replace(result, response_error_code=structure_error)
+                            if structure_error is not None
+                            else result
+                        ),
                     )
-                    await self._repository.finalize_primary_success(
-                        unit_of_work,
-                        lease=lease,
-                        snapshot=snapshot,
-                        attempt_id=attempt_id,
-                        response_artifact=response_registration.ref,
+                    retry_structure = (
+                        structure_error is not None
+                        and generation < _MAX_FORMAT_ATTEMPTS
                     )
+                    if not retry_structure:
+                        await self._repository.finalize_primary_success(
+                            unit_of_work,
+                            lease=lease,
+                            snapshot=snapshot,
+                            attempt_id=attempt_id,
+                            response_artifact=response_registration.ref,
+                        )
                 response_saved = True
                 if self._stop.is_set():
                     return
+                if retry_structure:
+                    self._diagnostic("model.response.structure.retry")
+                    async with self._factory.unit_of_work() as unit_of_work:
+                        attempt_id = await self._repository.prepare_attempt(
+                            unit_of_work,
+                            lease=lease,
+                            snapshot=snapshot,
+                            binding=adapter.binding,
+                            request_artifact=request_registration.ref,
+                        )
+                    if attempt_id is None:
+                        return
+                    bound_attempt = attempt_id
+                    response_saved = False
+                    continue
                 if result.response_error_code is not None:
                     await self._fail_finalization(
                         lease, snapshot, result.response_error_code
@@ -701,13 +777,7 @@ class ModelPipeline:
                 await self._finalization.finalize(
                     record, attempt_id, cast(bytes, result.response_bytes)
                 )
-            else:
-                await self._settle_failure(
-                    lease=lease,
-                    snapshot=snapshot,
-                    attempt_id=attempt_id,
-                    result=result,
-                )
+                return
             return
         except (CandidateViolation, SubjectCommitViolation) as error:
             if snapshot is None:

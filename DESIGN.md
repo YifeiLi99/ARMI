@@ -142,7 +142,7 @@ Creator 文本、实时语音和 Codex 结果在 Provider 边界渲染为可读�
 
 Mind 的持久动机与每轮注意窗口分开：每轮最多选入四条未结束动机作为可裁剪背景，与当前证据/机会来源有明确对象关联的优先；自主生活其次优先未消费的复查信号，其余按最近更新排序。四条与单轮最多四项动机评价对应，不是生命周期记录上限，也不宣称最近更新即语义相关。未选中的动机不删除、不自动结束，其复查信号仅在真正进入冻结 Context 后才消费。后续评价若把新证据放在 `object_ref`，但在 `basis_refs` 明确引用唯一同类未结束动机，则沿原动机对象更新；引用多个同类动机时须明确选择目标，否则拒绝歧义。不同对象且无明确延续依据的新愿望仍可建立，不用文本相似度猜测合并。
 
-标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
+标准 Creator 文本、语音和精确生命查询结果各执行一次主认知工作，不额外追加评价调用；文本生成仅允许下述五次格式重试，语音仍单次调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
 
 模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求记住时形成，memory_summary 的存在代表记忆提议，不再另传 remember。评价轨迹将新事件与既有事件的引用、变化分开建模。语音复用相同业务类型，仅顶层字段别名和 60 字表达上限不同。
 
@@ -160,9 +160,9 @@ frozen Context + expected subject/owner versions
   → commit
 ```
 
-执行器将实际模型响应、usage 与模型成功以短事务保存，此时认知仍处于 `finalizing`。本次响应直接传入校验器，类型化变更集直接传入提交服务；受治理存档保留，正常执行不重读存档接续工作。制品在事务外准备，最终事务原子登记校验、应用事实、主体变化、意图、Effect/outbox 并结算工作；全程共享同一租约、续租和取消信号。后续失败不改写已成功的模型调用。
+执行器将实际模型响应、usage 与模型成功以短事务保存；文本格式重试期间认知保持 `calling_model`，选定最终返回后进入 `finalizing`。最终响应直接传入校验器，类型化变更集直接传入提交服务；受治理存档保留，正常执行不重读存档接续工作。制品在事务外准备，最终事务原子登记校验、应用事实、主体变化、意图、Effect/outbox 并结算工作；全程共享同一租约、续租和取消信号。后续失败不改写已成功的模型调用。
 
-模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 解开 candidate 封装并按冻结合同解析一次，随后将类型化内容绑定到 Owner 命令。独立的 `cognition.diagnostic` 制品保存阶段、错误码、字段路径、责任 Owner 和原始响应引用；管理端因果链关联两类制品，数据权利发现与引用计数同时覆盖它们。结构错误不改写已发生的模型成功事实，也不提交、重试或补发候选。
+模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 使用原合同解析器判断文本是否需要格式重试，选定最终返回后仍由正式校验器绑定 Owner 命令。独立的 `cognition.diagnostic` 制品保存最终校验的阶段、错误码、字段路径、责任 Owner 和原始响应引用；管理端因果链关联两类制品，数据权利发现与引用计数同时覆盖它们。格式错误返回保留独立 attempt 与原文，并在同一结算事务追加 cognition.model.response.format_rejected 审计，关联 attempt 与响应制品。调用成功事实与内容拒绝分开记录，不改写为网络失败，也不提交被放弃的候选。
 
 Admin `cognition_read`（CLI `cognition-read` / MCP `admin_cognition_read`）按 episode ID 返回 Context manifest、compiled Context、各 attempt 的请求/响应及诊断引用；给定其中的 artifact ID 后分段读取经过完整性核验的 UTF-8 正文。offset/length 以 Unicode 字符计，默认 16384、单页最多 65536 字符；返回 next_offset，不解析或执行历史候选。独立 `cognition_read` scope 授权正文读取，本机拥有者包含此权限，普通 trace/diagnostics 权限不自动获得正文。只读取该 episode 直接引用且仍 retained 的制品；文件 I/O 在事务外，返回前重验退役状态，缺失、损坏、越轮引用分别明确失败。
 
@@ -214,7 +214,9 @@ Schema 的格式合法不等于业务提交必然成立。引用、版本、权�
 
 `system_notifications` 只记录系统事实。独立的 `system_notification` Effect 引用它，action intent 为空，复用 outbox、发送适配器、数据权利检查和核验；不创建 Subject Commit、主体意图或经历。正文明确标记“ARMI 系统提示”，发送 unknown 与普通失败使用不同措辞。每轮最多一次，通知失败不递归、渠道不可用不换渠道、Runtime 更换不补发，unknown 不重放。实时语音使用当前会话失败状态，不伪造主体语音。管理端 flow graph v2 关联输入、通知、制品和发送事实。
 
-任一 owner 失败不留下半个主体变化。并发版本已推进时旧候选 stale，不能最后写入者覆盖。正式模型请求前的 token 计数暂时失败，在当前执行租约内按剩余 work 尝试预算重试，间隔 1 秒；每次物理调用保留独立 Provider 回执，已登记用量身份不等于模型请求已发送。重试不重新排队，停机、取消或租约丢失立即结束；正式模型请求不自动重发，Provider 已受理但结果 unknown 时不再调用。
+任一 owner 失败不留下半个主体变化。并发版本已推进时旧候选 stale，不能最后写入者覆盖。正式模型请求前的 token 计数暂时失败，在当前执行租约内按剩余 work 尝试预算重试，间隔 1 秒；每次物理调用保留独立 Provider 回执，已登记用量身份不等于模型请求已发送。重试不重新排队，停机、取消或租约丢失立即结束；Provider 已受理但结果 unknown 时不再调用。文本格式重试遵守下述独立上限，不与 SDK 或 work 重放叠加。
+
+Qwen/DeepSeek 主文本认知仅对完整返回中的非法 JSON、未知字段、缺失字段、非法枚举或候选合同不合格，按同一冻结请求最多生成 5 次（首次加最多 4 次重新生成）。Context、人设、Schema、模型和采样参数不变，不附加纠错提示、不补写或删除字段；每次生成使用独立 cognitive_attempts 记录与 Provider 用量回执，复用同一请求制品并保存各次原始返回。首次结构合格即停止重新生成，Owner 校验、制品准备和 Subject Commit 只进入一次；第 5 次仍不合格则交正式校验路径拒绝并产生最终诊断及一次失败通知。结构合格不代表权限、状态版本、引用对象语义及业务准备一定合格，这些失败不重新生成。协议不完整、工具调用、供应商拒绝、网络错误和 unknown 不进入格式重试。独立方舟语音保持单次生成。两次生成之间中断也结束旧认知，重启不续试或重置五次预算。
 
 精确生命查询和网页研究是后续耐久 work：结果形成新证据和新 episode，并通过 Owner 的来源引用关联原操作，不在原 episode 偷加第二次模型调用。
 
@@ -268,7 +270,7 @@ Mind 与 Mood 各自拥有评价提示语义。Mood 公开 `MOOD_APPRAISAL_INSTR
 
 文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。两家均通过 OpenAI SDK 使用官方 Responses 接口，`reasoning.effort:none`。Qwen Responses 当前未列出 JSON 格式约束参数，因此只通过提示词要求 JSON，并显式设置 `store:false`；不发送可能被忽略的格式参数。DeepSeek 使用官方 `text.format.type:json_object`，不发送 `strict` 或服务端 Schema。两家共用候选生成 Schema，无变化的可选字段省略，不套用严格供应商的全字段必填扩展。Creator 文本认知及复用该合同的结果处理、普通他人对话采用浅层输出：根对象直接放 action/content，删除 candidate、decision、social、relationship_change 包装；experience 为经历正文，experience_uncertainty、memory_summary 按用途保留，关系解释、事实、边界与承诺各自为顶层可选字段。事件描述、评价维度与轨迹统一为根对象的 event_ 前缀字段，不再创建 event_appraisal；多条关注目标及主体变化仍用对象列表，保留关联关系。其他 purpose 和独立方舟语音合同不变。
 
-浅层投影由 Cognition 所有：生成 Schema 从已绑定的原合同机械投影，解析入口按冻结的 candidate_contract_version 选择对应编码，严格拒绝旧包装、未知字段及缺失依赖，不根据返回形状猜测版本。映射只重组字段，不补状态、不推断身份、不吞非法字段；模型原始文本仍原样保存在 response artifact，映射后交给原后端类型及各 Owner 校验。业务候选版本和数据库合同不变，无历史候选重放或数据迁移。普通回复最少为 `{"action":"reply","content":"在呢"}`；无评价省略全部 event_ 字段，有关系变化时保留经历和非空关系解释。承诺引用只指向冻结 Context 中的关系承诺。一次生成、Context 隔离、原子 Subject Commit 和 Effect 链不变，格式错误不能靠关闭校验、修补 JSON、静默重试或切换模型解决。
+浅层投影由 Cognition 所有：生成 Schema 从已绑定的原合同机械投影，解析入口按冻结的 candidate_contract_version 选择对应编码，严格拒绝旧包装、未知字段及缺失依赖，不根据返回形状猜测版本。映射只重组字段，不补状态、不推断身份、不吞非法字段；模型原始文本仍原样保存在 response artifact，映射后交给原后端类型及各 Owner 校验。业务候选版本和数据库合同不变，无历史候选重放或数据迁移。普通回复最少为 `{"action":"reply","content":"在呢"}`；无评价省略全部 event_ 字段，有关系变化时保留经历和非空关系解释。承诺引用只指向冻结 Context 中的关系承诺。Context 隔离、原子 Subject Commit 和 Effect 链不变；格式错误按上述五次预算显式记录并重新生成，不能靠关闭校验、修补 JSON、隐匿失败或切换模型解决。
 
 DeepSeek 的 JSON Output 指南同时要求 JSON 指令与样例，完整 Schema 不能代替样例。两家聊天都给最小回复和带评价的浅层示例，引用取自本轮 Context，不要求复制示例判断。event_coping_*、event_demand_*、event_causality_* 按原组保留完整性依赖；event_self_compatibility 为字符串，冲突分支才带 event_self_scope，并与 event_norm_compatibility 配套。已有事件的 event_transition 分支必须同时提供 event_episode_ref 和 event_change_from_previous，无变化也须明确 unchanged。评价意义、动机重要性、自我卷入仍保留各自枚举，不合并不同心理含义。Mood 指令在文本适配时同步为真实 wire 字段名，明确 expectedness 枚举不可同义改写。非思考采样按用户选择保持 Qwen temperature:1.0、默认 top_p，DeepSeek temperature:1.3、top_p:1.0。浅层结构不保证消除模型错误；不得把降低温度作为替代合同修正的兜底。
 
@@ -286,7 +288,7 @@ Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离
 
 2026-09-20 格式约束复核：[DeepSeek Responses 兼容说明](https://api-docs.deepseek.com/guides/responses_api/) 声明支持 text.format，但实测不能将请求被接受视为硬约束已经生效。原始 HTTP 单个 output_text 在 json_object 的 none/low 思考对照中都出现过非法 JSON，响应仍为 completed；改用文档列出的 json_schema 后，非创造者冻结请求也复现了非法 JSON。进一步去掉 ARMI Context、人设和业务 Schema，只要求一个 reply 字段且 enum 唯一值为 SCHEMA_OK：提示要求不同值的八次对照中两次违反 enum（未指定 strict、试验性 strict:true 各一次），提示与 Schema 一致的四次对照均通过。该反例说明问题不只发生在复杂业务合同，也不能由 SDK 拼接解释；它不证明服务端内部故障原因，亦不证明所有业务错误都来自供应商。证据位于本地 .tmp/deepseek-documented-schema-20260920、.tmp/deepseek-schema-enforcement-20260920 和 .tmp/deepseek-schema-enforcement-repeat-20260920。保留当前生成配置及后端严格校验，不为宣称修复而补括号、删字段或静默重试；稳定性问题尚未解决。
 
-模型侧按上述协议提供生成控制，独立方舟语音仍发送严格 Schema。Schema 中联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；这只调整提示顺序，不改变可接受的候选或校验合同。收到可留存的返回与其可用于认知分开：Responses 要求 completed，且没有工具调用、拒绝或思考正文。Cognition 先保存原始正文和用量；无效返回以具体错误结束失败 episode，不提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。
+模型侧按上述协议提供生成控制，独立方舟语音仍发送严格 Schema。Schema 中联合分支的 discriminator 字段放在分支正文之前，让生成先选择动作再填写参数；这只调整提示顺序，不改变可接受的候选或校验合同。收到可留存的返回与其可用于认知分开：Responses 要求 completed，且没有工具调用、拒绝或思考正文。Cognition 保留原始正文和用量；只有满足上述条件的文本候选格式错误允许有限重新生成，其余无效返回以具体错误结束 episode，不提交或补答。调用返回事实保留，成功返回不等于本轮业务完成。
 
 ### 心理与自主行动的目标架构
 
@@ -496,7 +498,8 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 | Config/schema/ACL 不匹配 | 启动或操作明确失败，不自动修复 |
 | 可选能力未配置 | disabled/unavailable，与核心 readiness 分开 |
 | 模型明确可恢复错误 | 同一 work/attempt 预算内重试 |
-| 确定性合同/权限错误 | 不重试；保存失败原因 |
+| 完整文本返回的候选格式错误 | 冻结请求，最多 5 次生成；独立记录原文与费用 |
+| 请求合同/权限/Owner 错误 | 不重试；保存失败原因 |
 | Provider/平台已受理但无法确认 | unknown，对账，不重新制造副作用 |
 | Subject/owner version 已过期 | stale conflict，不最后写入者覆盖 |
 | 派生投影缺失/旧 binding | 标记不完整并耐久重建，不改 owner head |

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -146,7 +146,12 @@ class PostgreSQLCognitiveModelRepository:
             await unit_of_work.transaction.execute(
                 """UPDATE armi.cognitive_episodes
                    SET status='cancelled',failure_code='COGNITION-EXECUTION-INTERRUPTED'
-                   WHERE cognitive_episode_id=%s AND status='finalizing'
+                   WHERE cognitive_episode_id=%s
+                     AND (status='finalizing' OR
+                          (status='calling_model' AND NOT EXISTS (
+                              SELECT 1 FROM armi.cognitive_attempts AS attempt
+                              WHERE attempt.cognitive_episode_id=cognitive_episodes.cognitive_episode_id
+                                AND attempt.dispatch_status IN ('prepared','dispatched'))))
                    RETURNING opportunity_id""",
                 (work.draft.owner.reference,),
             )
@@ -427,6 +432,20 @@ class PostgreSQLCognitiveModelRepository:
                 AuditResultStatus.COMPLETED,
             )
         )
+        if result.response_error_code == "MODEL-RESPONSE-SCHEMA":
+            # The provider returned successfully; reject its content separately.
+            # Existing attempt constraints and original response remain intact.
+            await unit_of_work.audit.append(
+                replace(
+                    _settlement_audit(
+                        unit_of_work, snapshot, attempt_id, AuditResultStatus.REJECTED
+                    ),
+                    operation="cognition.model.response.format_rejected",
+                    request=AuditReference(
+                        "artifact", response_artifact.artifact_id.value
+                    ),
+                )
+            )
 
     async def settle_failure(
         self,
