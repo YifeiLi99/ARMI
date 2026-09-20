@@ -1,13 +1,17 @@
+import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid7
 
+import httpx
 import pytest
 from armi_cognition.api import CognitionSchemaDocument
 from armi_runtime.composition import credential_probe as probe
 from armi_runtime.composition.config_assets import runtime_config_path
 from armi_runtime.composition.model_adapter import create_model_adapter
+from openai import AsyncOpenAI
 
 
 def test_actual_voice_binding_initializes_responses_adapter():
@@ -91,3 +95,124 @@ async def test_models_are_checked_separately_and_errors_are_redacted(monkeypatch
     assert result["status"] == "failed"
     assert "model" not in result["checks"]
     assert "private-key" not in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("active", ["qwen", "deepseek"])
+@pytest.mark.parametrize("provider", ["qwen", "deepseek"])
+@pytest.mark.parametrize(
+    "outcome", ["valid", "unauthorized", "invalid_output", "invalid_json"]
+)
+async def test_saved_key_verification_reaches_own_official_api(
+    monkeypatch, tmp_path, active, provider, outcome
+):
+    binding = probe.load_active_model_binding()
+    if active == "deepseek":
+        binding = replace(
+            binding,
+            provider="deepseek",
+            model_id="deepseek-v4-pro",
+            api_base="https://api.deepseek.com",
+            credential_identity="armi.model.deepseek-api-key.v1",
+        )
+    monkeypatch.setattr(probe, "load_active_model_binding", lambda path: binding)
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        body = json.loads(request.content)
+        assert request.headers["authorization"] == "Bearer isolated-test-key"
+        if provider == "qwen":
+            assert request.url.host == "dashscope.aliyuncs.com"
+            assert request.url.path.endswith("/chat/completions")
+            assert body["enable_thinking"] is False
+            assert body["response_format"]["json_schema"]["strict"] is True
+            assert "连接测试" in str(body["messages"])
+        else:
+            assert request.url.host == "api.deepseek.com"
+            assert request.url.path == "/responses"
+            assert body["reasoning"] == {"effort": "none"}
+            assert body["text"]["format"]["strict"] is True
+            assert body["model"] == (
+                "deepseek-v4-pro" if active == provider else "deepseek-flash"
+            )
+        if outcome == "unauthorized":
+            return httpx.Response(
+                401,
+                json={
+                    "error": {
+                        "message": "private-provider-message",
+                        "type": "authentication_error",
+                    }
+                },
+            )
+        output = json.dumps({"candidate": {"ok": outcome == "valid"}})
+        if outcome == "invalid_json":
+            output = "not json"
+        if provider == "qwen":
+            response = {
+                "id": "chat-test",
+                "object": "chat.completion",
+                "created": 1,
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": output},
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            }
+        else:
+            response = {
+                "id": "resp-test",
+                "object": "response",
+                "created_at": 1,
+                "model": body["model"],
+                "status": "completed",
+                "output": [
+                    {
+                        "id": "msg",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [
+                            {"type": "output_text", "text": output, "annotations": []}
+                        ],
+                    }
+                ],
+                "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            }
+        return httpx.Response(200, json=response)
+
+    def client(**kwargs):
+        assert kwargs["max_retries"] == 0
+        kwargs["http_client"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(respond)
+        )
+        return AsyncOpenAI(**kwargs)
+
+    monkeypatch.setattr("armi_runtime.adapters.model.model_clients.AsyncOpenAI", client)
+    result = await probe.verify(
+        f"model.{provider}_api_key", "isolated-test-key", tmp_path, str(uuid7())
+    )
+    assert len(requests) == 1
+    assert result["status"] == ("passed" if outcome == "valid" else "failed")
+    assert "private-provider-message" not in str(result)
+    assert "isolated-test-key" not in str(result)
+    if outcome == "unauthorized":
+        assert result["checks"]["model"]["error_code"] == "HTTP-401"
+    elif outcome in {"invalid_output", "invalid_json"}:
+        assert result["checks"]["model"]["error_code"] == "MODEL-PROVIDER-RESPONSE"
+
+
+def test_local_context_failure_does_not_blame_key_or_network():
+    result = probe._failure(probe.ModelViolation("MODEL-CONTEXT"))
+    assert result["error_code"] == "MODEL-CONTEXT"
+    assert "本地验证请求" in result["message"]
+    assert "检查网络" not in result["message"]

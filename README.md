@@ -216,7 +216,7 @@ QQ 已登录但 NapCat API 端口被 Windows 禁止绑定时，可调用 `{"acti
 
 QQ 页面分别显示组件安装、账号登录和连接状态；进度条仅用于下载与安装。`refresh` 用例读取当前登录和渠道健康，`open_login` 打开已有登录页并启动必要环境，不重新安装或重做绑定。首次配置后的重启可能需要 QQ 再次扫码验证，此时显示 `login_required`；再次登录后仅核验连接，不循环重启。已保存的安装进度不代表当前在线，`ready` 也不等于真实消息收发已验证。
 
-模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。文本 Key 只检查所属供应商的当前选定型号；千问用 Chat Completions，DeepSeek 用 Responses，均发送严格 Schema。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。未选中相应文本供应商时要求先选择，不拿该 Key 尝试另一家。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。状态读取不联网。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
+模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。两家文本 Key 可独立验证：已选供应商检查所选型号，另一家使用默认测试型号（千问 `qwen3.8-flash`、DeepSeek `deepseek-flash`），不修改聊天配置，也不拿该 Key 尝试另一家。千问用 Chat Completions，DeepSeek 用 Responses，均发送严格 Schema。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。本地请求校验失败与服务商鉴权、响应错误分别说明。状态读取不联网。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
 
 ## 统一 MCP 与数据库管理
 

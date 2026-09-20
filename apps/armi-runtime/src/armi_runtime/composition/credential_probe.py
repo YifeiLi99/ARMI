@@ -8,6 +8,7 @@ import asyncio
 import json
 import sys
 import unicodedata
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -66,6 +67,10 @@ def _failure(error: Exception) -> dict[str, Any]:
         message = "验证超时，请检查网络后重试。"
     elif connection_failed:
         message = "网络连接失败，请检查服务地址和网络可达性。"
+    elif code in {"MODEL-CONTEXT", "MODEL-REQUEST", "MODEL-BINDING-MANIFEST"}:
+        message = "本地验证请求或模型配置不符合合同，尚未完成供应商验证；请检查 ARMI 验证实现。"
+    elif code == "MODEL-PROVIDER-RESPONSE":
+        message = "供应商已返回响应，但模型身份或严格结构化输出校验未通过。"
     return {
         "status": "failed",
         "error_code": f"HTTP-{status}"
@@ -93,22 +98,39 @@ async def _model_check(key: str, binding: Any) -> dict[str, Any]:
                     "schema_version": "armi.model-request.v1",
                     "compiled_context": {
                         "purpose": "consider_creator_input",
-                        "layers": [],
+                        "layers": [
+                            {
+                                "items": [
+                                    {
+                                        "item_kind": "current_evidence",
+                                        "content": "连接测试，请输出指定 JSON。",
+                                    }
+                                ]
+                            }
+                        ],
                     },
-                    "included_context_refs": [],
+                    "included_context_refs": [{"ref": "ctx:1"}],
                 }
             ).encode()
             response = await transport.invoke(
                 api_key=memoryview(key.encode()),
                 binding=binding,
                 request=ModelRequest(
-                    request_bytes, Digest("sha256:" + "0" * 64), 1, 64
+                    request_bytes, Digest.from_bytes(request_bytes), 1, 64
                 ),
             )
+            try:
+                output = json.loads(response["output_text"])
+            except json.JSONDecodeError:
+                raise ModelViolation("MODEL-PROVIDER-RESPONSE") from None
             if (
                 response["raw"].get("status") != "completed"
+                or not response["raw"].get("output")
+                or any(
+                    item.get("type") != "message" for item in response["raw"]["output"]
+                )
                 or response["model_id"] != binding.model_id
-                or json.loads(response["output_text"]) != {"candidate": {"ok": True}}
+                or output != {"candidate": {"ok": True}}
             ):
                 raise ModelViolation("MODEL-PROVIDER-RESPONSE")
             return {"status": "passed", "model": binding.model_id}
@@ -191,7 +213,19 @@ async def _verify(name: str, key: str, root: Path) -> dict[str, Any]:
             try:
                 binding = loader(path)
                 if binding.provider != provider:
-                    continue
+                    # Credential checks are independent of the active chat provider.
+                    # Use this provider's documented probe model; never switch runtime configuration.
+                    binding = replace(
+                        binding,
+                        provider=provider,
+                        model_id="qwen3.8-flash"
+                        if provider == "qwen"
+                        else "deepseek-flash",
+                        api_base="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                        if provider == "qwen"
+                        else "https://api.deepseek.com",
+                        credential_identity=f"armi.model.{provider}-api-key.v1",
+                    )
                 async with asyncio.timeout(30):
                     checks[label] = await _model_check(key, binding)
             except Exception as error:
@@ -261,13 +295,6 @@ async def _verify(name: str, key: str, root: Path) -> dict[str, Any]:
             }
     else:
         raise ValueError("unsupported credential")
-    if not checks:
-        return {
-            "status": "failed",
-            "error_code": "MODEL-BINDING-NOT-SELECTED",
-            "message": "请先在模型设置中选择此供应商的型号，再验证 Key。",
-            "checks": {},
-        }
     return {
         "status": "passed"
         if all(item["status"] == "passed" for item in checks.values())

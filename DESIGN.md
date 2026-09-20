@@ -25,7 +25,7 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
 豆包语音的流式 ASR、双向 TTS 和录音识别统一使用新版语音控制台 API Key，通过 `X-Api-Key` 发送。`speech.volc_credentials` locator 指向单 Key 文本，设置与 CLI/MCP 共用保存用例；不解析旧 App ID/Access Token JSON，不复用方舟模型凭据。资源 ID、音色与凭据分别配置。
 
-Setup 的凭据验证通过有界私有 worker 调用真实 Provider，独立于 Runtime 生命周期和 Subject Commit；不赋予交互端安装管理权限。各 Key 只验证所属供应商的已选模型，语音另验证 TTS 生成及 ASR 识别；未选择相应文本供应商时明确要求先选择。保存状态与本次验证结果分开，错误只输出安全错误码与中文说明；验证期间凭据改变则结果失效。网络 I/O 不占用设置文件锁。模型响应核验其身份；启动失败保留具体 ModelViolation 错误码。语音 WebSocket 与模型 HTTP 均不自动继承环境代理。
+Setup 的凭据验证通过有界私有 worker 调用真实 Provider，独立于 Runtime 生命周期和 Subject Commit；不赋予交互端安装管理权限。各 Key 只验证所属供应商：已选文本供应商检查所选型号，另一家使用默认测试型号（千问 `qwen3.8-flash`、DeepSeek `deepseek-flash`），不修改聊天配置；语音另验证 TTS 生成及 ASR 识别。固定测试请求必须满足共用 Context 合同，包含当前输入与对应引用，保留严格 Schema。保存状态与本次验证结果分开，错误只输出安全错误码与中文说明，并区分本地合同、服务商鉴权与响应错误；验证期间凭据改变则结果失效。网络 I/O 不占用设置文件锁。模型响应核验其身份；启动失败保留具体 ModelViolation 错误码。语音 WebSocket 与模型 HTTP 均不自动继承环境代理。
 
 Windows 安装版采用 MSIX。Windows 管理只读程序目录，入口通过包身份查找资源；Known Folder API 定位的 `%LOCALAPPDATA%\ARMI` 保存永久数据。其下 `environments/active/` 保存数据库、配置、凭据、模型与生活数据，`control/` 保存设置、环境索引和独立管理与更新记录，`cache/`、`tmp/` 保存缓存与临时文件。MSIX 的目录虚拟化排除声明使这些数据实际落盘并在卸载后保留。开发验收使用独立包身份和 `ARMI.Acceptance` 数据目录。源码使用明确资源绑定；本次不迁移或修改旧 Inno 安装与数据。
 

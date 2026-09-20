@@ -469,7 +469,7 @@ class Desktop:
             self.secret.pack(fill="x", before=self.credential_actions)
         elif name in {"model.qwen_api_key", "model.deepseek_api_key"}:
             self.credential_help.set(
-                "填写所选供应商官方控制台创建的 API Key；千问使用北京地域。先在“功能与模型”选择对应文本模型，再验证。\n首次添加凭据配置需要重启 Runtime；之后替换 Key 在后续请求生效。保存状态与实际验证结果分别显示。"
+                "填写对应供应商官方控制台创建的 API Key；千问使用北京地域。两家的 Key 可分别验证：已选供应商检查所选型号，另一家使用默认测试型号，不切换聊天配置。\n首次添加凭据配置需要重启 Runtime；之后替换 Key 在后续请求生效。保存状态与实际验证结果分别显示。"
             )
             self.secret.pack(fill="x", before=self.credential_actions)
         elif name == "speech.volc_credentials":
