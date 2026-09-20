@@ -266,8 +266,9 @@ OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = (
 # 经历与关系
 
 仅当本轮真实形成经历时填写 experience;关系变化必须基于 experience,只属于当前精确
-对方,首次形成关系时包含 interpretation。明确拒绝才可收紧边界,承诺不授予权限。
-首次为当前对方形成 relationship_change 时必须同时提供 interpretation。
+对方。明确拒绝才可收紧边界,承诺不授予权限。
+只要填写 relationship_change,interpretation 就必须为非空的关系理解;已有关系且理解未变时可保留原解释,不为填字段编造新判断。
+fact、boundary、commitment_change 按实际变化填写,无相应变化时为 null。
 只有经历、没有关系变化时保留 social.experience,并将 relationship_change 整体写为 null;
 不能用 interpretation、fact、boundary、commitment_change 全为 null 的对象表示没有变化。
 commitment_change 只记录真实承诺的建立或变化,普通调侃、疑问和意见不同不自动构成承诺冲突。

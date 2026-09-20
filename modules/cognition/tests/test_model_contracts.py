@@ -135,9 +135,10 @@ def test_internal_other_human_parser_error_is_not_reported_as_model_output(
         )
 
 
-def test_other_human_instructions_require_first_relationship_interpretation() -> None:
-    assert "首次为当前对方形成 relationship_change" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
-    assert "必须同时提供 interpretation" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+def test_other_human_instructions_require_relationship_interpretation() -> None:
+    assert "只要填写 relationship_change" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+    assert "interpretation 就必须为非空" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
+    assert "理解未变时可保留原解释" in OTHER_HUMAN_DIALOGUE_INSTRUCTIONS
 
 
 def test_other_human_social_contract_versions_relationship_context_refs() -> None:

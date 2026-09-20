@@ -34,6 +34,8 @@ from armi_runtime.composition.model_verification import load_voice_model_binding
 from jsonschema import Draft202012Validator
 from openai import AsyncOpenAI
 
+pytestmark = pytest.mark.test_group("model", "cognition")
+
 
 def binding(provider):
     current = load_active_model_binding()
@@ -175,7 +177,7 @@ async def test_sdk_wire_usage_and_failure_preserve_single_responses_call(
         else:
             assert requests[0].url.path == "/responses"
             assert wire["text"] == {"format": {"type": "json_object"}}
-            assert wire["temperature"] == 0.9
+            assert wire["temperature"] == 1.0
             assert wire["top_p"] == 1.0
             assert "thinking" not in wire and "store" not in wire
         settled = adapter._settle_response(result, request())
@@ -388,8 +390,10 @@ def test_every_purpose_renders_the_same_backend_schema_for_both_providers():
 @pytest.mark.parametrize(
     "purpose", ["consider_creator_input", "consider_other_human_input"]
 )
-def test_deepseek_dialogue_example_covers_nested_appraisal_with_bound_refs(
+@pytest.mark.parametrize("provider", ["qwen", "deepseek"])
+def test_dialogue_example_covers_nested_appraisal_with_bound_refs(
     purpose,
+    provider,
 ):
     from armi_runtime.composition.model_verification import (
         candidate_schema,
@@ -405,7 +409,7 @@ def test_deepseek_dialogue_example_covers_nested_appraisal_with_bound_refs(
     data["included_context_refs"] = [{"ref": "ctx:7"}]
     payload = json.dumps(data).encode()
     current = ModelRequest(payload, Digest.from_bytes(payload), 10, 2048)
-    wire = renderer.request_parameters(binding("deepseek"), current)
+    wire = renderer.request_parameters(binding(provider), current)
     value = json.loads(
         wire["instructions"]
         .split("完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n", 1)[1]
@@ -441,10 +445,71 @@ def test_deepseek_dialogue_example_covers_nested_appraisal_with_bound_refs(
     # The observed failure lost this event envelope; backend must still reject it.
     value["candidate"]["appraisal"] = event["appraisal"]
     assert not Draft202012Validator(expected).is_valid(value)
-    assert (
-        "完整对话 JSON 层级示例"
-        not in renderer.request_parameters(binding("qwen"), current)["instructions"]
+    assert "每层 2 空格缩进" in wire["instructions"]
+
+
+@pytest.mark.parametrize("provider", ["qwen", "deepseek"])
+def test_relationship_generation_requires_interpretation_without_relaxing_backend(
+    provider,
+):
+    from armi_runtime.composition.model_verification import (
+        candidate_schema,
+        load_purpose_binding,
+        parse_candidate,
     )
+
+    selected = load_purpose_binding("consider_other_human_input")
+    schema = candidate_schema(selected.response_contract_version)
+    renderer = CompatibleStructuredTransport(
+        schema, instructions="", schema_name="test"
+    )
+    wire = renderer.request_parameters(binding(provider), request())
+    output_schema = renderer.output_format(request())["schema"]
+    value = {
+        "candidate": {
+            "decision": {"kind": "reply", "content": "在呢"},
+            "appraisal": None,
+            "social": {
+                "experience": {
+                    "first_person_gist": "我们聊到了各自的想法",
+                    "uncertainty": None,
+                },
+                "relationship_change": {
+                    "interpretation": None,
+                    "fact": {"kind": "party_expression", "summary": "对方希望直接交流"},
+                    "boundary": None,
+                    "commitment_change": None,
+                },
+            },
+        },
+    }
+    # This old branch is legal for an existing relationship, but not a new one.
+    # The common backend stays unchanged; generation now selects a safe subset.
+    parse_candidate(
+        json.dumps(value["candidate"]).encode(),
+        expected_version=selected.response_contract_version,
+        allowed_context_refs=frozenset(),
+    )
+    assert not Draft202012Validator(output_schema).is_valid(value)
+    value["candidate"]["social"]["relationship_change"]["interpretation"] = (
+        "我们愿意直接交流"
+    )
+    Draft202012Validator(output_schema).validate(value)
+    parse_candidate(
+        json.dumps(value["candidate"]).encode(),
+        expected_version=selected.response_contract_version,
+        allowed_context_refs=frozenset(),
+    )
+    assert "interpretation" in wire["instructions"]
+    # A live model added formatting commentary inside decision; do not strip it.
+    value["candidate"]["decision"]["_note"] = "format checked"
+    assert not Draft202012Validator(output_schema).is_valid(value)
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(value["candidate"]).encode(),
+            expected_version=selected.response_contract_version,
+            allowed_context_refs=frozenset(),
+        )
 
 
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])

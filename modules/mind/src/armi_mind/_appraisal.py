@@ -42,6 +42,7 @@ MIND_APPRAISAL_INSTRUCTIONS = """## 动机评价
 - 围绕一个具体对象评价希望与现实的差距,不是安排动作。无相关愿望时返回空列表,不必凑齐类型。
 - desired_outcome: understand 是想弄清具体未知;connect 是交流愿望;engage 是有意义投入。困难本身不代表缺少投入,休息或独处也可以已经满足。
 - significance 表示对象的重要性,discrepancy 表示愿望差距。central 必须有核心目标或长期关系依据;当前唯一话题不自动成为核心。
+- mind_appraisals[].significance 只允许 none/peripheral/important/central/unknown;这是动机对象的重要性,与事件评价 concerns[].significance 的 peripheral/direct/core/unknown 不同,不能互换标签。
 - understanding 表示理解程度,progress 表示有效进展或重复,opportunity 表示可行机会。依据不足用 unknown,不要制造新枚举、情绪名称、强度或增量。
 - explanation 简述愿望和差距的具体依据。没有充分依据时不编造目标、承诺、不满;其他愿望可通过合同允许的 Mind 文字变化保留。
 

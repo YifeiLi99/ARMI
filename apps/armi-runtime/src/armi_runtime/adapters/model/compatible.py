@@ -22,6 +22,19 @@ from .structured import StructuredRequestRenderer
 class CompatibleStructuredTransport(StructuredRequestRenderer):
     """Reuse the exact prompt/schema renderer, never the Ark request protocol."""
 
+    def output_format(self, request: ModelRequest) -> dict[str, Any]:
+        output = super().output_format(request)
+        if set(self._candidate_schema.get("properties", {})) == {
+            "decision",
+            "appraisal",
+            "social",
+        }:
+            # A narrower generation view, not a second backend contract. Requiring
+            # an interpretation works for both new and existing relationships.
+            # Keep every fact/boundary/commitment capability; DESIGN.md.
+            _require_relationship_interpretation(output["schema"])
+        return output
+
     def request_parameters(
         self, binding: ModelBinding, request: ModelRequest
     ) -> dict[str, Any]:
@@ -32,6 +45,8 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
         instructions = (
             self._instructions
             + "\n\n输出必须是单个完整 JSON 对象，不含 Markdown 代码围栏、解释或额外对象。"
+            + "格式检查只在内部进行；任何层级都不得添加 Schema 未定义的字段，"
+            + "包括说明、注释、格式检查记录或推理过程。"
             + "以下是后端验证使用的完整 JSON Schema，必须满足全部字段、类型和约束：\n"
             + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
         )
@@ -85,28 +100,29 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             parameters["text"] = {"format": {"type": "json_object"}}
             # Chat variation is intentional; never replace strict validation with
             # lower temperature. DeepSeek fixes non-thinking top_p at 1.0.
-            parameters["temperature"] = 0.9
+            parameters["temperature"] = 1.0
             parameters["top_p"] = 1.0
-            example = _dialogue_example(
-                set(properties), self.context_refs(request)
-            )
-            if example is not None:
-                # DeepSeek's JSON guide requires an example, not just a schema.
-                # Show the non-null nested appraisal that failed live; DESIGN.md.
-                parameters["instructions"] += (
-                    "\n\n完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n"
-                    + json.dumps(example, ensure_ascii=False, indent=2)
-                    + "\n注意 candidate.appraisal 是完整事件；其内部 appraisal 才是评价维度。"
-                    + "candidate.appraisal 内的直接字段为 gist、basis_refs、event_phase、trajectory、appraisal。"
-                    + "事件依据写在 candidate.appraisal.basis_refs，不得在 candidate 下再复制一份 basis_refs。"
-                    + "\ncandidate 的直接字段只能是："
-                    + "、".join(sorted(properties))
-                    + "。嵌套字段不得提到 candidate 层；输出前检查每个字段所属对象。"
-                    + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
-                    + "需要引用时选择本轮实际支持判断的 Context 条目。"
-                )
         else:
             raise ModelViolation("MODEL-BINDING")
+        example = _dialogue_example(set(properties), self.context_refs(request))
+        if example is not None:
+            # Both providers generate this same contract without a proven strict
+            # decoder. Show nesting explicitly; never repair returned JSON. DESIGN.md.
+            parameters["instructions"] += (
+                "\n\n完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n"
+                + json.dumps(example, ensure_ascii=False, indent=2)
+                + "\n注意 candidate.appraisal 是完整事件；其内部 appraisal 才是评价维度。"
+                + "candidate.appraisal 内的直接字段为 gist、basis_refs、event_phase、trajectory、appraisal。"
+                + "事件依据写在 candidate.appraisal.basis_refs，不得在 candidate 下再复制一份 basis_refs。"
+                + "\ncandidate 的直接字段只能是："
+                + "、".join(sorted(properties))
+                + "。嵌套字段不得提到 candidate 层；输出前检查每个字段所属对象。"
+                + "是否形成评价、经历或变化由本轮判断；不要照搬示例判断或引用，"
+                + "需要引用时选择本轮实际支持判断的 Context 条目。"
+                + "\n输出使用多行 JSON、每层 2 空格缩进；每个属性独占一行，"
+                + "对象的右花括号另起一行并对齐该对象所在层，不压缩成单行。"
+                + "对象内每个属性必须有字段名，不直接放入无字段名的对象。"
+            )
         return parameters
 
     async def tokenize(
@@ -188,6 +204,38 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             "usage": normalized_usage,
             "raw": document,
         }
+
+
+def _require_relationship_interpretation(schema: dict[str, Any]) -> None:
+    def resolve(node: dict[str, Any]) -> dict[str, Any]:
+        if "$ref" in node:
+            return schema["$defs"][node["$ref"].removeprefix("#/$defs/")]
+        return node
+
+    def alternatives(node: dict[str, Any]) -> list[dict[str, Any]]:
+        node = resolve(node)
+        if "anyOf" in node:
+            return [leaf for child in node["anyOf"] for leaf in alternatives(child)]
+        return [node]
+
+    candidate = resolve(schema["properties"]["candidate"])
+    social = next(
+        node
+        for node in alternatives(candidate["properties"]["social"])
+        if node.get("type") == "object"
+    )
+    relationship = social["properties"]["relationship_change"]
+    interpreted = [
+        node
+        for node in alternatives(relationship)
+        if node.get("type") == "object"
+        and resolve(node["properties"]["interpretation"]).get("type") == "string"
+    ]
+    if len(interpreted) != 1:
+        raise ModelViolation("MODEL-BINDING")
+    social["properties"]["relationship_change"] = {
+        "anyOf": [interpreted[0], {"type": "null"}]
+    }
 
 
 def _dialogue_example(
