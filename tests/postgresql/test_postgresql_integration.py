@@ -6685,7 +6685,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_technical_failures_remain_silent(self) -> None:
         for stage in ("failure", "unknown", "input"):
             with self.subTest(stage=stage):
-                self._exercise_creator_reply(system_notification=stage)
+                self._exercise_creator_reply(technical_failure=stage)
 
     @pytest.mark.test_group("cognition", "expression", "effect")
     def test_explained_decision_retains_its_kind_and_delivers(self) -> None:
@@ -6746,7 +6746,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         concerns: bool = False,
         neutral_mood: bool = False,
         purpose: str | None = None,
-        system_notification: str | None = None,
+        technical_failure: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
     ) -> None:
         fixture = self.create_database()
@@ -7789,7 +7789,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             1,
         )
 
-        if system_notification is not None:
+        if technical_failure is not None:
             from armi_runtime.composition.postgresql_test import (
                 bootstrap_interaction_failure_notifications,
             )
@@ -7813,7 +7813,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 await factory.open()
                 try:
-                    if system_notification == "input":
+                    if technical_failure == "input":
                         await failures.notify_input_failure(
                             interaction_id=ids["interaction"],
                             failure_code="EXTERNAL-CONTENT-RECOGNITION",
@@ -7826,10 +7826,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         await failures.notify_failure(
                             opportunity_id=ids["opportunity"],
                             failure_code=code,
-                            send_unknown=system_notification == "unknown",
+                            send_unknown=technical_failure == "unknown",
                         )
                     self.assertEqual(
-                        len(diagnostics), 4 if system_notification == "input" else 3
+                        len(diagnostics), 4 if technical_failure == "input" else 3
                     )
                     self.assertTrue(
                         all(
@@ -7839,7 +7839,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     async with factory.unit_of_work(read_only=True) as uow:
                         for table in (
-                            "system_notifications",
                             "effects",
                             "effect_outbox_items",
                             "action_intents",

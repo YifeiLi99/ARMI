@@ -43,7 +43,7 @@ class PostgreSQLEffectAdmin:
         suffix = " FOR UPDATE OF effect,outbox" if for_update else ""
         row = transaction.execute(
             "SELECT effect.effect_id,effect.status,effect.current_attempt_id,effect.payload_digest,"
-            "effect.action_intent_id,outbox.effect_outbox_item_id,delivery.delivery_id,delivery.receipt_digest,effect.system_notification_id "
+            "effect.action_intent_id,outbox.effect_outbox_item_id,delivery.delivery_id,delivery.receipt_digest "
             "FROM armi.effects AS effect JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id "
             "LEFT JOIN armi.local_inbox_deliveries AS delivery ON delivery.effect_id=effect.effect_id "
             "AND delivery.payload_digest=effect.payload_digest WHERE effect.effect_id=%s"
@@ -62,7 +62,6 @@ class PostgreSQLEffectAdmin:
                 cast(UUID, row[5]),
                 cast(UUID | None, row[6]),
                 None if row[7] is None else str(row[7]),
-                cast(UUID | None, row[8]),
             )
         )
 

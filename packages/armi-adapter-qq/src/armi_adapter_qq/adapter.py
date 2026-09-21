@@ -330,8 +330,6 @@ class QQEffectAdapter(ActionAdapterPort):
     def payload_parts(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> tuple[bytes, ...]:
-        if request.system_notification_id is not None:
-            return (payload,)
         text = payload.decode("utf-8", errors="strict").strip()
         # Blank lines are model-selected message boundaries, not punctuation.
         parts = re.split(r"\r?\n[ \t]*\r?\n(?:[ \t]*\r?\n)*", text, maxsplit=2)

@@ -74,8 +74,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
                        outbox.attempt_count, outbox.claim_token,
                        effect.destination_kind, outbox.dispatch_deadline,
-                       effect.live_voice_turn_id, effect.system_notification_id,
-                       effect.destination_binding_id
+                       effect.live_voice_turn_id
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 WHERE outbox.status = 'ready'
@@ -120,20 +119,6 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """UPDATE armi.effect_outbox_items SET status='cancelled',
                    cancelled_at=statement_timestamp(),last_error_code='EFFECT-DESTINATION-UNAVAILABLE'
-                   WHERE effect_outbox_item_id=%s AND status='ready'""",
-                (row[0],),
-            )
-            return None
-        if row[14] is not None and route.destination_binding_id != row[15]:
-            await connection.execute(
-                """UPDATE armi.effects SET status='cancelled',verification_status='verified',
-                   cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
-                   WHERE effect_id=%s AND status='registered'""",
-                (row[1],),
-            )
-            await connection.execute(
-                """UPDATE armi.effect_outbox_items SET status='cancelled',
-                   cancelled_at=statement_timestamp(),last_error_code='EFFECT-DESTINATION-CHANGED'
                    WHERE effect_outbox_item_id=%s AND status='ready'""",
                 (row[0],),
             )
@@ -200,7 +185,6 @@ class PostgreSQLEffectDispatchRepository:
             int(row[7]),
             TraceId(str(row[8])),
             row[13],
-            row[14],
         )
         return EffectDispatchSnapshot(
             row[0],
@@ -415,7 +399,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.payload_bytes, effect.trace_id,
                        effect.destination_kind, NULL::text, NULL::text, NULL::text,
                        effect.live_voice_turn_id, outbox.dispatch_deadline,
-                       effect.system_notification_id, attempt.dispatch_state
+                       attempt.dispatch_state
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -475,10 +459,9 @@ class PostgreSQLEffectDispatchRepository:
                 int(row[12]),
                 TraceId(str(row[13])),
                 row[18],
-                row[20],
             ),
         )
-        if str(row[21]) == "prepared":
+        if str(row[20]) == "prepared":
             await self._settle(
                 uow,
                 snapshot,
@@ -520,7 +503,6 @@ class PostgreSQLEffectDispatchRepository:
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 WHERE outbox.status = 'unknown'
-                  AND effect.system_notification_id IS NULL
                   AND NOT (effect.effect_kind='creator_response'
                            AND outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED')
                   AND effect.status = 'unknown'
@@ -630,11 +612,6 @@ class PostgreSQLEffectDispatchRepository:
                     snapshot.request.external_conversation_key,
                 )
                 route_matches = current_route == frozen_route
-                if snapshot.request.system_notification_id is not None:
-                    route_matches = (
-                        route_matches
-                        and route.destination_binding_id == authorization[4]
-                    )
             except OtherHumanInputViolation:
                 route_matches = False
             if not route_matches:

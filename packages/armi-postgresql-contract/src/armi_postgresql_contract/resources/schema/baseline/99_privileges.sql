@@ -128,8 +128,6 @@ GRANT SELECT ON TABLE armi.opportunities TO armi_runtime;
 GRANT SELECT ON TABLE armi.parties TO armi_admin;
 GRANT SELECT ON TABLE armi.parties TO armi_runtime;
 GRANT SELECT ON TABLE armi.party_input_interactions TO armi_admin;
-GRANT SELECT ON TABLE armi.system_notifications TO armi_admin;
-GRANT SELECT, INSERT ON TABLE armi.system_notifications TO armi_runtime;
 GRANT SELECT ON TABLE armi.party_input_interactions TO armi_runtime;
 
 

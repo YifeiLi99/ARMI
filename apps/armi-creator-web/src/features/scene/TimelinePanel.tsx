@@ -189,7 +189,6 @@ function ChatTimelineItem({
     return null;
   }
   const creatorInput = item.source_kind === "creator_input";
-  const systemNotification = item.source_kind === "system_notification";
   const creatorResponse = ["creator_response", "party_response"].includes(
     item.source_kind,
   );
@@ -199,21 +198,15 @@ function ChatTimelineItem({
     : creatorResponse
       ? (response.data?.response_text ??
         (response.isPending ? "正在组织回复…" : "回复暂时不可见"))
-      : systemNotification
-        ? (item.message ?? "系统提示正文不可用")
-        : item.source_kind;
+      : item.source_kind;
 
   return (
     <li
       className={
-        creatorInput
-          ? "chat-message is-creator"
-          : systemNotification
-            ? "chat-message is-system"
-            : "chat-message is-armi"
+        creatorInput ? "chat-message is-creator" : "chat-message is-armi"
       }
     >
-      {!creatorInput && !systemNotification ? (
+      {!creatorInput ? (
         <span className="armi-avatar" aria-hidden="true">
           A
         </span>

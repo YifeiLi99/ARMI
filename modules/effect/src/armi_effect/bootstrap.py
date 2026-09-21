@@ -16,7 +16,6 @@ from armi_expression.api import (
 from armi_interaction.api import (
     InteractionEffectRoutePort,
     InteractionFailureNotificationPort,
-    SystemNotificationEffectPort,
 )
 from armi_kernel.application import (
     CreatorProjectionNotifier,
@@ -54,10 +53,6 @@ from .api import (
 
 def bootstrap_effect_admin() -> EffectAdminPort:
     return PostgreSQLEffectAdmin()
-
-
-def bootstrap_system_notification_effects() -> SystemNotificationEffectPort:
-    return PostgreSQLDeclaredResponseEffectRegistration()
 
 
 Diagnostic = Callable[[str], None]
@@ -139,7 +134,6 @@ __all__ = (
     "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",
-    "bootstrap_system_notification_effects",
     "compose_effect_dispatch_repository",
     "compose_effect_ledger_repository",
     "compose_local_inbox",

@@ -304,7 +304,6 @@ class EffectPipeline:
                 snapshot.artifact_id,
                 snapshot.request.payload_digest.value,
                 snapshot.request.payload_bytes,
-                system_notification=snapshot.request.system_notification_id is not None,
             )
             if payload is None:
                 async with self._factory.unit_of_work() as uow:
@@ -460,14 +459,6 @@ class EffectPipeline:
         snapshot: EffectDispatchSnapshot,
         receipt: EffectAdapterReceipt,
     ) -> None:
-        if snapshot.request.system_notification_id is not None:
-            await self._interaction_delivery.record_system_notification(
-                uow.transaction,
-                scene_id=snapshot.request.scene_id,
-                notification_id=snapshot.request.system_notification_id,
-                occurred_at=receipt.received_at,
-            )
-            return
         await self._interaction_delivery.record_party_response(
             uow.transaction,
             scene_id=snapshot.request.scene_id,
@@ -533,10 +524,7 @@ class EffectPipeline:
     async def _notify_dispatch(
         self, snapshot: EffectDispatchSnapshot, *, include_scene: bool
     ) -> None:
-        if (
-            self._failure_notifications is not None
-            and snapshot.request.system_notification_id is None
-        ):
+        if self._failure_notifications is not None:
             async with self._factory.unit_of_work(read_only=True) as uow:
                 ledger = await self._repository.by_effect_id(
                     uow.transaction,
@@ -561,18 +549,6 @@ class EffectPipeline:
                     send_unknown=ledger.status.value == "unknown",
                 )
         if snapshot.request.destination_kind != "creator_inbox":
-            return
-        if snapshot.request.system_notification_id is not None:
-            if include_scene:
-                await self._notify(
-                    [
-                        (
-                            CreatorResourceKind("scene_timeline"),
-                            snapshot.scene_key,
-                            "scene-timeline.v6",
-                        )
-                    ]
-                )
             return
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
@@ -638,8 +614,6 @@ class EffectPipeline:
         artifact_id: UUID,
         digest: str,
         size: int,
-        *,
-        system_notification: bool = False,
     ) -> bytes | None:
         try:
             from armi_kernel.application import (
@@ -655,9 +629,7 @@ class EffectPipeline:
                 Digest(digest),
                 size,
                 "text/plain",
-                "interaction.system_notification"
-                if system_notification
-                else "creator.reply.text",
+                "creator.reply.text",
                 ArtifactPrivacyScope.CREATOR_VISIBLE,
                 ArtifactIntegrityStatus.VERIFIED,
             )

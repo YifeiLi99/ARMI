@@ -30,7 +30,6 @@ class EffectAdminSnapshot:
     outbox_id: UUID
     delivery_id: UUID | None
     receipt_digest: str | None
-    system_notification_id: UUID | None = None
 
 
 @runtime_checkable
@@ -183,7 +182,6 @@ class FrozenEffectRequest:
     payload_bytes: int
     trace_id: TraceId
     live_voice_turn_id: UUID | None = None
-    system_notification_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if type(self.subject_id) is not UUID or self.subject_id.version != 7:
@@ -579,15 +577,6 @@ class ActionAdapterPort(Protocol):
 
 @runtime_checkable
 class EffectTimelinePort(Protocol):
-    async def record_system_notification(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        scene_id: UUID,
-        notification_id: UUID,
-        occurred_at: Instant,
-    ) -> None: ...
-
     async def record_party_response(
         self,
         transaction: PostgreSQLTransaction,

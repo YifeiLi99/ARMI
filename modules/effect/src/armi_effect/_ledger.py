@@ -10,7 +10,6 @@ from armi_expression.api import (
     CodexEffectDraft,
     DeclaredResponseEffectDraft,
 )
-from armi_interaction.api import SystemNotificationEffectDraft
 from armi_kernel.contracts import Digest, Instant
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
@@ -33,55 +32,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
     """Own immediate effect registration for already-admitted social responses."""
 
     __slots__ = ()
-
-    async def register_system_notification(
-        self, transaction: PostgreSQLTransaction, draft: SystemNotificationEffectDraft
-    ) -> UUID:
-        effect_id = uuid7()
-        route = draft.route
-        await transaction.execute(
-            """INSERT INTO armi.effects (
-                effect_id,system_notification_id,subject_id,scene_id,context_party_id,
-                payload_artifact_id,payload_digest,payload_bytes,effect_kind,
-                capability_kind,operation_class,audience_scope,data_scope,purpose,
-                authorization_basis,destination_kind,destination_party_id,
-                destination_binding_id,status,verification_status,registration_digest,trace_id)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'system_notification',
-                 'interaction.system.notify','send','original_sender','system_notification',
-                 'notify_technical_failure',%s,%s,%s,%s,'registered','not_started',%s,%s)""",
-            (
-                effect_id,
-                draft.notification_id,
-                draft.subject_id,
-                route.scene_id,
-                route.destination_party_id,
-                draft.artifact.artifact_id.value,
-                draft.artifact.content_digest.value,
-                draft.artifact.byte_size,
-                "runtime_configuration"
-                if route.destination_binding_id is not None
-                else "runtime_builtin",
-                route.destination_kind,
-                route.destination_party_id,
-                route.destination_binding_id,
-                Digest.from_bytes(
-                    rfc8785.dumps(
-                        {
-                            "notification": str(draft.notification_id),
-                            "payload": draft.artifact.content_digest.value,
-                        }
-                    )
-                ).value,
-                draft.trace_id.value,
-            ),
-        )
-        await transaction.execute(
-            """INSERT INTO armi.effect_outbox_items (
-                effect_outbox_item_id,effect_id,message_kind,status,dispatch_deadline,max_attempts)
-               VALUES (%s,%s,'effect.dispatch','ready',NULL,1)""",
-            (uuid7(), effect_id),
-        )
-        return effect_id
 
     async def register_codex_delegation(
         self, transaction: PostgreSQLTransaction, draft: CodexEffectDraft

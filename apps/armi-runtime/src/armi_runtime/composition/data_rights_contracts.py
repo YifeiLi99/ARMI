@@ -74,7 +74,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
             ("external_message_parts", "raw_artifact_id", "party"),
             ("external_message_parts", "recognition_request_artifact_id", "party"),
             ("external_message_parts", "recognition_response_artifact_id", "party"),
-            ("system_notifications", "payload_artifact_id", "party"),
         ),
     ),
     _contract("experience", ("experience",), ()),

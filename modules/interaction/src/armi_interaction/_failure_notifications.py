@@ -1,7 +1,5 @@
 """Interaction-owned silent failure diagnostics and voice turn cleanup."""
 
-# ruff: noqa: RUF001
-
 from __future__ import annotations
 
 import re
@@ -28,13 +26,6 @@ from armi_runtime_foundation import (
 
 class NotificationSourceViolation(RuntimeError):
     """The authoritative origin cannot be used for delivery."""
-
-
-def failure_notification_text(*, send_unknown: bool) -> str:
-    """Render historical timeline records only; new failures never create these."""
-    if send_unknown:
-        return "ARMI 系统提示：本轮消息的发送结果暂时无法确认；消息可能已送达，系统不会重复发送。"
-    return "ARMI 系统提示：本轮处理遇到技术错误，未能正常完成。"
 
 
 @dataclass(frozen=True, slots=True)

@@ -23,13 +23,8 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("interaction")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "system_notifications",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.system_notifications AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "external_channel_bindings",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -129,8 +124,6 @@ class PostgreSQLInteractionDataRightsParticipant:
                      UNION ALL
                      SELECT recognition_response_artifact_id, interaction_id
                      FROM armi.external_message_parts WHERE recognition_response_artifact_id IS NOT NULL
-                     UNION ALL
-                     SELECT payload_artifact_id, interaction_id FROM armi.system_notifications
                    )
                    SELECT refs.artifact_id, count(*),
                           count(*) FILTER (WHERE interaction.source_party_id = %s)

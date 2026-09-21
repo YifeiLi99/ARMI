@@ -506,15 +506,8 @@ class AdminCorrectionGateway:
         )
         if evidence is None or opportunity is None or artifact is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-INPUT-NOT-FOUND")
-        if (
-            opportunity.disposition != "open"
-            or self._interaction.notification_for_input(
-                connection, interaction_id=interaction.interaction_id
-            )
-            is not None
-            or self._cognition.opportunity_consumed(
-                connection, opportunity_id=opportunity.opportunity_id
-            )
+        if opportunity.disposition != "open" or self._cognition.opportunity_consumed(
+            connection, opportunity_id=opportunity.opportunity_id
         ):
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-INPUT-COMMITTED")
         shared = self._artifact_has_other_references(
@@ -640,14 +633,7 @@ class AdminCorrectionGateway:
                 connection, action_intent_id=effect.action_intent_id
             )
         )
-        notice = (
-            None
-            if effect.system_notification_id is None
-            else self._interaction.notification(
-                connection, notification_id=effect.system_notification_id
-            )
-        )
-        if intent is None and notice is None:
+        if intent is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-NOT-FOUND")
         conclusion = str(spec["conclusion"])
         result_status = {
@@ -731,11 +717,7 @@ class AdminCorrectionGateway:
             "handler": {
                 "effect_id": str(effect.effect_id),
                 "attempt_id": str(effect.attempt_id),
-                "operation_ref": str(
-                    intent.operation_ref
-                    if intent is not None
-                    else cast(Any, notice).interaction_id
-                ),
+                "operation_ref": str(intent.operation_ref),
                 "outbox_id": str(effect.outbox_id),
                 "delivery_id": None
                 if effect.delivery_id is None

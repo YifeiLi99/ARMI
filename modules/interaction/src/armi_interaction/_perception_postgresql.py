@@ -456,22 +456,6 @@ class PostgreSQLInteractionPerception:
             occurred_at=occurred_at,
         )
 
-    async def record_system_notification(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        scene_id: UUID,
-        notification_id: UUID,
-        occurred_at: Instant,
-    ) -> None:
-        await self._record_response(
-            transaction,
-            scene_id=scene_id,
-            source_kind="system_notification",
-            source_ref=notification_id,
-            occurred_at=occurred_at,
-        )
-
     async def record_live_voice_response(
         self,
         transaction: PostgreSQLTransaction,

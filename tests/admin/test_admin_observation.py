@@ -56,10 +56,7 @@ class _Materials:
         return self._snapshot
 
 
-@pytest.mark.parametrize("system_notice", [False, True])
-def test_trace_connects_input_context_commit_effect_and_delivery_without_private_bytes(
-    system_notice,
-):
+def test_trace_connects_input_context_commit_effect_and_delivery_without_private_bytes():
     ids = {
         name: uuid7()
         for name in (
@@ -106,18 +103,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
     ports["interaction"].input_snapshot.return_value = SimpleNamespace(
         interaction_id=ids["input"]
     )
-    notice_id = uuid7()
-    ports["interaction"].notification_for_input.return_value = (
-        notice_id if system_notice else None
-    )
-    ports["interaction"].notification.return_value = SimpleNamespace(
-        notification_id=notice_id,
-        interaction_id=ids["input"],
-        operation_id=ids["opportunity"],
-        artifact_id=ids["diagnostic"],
-        failure_code="CANDIDATE-CONTRACT",
-        send_unknown=False,
-    )
     evidence = SimpleNamespace(
         evidence_id=ids["evidence"],
         interaction_id=ids["input"],
@@ -153,7 +138,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
         status="completed",
         action_intent_id=ids["intent"],
         outbox_id=ids["outbox"],
-        system_notification_id=notice_id if system_notice else None,
         delivery_id=ids["delivery"],
         receipt_digest="sha256:" + "1" * 64,
     )
@@ -200,12 +184,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
         "delivery",
     }
     assert len(nodes) == len({(node["kind"], node["id"]) for node in nodes})
-    if system_notice:
-        notice = next(node for node in nodes if node["kind"] == "system_notification")
-        assert notice["attributes"] == {
-            "failure_code": "CANDIDATE-CONTRACT",
-            "send_unknown": False,
-        }
     assert {str(ids["response"])} <= {node["id"] for node in nodes}
     ports["runtime"].audit_trace.return_value = (
         (

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal
@@ -388,8 +387,6 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
                     ),
                     expected,
                 )
-        notice = replace(request, system_notification_id=uuid7())
-        self.assertEqual(adapter.payload_parts(notice, b"one\n\ntwo"), (b"one\n\ntwo",))
 
     async def test_send_failure_mapping_does_not_retry(self) -> None:
         content = b"hello"
