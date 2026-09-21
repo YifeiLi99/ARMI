@@ -113,7 +113,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "life_material_revisions": TableOwnership("material", maintenance_writable=True),
     "life_materials": TableOwnership("material", maintenance_writable=True),
     "activities": TableOwnership("activity", maintenance_writable=True),
-    "activity_decisions": TableOwnership("activity", maintenance_writable=True),
     "activity_revisions": TableOwnership("activity", maintenance_writable=True),
     "maintenance_session_revisions": TableOwnership("sleep", maintenance_writable=True),
     "maintenance_sessions": TableOwnership("sleep", maintenance_writable=True),

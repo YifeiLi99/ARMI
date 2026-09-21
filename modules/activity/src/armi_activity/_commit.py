@@ -194,39 +194,37 @@ class PostgreSQLActivityCommit:
         ):
             raise ActivityViolation("ACTIVITY-WORK-SHAPE")
         decision = decisions[0]
-        outcome = {
-            ActivityAttentionDecisionKind.PROGRESS: "progress",
-            ActivityAttentionDecisionKind.COMPLETE: "complete",
-            ActivityAttentionDecisionKind.WAIT: "need_information",
-            ActivityAttentionDecisionKind.ABANDON: "abandon",
-            ActivityAttentionDecisionKind.PAUSE: "no_result",
-        }.get(decision.decision_kind)
-        if outcome is None:
+        if decision.decision_kind not in {
+            ActivityAttentionDecisionKind.PROGRESS,
+            ActivityAttentionDecisionKind.COMPLETE,
+            ActivityAttentionDecisionKind.WAIT,
+            ActivityAttentionDecisionKind.ABANDON,
+            ActivityAttentionDecisionKind.PAUSE,
+        }:
             raise ActivityViolation("ACTIVITY-WORK-SHAPE")
-        await transaction.execute(
+        updated = await transaction.execute(
             """
-            INSERT INTO armi.activity_decisions (
-                activity_decision_id, decision_source, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                candidate_application_id, activity_id, expected_revision_id,
-                expected_head_version, decision_kind, result_revision_id,
-                output_material_id) VALUES (
-                %s, 'internal_work', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            UPDATE armi.activity_revisions
+            SET opportunity_id=%s, cognitive_episode_id=%s,
+                candidate_application_id=%s, output_material_id=%s
+            WHERE activity_revision_id=%s AND activity_id=%s
+              AND candidate_validation_id=%s AND previous_revision_id=%s
+              AND opportunity_id IS NULL
+            RETURNING activity_revision_id
             """,
             (
-                uuid7(),
                 context.opportunity_id,
                 context.episode_id,
-                context.validation_id,
                 application_id,
-                decision.activity_id,
-                decision.current_revision_id,
-                decision.expected_head_version,
-                outcome,
-                result_revision_id,
                 None if not output_material_ids else output_material_ids[0],
+                result_revision_id,
+                decision.activity_id,
+                context.validation_id,
+                decision.current_revision_id,
             ),
         )
+        if await updated.fetchone() is None:
+            raise ActivityViolation("ACTIVITY-HEAD-STALE")
 
     async def affected_activity_ids(
         self, transaction: PostgreSQLTransaction, validation_id: UUID
@@ -234,14 +232,11 @@ class PostgreSQLActivityCommit:
         rows = await (
             await transaction.execute(
                 """
-                SELECT activity_id FROM armi.activity_revisions
-                WHERE candidate_validation_id = %s
-                UNION
-                SELECT activity_id FROM armi.activity_decisions
+                SELECT DISTINCT activity_id FROM armi.activity_revisions
                 WHERE candidate_validation_id = %s
                 ORDER BY activity_id
                 """,
-                (validation_id, validation_id),
+                (validation_id,),
             )
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)

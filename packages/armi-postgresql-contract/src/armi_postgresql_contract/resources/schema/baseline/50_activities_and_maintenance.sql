@@ -22,30 +22,6 @@ CREATE TABLE armi.activities (
     CONSTRAINT activities_admin_provenance CHECK (((admin_change_id IS NULL AND origin_opportunity_id IS NOT NULL) OR (admin_change_id IS NOT NULL AND origin_opportunity_id IS NULL)))
 );
 
---
--- Name: activity_decisions; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.activity_decisions (
-    activity_decision_id uuid NOT NULL,
-    decision_source text NOT NULL,
-    opportunity_id uuid NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    candidate_application_id uuid NOT NULL,
-    activity_id uuid NOT NULL,
-    expected_revision_id uuid NOT NULL,
-    expected_head_version bigint NOT NULL,
-    decision_kind text NOT NULL,
-    result_revision_id uuid,
-    review_not_before timestamp(6) with time zone,
-    output_material_id uuid,
-    decided_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT activity_decisions_head_version_check CHECK ((expected_head_version > 0)),
-    CONSTRAINT activity_decisions_id_check CHECK ((uuid_extract_version(activity_decision_id) = 7)),
-    CONSTRAINT activity_decisions_shape_check CHECK ((((decision_source = 'attention'::text) AND (output_material_id IS NULL)) OR ((decision_source = 'internal_work'::text) AND (review_not_before IS NULL) AND (result_revision_id IS NOT NULL)))),
-    CONSTRAINT activity_decisions_source_check CHECK ((decision_source = ANY (ARRAY['attention'::text, 'internal_work'::text])))
-);
 
 --
 -- Name: activity_revisions; Type: TABLE; Schema: armi; Owner: -
@@ -53,6 +29,11 @@ CREATE TABLE armi.activity_decisions (
 
 CREATE TABLE armi.activity_revisions (
     activity_revision_id uuid NOT NULL,
+    opportunity_id uuid UNIQUE,
+    cognitive_episode_id uuid,
+    candidate_application_id uuid,
+    output_material_id uuid,
+    CONSTRAINT activity_revisions_work_origin_check CHECK ((opportunity_id IS NULL AND cognitive_episode_id IS NULL AND candidate_application_id IS NULL AND output_material_id IS NULL) OR (opportunity_id IS NOT NULL AND cognitive_episode_id IS NOT NULL AND candidate_application_id IS NOT NULL AND candidate_validation_id IS NOT NULL)),
     activity_id uuid NOT NULL,
     revision_no bigint NOT NULL,
     previous_revision_id uuid,

@@ -491,7 +491,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("life_material_revisions", "semantic_digest"),
     ("life_material_revisions", "body_digest"),
     ("relationship_revisions", "semantic_digest"),
-    ("activity_decisions", "resource_snapshot_digest"),
     ("maintenance_sessions", "schedule_digest"),
     ("sleep_decisions", "source_digest"),
     ("effect_attempts", "request_digest"),

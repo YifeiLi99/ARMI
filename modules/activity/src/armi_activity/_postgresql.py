@@ -50,9 +50,9 @@ class PostgreSQLActivityRead:
             return None
         row = await (
             await transaction.execute(
-                """SELECT max(decided_at) FROM armi.activity_decisions
+                """SELECT max(created_at) FROM armi.activity_revisions
                    WHERE cognitive_episode_id = ANY(%s)
-                     AND decision_kind='need_information'""",
+                     AND transition_kind='wait'""",
                 (episode_ids,),
             )
         ).fetchone()
@@ -259,32 +259,11 @@ class PostgreSQLActivityRead:
                           AND revision.created_at<=%s
                           AND (%s::timestamptz IS NULL OR
                                (revision.created_at,revision.activity_revision_id)<(%s,%s))
-                        UNION ALL
-                        SELECT decision.activity_decision_id,
-                               decision.decision_kind,
-                               NULL::text,
-                               NULL::text,
-                               decision.review_not_before,
-                               decision.decided_at
-                        FROM armi.activity_decisions AS decision
-                        LEFT JOIN armi.activity_revisions AS result
-                          ON result.activity_revision_id=decision.result_revision_id
-                        WHERE decision.activity_id = %s
-                          AND decision.decided_at<=%s
-                          AND (decision.result_revision_id IS NULL OR result.created_at>%s)
-                          AND (%s::timestamptz IS NULL OR
-                               (decision.decided_at,decision.activity_decision_id)<(%s,%s))
                         ORDER BY 6 DESC, 1 DESC
                         LIMIT %s
                         """,
                             (
                                 activity_id,
-                                ceiling,
-                                None if boundary is None else boundary[0],
-                                None if boundary is None else boundary[0],
-                                None if boundary is None else boundary[1],
-                                activity_id,
-                                ceiling,
                                 ceiling,
                                 None if boundary is None else boundary[0],
                                 None if boundary is None else boundary[0],

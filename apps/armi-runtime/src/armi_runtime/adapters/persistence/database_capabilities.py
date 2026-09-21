@@ -19,7 +19,7 @@ def _capabilities(
 _RUNTIME_INSERT = """
 autonomy_plans
 accepted_experiences action_intents activities
-activity_decisions activity_revisions
+activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts audit_events
 codex_task_sources codex_verification_results
 cognition_maintenance_batch_sources cognition_maintenance_batches
@@ -55,7 +55,7 @@ _RUNTIME_UPDATE = """
 maintenance_session_revisions
 autonomy_plans
 accepted_experiences activities
-activity_decisions activity_revisions
+activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts
  cognition_maintenance_batch_sources
 cognition_maintenance_batches cognition_maintenance_cursors cognitive_attempts

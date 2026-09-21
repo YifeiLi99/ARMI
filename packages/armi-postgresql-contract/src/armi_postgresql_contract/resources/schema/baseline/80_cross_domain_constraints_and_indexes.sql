@@ -76,19 +76,7 @@ ALTER TABLE ONLY armi.activities
 ALTER TABLE ONLY armi.activities
     ADD CONSTRAINT activities_pkey PRIMARY KEY (activity_id);
 
---
--- Name: activity_decisions activity_decisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_pkey PRIMARY KEY (activity_decision_id);
-
---
--- Name: activity_decisions activity_decisions_source_opportunity_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_source_opportunity_key UNIQUE (decision_source, opportunity_id);
 
 --
 -- Name: activity_revisions activity_revisions_activity_id_revision_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1798,61 +1786,13 @@ ALTER TABLE ONLY armi.activities
 ALTER TABLE ONLY armi.activities
     ADD CONSTRAINT activities_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: activity_decisions activity_decisions_activity_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_activity_fkey FOREIGN KEY (activity_id) REFERENCES armi.activities(activity_id);
 
---
--- Name: activity_decisions activity_decisions_application_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
---
--- Name: activity_decisions activity_decisions_episode_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
---
--- Name: activity_decisions activity_decisions_expected_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_expected_revision_fkey FOREIGN KEY (expected_revision_id, activity_id) REFERENCES armi.activity_revisions(activity_revision_id, activity_id);
-
---
--- Name: activity_decisions activity_decisions_opportunity_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_opportunity_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: activity_decisions activity_decisions_output_material_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_output_material_fkey FOREIGN KEY (output_material_id) REFERENCES armi.life_materials(life_material_id);
-
---
--- Name: activity_decisions activity_decisions_result_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_result_revision_fkey FOREIGN KEY (result_revision_id, activity_id) REFERENCES armi.activity_revisions(activity_revision_id, activity_id);
-
---
--- Name: activity_decisions activity_decisions_validation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: activity_revisions activity_revisions_activity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3521,3 +3461,11 @@ ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_subject_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_successor_fkey FOREIGN KEY (successor_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
+
+ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
+
+ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+
+ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
+
+ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_output_material_id_fkey FOREIGN KEY (output_material_id) REFERENCES armi.life_materials(life_material_id);
