@@ -307,7 +307,6 @@ class AdminCorrectionGateway:
             "subject_id": str(subject[0]),
             "subject_version": int(subject[1]),
             "state_epoch": int(subject[2]),
-            "generation_id": str(subject[3]),
             "target_identity": detail["target_identity"],
             "target_versions": detail["target_versions"],
         }
@@ -328,7 +327,6 @@ class AdminCorrectionGateway:
             "subject_id": str(subject[0]),
             "subject_version": int(subject[1]),
             "state_epoch": int(subject[2]),
-            "generation_id": str(subject[3]),
             "scope_digest": _digest(scope),
             "impact_digest": _digest(impact),
         }
@@ -353,15 +351,10 @@ class AdminCorrectionGateway:
         subject = self._runtime.subject(connection, for_update=for_update)
         if subject is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-SUBJECT-UNBORN")
-        if for_update and not self._runtime.validate_generation(
-            connection, subject.generation_id
-        ):
-            raise AdminCorrectionGatewayError("ADMIN-CORRECTION-GENERATION")
         return (
             subject.subject_id,
             subject.subject_version,
             subject.state_epoch,
-            subject.generation_id,
         )
 
     def _fence_expired_authority(self, connection: PostgreSQLAdminTransaction) -> None:

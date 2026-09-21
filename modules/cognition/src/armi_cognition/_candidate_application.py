@@ -278,7 +278,6 @@ class CandidateValidationService:
         validator = DeterministicCandidateValidator(
             CandidateValidationContext(
                 snapshot.subject_id,
-                snapshot.generation_id,
                 snapshot.episode_id,
                 snapshot.model_attempt_id,
                 snapshot.base_subject_version,

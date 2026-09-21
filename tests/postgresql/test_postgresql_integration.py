@@ -938,7 +938,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         RecoveryScope(
                             fixture.environment_id,
                             born.subject_id,
-                            born.life_generation_id,
                             born.bundle_activation_id,
                             _uuid7(),
                             1,
@@ -1815,11 +1814,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "INSERT INTO armi.deployment_environments (environment_id,environment_kind,incarnation,resettable,test_controls_enabled) VALUES (%s,'acceptance',1,true,true)",
                     (fixture.environment_id,),
                 )
-                generation = one(
-                    connection,
-                    "SELECT current_generation_id FROM armi.subjects WHERE subject_id=%s",
-                    (born.subject_id,),
-                )[0]
                 commits_before = one(
                     connection, "SELECT count(*) FROM armi.subject_commits"
                 )[0]
@@ -1868,7 +1862,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "environment_id": str(fixture.environment_id),
                             "idempotency_key": key,
                             "reason": "isolated online content acceptance",
-                            "expected_generation_id": str(generation),
+                            "expected_subject_id": str(born.subject_id),
                             "change": {
                                 "owner": owner,
                                 "action": action,
@@ -1937,7 +1931,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             return await module.read.maintenance_context(
                                 unit.transaction,
                                 subject_id=born.subject_id,
-                                generation_id=generation,
                                 enabled=True,
                             )
                     finally:
@@ -2847,11 +2840,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 admin_pool.close()
             identity_query = """
-                SELECT subject.subject_id, generation.life_generation_id
+                SELECT subject.subject_id
                 FROM armi.subjects AS subject
-                JOIN armi.life_generations AS generation
-                  ON generation.subject_id = subject.subject_id
-                 AND generation.status = 'active'
                 WHERE subject.singleton_key = 1
             """
             with psycopg.connect(fixture.runtime_dsn) as database:
@@ -3728,7 +3718,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         subject_id = _uuid7()
-        generation_id = _uuid7()
         memory_id = _uuid7()
         vector = "[1," + ",".join("0" for _ in range(1023)) + "]"
         with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
@@ -3736,15 +3725,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """INSERT INTO armi.context_embedding_projections (
                      context_embedding_projection_id,
-                     subject_id,life_generation_id,source_kind,source_ref,
+                     subject_id,source_kind,source_ref,
                      source_version,chunk_ordinal,chunk_text,retrieval_text,
                      model_binding,embedding)
-                   VALUES (%s,%s,%s,'subjective_memory',%s,1,0,%s,%s,%s,
+                   VALUES (%s,%s,'subjective_memory',%s,1,0,%s,%s,%s,
                            %s::armi_extensions.vector)""",
                 (
                     _uuid7(),
                     subject_id,
-                    generation_id,
                     memory_id,
                     "记得给编号 A-204 的蓝色设备做保养",
                     "Memory: 记得给编号 A-204 的蓝色设备做保养",
@@ -3786,7 +3774,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                           1-(embedding OPERATOR(armi_extensions.<=>)
                              %s::armi_extensions.vector(1024)) AS score
                    FROM armi.context_embedding_projections
-                   WHERE subject_id=%s AND life_generation_id=%s
+                   WHERE subject_id=%s
                      AND model_binding=%s
                    ORDER BY embedding::armi_extensions.halfvec(1024)
                      OPERATOR(armi_extensions.<=>)
@@ -3795,7 +3783,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (
                     vector,
                     subject_id,
-                    generation_id,
                     EMBEDDING_BINDING_ID,
                     vector,
                 ),
@@ -3804,14 +3791,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """SELECT source_ref,
                           armi_extensions.word_similarity(%s,retrieval_text)
                    FROM armi.context_embedding_projections
-                   WHERE subject_id=%s AND life_generation_id=%s
+                   WHERE subject_id=%s
                      AND model_binding=%s
                    ORDER BY %s OPERATOR(armi_extensions.<<->) retrieval_text
                    LIMIT 128""",
                 (
                     "A-204 蓝色设备",
                     subject_id,
-                    generation_id,
                     EMBEDDING_BINDING_ID,
                     "A-204 蓝色设备",
                 ),
@@ -3843,7 +3829,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(rejected.exception.code, "DB-SCHEMA-CONTRACT")
 
     @pytest.mark.test_group("attention", "runtime")
-    def test_life_generation_source_is_single_under_concurrency_and_restart(
+    def test_subject_source_is_single_under_concurrency_and_restart(
         self,
     ) -> None:
         fixture = self.create_database()
@@ -4268,13 +4254,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 scope = connection.execute(
                     """
-                    SELECT subject.subject_id, generation.life_generation_id,
-                           subject.subject_version, subject.state_epoch,
-                           generation.created_at
+                    SELECT subject.subject_id, subject.subject_version, subject.state_epoch,
+                           subject.born_at
                     FROM armi.subjects AS subject
-                    JOIN armi.life_generations AS generation
-                      ON generation.subject_id = subject.subject_id
-                     AND generation.status = 'active'
                     WHERE subject.singleton_key = 1
                     """
                 ).fetchone()
@@ -4282,14 +4264,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO armi.maintenance_sessions (
-                        maintenance_session_id, subject_id, life_generation_id,
+                        maintenance_session_id, subject_id,
                         origin_opportunity_id, cycle_anchor_kind,
                         cycle_anchor_ref, consideration_at, deadline_at,
                         trigger_kind, sleep_decision_id,
                         started_subject_version, started_state_epoch,
                         current_revision_id, head_version
                     ) VALUES (
-                        %s, %s, %s, NULL, 'life_generation', %s,
+                        %s, %s, NULL, 'subject_birth', %s,
                         %s + interval '16 hours', %s + interval '24 hours',
                         'system_deadline', NULL, %s, %s, %s, 1
                     )
@@ -4297,12 +4279,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (
                         session_id,
                         scope[0],
-                        scope[1],
-                        scope[1],
-                        scope[4],
-                        scope[4],
-                        scope[2],
+                        scope[0],
                         scope[3],
+                        scope[3],
+                        scope[1],
+                        scope[2],
                         revision_id,
                     ),
                 )
@@ -5262,16 +5243,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             work_id = _uuid7()
             with psycopg.connect(fixture.provisioner_dsn) as provisioner:
                 authority_identity = provisioner.execute(
-                    "SELECT subject_id, current_generation_id, "
-                    "current_bundle_activation_id FROM armi.subjects"
+                    "SELECT subject_id, current_bundle_activation_id FROM armi.subjects"
                 ).fetchone()
                 assert authority_identity is not None
                 provisioner.execute(
-                    "INSERT INTO armi.runtime_instances (runtime_instance_id, "
-                    "subject_id, life_generation_id, bundle_activation_id, fence_token, "
-                    "status, lease_expires_at, stopped_at) VALUES (%s, %s, %s, %s, 1, "
-                    "'fenced', statement_timestamp() + interval '1 second', "
-                    "statement_timestamp())",
+                    "INSERT INTO armi.runtime_instances (runtime_instance_id, subject_id, bundle_activation_id, fence_token, status, lease_expires_at, stopped_at) VALUES (%s, %s, %s, 1, 'fenced', statement_timestamp() + interval '1 second', statement_timestamp())",
                     (runtime_instance_id, *authority_identity),
                 )
                 provisioner.execute(
@@ -5628,10 +5604,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.subjective_memories (
-                    memory_id, subject_id, life_generation_id,
-                    current_revision_id, head_version
+                    memory_id, subject_id, current_revision_id, head_version
                 )
-                SELECT memory_id, %s, uuidv7(), current_revision_id, 2
+                SELECT memory_id, %s, current_revision_id, 2
                 FROM memory_plan_fixture
                 """,
                 (subject_id,),
@@ -5665,11 +5640,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.life_materials (
-                    life_material_id, subject_id, life_generation_id,
-                    material_kind, owner_party_id, current_revision_id,
+                    life_material_id, subject_id, material_kind, owner_party_id, current_revision_id,
                     head_version
                 )
-                SELECT material_id, %s, uuidv7(), 'diary', uuidv7(),
+                SELECT material_id, %s, 'diary', uuidv7(),
                        revision_id, 1
                 FROM material_plan_fixture
                 """,
@@ -5707,11 +5681,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.relationships (
-                    relationship_id, subject_id, life_generation_id,
-                    subject_party_id, other_party_id, scope,
+                    relationship_id, subject_id, subject_party_id, other_party_id, scope,
                     current_revision_id, head_version
                 )
-                SELECT relationship_id, %s, uuidv7(), subject_party_id,
+                SELECT relationship_id, %s, subject_party_id,
                        other_party_id, 'other_human_social', revision_id, 1
                 FROM relationship_plan_fixture
                 """,
@@ -6357,7 +6330,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     transaction.birth(manifest),
                 )
                 self.assertEqual(first.subject_id, replay.subject_id)
-                self.assertEqual(first.life_generation_id, replay.life_generation_id)
                 self.assertEqual(
                     first.bundle_activation_id,
                     replay.bundle_activation_id,
@@ -6430,7 +6402,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 SELECT
                     (SELECT count(*) FROM armi.subjects),
-                    (SELECT count(*) FROM armi.life_generations),
                     (SELECT count(*) FROM armi.parties),
                     (SELECT count(*) FROM armi.prompt_documents),
                     (SELECT count(*) FROM armi.prompt_revisions),
@@ -6443,7 +6414,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.audit_events)
                 """
             ).fetchone()
-            self.assertEqual(counts, (1, 1, 2, 3, 1, 2, 2, 1, 1, 1, 1, 2))
+            self.assertEqual(counts, (1, 2, 3, 1, 2, 2, 1, 1, 1, 1, 2))
             birth_identity = connection.execute(
                 """
                 SELECT current_bundle_activation_id, birth_contract_digest,
@@ -6935,9 +6906,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v36",
+                "schema_version": "armi.subject-change-set.v38",
                 "subject_id": str(born.subject_id),
-                "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
                 "model_attempt_id": str(ids["model_attempt"]),
                 "base": {
@@ -6999,7 +6969,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             change_set = SubjectChangeSet(
                 canonical_bytes=rfc8785.dumps(cast(Any, change_set_document)),
                 subject_id=born.subject_id,
-                generation_id=born.life_generation_id,
                 episode_id=ids["episode"],
                 model_attempt_id=ids["model_attempt"],
                 base_subject_version=0,
@@ -7134,7 +7103,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 validation = DeterministicCandidateValidator(
                     CandidateValidationContext(
                         born.subject_id,
-                        born.life_generation_id,
                         ids["episode"],
                         ids["model_attempt"],
                         0,
@@ -7469,12 +7437,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.runtime_instances (
-                    runtime_instance_id, subject_id, life_generation_id,
+                    runtime_instance_id, subject_id,
                     bundle_activation_id, fence_token, status,
                     process_pid,process_created_at_microseconds,
                     process_executable_identity,process_command_identity,
                     environment_id,process_incarnation,
-                    lease_expires_at) VALUES (%s, %s, %s, %s, 1, 'active',
+                    lease_expires_at) VALUES (%s, %s, %s, 1, 'active',
                           1,1,'test-runtime',
                           'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                           %s,1,
@@ -7483,7 +7451,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (
                     ids["runtime"],
                     born.subject_id,
-                    born.life_generation_id,
                     born.bundle_activation_id,
                     fixture.environment_id,
                 ),
@@ -7741,15 +7708,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 UPDATE armi.cognitive_episodes
-                SET candidate_validation_id=%s, validated_model_attempt_id=%s,
-                    validation_generation_id=%s, validation_status='accepted',
+                SET candidate_validation_id=%s, validated_model_attempt_id=%s, validation_status='accepted',
                     change_set_artifact_id=%s
                 WHERE cognitive_episode_id=%s
                 """,
                 (
                     ids["validation"],
                     ids["model_attempt"],
-                    born.life_generation_id,
                     artifact_ids["change_set"],
                     ids["episode"],
                 ),
@@ -7790,7 +7755,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         fence = RuntimeFence(
             RuntimeInstanceId(ids["runtime"]),
             born.subject_id,
-            born.life_generation_id,
             born.bundle_activation_id,
             1,
         )
@@ -8164,7 +8128,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         }:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 connection.execute(
-                    "UPDATE armi.cognitive_episodes SET candidate_validation_id=NULL,validated_model_attempt_id=NULL,validation_generation_id=NULL,validation_status=NULL,change_set_artifact_id=NULL WHERE candidate_validation_id=%s",
+                    "UPDATE armi.cognitive_episodes SET candidate_validation_id=NULL,validated_model_attempt_id=NULL,validation_status=NULL,change_set_artifact_id=NULL WHERE candidate_validation_id=%s",
                     (ids["validation"],),
                 )
                 connection.execute(
@@ -9163,6 +9127,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await uow_factory.close()
                 self.assertEqual(expired_code, "DB-TX-FENCE-EXPIRED")
                 assert isinstance(second, RuntimeAuthorityRecord)
+                self.assertEqual(second.fence.subject_id, first.fence.subject_id)
                 self.assertGreater(
                     second.fence.fence_token,
                     first.fence.fence_token,

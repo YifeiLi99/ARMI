@@ -134,7 +134,6 @@ class SubjectCommitSnapshot:
     validation_id: UUID
     episode_id: UUID
     subject_id: UUID
-    generation_id: UUID
     activation_id: UUID
     opportunity_id: UUID
     root_opportunity_id: UUID
@@ -181,7 +180,6 @@ def _sleep_commit_context(snapshot: SubjectCommitSnapshot) -> SleepCommitContext
         root_opportunity_id=snapshot.root_opportunity_id,
         reconsideration_no=snapshot.reconsideration_no,
         subject_id=snapshot.subject_id,
-        generation_id=snapshot.generation_id,
         opportunity_purpose=snapshot.opportunity_purpose,
         source_kind=snapshot.source_kind,
         source_ref=snapshot.source_ref,
@@ -217,7 +215,6 @@ def _expression_commit_context(
         snapshot.opportunity_id,
         snapshot.root_opportunity_id,
         snapshot.subject_id,
-        snapshot.generation_id,
         snapshot.scene_id,
         snapshot.creator_party_id,
         snapshot.other_party_id,
@@ -438,7 +435,6 @@ class PostgreSQLSubjectCommitRepository:
             cognition.validation_id,
             cognition.episode_id,
             cognition.subject_id,
-            cognition.generation_id,
             cognition.activation_id,
             opportunity.opportunity_id,
             opportunity.root_opportunity_id,
@@ -508,7 +504,6 @@ class PostgreSQLSubjectCommitRepository:
             raise SubjectCommitViolation("SUBJECT-FENCE")
         if (
             change_set.subject_id != snapshot.subject_id
-            or change_set.generation_id != snapshot.generation_id
             or change_set.episode_id != snapshot.episode_id
             or change_set.bundle_activation_id != snapshot.activation_id
             or change_set.base_subject_version != snapshot.base_subject_version
@@ -537,8 +532,7 @@ class PostgreSQLSubjectCommitRepository:
         subject = await (
             await connection.execute(
                 """
-                SELECT subject_version, state_epoch, current_generation_id,
-                       current_bundle_activation_id
+                SELECT subject_version, state_epoch, current_bundle_activation_id
                 FROM armi.subjects
                 WHERE singleton_key = 1 AND subject_id = %s
                 FOR UPDATE
@@ -582,7 +576,6 @@ class PostgreSQLSubjectCommitRepository:
             material_heads_current = await self._material_commit.heads_match(
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
-                generation_id=snapshot.generation_id,
                 drafts=owner_drafts.material,
             )
         except MaterialViolation as error:
@@ -610,8 +603,7 @@ class PostgreSQLSubjectCommitRepository:
         stale = (
             int(subject[0]) != change_set.base_subject_version
             or int(subject[1]) != change_set.base_state_epoch
-            or subject[2] != change_set.generation_id
-            or subject[3] != change_set.bundle_activation_id
+            or subject[2] != change_set.bundle_activation_id
             or not subject_state_heads_current
             or not mind_heads_current
             or not activity_heads_current
@@ -694,11 +686,11 @@ class PostgreSQLSubjectCommitRepository:
             """
             INSERT INTO armi.subject_commits (
                 subject_commit_id, candidate_validation_id,
-                cognitive_episode_id, subject_id, life_generation_id,
+                cognitive_episode_id, subject_id,
                 bundle_activation_id, base_subject_version,
                 new_subject_version, base_state_epoch,
                 runtime_instance_id, fence_token, trace_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s)
             """,
             (
@@ -706,7 +698,6 @@ class PostgreSQLSubjectCommitRepository:
                 snapshot.validation_id,
                 snapshot.episode_id,
                 snapshot.subject_id,
-                snapshot.generation_id,
                 snapshot.activation_id,
                 change_set.base_subject_version,
                 new_version,
@@ -804,7 +795,6 @@ class PostgreSQLSubjectCommitRepository:
             await self._cognition_commit.note_accepted_experience(
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
-                generation_id=snapshot.generation_id,
                 acceptance_ordinal=acceptance_ordinal,
             )
             for ordinal, context_item_id in enumerate(proof.basis_context_ids, 1):
@@ -822,7 +812,6 @@ class PostgreSQLSubjectCommitRepository:
             committed_memory_ids = await self._memory_commit.commit(
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
-                generation_id=snapshot.generation_id,
                 commit_id=commit_id.value,
                 validation_id=snapshot.validation_id,
                 drafts=owner_drafts.memory,
@@ -838,7 +827,6 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 validation_id=snapshot.validation_id,
                 subject_id=snapshot.subject_id,
-                generation_id=snapshot.generation_id,
                 commit_id=commit_id.value,
                 drafts=owner_drafts.relationship,
                 experience_ids={
@@ -855,7 +843,6 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 validation_id=snapshot.validation_id,
                 subject_id=snapshot.subject_id,
-                generation_id=snapshot.generation_id,
                 commit_id=commit_id.value,
                 drafts=owner_drafts.material,
                 artifacts=material_artifacts,
@@ -1385,7 +1372,6 @@ async def _insert_application(
             successor_opportunity_id=successor_id,
             observed_subject_version=observed_version,
             purpose=snapshot.opportunity_purpose,
-            generation_id=snapshot.generation_id,
         ),
     )
 

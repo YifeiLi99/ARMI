@@ -231,7 +231,7 @@ async def test_recovery_terminalizes_turns_and_session() -> None:
         result_sets.append(result)
     transaction = AsyncMock()
     transaction.execute.side_effect = result_sets
-    scope = RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
+    scope = RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), 1)
 
     contribution = await LiveVoiceRecoveryParticipant().recover(transaction, scope, ())
 

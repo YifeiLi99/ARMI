@@ -31,8 +31,8 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v51`，只维护最新数据库 |
-| 物理 schema | 当前 baseline 79 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v52`，只维护最新数据库 |
+| 物理 schema | 当前 baseline 78 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
@@ -240,7 +240,7 @@ interaction_config: C:/path/to/client.yaml
 
 只提供当前数据库的空库安装与校验，不提供数据库升级 CLI/MCP。程序更新不自动删除数据；旧库不兼容时停止并报告。
 
-日常内容使用 `admin_content_write`：指定 `change.owner`（`memory/relationship/material/subject_state/mood/prompt/activity`）、`action`、`object_id`、`expected_version`、内容及 `expected_generation_id`。从 `admin_database_catalog` 的 `online_management` 和 `admin_database_query` 读取对象及当前版本；对象版本与表维护返回的行版本标记不是同一字段。新增实体版本为 0；主体组件和心情只允许修改，`object_id` 使用主体 ID；人格锚点不可修改。活动可调整为 ready 或 paused，不能伪造已完成的现实效果。
+日常内容使用 `admin_content_write`：指定 `change.owner`（`memory/relationship/material/subject_state/mood/prompt/activity`）、`action`、`object_id`、`expected_version`、内容及 `expected_subject_id`。从 `admin_database_catalog` 的 `online_management` 和 `admin_database_query` 读取对象及当前版本；对象版本与表维护返回的行版本标记不是同一字段。新增实体版本为 0；主体组件和心情只允许修改，`object_id` 使用主体 ID；人格锚点不可修改。活动可调整为 ready 或 paused，不能伪造已完成的现实效果。
 
 在线写入由各 owner 校验并追加管理员版本，删除遵循逻辑删除/遗忘语义，返回历史保留和实际清理范围。资料和提示正文使用正式 Artifact 发布协议；写入和耐久回执同事务提交。遇到认知、效果、数据治理或共享锁占用时返回忙碌/冲突，不停机、不取消回复、不覆盖旧候选；调用方应重新读取版本后作出新操作。修复内部表仍使用明确的停机维护接口。
 

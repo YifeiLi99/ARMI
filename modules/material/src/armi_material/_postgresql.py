@@ -86,7 +86,6 @@ class PostgreSQLMaterialOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         sources: tuple[MaterialCandidateSourceRef, ...],
     ) -> tuple[MaterialCandidateSource, ...]:
         result: list[MaterialCandidateSource] = []
@@ -100,13 +99,11 @@ class PostgreSQLMaterialOwner:
                    FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.life_material_id=%s AND material.subject_id=%s
-                     AND material.life_generation_id=%s AND material.head_version=%s
+                   WHERE material.life_material_id=%s AND material.subject_id=%s AND material.head_version=%s
                      AND material.deleted_at IS NULL""",
                     (
                         source.material_id,
                         subject_id,
-                        generation_id,
                         source.head_version,
                     ),
                 )
@@ -178,7 +175,6 @@ class PostgreSQLMaterialOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
     ) -> MaterialOpportunitySource | None:
         row = await (
             await transaction.execute(
@@ -186,10 +182,10 @@ class PostgreSQLMaterialOwner:
                    FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.subject_id=%s AND material.life_generation_id=%s
+                   WHERE material.subject_id=%s
                      AND material.deleted_at IS NULL AND revision.material_status='active'
                    ORDER BY material.updated_at,material.life_material_id LIMIT 1""",
-                (subject_id, generation_id),
+                (subject_id,),
             )
         ).fetchone()
         return (
@@ -272,8 +268,7 @@ class PostgreSQLMaterialOwner:
     ) -> tuple[MaterialProjectionHead, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT material.subject_id,material.life_generation_id,
-                          material.life_material_id,material.head_version
+                """SELECT material.subject_id,material.life_material_id,material.head_version
                    FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
@@ -285,7 +280,7 @@ class PostgreSQLMaterialOwner:
             )
         ).fetchall()
         return tuple(
-            MaterialProjectionHead(row[0], row[1], row[2], int(row[3])) for row in rows
+            MaterialProjectionHead(row[0], row[1], int(row[2])) for row in rows
         )
 
     async def filter_current_projection_heads(
@@ -293,7 +288,6 @@ class PostgreSQLMaterialOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         sources: tuple[MaterialCandidateSourceRef, ...],
     ) -> tuple[MaterialCandidateSourceRef, ...]:
         if not sources:
@@ -313,7 +307,6 @@ class PostgreSQLMaterialOwner:
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.subject_id=%s
-                     AND material.life_generation_id=%s
                      AND material.deleted_at IS NULL
                      AND revision.revision_kind<>'deleted'
                    ORDER BY requested.ordinal""",
@@ -321,7 +314,6 @@ class PostgreSQLMaterialOwner:
                     [source.material_id for source in sources],
                     [source.head_version for source in sources],
                     subject_id,
-                    generation_id,
                 ),
             )
         ).fetchall()
@@ -332,7 +324,6 @@ class PostgreSQLMaterialOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         source: MaterialCandidateSourceRef,
     ) -> bool:
         row = await (
@@ -343,7 +334,6 @@ class PostgreSQLMaterialOwner:
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.life_material_id=%s AND material.head_version=%s
                      AND material.subject_id=%s
-                     AND material.life_generation_id=%s
                      AND material.deleted_at IS NULL
                      AND revision.revision_kind<>'deleted'
                    FOR SHARE OF material""",
@@ -351,7 +341,6 @@ class PostgreSQLMaterialOwner:
                     source.material_id,
                     source.head_version,
                     subject_id,
-                    generation_id,
                 ),
             )
         ).fetchone()
@@ -362,7 +351,6 @@ class PostgreSQLMaterialOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID | None = None,
-        generation_id: UUID | None = None,
     ) -> tuple[MaterialProjectionSource, ...]:
         rows = await (
             await transaction.execute(
@@ -371,9 +359,8 @@ class PostgreSQLMaterialOwner:
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.deleted_at IS NULL AND revision.revision_kind<>'deleted'
                      AND (%s::uuid IS NULL OR material.subject_id=%s)
-                     AND (%s::uuid IS NULL OR material.life_generation_id=%s)
                    ORDER BY material.life_material_id""",
-                (subject_id, subject_id, generation_id, generation_id),
+                (subject_id, subject_id),
             )
         ).fetchall()
         sources: list[MaterialProjectionSource] = []
@@ -388,7 +375,7 @@ class PostgreSQLMaterialOwner:
     ) -> MaterialProjectionSource | None:
         row = await (
             await transaction.execute(
-                """SELECT material.subject_id,material.life_generation_id,material.life_material_id,
+                """SELECT material.subject_id,material.life_material_id,
                           material.current_revision_id,material.head_version,material.owner_party_id,
                           material.material_kind,revision.title,revision.metadata,revision.material_status,
                           revision.privacy_status,revision.artifact_id
@@ -402,21 +389,20 @@ class PostgreSQLMaterialOwner:
         ).fetchone()
         if row is None:
             return None
-        artifact = await self._catalog.retained_ref_in(transaction, ArtifactId(row[11]))
+        artifact = await self._catalog.retained_ref_in(transaction, ArtifactId(row[10]))
         if artifact is None:
             raise MaterialViolation("MATERIAL-SOURCE-STALE")
         return MaterialProjectionSource(
             row[0],
             row[1],
             row[2],
-            row[3],
-            int(row[4]),
-            row[5],
-            LifeMaterialKind(str(row[6])),
-            str(row[7]),
-            _metadata(row[8]),
-            LifeMaterialStatus(str(row[9])),
-            LifeMaterialPrivacyStatus(str(row[10])),
+            int(row[3]),
+            row[4],
+            LifeMaterialKind(str(row[5])),
+            str(row[6]),
+            _metadata(row[7]),
+            LifeMaterialStatus(str(row[8])),
+            LifeMaterialPrivacyStatus(str(row[9])),
             artifact,
         )
 

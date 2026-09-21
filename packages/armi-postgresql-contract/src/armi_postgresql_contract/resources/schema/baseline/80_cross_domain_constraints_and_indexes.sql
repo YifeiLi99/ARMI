@@ -271,7 +271,7 @@ ALTER TABLE ONLY armi.cognition_maintenance_batches
 --
 
 ALTER TABLE ONLY armi.cognition_maintenance_cursors
-    ADD CONSTRAINT cognition_maintenance_cursors_pkey PRIMARY KEY (subject_id, life_generation_id);
+    ADD CONSTRAINT cognition_maintenance_cursors_pkey PRIMARY KEY (subject_id);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_episode_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -668,19 +668,7 @@ ALTER TABLE ONLY armi.interaction_scenes
 ALTER TABLE ONLY armi.interaction_scenes
     ADD CONSTRAINT interaction_scenes_subject_identity_unique UNIQUE (scene_id, subject_id);
 
---
--- Name: life_generations life_generations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.life_generations
-    ADD CONSTRAINT life_generations_pkey PRIMARY KEY (life_generation_id);
-
---
--- Name: life_generations life_generations_subject_id_generation_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.life_generations
-    ADD CONSTRAINT life_generations_subject_id_generation_no_key UNIQUE (subject_id, generation_no);
 
 --
 -- Name: life_material_revisions life_material_revisions_life_material_id_life_material_revi_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -839,11 +827,11 @@ ALTER TABLE ONLY armi.maintenance_sessions
     ADD CONSTRAINT maintenance_sessions_sleep_decision_id_key UNIQUE (sleep_decision_id);
 
 --
--- Name: maintenance_sessions maintenance_sessions_subject_id_life_generation_id_cycle_an_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: maintenance_sessions maintenance_sessions_subject_cycle_anchor_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.maintenance_sessions
-    ADD CONSTRAINT maintenance_sessions_subject_id_life_generation_id_cycle_an_key UNIQUE (subject_id, life_generation_id, cycle_anchor_ref);
+    ADD CONSTRAINT maintenance_sessions_subject_cycle_anchor_key UNIQUE (subject_id, cycle_anchor_ref);
 
 --
 -- Name: maintenance_sessions maintenance_sessions_wake_request_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1096,11 +1084,11 @@ ALTER TABLE ONLY armi.relationships
 
 
 --
--- Name: runtime_instances runtime_instances_life_generation_id_fence_token_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: runtime_instances runtime_instances_subject_fence_token_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.runtime_instances
-    ADD CONSTRAINT runtime_instances_life_generation_id_fence_token_key UNIQUE (life_generation_id, fence_token);
+    ADD CONSTRAINT runtime_instances_subject_fence_token_key UNIQUE (subject_id, fence_token);
 
 --
 -- Name: runtime_instances runtime_instances_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1371,7 +1359,7 @@ CREATE INDEX audit_events_trace_idx ON armi.audit_events USING btree (trace_id, 
 -- Name: cognition_maintenance_batches_active_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX cognition_maintenance_batches_active_idx ON armi.cognition_maintenance_batches USING btree (subject_id, life_generation_id) WHERE (status = ANY (ARRAY['prepared'::text, 'running'::text]));
+CREATE UNIQUE INDEX cognition_maintenance_batches_active_idx ON armi.cognition_maintenance_batches USING btree (subject_id) WHERE (status = ANY (ARRAY['prepared'::text, 'running'::text]));
 
 --
 -- Name: cognitive_attempts_episode_status_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1390,7 +1378,7 @@ CREATE INDEX cognitive_episodes_subject_purpose_recent_idx ON armi.cognitive_epi
 -- Name: context_embedding_projections_current_source_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX context_embedding_projections_current_source_idx ON armi.context_embedding_projections USING btree (subject_id, life_generation_id, source_kind, source_ref, source_version, model_binding);
+CREATE INDEX context_embedding_projections_current_source_idx ON armi.context_embedding_projections USING btree (subject_id, source_kind, source_ref, source_version, model_binding);
 
 --
 -- Name: context_embedding_projections_embedding_hnsw_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1486,11 +1474,6 @@ CREATE INDEX external_message_parts_interaction_idx ON armi.external_message_par
 
 CREATE INDEX external_message_parts_pending_idx ON armi.external_message_parts USING btree (processing_status, interaction_id) WHERE (processing_status = 'pending'::text);
 
---
--- Name: life_generations_one_active_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE UNIQUE INDEX life_generations_one_active_idx ON armi.life_generations USING btree (subject_id) WHERE (status = 'active'::text);
 
 --
 -- Name: life_material_revisions_material_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1625,10 +1608,10 @@ CREATE INDEX relationships_subject_idx ON armi.relationships USING btree (subjec
 
 
 --
--- Name: runtime_instances_one_active_generation_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: runtime_instances_one_active_subject_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX runtime_instances_one_active_generation_idx ON armi.runtime_instances USING btree (life_generation_id) WHERE (status = 'active'::text);
+CREATE UNIQUE INDEX runtime_instances_one_active_subject_idx ON armi.runtime_instances USING btree (subject_id) WHERE (status = 'active'::text);
 
 --
 -- Name: scene_timeline_items_page_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1920,12 +1903,6 @@ ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
 ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
     ADD CONSTRAINT cognition_maintenance_batch_sources_maintenance_batch_id_fkey FOREIGN KEY (maintenance_batch_id) REFERENCES armi.cognition_maintenance_batches(maintenance_batch_id);
 
---
--- Name: cognition_maintenance_batches cognition_maintenance_batches_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_batches
-    ADD CONSTRAINT cognition_maintenance_batches_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: cognition_maintenance_batches cognition_maintenance_batches_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -1934,12 +1911,6 @@ ALTER TABLE ONLY armi.cognition_maintenance_batches
 ALTER TABLE ONLY armi.cognition_maintenance_batches
     ADD CONSTRAINT cognition_maintenance_batches_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: cognition_maintenance_cursors cognition_maintenance_cursors_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_cursors
-    ADD CONSTRAINT cognition_maintenance_cursors_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: cognition_maintenance_cursors cognition_maintenance_cursors_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2070,12 +2041,6 @@ ALTER TABLE ONLY armi.cognitive_episodes
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: context_embedding_projections context_embedding_projections_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_projections
-    ADD CONSTRAINT context_embedding_projections_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: context_embedding_projections context_embedding_projections_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2084,12 +2049,6 @@ ALTER TABLE ONLY armi.context_embedding_projections
 ALTER TABLE ONLY armi.context_embedding_projections
     ADD CONSTRAINT context_embedding_projections_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: context_embedding_source_sets context_embedding_source_sets_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_source_sets
-    ADD CONSTRAINT context_embedding_source_sets_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: context_embedding_source_sets context_embedding_source_sets_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2501,12 +2460,6 @@ ALTER TABLE ONLY armi.interaction_scenes
 ALTER TABLE ONLY armi.interaction_scenes
     ADD CONSTRAINT interaction_scenes_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: life_generations life_generations_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.life_generations
-    ADD CONSTRAINT life_generations_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: life_material_revisions life_material_revisions_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2550,12 +2503,6 @@ ALTER TABLE ONLY armi.life_material_revisions
 ALTER TABLE ONLY armi.life_materials
     ADD CONSTRAINT life_materials_current_revision_fk FOREIGN KEY (life_material_id, current_revision_id) REFERENCES armi.life_material_revisions(life_material_id, life_material_revision_id) DEFERRABLE INITIALLY DEFERRED;
 
---
--- Name: life_materials life_materials_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.life_materials
-    ADD CONSTRAINT life_materials_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: life_materials life_materials_owner_party_id_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2735,12 +2682,6 @@ ALTER TABLE ONLY armi.maintenance_session_revisions
 ALTER TABLE ONLY armi.maintenance_sessions
     ADD CONSTRAINT maintenance_sessions_current_revision_fk FOREIGN KEY (current_revision_id, maintenance_session_id) REFERENCES armi.maintenance_session_revisions(maintenance_revision_id, maintenance_session_id) DEFERRABLE INITIALLY DEFERRED;
 
---
--- Name: maintenance_sessions maintenance_sessions_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_sessions
-    ADD CONSTRAINT maintenance_sessions_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: maintenance_sessions maintenance_sessions_origin_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3072,12 +3013,6 @@ ALTER TABLE ONLY armi.relationship_revisions
 ALTER TABLE ONLY armi.relationships
     ADD CONSTRAINT relationships_current_revision_fk FOREIGN KEY (relationship_id, current_revision_id) REFERENCES armi.relationship_revisions(relationship_id, relationship_revision_id) DEFERRABLE INITIALLY DEFERRED;
 
---
--- Name: relationships relationships_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: relationships relationships_other_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3116,12 +3051,6 @@ ALTER TABLE ONLY armi.relationships
 ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.subjects(current_bundle_activation_id);
 
---
--- Name: runtime_instances runtime_instances_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_instances
-    ADD CONSTRAINT runtime_instances_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: runtime_instances runtime_instances_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3172,12 +3101,6 @@ ALTER TABLE ONLY armi.sleep_decisions
 ALTER TABLE ONLY armi.sleep_decisions
     ADD CONSTRAINT sleep_decisions_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
---
--- Name: sleep_decisions sleep_decisions_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: sleep_decisions sleep_decisions_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3214,12 +3137,6 @@ ALTER TABLE ONLY armi.subject_commits
 ALTER TABLE ONLY armi.subject_commits
     ADD CONSTRAINT subject_commits_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
---
--- Name: subject_commits subject_commits_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: subject_commits subject_commits_runtime_instance_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3277,12 +3194,6 @@ ALTER TABLE ONLY armi.subject_component_revisions
 ALTER TABLE ONLY armi.subjective_memories
     ADD CONSTRAINT subjective_memories_current_revision_fk FOREIGN KEY (memory_id, current_revision_id) REFERENCES armi.subjective_memory_revisions(memory_id, memory_revision_id) DEFERRABLE INITIALLY DEFERRED;
 
---
--- Name: subjective_memories subjective_memories_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subjective_memories
-    ADD CONSTRAINT subjective_memories_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
 --
 -- Name: subjective_memories subjective_memories_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3327,12 +3238,6 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
     ADD CONSTRAINT subjective_memory_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
 
---
--- Name: subjects subjects_current_generation_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subjects
-    ADD CONSTRAINT subjects_current_generation_fk FOREIGN KEY (current_generation_id) REFERENCES armi.life_generations(life_generation_id) DEFERRABLE INITIALLY DEFERRED;
 
 
 
@@ -3424,8 +3329,6 @@ ALTER TABLE ONLY armi.external_message_parts
 -- A cognition episode owns its validation and application outcome.
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_validated_attempt_fkey FOREIGN KEY (validated_model_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
-ALTER TABLE ONLY armi.cognitive_episodes
-    ADD CONSTRAINT cognitive_episodes_validation_generation_fkey FOREIGN KEY (validation_generation_id) REFERENCES armi.life_generations(life_generation_id);
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_change_set_fkey FOREIGN KEY (change_set_artifact_id) REFERENCES armi.artifacts(artifact_id);
 ALTER TABLE ONLY armi.cognitive_episodes

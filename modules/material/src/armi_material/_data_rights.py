@@ -23,7 +23,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("material")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "life_material_revisions",

@@ -582,7 +582,6 @@ def _fixture():
     context_digest = Digest.from_bytes(b"context")
     context = CandidateValidationContext(
         ids[0],
-        ids[1],
         ids[2],
         ids[3],
         0,
@@ -753,7 +752,6 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     ids = tuple(uuid7() for _ in range(10))
     context = CandidateValidationContext(
         ids[0],
-        ids[1],
         ids[2],
         ids[3],
         7,
@@ -794,7 +792,7 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
     validated = result.change_set
     assert validated.disposition.value == disposition
     if draft_type is not None:
@@ -858,7 +856,6 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
     ids = tuple(uuid7() for _ in range(10))
     context = CandidateValidationContext(
         ids[0],
-        ids[1],
         ids[2],
         ids[3],
         7,
@@ -968,7 +965,6 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
 
 def test_two_other_human_relationship_candidates_keep_separate_party_identity() -> None:
     subject_id = uuid7()
-    generation_id = uuid7()
     subject_party_id = uuid7()
 
     def relationship_for(other_party_id: UUID):
@@ -977,7 +973,6 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
         scene_id = uuid7()
         context = CandidateValidationContext(
             subject_id,
-            generation_id,
             episode_id,
             model_attempt_id,
             1,
@@ -1043,7 +1038,6 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
     ids = tuple(uuid7() for _ in range(12))
     context = CandidateValidationContext(
         ids[0],
-        ids[1],
         ids[2],
         ids[3],
         8,
@@ -1120,7 +1114,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
     )
     context = CandidateValidationContext(
         ids[0],
-        ids[1],
         ids[2],
         ids[3],
         8,
@@ -1237,7 +1230,6 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     ids = tuple(uuid7() for _ in range(8))
     context = CandidateValidationContext(
         ids[0],
-        ids[1],
         ids[2],
         ids[3],
         4,
@@ -1266,7 +1258,7 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert result.change_set is not None
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
 
 
 def _maintenance_fixture(
@@ -1357,7 +1349,7 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v37" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in changed.change_set.canonical_bytes
 
     unchanged = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "memory_unchanged", "summary": "界" * 512}),
@@ -1715,7 +1707,7 @@ def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> N
     assert (
         bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
     )
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
 
@@ -1910,7 +1902,7 @@ def test_autonomous_progress_binds_activity_authority_without_permission_round()
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
@@ -2050,7 +2042,7 @@ def test_autonomous_activity_work_maps_real_outcomes_atomically(
 
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
     if decision_kind == "complete":
         assert len(_materials(result.change_set)) == 1
@@ -2526,7 +2518,7 @@ def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
     assert query.record_kind == LifeRecordKind("memory")
@@ -2785,7 +2777,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     assert {item.proposal_ref for item in persisted_drafts} == {
         item.proposal_ref for item in (*first.change_set.codex_delegations,)
     }
-    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
 
     mismatched = replace(active_context, codex_task_sources=())
     rejected = DeterministicCandidateValidator(mismatched).validate(
@@ -2906,7 +2898,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -2966,7 +2958,7 @@ def test_creator_cognitive_act_reply_is_bound_to_authority_deterministically() -
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
 
 
 def test_creator_cognitive_act_no_change_does_not_create_component_revision() -> None:
@@ -3050,7 +3042,7 @@ def test_creator_cognitive_act_creates_runtime_owned_life_material_deterministic
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
     assert len(_materials(first.change_set)) == 1
     material = _materials(first.change_set)[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -3372,7 +3364,7 @@ def test_creator_cognitive_act_establishes_relationship_from_same_experience() -
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -4008,7 +4000,7 @@ def test_creator_cognitive_act_forms_grounded_reported_memory_in_same_change_set
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v37" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "memory"
         for item in _validation_drafts(result.change_set)

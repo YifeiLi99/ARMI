@@ -113,7 +113,6 @@ def test_dense_and_lexical_candidates_use_two_read_transactions() -> None:
         result = await repository.recall_parallel(
             cast(Any, factory),
             subject_id=uuid7(),
-            life_generation_id=uuid7(),
             query_text="蓝色设备编号",
             query_vector=tuple(0.0 for _ in range(1024)),
         )

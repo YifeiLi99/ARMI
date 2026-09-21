@@ -37,11 +37,8 @@ class PostgreSQLMemoryAdmin:
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT m.current_revision_id,m.head_version,r.accessibility,m.tombstoned_at "
-                "FROM armi.subjective_memories m JOIN armi.subjective_memory_revisions r "
-                "ON r.memory_revision_id=m.current_revision_id WHERE m.memory_id=%s "
-                "AND m.subject_id=%s AND m.life_generation_id=%s FOR UPDATE OF m",
-                (command.object_id, context.subject_id, context.generation_id),
+                "SELECT m.current_revision_id,m.head_version,r.accessibility,m.tombstoned_at FROM armi.subjective_memories m JOIN armi.subjective_memory_revisions r ON r.memory_revision_id=m.current_revision_id WHERE m.memory_id=%s AND m.subject_id=%s FOR UPDATE OF m",
+                (command.object_id, context.subject_id),
             ).fetchone(),
         )
         if command.action == "create":
@@ -55,13 +52,10 @@ class PostgreSQLMemoryAdmin:
         version = command.expected_version + 1
         if command.action == "create":
             tx.execute(
-                "INSERT INTO armi.subjective_memories "
-                "(memory_id,subject_id,life_generation_id,current_revision_id,head_version) "
-                "VALUES (%s,%s,%s,%s,1)",
+                "INSERT INTO armi.subjective_memories (memory_id,subject_id,current_revision_id,head_version) VALUES (%s,%s,%s,1)",
                 (
                     command.object_id,
                     context.subject_id,
-                    context.generation_id,
                     revision,
                 ),
             )

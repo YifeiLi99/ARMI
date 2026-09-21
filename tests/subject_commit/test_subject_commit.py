@@ -85,7 +85,6 @@ def test_cognition_acceptance_proves_payload_and_ordered_unique_basis() -> None:
         uuid7(),
         uuid7(),
         uuid7(),
-        uuid7(),
         ArtifactId(uuid7()),
         1,
         2,

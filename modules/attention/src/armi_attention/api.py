@@ -86,7 +86,7 @@ class AutonomyPort(Protocol):
 
 class LifeOpportunitySourceKind(StrEnum):
     EXTERNAL_EVIDENCE = "external_evidence"
-    LIFE_GENERATION_AVAILABLE = "life_generation_available"
+    SUBJECT_AVAILABLE = "subject_available"
     SUBJECT_COMPONENT_REVISION = "subject_component_revision"
     ACTIVITY_REVISION = "activity_revision"
     MAINTENANCE_WINDOW = "maintenance_window"

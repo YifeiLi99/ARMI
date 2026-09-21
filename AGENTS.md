@@ -23,7 +23,7 @@
 
 ## 2. 产品与真实性边界
 
-- ARMI 承载一个自主电子人长期存在：一个 subject、一个当前 generation、一条权威生命线、一个被承认的活动 Runtime。模型、进程、渠道、设备与外部 Agent 都不是第二主体，不扩展为多租户、多角色或通用 Agent 平台。
+- ARMI 承载一个自主电子人长期存在：一个出生后持续存在的 subject、一条权威生命线、一个被承认的活动 Runtime。模型、进程、渠道、设备与外部 Agent 都不是第二主体，不扩展为多租户、多角色或通用 Agent 平台。
 - 出生只建立最小身份、唯一 primary Creator 和人格锚点。名字、经历、兴趣、目标、偏好、价值、关系与自我描述在正式生活中形成，不能由 bootstrap/sample 预写。
 - 每类主体、生活、关系、权限、表达、效果和数据权利事实都有唯一 owner 与正式写入路径。缓存、索引、摘要、向量和客户端等投影不能反向覆盖权威事实。
 - 客观记录与主观经历、记忆分离：普通认知不能从日志补全遗忘，遗忘也不改写运行记录。系统权限与主体意愿分离，Creator 的管理权不等于关系中的绝对命令权。
@@ -38,7 +38,7 @@
 
 - 依赖方向为 `Interface → Application → Domain`，适配器通过稳定 port 接入，只在 [composition root](apps/armi-runtime/src/armi_runtime/composition/) 选择。业务模块公共面为 `api.py`，组合入口为 `bootstrap.py`，`_*.py` 私有，不跨模块深导入或通过共享 repository 绕过 owner。
 - Owner 负责自己的表、DML、版本、恢复、数据权利和 Admin 校正；生产写入遵守 [schema ownership](tools/schema_ownership.py)。认知候选由各 owner 校验，最多一次原子 Subject Commit，任一失败不留下半提交。
-- 慢模型、网络、文件、设备及 Codex I/O 在权威写事务外。先用短事务登记稳定 identity/work/effect，结算时重验 fence、lease、generation、subject/owner version 和幂等状态；旧候选 stale 后不能靠重放 JSON 或最后写入者覆盖解决。
+- 慢模型、网络、文件、设备及 Codex I/O 在权威写事务外。先用短事务登记稳定 identity/work/effect，结算时重验 fence、lease、subject identity/version、owner version 和幂等状态；旧候选 stale 后不能靠重放 JSON 或最后写入者覆盖解决。
 - Durable work 使用 `armi_kernel.application.durable_work.WorkType` 闭集与责任 registry，新增时同步 owner、reconciliation、恢复和测试。数据库承载耐久事实，进程 wakeup 只优化延迟。实验使用隔离环境、离线回放或只读 shadow，未激活前不写 Active 主体、work 或 effect。
 - 数据库存储以长期保留必要性为标准：保留业务事实、实际效果和保证正确性所需的状态；仅供排查的过程、步骤与逐次细节写日志，不单独建表留档。
 - 新能力先确定事实 owner；新增表或模块应有独立生命周期、关系、权限/保留策略或查询需求，不能只因渠道或枚举不同而拆分。替换机制后清理失效入口、接线与兼容路径，不为假想需求预建框架。

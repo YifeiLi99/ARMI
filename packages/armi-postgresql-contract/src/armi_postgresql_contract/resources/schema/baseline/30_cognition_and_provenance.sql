@@ -158,7 +158,6 @@ CREATE TABLE armi.cognitive_episodes (
     committed_at timestamp(6) with time zone,
     candidate_validation_id uuid UNIQUE,
     validated_model_attempt_id uuid UNIQUE,
-    validation_generation_id uuid,
     validation_status text,
     change_set_artifact_id uuid,
     candidate_application_id uuid UNIQUE,
@@ -166,9 +165,9 @@ CREATE TABLE armi.cognitive_episodes (
     successor_opportunity_id uuid UNIQUE,
     observed_subject_version bigint,
     CONSTRAINT cognitive_episodes_validation_result_check CHECK (
-        (validation_status IS NULL AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND validation_generation_id IS NULL AND change_set_artifact_id IS NULL)
-        OR (validation_status IS NOT NULL AND validation_status='rejected' AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND validation_generation_id IS NULL AND change_set_artifact_id IS NULL AND validated_at IS NOT NULL)
-        OR (validation_status IS NOT NULL AND validation_status IN ('accepted','partially_accepted') AND candidate_validation_id IS NOT NULL AND validated_model_attempt_id IS NOT NULL AND validation_generation_id IS NOT NULL AND change_set_artifact_id IS NOT NULL AND final_disposition IS NOT NULL AND validated_at IS NOT NULL)
+        (validation_status IS NULL AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND change_set_artifact_id IS NULL)
+        OR (validation_status IS NOT NULL AND validation_status='rejected' AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND change_set_artifact_id IS NULL AND validated_at IS NOT NULL)
+        OR (validation_status IS NOT NULL AND validation_status IN ('accepted','partially_accepted') AND candidate_validation_id IS NOT NULL AND validated_model_attempt_id IS NOT NULL AND change_set_artifact_id IS NOT NULL AND final_disposition IS NOT NULL AND validated_at IS NOT NULL)
     ),
     CONSTRAINT cognitive_episodes_application_result_check CHECK (
         (candidate_application_id IS NULL AND subject_commit_id IS NULL AND successor_opportunity_id IS NULL AND observed_subject_version IS NULL)
@@ -236,7 +235,6 @@ CREATE TABLE armi.context_embedding_coverage (
 CREATE TABLE armi.context_embedding_projections (
     context_embedding_projection_id uuid CONSTRAINT context_embedding_projectio_context_embedding_projecti_not_null NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     source_kind text NOT NULL,
     source_ref uuid NOT NULL,
     source_version bigint NOT NULL,
@@ -259,7 +257,6 @@ CREATE TABLE armi.context_embedding_projections (
 CREATE TABLE armi.context_embedding_source_sets (
     context_embedding_source_set_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     source_kind text NOT NULL,
     source_ref uuid NOT NULL,
     source_version bigint NOT NULL,
@@ -282,7 +279,7 @@ CREATE TABLE armi.context_embedding_source_sets (
 
 CREATE INDEX context_embedding_source_sets_current_idx
 ON armi.context_embedding_source_sets
-USING btree (subject_id, life_generation_id, source_kind, source_ref, source_version, model_binding, state);
+USING btree (subject_id, source_kind, source_ref, source_version, model_binding, state);
 
 --
 -- Name: context_model_cache_hit_ratios; Type: VIEW; Schema: armi; Owner: -
@@ -508,10 +505,10 @@ CREATE TABLE armi.opportunities (
     CONSTRAINT opportunities_lineage_check CHECK ((((reconsideration_no = 0) AND (root_opportunity_id = opportunity_id) AND (predecessor_opportunity_id IS NULL)) OR ((reconsideration_no > 0) AND (root_opportunity_id <> opportunity_id) AND (predecessor_opportunity_id IS NOT NULL)))),
     CONSTRAINT opportunities_opportunity_id_check CHECK ((uuid_extract_version(opportunity_id) = 7)),
     CONSTRAINT opportunities_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_input'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text, 'consider_requested_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
-    CONSTRAINT opportunities_reconsideration_check CHECK (((reconsideration_no >= 0) AND ((reconsideration_no <= 1) OR ((purpose = 'consider_autonomous_life'::text) AND (source_kind = 'life_generation_available'::text))))),
+    CONSTRAINT opportunities_reconsideration_check CHECK (((reconsideration_no >= 0) AND ((reconsideration_no <= 1) OR ((purpose = 'consider_autonomous_life'::text) AND (source_kind = 'subject_available'::text))))),
     CONSTRAINT opportunities_resolution_state_check CHECK ((((current_disposition = 'open'::text) AND (selected_at IS NULL) AND (resolved_at IS NULL) AND (resolution_reason_code IS NULL)) OR ((current_disposition = 'selected'::text) AND (selected_at IS NOT NULL) AND (resolved_at IS NULL) AND (resolution_reason_code IS NULL)) OR ((current_disposition = ANY (ARRAY['resolved'::text, 'superseded'::text])) AND (selected_at IS NOT NULL) AND (resolved_at IS NOT NULL) AND (resolution_reason_code IS NOT NULL)) OR ((current_disposition = 'cancelled'::text) AND (resolved_at IS NOT NULL) AND (resolution_reason_code IS NOT NULL)))),
     CONSTRAINT opportunities_resolution_reason_check CHECK (((resolution_reason_code IS NULL) OR (resolution_reason_code ~ '^[A-Z][A-Z0-9-]{0,127}$'::text))),
-    CONSTRAINT opportunities_source_kind_check CHECK ((source_kind = ANY (ARRAY['autonomy_plan'::text, 'external_evidence'::text, 'life_generation_available'::text, 'subject_component_revision'::text, 'activity_revision'::text, 'maintenance_window'::text, 'maintenance_phase_revision'::text, 'life_material_revision'::text, 'life_query_result'::text, 'creator_outreach_absence'::text, 'creator_outreach_activity'::text, 'creator_outreach_relationship'::text]))),
-    CONSTRAINT opportunities_source_shape_check CHECK (((source_kind = 'autonomy_plan' AND evidence_id IS NULL AND ((scene_id IS NULL) = (context_party_id IS NULL))) OR ((source_kind = 'external_evidence'::text) AND (evidence_id = source_ref) AND (activity_id IS NULL) AND (((purpose = 'consider_visual_observation'::text) AND (scene_id IS NULL) AND (context_party_id IS NULL)) OR ((purpose <> 'consider_visual_observation'::text) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL)))) OR ((source_kind = ANY (ARRAY['life_generation_available'::text, 'subject_component_revision'::text, 'maintenance_window'::text, 'maintenance_phase_revision'::text, 'life_material_revision'::text])) AND (evidence_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (activity_id IS NULL)) OR ((source_kind = 'activity_revision'::text) AND (evidence_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (activity_id IS NOT NULL)) OR ((source_kind = ANY (ARRAY['life_query_result'::text, 'creator_outreach_absence'::text, 'creator_outreach_relationship'::text])) AND (evidence_id IS NULL) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL) AND (activity_id IS NULL)) OR ((source_kind = 'creator_outreach_activity'::text) AND (evidence_id IS NULL) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL) AND (activity_id IS NOT NULL)))),
+    CONSTRAINT opportunities_source_kind_check CHECK ((source_kind = ANY (ARRAY['autonomy_plan'::text, 'external_evidence'::text, 'subject_available'::text, 'subject_component_revision'::text, 'activity_revision'::text, 'maintenance_window'::text, 'maintenance_phase_revision'::text, 'life_material_revision'::text, 'life_query_result'::text, 'creator_outreach_absence'::text, 'creator_outreach_activity'::text, 'creator_outreach_relationship'::text]))),
+    CONSTRAINT opportunities_source_shape_check CHECK (((source_kind = 'autonomy_plan' AND evidence_id IS NULL AND ((scene_id IS NULL) = (context_party_id IS NULL))) OR ((source_kind = 'external_evidence'::text) AND (evidence_id = source_ref) AND (activity_id IS NULL) AND (((purpose = 'consider_visual_observation'::text) AND (scene_id IS NULL) AND (context_party_id IS NULL)) OR ((purpose <> 'consider_visual_observation'::text) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL)))) OR ((source_kind = ANY (ARRAY['subject_available'::text, 'subject_component_revision'::text, 'maintenance_window'::text, 'maintenance_phase_revision'::text, 'life_material_revision'::text])) AND (evidence_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (activity_id IS NULL)) OR ((source_kind = 'activity_revision'::text) AND (evidence_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (activity_id IS NOT NULL)) OR ((source_kind = ANY (ARRAY['life_query_result'::text, 'creator_outreach_absence'::text, 'creator_outreach_relationship'::text])) AND (evidence_id IS NULL) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL) AND (activity_id IS NULL)) OR ((source_kind = 'creator_outreach_activity'::text) AND (evidence_id IS NULL) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL) AND (activity_id IS NOT NULL)))),
     CONSTRAINT opportunities_source_version_check CHECK ((source_version > 0))
 );

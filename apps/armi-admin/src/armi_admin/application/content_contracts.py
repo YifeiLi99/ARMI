@@ -164,7 +164,7 @@ class MindChange(ContentChange):
 class ContentWriteRequest(EnvironmentRequest):
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
     reason: str = Field(min_length=1, max_length=1024)
-    expected_generation_id: str
+    expected_subject_id: str
     change: Annotated[
         MemoryChange
         | RelationshipChange
@@ -176,9 +176,9 @@ class ContentWriteRequest(EnvironmentRequest):
         Field(discriminator="owner"),
     ]
 
-    @field_validator("expected_generation_id")
+    @field_validator("expected_subject_id")
     @classmethod
-    def generation(cls, value: str) -> str:
+    def subject(cls, value: str) -> str:
         return ContentChange.uuid7_id(value)
 
     @model_validator(mode="after")

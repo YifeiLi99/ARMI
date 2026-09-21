@@ -176,10 +176,9 @@ class PostgreSQLRuntimeAuthority:
                     (_AUTHORITY_KEY_PREFIX + str(self._environment_id),),
                 )
                 current = await self._current_subject(connection)
-                subject_id, generation_id, activation_id = current
+                subject_id, activation_id = current
                 for kind, value in (
                     ("subject", subject_id),
-                    ("generation", generation_id),
                     ("activation", activation_id),
                 ):
                     await connection.execute(
@@ -206,11 +205,11 @@ class PostgreSQLRuntimeAuthority:
                                 environment_id,
                                 process_incarnation
                             FROM armi.runtime_instances
-                            WHERE life_generation_id = %s
+                            WHERE subject_id = %s
                               AND status = 'active'
                             FOR UPDATE
                             """,
-                        (generation_id,),
+                        (subject_id,),
                     )
                 ).fetchone()
                 writer = PostgreSQLAuditWriter(connection)
@@ -253,9 +252,9 @@ class PostgreSQLRuntimeAuthority:
                         """
                             SELECT COALESCE(MAX(fence_token), 0) + 1
                             FROM armi.runtime_instances
-                            WHERE life_generation_id = %s
+                            WHERE subject_id = %s
                             """,
-                        (generation_id,),
+                        (subject_id,),
                     )
                 ).fetchone()
                 token_row = cast(tuple[Any, ...], token_row)
@@ -266,7 +265,6 @@ class PostgreSQLRuntimeAuthority:
                             INSERT INTO armi.runtime_instances (
                                 runtime_instance_id,
                                 subject_id,
-                                life_generation_id,
                                 bundle_activation_id,
                                 fence_token,
                                 status,
@@ -278,14 +276,13 @@ class PostgreSQLRuntimeAuthority:
                                 process_incarnation,
                                 lease_expires_at)
                             VALUES (
-                                %s, %s, %s, %s, %s, 'active',
+                                %s, %s, %s, %s, 'active',
                                 %s, %s, %s, %s, %s, %s,
                                 statement_timestamp()
                                     + make_interval(secs => %s))
                             RETURNING
                                 runtime_instance_id,
                                 subject_id,
-                                life_generation_id,
                                 bundle_activation_id,
                                 fence_token,
                                 status,
@@ -297,7 +294,6 @@ class PostgreSQLRuntimeAuthority:
                         (
                             runtime_instance_id.value,
                             subject_id,
-                            generation_id,
                             activation_id,
                             fence_token,
                             *process_identity,
@@ -398,14 +394,11 @@ class PostgreSQLRuntimeAuthority:
                                   > statement_timestamp()
                               AND subject.singleton_key = 1
                               AND subject.subject_id = instance.subject_id
-                              AND subject.current_generation_id
-                                  = instance.life_generation_id
                               AND subject.current_bundle_activation_id
                                   = instance.bundle_activation_id
                             RETURNING
                                 instance.runtime_instance_id,
                                 instance.subject_id,
-                                instance.life_generation_id,
                                 instance.bundle_activation_id,
                                 instance.fence_token,
                                 instance.status,
@@ -453,7 +446,6 @@ class PostgreSQLRuntimeAuthority:
                             RETURNING
                                 runtime_instance_id,
                                 subject_id,
-                                life_generation_id,
                                 bundle_activation_id,
                                 fence_token,
                                 status,
@@ -489,20 +481,14 @@ class PostgreSQLRuntimeAuthority:
     async def _current_subject(
         self,
         connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    ) -> tuple[UUID, UUID, UUID]:
+    ) -> tuple[UUID, UUID]:
         row = await (
             await connection.execute(
                 """
                 SELECT
                     subject.subject_id,
-                    generation.life_generation_id,
                     subject.current_bundle_activation_id
                 FROM armi.subjects AS subject
-                JOIN armi.life_generations AS generation
-                  ON generation.life_generation_id
-                    = subject.current_generation_id
-                 AND generation.subject_id = subject.subject_id
-                 AND generation.status = 'active'
                 WHERE subject.singleton_key = 1
                   AND subject.status = 'active'
                 """
@@ -510,7 +496,7 @@ class PostgreSQLRuntimeAuthority:
         ).fetchone()
         if row is None:
             raise RuntimeAuthorityViolation("AUTH-SUBJECT-STATE")
-        return row[0], row[1], row[2]
+        return row[0], row[1]
 
     async def _stale_or_expired(
         self,
@@ -548,7 +534,6 @@ class PostgreSQLRuntimeAuthority:
                         SELECT
                             runtime_instance_id,
                             subject_id,
-                            life_generation_id,
                             bundle_activation_id,
                             fence_token,
                             status,
@@ -572,15 +557,14 @@ def _record(row: tuple[Any, ...]) -> RuntimeAuthorityRecord:
         fence=RuntimeFence(
             runtime_instance_id=RuntimeInstanceId(row[0]),
             subject_id=row[1],
-            life_generation_id=row[2],
-            bundle_activation_id=row[3],
-            fence_token=int(row[4]),
+            bundle_activation_id=row[2],
+            fence_token=int(row[3]),
         ),
-        status=RuntimeAuthorityStatus(str(row[5])),
-        started_at=_utc(row[6]),
-        last_heartbeat_at=_utc(row[7]),
-        lease_expires_at=_utc(row[8]),
-        stopped_at=None if row[9] is None else _utc(row[9]),
+        status=RuntimeAuthorityStatus(str(row[4])),
+        started_at=_utc(row[5]),
+        last_heartbeat_at=_utc(row[6]),
+        lease_expires_at=_utc(row[7]),
+        stopped_at=None if row[8] is None else _utc(row[8]),
     )
 
 

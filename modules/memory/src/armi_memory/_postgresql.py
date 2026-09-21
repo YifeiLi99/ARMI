@@ -87,7 +87,6 @@ class PostgreSQLMemoryOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         enabled: bool,
         limit: int = 8,
     ) -> tuple[MemoryContextItem, ...]:
@@ -103,13 +102,13 @@ class PostgreSQLMemoryOwner:
                 FROM armi.subjective_memories AS memory
                 JOIN armi.subjective_memory_revisions AS revision
                   ON revision.memory_revision_id=memory.current_revision_id
-                WHERE memory.subject_id=%s AND memory.life_generation_id=%s
+                WHERE memory.subject_id=%s
                   AND revision.accessibility IN ('available','faded')
                 ORDER BY CASE revision.accessibility WHEN 'available' THEN 1 ELSE 2 END,
                          revision.created_at DESC, memory.memory_id
                 LIMIT %s
                 """,
-                (subject_id, generation_id, limit * 4),
+                (subject_id, limit * 4),
             )
         ).fetchall()
         hidden = await self._visibility.hidden_targets(
@@ -497,7 +496,6 @@ class PostgreSQLMemoryOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         commit_id: UUID,
         validation_id: UUID,
         drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
@@ -519,9 +517,9 @@ class PostgreSQLMemoryOwner:
                 memory_id, revision_id = uuid7(), uuid7()
                 await transaction.execute(
                     """INSERT INTO armi.subjective_memories
-                       (memory_id,subject_id,life_generation_id,current_revision_id,head_version)
-                       VALUES (%s,%s,%s,%s,1)""",
-                    (memory_id, subject_id, generation_id, revision_id),
+                       (memory_id,subject_id,current_revision_id,head_version)
+                       VALUES (%s,%s,%s,1)""",
+                    (memory_id, subject_id, revision_id),
                 )
                 await transaction.execute(
                     """INSERT INTO armi.subjective_memory_revisions
@@ -558,9 +556,8 @@ class PostgreSQLMemoryOwner:
                        FROM armi.subjective_memories AS memory
                        JOIN armi.subjective_memory_revisions AS revision
                          ON revision.memory_revision_id=memory.current_revision_id
-                       WHERE memory.memory_id=%s AND memory.subject_id=%s
-                         AND memory.life_generation_id=%s FOR UPDATE OF memory""",
-                    (value.memory_id, subject_id, generation_id),
+                       WHERE memory.memory_id=%s AND memory.subject_id=%s FOR UPDATE OF memory""",
+                    (value.memory_id, subject_id),
                 )
             ).fetchone()
             if (
@@ -618,8 +615,8 @@ class PostgreSQLMemoryOwner:
                 related = await (
                     await transaction.execute(
                         """SELECT 1 FROM armi.subjective_memories
-                           WHERE memory_id=%s AND subject_id=%s AND life_generation_id=%s""",
-                        (value.related_memory_id, subject_id, generation_id),
+                           WHERE memory_id=%s AND subject_id=%s""",
+                        (value.related_memory_id, subject_id),
                     )
                 ).fetchone()
                 if related is None or value.relation_kind is None:
@@ -665,8 +662,7 @@ class PostgreSQLMemoryOwner:
     ) -> tuple[MemoryProjectionHead, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT memory.subject_id,memory.life_generation_id,
-                          memory.memory_id,memory.head_version
+                """SELECT memory.subject_id,memory.memory_id,memory.head_version
                    FROM armi.subjective_memories AS memory
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
@@ -676,16 +672,13 @@ class PostgreSQLMemoryOwner:
                 (after_memory_id, after_memory_id, limit),
             )
         ).fetchall()
-        return tuple(
-            MemoryProjectionHead(row[0], row[1], row[2], int(row[3])) for row in rows
-        )
+        return tuple(MemoryProjectionHead(row[0], row[1], int(row[2])) for row in rows)
 
     async def filter_current_projection_heads(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         sources: tuple[MemoryCandidateSourceRef, ...],
     ) -> tuple[MemoryCandidateSourceRef, ...]:
         if not sources:
@@ -705,14 +698,12 @@ class PostgreSQLMemoryOwner:
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
                    WHERE memory.subject_id=%s
-                     AND memory.life_generation_id=%s
                      AND revision.accessibility IN ('available','faded')
                    ORDER BY requested.ordinal""",
                 (
                     [source.memory_id for source in sources],
                     [source.head_version for source in sources],
                     subject_id,
-                    generation_id,
                 ),
             )
         ).fetchall()
@@ -723,7 +714,6 @@ class PostgreSQLMemoryOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         source: MemoryCandidateSourceRef,
     ) -> bool:
         row = await (
@@ -733,14 +723,13 @@ class PostgreSQLMemoryOwner:
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
                    WHERE memory.memory_id=%s AND memory.head_version=%s
-                     AND memory.subject_id=%s AND memory.life_generation_id=%s
+                     AND memory.subject_id=%s
                      AND revision.accessibility IN ('available','faded')
                    FOR SHARE OF memory""",
                 (
                     source.memory_id,
                     source.head_version,
                     subject_id,
-                    generation_id,
                 ),
             )
         ).fetchone()
@@ -751,24 +740,22 @@ class PostgreSQLMemoryOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID | None = None,
-        generation_id: UUID | None = None,
     ) -> tuple[MemoryProjectionSource, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT memory.subject_id,memory.life_generation_id,memory.memory_id,
+                """SELECT memory.subject_id,memory.memory_id,
                           memory.head_version,revision.summary
                    FROM armi.subjective_memories AS memory
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
                    WHERE revision.accessibility IN ('available','faded')
                      AND (%s::uuid IS NULL OR memory.subject_id=%s)
-                     AND (%s::uuid IS NULL OR memory.life_generation_id=%s)
                    ORDER BY memory.memory_id""",
-                (subject_id, subject_id, generation_id, generation_id),
+                (subject_id, subject_id),
             )
         ).fetchall()
         return tuple(
-            MemoryProjectionSource(row[0], row[1], row[2], int(row[3]), str(row[4]))
+            MemoryProjectionSource(row[0], row[1], int(row[2]), str(row[3]))
             for row in rows
         )
 
@@ -777,7 +764,7 @@ class PostgreSQLMemoryOwner:
     ) -> MemoryProjectionSource | None:
         row = await (
             await transaction.execute(
-                """SELECT memory.subject_id,memory.life_generation_id,memory.memory_id,
+                """SELECT memory.subject_id,memory.memory_id,
                           memory.head_version,revision.summary
                    FROM armi.subjective_memories AS memory
                    JOIN armi.subjective_memory_revisions AS revision
@@ -790,9 +777,7 @@ class PostgreSQLMemoryOwner:
         return (
             None
             if row is None
-            else MemoryProjectionSource(
-                row[0], row[1], row[2], int(row[3]), str(row[4])
-            )
+            else MemoryProjectionSource(row[0], row[1], int(row[2]), str(row[3]))
         )
 
 

@@ -211,7 +211,7 @@ from .api import (
 )
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v37"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v38"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -336,7 +336,6 @@ class CandidateSubjectPromptContext:
 @dataclass(frozen=True, slots=True)
 class CandidateValidationContext:
     subject_id: UUID
-    generation_id: UUID
     episode_id: UUID
     model_attempt_id: UUID
     base_subject_version: int
@@ -374,7 +373,6 @@ class CandidateValidationContext:
             type(value) is not UUID or value.version != 7
             for value in (
                 self.subject_id,
-                self.generation_id,
                 self.episode_id,
                 self.model_attempt_id,
                 self.bundle_activation_id,
@@ -1252,7 +1250,6 @@ class DeterministicCandidateValidator:
         change_set_value: dict[str, object] = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
-            "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
             "base": {
@@ -1281,7 +1278,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical,
             self._context.subject_id,
-            self._context.generation_id,
             self._context.episode_id,
             self._context.model_attempt_id,
             self._context.base_subject_version,
@@ -1366,7 +1362,6 @@ class DeterministicCandidateValidator:
         value: dict[str, object] = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
-            "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
             "base": {
@@ -1387,7 +1382,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical_bytes=rfc8785.dumps(cast(Any, value)),
             subject_id=self._context.subject_id,
-            generation_id=self._context.generation_id,
             episode_id=self._context.episode_id,
             model_attempt_id=self._context.model_attempt_id,
             base_subject_version=self._context.base_subject_version,
@@ -1567,7 +1561,6 @@ class DeterministicCandidateValidator:
         value: dict[str, object] = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
-            "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
             "base": {
@@ -1599,7 +1592,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical_bytes=canonical,
             subject_id=self._context.subject_id,
-            generation_id=self._context.generation_id,
             episode_id=self._context.episode_id,
             model_attempt_id=self._context.model_attempt_id,
             base_subject_version=self._context.base_subject_version,
@@ -1768,7 +1760,6 @@ class DeterministicCandidateValidator:
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
-            "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
             "base": {
@@ -1803,7 +1794,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical,
             self._context.subject_id,
-            self._context.generation_id,
             self._context.episode_id,
             self._context.model_attempt_id,
             self._context.base_subject_version,
@@ -1882,7 +1872,6 @@ class DeterministicCandidateValidator:
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
-            "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
             "base": {
@@ -1904,7 +1893,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical,
             context.subject_id,
-            context.generation_id,
             context.episode_id,
             context.model_attempt_id,
             context.base_subject_version,
@@ -2067,7 +2055,6 @@ class DeterministicCandidateValidator:
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
-            "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
             "base": {
@@ -2090,7 +2077,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical_bytes=canonical,
             subject_id=context.subject_id,
-            generation_id=context.generation_id,
             episode_id=context.episode_id,
             model_attempt_id=context.model_attempt_id,
             base_subject_version=context.base_subject_version,
@@ -2290,7 +2276,6 @@ class DeterministicCandidateValidator:
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
-            "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
             "base": {
@@ -2311,7 +2296,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical_bytes=rfc8785.dumps(cast(Any, value)),
             subject_id=context.subject_id,
-            generation_id=context.generation_id,
             episode_id=context.episode_id,
             model_attempt_id=context.model_attempt_id,
             base_subject_version=context.base_subject_version,
@@ -2442,7 +2426,6 @@ class DeterministicCandidateValidator:
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
-            "generation_id": str(context.generation_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
             "base": {
@@ -2464,7 +2447,6 @@ class DeterministicCandidateValidator:
         change_set = SubjectChangeSet(
             canonical_bytes=canonical,
             subject_id=context.subject_id,
-            generation_id=context.generation_id,
             episode_id=context.episode_id,
             model_attempt_id=context.model_attempt_id,
             base_subject_version=context.base_subject_version,

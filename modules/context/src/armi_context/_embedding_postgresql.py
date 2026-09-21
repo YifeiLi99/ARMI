@@ -59,7 +59,6 @@ _RECONCILIATION_PAGE_SIZE = 256
 @dataclass(frozen=True, slots=True)
 class EmbeddingProjectionSource:
     subject_id: UUID
-    life_generation_id: UUID
     source_kind: str
     source_ref: UUID
     source_version: int
@@ -338,7 +337,6 @@ class PostgreSQLContextEmbeddingRepository:
                 return None
             return EmbeddingProjectionSource(
                 memory.subject_id,
-                memory.generation_id,
                 "subjective_memory",
                 memory.memory_id,
                 memory.head_version,
@@ -365,7 +363,6 @@ class PostgreSQLContextEmbeddingRepository:
         )
         return EmbeddingProjectionSource(
             material.subject_id,
-            material.generation_id,
             "life_material",
             material.material_id,
             material.head_version,
@@ -385,10 +382,10 @@ class PostgreSQLContextEmbeddingRepository:
         await transaction.execute(
             """
             INSERT INTO armi.context_embedding_source_sets (
-              context_embedding_source_set_id, subject_id, life_generation_id,
+              context_embedding_source_set_id, subject_id,
               source_kind, source_ref, source_version, source_digest,
               model_binding, expected_chunk_count, state)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'building')
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'building')
             ON CONFLICT (source_kind, source_ref, source_version, model_binding)
             DO UPDATE SET source_digest=EXCLUDED.source_digest,
                           expected_chunk_count=EXCLUDED.expected_chunk_count,
@@ -397,7 +394,6 @@ class PostgreSQLContextEmbeddingRepository:
             (
                 source_set_id,
                 source.subject_id,
-                source.life_generation_id,
                 source.source_kind,
                 source.source_ref,
                 source.source_version,
@@ -436,7 +432,6 @@ class PostgreSQLContextEmbeddingRepository:
             current = await self._memories.lock_current_projection_head(
                 transaction,
                 subject_id=source.subject_id,
-                generation_id=source.life_generation_id,
                 source=MemoryCandidateSourceRef(
                     source.source_ref, source.source_version
                 ),
@@ -445,7 +440,6 @@ class PostgreSQLContextEmbeddingRepository:
             current = await self._materials.lock_current_projection_head(
                 transaction,
                 subject_id=source.subject_id,
-                generation_id=source.life_generation_id,
                 source=MaterialCandidateSourceRef(
                     source.source_ref, source.source_version
                 ),
@@ -522,7 +516,6 @@ class PostgreSQLContextEmbeddingRepository:
             current = await self._memories.lock_current_projection_head(
                 connection,
                 subject_id=source.subject_id,
-                generation_id=source.life_generation_id,
                 source=MemoryCandidateSourceRef(
                     source.source_ref, source.source_version
                 ),
@@ -531,7 +524,6 @@ class PostgreSQLContextEmbeddingRepository:
             current = await self._materials.lock_current_projection_head(
                 connection,
                 subject_id=source.subject_id,
-                generation_id=source.life_generation_id,
                 source=MaterialCandidateSourceRef(
                     source.source_ref, source.source_version
                 ),
@@ -544,10 +536,10 @@ class PostgreSQLContextEmbeddingRepository:
             """
             INSERT INTO armi.context_embedding_projections (
               context_embedding_projection_id,
-              subject_id, life_generation_id, source_kind, source_ref,
+              subject_id, source_kind, source_ref,
               source_version, chunk_ordinal, chunk_text, retrieval_text,
               model_binding, embedding)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s::armi_extensions.vector)
             ON CONFLICT (source_kind, source_ref, source_version,
                          chunk_ordinal, model_binding) DO NOTHING
@@ -555,7 +547,6 @@ class PostgreSQLContextEmbeddingRepository:
             (
                 projection_id,
                 source.subject_id,
-                source.life_generation_id,
                 source.source_kind,
                 source.source_ref,
                 source.source_version,
@@ -573,7 +564,6 @@ class PostgreSQLContextEmbeddingRepository:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         subject_id: UUID,
-        life_generation_id: UUID,
         query_text: str,
         query_vector: tuple[float, ...] | None,
     ) -> RecalledContext:
@@ -584,7 +574,6 @@ class PostgreSQLContextEmbeddingRepository:
                 return await self._dense_candidate_rows(
                     unit_of_work.transaction,
                     subject_id=subject_id,
-                    life_generation_id=life_generation_id,
                     query_vector=query_vector,
                 )
 
@@ -593,7 +582,6 @@ class PostgreSQLContextEmbeddingRepository:
                 return await self._lexical_candidate_rows(
                     unit_of_work.transaction,
                     subject_id=subject_id,
-                    life_generation_id=life_generation_id,
                     query_text=query_text,
                 )
 
@@ -602,7 +590,6 @@ class PostgreSQLContextEmbeddingRepository:
             return await self.recall(
                 unit_of_work,
                 subject_id=subject_id,
-                life_generation_id=life_generation_id,
                 query_text=query_text,
                 query_vector=query_vector,
                 _candidate_rows=(dense_rows, lexical_rows),
@@ -613,7 +600,6 @@ class PostgreSQLContextEmbeddingRepository:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        life_generation_id: UUID,
         query_vector: tuple[float, ...],
     ) -> list[tuple[object, ...]]:
         vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
@@ -634,7 +620,6 @@ class PostgreSQLContextEmbeddingRepository:
                          FROM armi.context_embedding_projections AS projection
                          CROSS JOIN parameters
                          WHERE projection.subject_id=%s
-                           AND projection.life_generation_id=%s
                            AND projection.model_binding=%s
                          ORDER BY
                            projection.embedding::armi_extensions.halfvec(1024)
@@ -658,7 +643,6 @@ class PostgreSQLContextEmbeddingRepository:
                     (
                         vector,
                         subject_id,
-                        life_generation_id,
                         EMBEDDING_BINDING_ID,
                         RECALL_DENSE_ANN_LIMIT,
                     ),
@@ -674,7 +658,6 @@ class PostgreSQLContextEmbeddingRepository:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        life_generation_id: UUID,
         query_text: str,
     ) -> list[tuple[object, ...]]:
         rows = list(
@@ -684,7 +667,6 @@ class PostgreSQLContextEmbeddingRepository:
                          SELECT projection.*
                          FROM armi.context_embedding_projections AS projection
                          WHERE projection.subject_id=%s
-                           AND projection.life_generation_id=%s
                            AND projection.model_binding=%s
                          ORDER BY %s
                            OPERATOR(armi_extensions.<<->)
@@ -707,7 +689,6 @@ class PostgreSQLContextEmbeddingRepository:
                          nearest.source_ref,nearest.chunk_ordinal""",
                     (
                         subject_id,
-                        life_generation_id,
                         EMBEDDING_BINDING_ID,
                         query_text,
                         RECALL_LEXICAL_CANDIDATE_LIMIT,
@@ -730,7 +711,6 @@ class PostgreSQLContextEmbeddingRepository:
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         subject_id: UUID,
-        life_generation_id: UUID,
         query_text: str,
         query_vector: tuple[float, ...] | None,
         _candidate_rows: tuple[list[tuple[object, ...]], list[tuple[object, ...]]]
@@ -744,14 +724,12 @@ class PostgreSQLContextEmbeddingRepository:
                 else await self._dense_candidate_rows(
                     transaction,
                     subject_id=subject_id,
-                    life_generation_id=life_generation_id,
                     query_vector=query_vector,
                 )
             )
             lexical_rows = await self._lexical_candidate_rows(
                 transaction,
                 subject_id=subject_id,
-                life_generation_id=life_generation_id,
                 query_text=query_text,
             )
         else:
@@ -775,13 +753,11 @@ class PostgreSQLContextEmbeddingRepository:
         current_memory_refs = await self._memories.filter_current_projection_heads(
             transaction,
             subject_id=subject_id,
-            generation_id=life_generation_id,
             sources=tuple(memory_refs),
         )
         current_material_refs = await self._materials.filter_current_projection_heads(
             transaction,
             subject_id=subject_id,
-            generation_id=life_generation_id,
             sources=tuple(material_refs),
         )
         current_memories = {
@@ -870,7 +846,7 @@ class PostgreSQLContextEmbeddingRepository:
                        FROM armi.context_embedding_projections
                        WHERE source_kind='life_material' AND source_ref=%s
                          AND source_version=%s AND model_binding=%s
-                         AND subject_id=%s AND life_generation_id=%s
+                         AND subject_id=%s
                          AND chunk_ordinal BETWEEN %s AND %s
                        ORDER BY chunk_ordinal""",
                     (
@@ -878,7 +854,6 @@ class PostgreSQLContextEmbeddingRepository:
                         version,
                         EMBEDDING_BINDING_ID,
                         subject_id,
-                        life_generation_id,
                         max(0, ordinal - 1),
                         ordinal + 1,
                     ),

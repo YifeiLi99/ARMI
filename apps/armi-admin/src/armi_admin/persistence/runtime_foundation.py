@@ -26,7 +26,6 @@ class RuntimeAdminSubject:
     subject_id: UUID
     subject_version: int
     state_epoch: int
-    generation_id: UUID
     status: str | None = None
     bundle_activation_id: UUID | None = None
 
@@ -58,7 +57,7 @@ class RuntimeFoundationAdminAdapter:
         )
 
     def content_guard(
-        self, transaction: PostgreSQLAdminTransaction, *, generation_id: UUID
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
     ) -> RuntimeAdminSubject:
         """Share Runtime custody/fence ordering, refusing contention instead of stopping work."""
         names = (
@@ -73,12 +72,9 @@ class RuntimeFoundationAdminAdapter:
             if locked is None or not locked[0]:
                 raise ValueError("ADMIN-CONTENT-BUSY")
         subject = self.subject(transaction, for_update=False)
-        if subject is None or subject.generation_id != generation_id:
-            raise ValueError("ADMIN-CONTENT-GENERATION-CONFLICT")
-        for name in (
-            f"armi.runtime-fence:subject:{subject.subject_id}",
-            f"armi.runtime-fence:generation:{generation_id}",
-        ):
+        if subject is None or subject.subject_id != subject_id:
+            raise ValueError("ADMIN-CONTENT-SUBJECT-CONFLICT")
+        for name in (f"armi.runtime-fence:subject:{subject.subject_id}",):
             locked = transaction.execute(
                 "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended(%s,0))",
                 (name,),
@@ -87,7 +83,7 @@ class RuntimeFoundationAdminAdapter:
                 raise ValueError("ADMIN-CONTENT-BUSY")
         current = self.subject(transaction, for_update=True)
         if current != subject:
-            raise ValueError("ADMIN-CONTENT-GENERATION-CONFLICT")
+            raise ValueError("ADMIN-CONTENT-SUBJECT-CONFLICT")
         return subject
 
     def read_admin_change(
@@ -256,7 +252,7 @@ class RuntimeFoundationAdminAdapter:
         self, transaction: PostgreSQLAdminTransaction
     ) -> tuple[object, ...] | None:
         return transaction.execute(
-            "SELECT runtime_instance_id,life_generation_id,fence_token,status,last_heartbeat_at,lease_expires_at FROM armi.runtime_instances ORDER BY started_at DESC,runtime_instance_id DESC LIMIT 1"
+            "SELECT runtime_instance_id,subject_id,fence_token,status,last_heartbeat_at,lease_expires_at FROM armi.runtime_instances ORDER BY started_at DESC,runtime_instance_id DESC LIMIT 1"
         ).fetchone()
 
     def commits_for_episode(
@@ -277,7 +273,7 @@ class RuntimeFoundationAdminAdapter:
     ) -> RuntimeAdminSubject | None:
         if detailed:
             row = transaction.execute(
-                "SELECT subject_id,subject_version,state_epoch,current_generation_id,status,current_bundle_activation_id FROM armi.subjects WHERE singleton_key=1"
+                "SELECT subject_id,subject_version,state_epoch,status,current_bundle_activation_id FROM armi.subjects WHERE singleton_key=1"
                 + (" FOR UPDATE" if for_update else "")
             ).fetchone()
             return (
@@ -287,13 +283,12 @@ class RuntimeFoundationAdminAdapter:
                     cast(UUID, row[0]),
                     int(cast(int, row[1])),
                     int(cast(int, row[2])),
-                    cast(UUID, row[3]),
-                    str(row[4]),
-                    cast(UUID | None, row[5]),
+                    str(row[3]),
+                    cast(UUID | None, row[4]),
                 )
             )
         row = transaction.execute(
-            "SELECT subject_id,subject_version,state_epoch,current_generation_id FROM armi.subjects WHERE singleton_key=1"
+            "SELECT subject_id,subject_version,state_epoch FROM armi.subjects WHERE singleton_key=1"
             + (" FOR UPDATE" if for_update else "")
         ).fetchone()
         return (
@@ -303,19 +298,7 @@ class RuntimeFoundationAdminAdapter:
                 cast(UUID, row[0]),
                 int(cast(int, row[1])),
                 int(cast(int, row[2])),
-                cast(UUID, row[3]),
             )
-        )
-
-    def validate_generation(
-        self, transaction: PostgreSQLAdminTransaction, generation_id: UUID
-    ) -> bool:
-        return (
-            transaction.execute(
-                "SELECT life_generation_id FROM armi.life_generations WHERE life_generation_id=%s",
-                (generation_id,),
-            ).fetchone()
-            is not None
         )
 
     def fence_expired_authority(self, transaction: PostgreSQLAdminTransaction) -> bool:

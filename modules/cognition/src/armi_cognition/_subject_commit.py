@@ -127,7 +127,6 @@ class PostgreSQLCognitionSubjectCommit:
                        episode.cognitive_episode_id,
                        episode.opportunity_id,
                        episode.subject_id,
-                       episode.validation_generation_id,
                        episode.bundle_activation_id,
                        episode.change_set_artifact_id,
                        episode.base_subject_version,
@@ -151,13 +150,12 @@ class PostgreSQLCognitionSubjectCommit:
             episode_id=row[1],
             opportunity_id=row[2],
             subject_id=row[3],
-            generation_id=row[4],
-            activation_id=row[5],
-            change_set_artifact_id=ArtifactId(row[6]),
-            base_subject_version=int(row[7]),
-            base_state_epoch=int(row[8]),
-            context_digest=Digest(str(row[9])),
-            trace_id=TraceId(str(row[10])),
+            activation_id=row[4],
+            change_set_artifact_id=ArtifactId(row[5]),
+            base_subject_version=int(row[6]),
+            base_state_epoch=int(row[7]),
+            context_digest=Digest(str(row[8])),
+            trace_id=TraceId(str(row[9])),
             accepted_candidates=accepted_candidates,
         )
 
@@ -191,21 +189,20 @@ class PostgreSQLCognitionSubjectCommit:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         acceptance_ordinal: int,
     ) -> None:
         await transaction.execute(
             """
             INSERT INTO armi.cognition_maintenance_cursors (
-                subject_id,life_generation_id,latest_accepted_ordinal)
-            VALUES (%s,%s,%s)
-            ON CONFLICT (subject_id,life_generation_id) DO UPDATE
+                subject_id,latest_accepted_ordinal)
+            VALUES (%s,%s)
+            ON CONFLICT (subject_id) DO UPDATE
             SET latest_accepted_ordinal=GREATEST(
                     armi.cognition_maintenance_cursors.latest_accepted_ordinal,
                     EXCLUDED.latest_accepted_ordinal),
                 updated_at=statement_timestamp()
             """,
-            (subject_id, generation_id, acceptance_ordinal),
+            (subject_id, acceptance_ordinal),
         )
 
     async def record_application(
@@ -236,7 +233,6 @@ class PostgreSQLCognitionSubjectCommit:
         if (
             draft.status is CandidateApplicationStatus.APPLIED
             and draft.purpose == "reflect_prompt"
-            and draft.generation_id is not None
         ):
             episode = await (
                 await transaction.execute(
@@ -252,22 +248,20 @@ class PostgreSQLCognitionSubjectCommit:
                      UPDATE armi.cognition_maintenance_batches
                      SET status='completed',finished_at=statement_timestamp()
                      WHERE maintenance_batch_id=%s
-                       AND subject_id=%s AND life_generation_id=%s
+                       AND subject_id=%s
                        AND status='running'
                      RETURNING frozen_from_ordinal,frozen_through_ordinal
                    )
                    UPDATE armi.cognition_maintenance_cursors
                    SET processed_through_ordinal=(SELECT frozen_through_ordinal FROM completed),
                        updated_at=statement_timestamp()
-                   WHERE subject_id=%s AND life_generation_id=%s
+                   WHERE subject_id=%s
                      AND processed_through_ordinal=(SELECT frozen_from_ordinal FROM completed)
                      AND EXISTS (SELECT 1 FROM completed)""",
                 (
                     episode[1],
                     episode[0],
-                    draft.generation_id,
                     episode[0],
-                    draft.generation_id,
                 ),
             )
 

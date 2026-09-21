@@ -308,7 +308,6 @@ class MemoryLifeRecordItem:
 @dataclass(frozen=True, slots=True)
 class MemoryProjectionSource:
     subject_id: UUID
-    generation_id: UUID
     memory_id: UUID
     head_version: int
     text: str
@@ -317,7 +316,6 @@ class MemoryProjectionSource:
 @dataclass(frozen=True, slots=True)
 class MemoryProjectionHead:
     subject_id: UUID
-    generation_id: UUID
     memory_id: UUID
     head_version: int
 
@@ -343,7 +341,6 @@ class MemoryReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         enabled: bool,
         limit: int = 8,
     ) -> tuple[MemoryContextItem, ...]: ...
@@ -429,7 +426,6 @@ class MemoryCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         commit_id: UUID,
         validation_id: UUID,
         drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
@@ -456,7 +452,6 @@ class MemoryProjectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         sources: tuple[MemoryCandidateSourceRef, ...],
     ) -> tuple[MemoryCandidateSourceRef, ...]: ...
 
@@ -465,7 +460,6 @@ class MemoryProjectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         source: MemoryCandidateSourceRef,
     ) -> bool: ...
 
@@ -474,7 +468,6 @@ class MemoryProjectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID | None = None,
-        generation_id: UUID | None = None,
     ) -> tuple[MemoryProjectionSource, ...]: ...
 
     async def load_source(

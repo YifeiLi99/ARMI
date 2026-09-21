@@ -63,17 +63,17 @@ class PostgreSQLMaintenanceRepository:
                 """
                 SELECT maintenance_session_id, finished_at
                 FROM armi.maintenance_sessions
-                WHERE subject_id=%s AND life_generation_id=%s
+                WHERE subject_id=%s
                   AND finished_at IS NOT NULL
                 ORDER BY finished_at DESC LIMIT 1
                 """,
-                (fence.subject_id, fence.life_generation_id),
+                (fence.subject_id,),
             )
         ).fetchone()
         runtime = await self._runtime.snapshot(unit_of_work)
-        anchor_kind = "maintenance_session" if last is not None else "life_generation"
-        anchor_ref = last[0] if last is not None else fence.life_generation_id
-        anchor_at = last[1] if last is not None else runtime.generation_created_at
+        anchor_kind = "maintenance_session" if last is not None else "subject_birth"
+        anchor_ref = last[0] if last is not None else fence.subject_id
+        anchor_at = last[1] if last is not None else runtime.born_at
         consideration_at = anchor_at + timedelta(seconds=consideration_after_seconds)
         deadline_at = anchor_at + timedelta(seconds=deadline_after_seconds)
         now = datetime.now(UTC)
@@ -84,20 +84,19 @@ class PostgreSQLMaintenanceRepository:
                 await connection.execute(
                     """
                     INSERT INTO armi.maintenance_sessions (
-                        maintenance_session_id, subject_id, life_generation_id,
+                        maintenance_session_id, subject_id,
                         origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
                         consideration_at, deadline_at,
                         trigger_kind, sleep_decision_id, started_subject_version,
                         started_state_epoch, current_revision_id) VALUES (
-                        %s, %s, %s, NULL, %s, %s, %s, %s,
+                        %s, %s, NULL, %s, %s, %s, %s,
                         'system_deadline', NULL, %s, %s, %s)
-                    ON CONFLICT (subject_id, life_generation_id, cycle_anchor_ref)
+                    ON CONFLICT (subject_id, cycle_anchor_ref)
                     DO NOTHING RETURNING maintenance_session_id
                     """,
                     (
                         session_id,
                         fence.subject_id,
-                        fence.life_generation_id,
                         anchor_kind,
                         anchor_ref,
                         consideration_at,
@@ -181,11 +180,10 @@ class PostgreSQLMaintenanceRepository:
                 JOIN armi.maintenance_session_revisions AS revision
                   ON revision.maintenance_revision_id = session.current_revision_id
                 WHERE session.subject_id = %s
-                  AND session.life_generation_id = %s
                   AND session.finished_at IS NULL
                 FOR UPDATE OF session
                 """,
-                (fence.subject_id, fence.life_generation_id),
+                (fence.subject_id,),
             )
         ).fetchone()
         if row is None:
@@ -452,10 +450,10 @@ class PostgreSQLMaintenanceRepository:
                 SELECT maintenance_session_id, wake_request_id, finished_at
                 FROM armi.maintenance_sessions
                 WHERE maintenance_session_id = %s
-                  AND subject_id = %s AND life_generation_id = %s
+                  AND subject_id = %s
                 FOR UPDATE
                 """,
-                (session_id, fence.subject_id, fence.life_generation_id),
+                (session_id, fence.subject_id),
             )
         ).fetchone()
         if row is None or (row[2] is not None and row[1] is None):
@@ -508,13 +506,13 @@ class PostgreSQLMaintenanceRepository:
                    WHERE maintenance_session_id=(
                      SELECT maintenance_session_id
                      FROM armi.maintenance_sessions
-                     WHERE subject_id=%s AND life_generation_id=%s
+                     WHERE subject_id=%s
                        AND finished_at IS NULL
                      ORDER BY started_at DESC LIMIT 1 FOR UPDATE
                    )
                      AND wake_request_id IS NULL
                    RETURNING maintenance_session_id""",
-                (source_ref, source_ref, fence.subject_id, fence.life_generation_id),
+                (source_ref, source_ref, fence.subject_id),
             )
         ).fetchone()
         return None if row is None else row[0]
@@ -534,10 +532,10 @@ class PostgreSQLMaintenanceRepository:
                 """
                 SELECT maintenance_session_id
                 FROM armi.maintenance_sessions
-                WHERE subject_id = %s AND life_generation_id = %s
+                WHERE subject_id = %s
                   AND finished_at IS NULL
                 """,
-                (fence.subject_id, fence.life_generation_id),
+                (fence.subject_id,),
             )
         ).fetchone()
         return None if row is None else row[0]

@@ -59,7 +59,6 @@ class BirthContractTests(unittest.TestCase):
     def test_birth_uses_psycopg_compatible_selector_loop(self) -> None:
         result = BirthResult(
             BIRTH_REQUEST_ID,
-            CREATOR_PARTY_ID,
             ENVIRONMENT_ID,
             Digest.from_bytes(b"request"),
             True,
@@ -150,7 +149,6 @@ class BirthContractTests(unittest.TestCase):
             )
         result = BirthResult(
             BIRTH_REQUEST_ID,
-            CREATOR_PARTY_ID,
             ENVIRONMENT_ID,
             Digest.from_bytes(b"request"),
             True,

@@ -28,18 +28,14 @@ class RuntimeSleepFacts(SleepRuntimeFactsPort):
             raise RuntimeError("SLEEP-FENCE-REQUIRED")
         row = await (
             await unit_of_work.transaction.execute(
-                """SELECT generation.created_at, generation.generation_no,
-                          subject.subject_version, subject.state_epoch
-                   FROM armi.life_generations AS generation
-                   JOIN armi.subjects AS subject ON subject.subject_id=generation.subject_id
-                   WHERE generation.life_generation_id=%s AND generation.subject_id=%s
-                     AND generation.status='active' AND subject.status='active'""",
-                (fence.life_generation_id, fence.subject_id),
+                """SELECT born_at, subject_version, state_epoch
+                   FROM armi.subjects WHERE subject_id=%s AND status='active'""",
+                (fence.subject_id,),
             )
         ).fetchone()
         if row is None:
             raise RuntimeError("SLEEP-SOURCE-STALE")
-        return SleepRuntimeSnapshot(row[0], int(row[1]), int(row[2]), int(row[3]))
+        return SleepRuntimeSnapshot(row[0], int(row[1]), int(row[2]))
 
     async def safe_for_maintenance(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork

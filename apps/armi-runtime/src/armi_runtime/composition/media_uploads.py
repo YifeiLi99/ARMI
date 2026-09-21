@@ -22,7 +22,7 @@ from armi_runtime.application.media_uploads import (
 def compose_media_uploads(
     root: Path,
     environment_id: UUID,
-    generation_id: UUID,
+    subject_id: UUID,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     catalog: ArtifactCatalogPort,
 ) -> MediaUploads:
@@ -61,7 +61,7 @@ def compose_media_uploads(
         async with factory.unit_of_work() as unit:
             if (
                 unit.runtime_fence is None
-                or unit.runtime_fence.life_generation_id != generation_id
+                or unit.runtime_fence.subject_id != subject_id
             ):
                 raise UploadViolation("UPLOAD-GENERATION")
             registered = await catalog.register(
@@ -69,7 +69,7 @@ def compose_media_uploads(
             )
         return registered.ref.artifact_id.value
 
-    return MediaUploads(root / "uploads", environment_id, generation_id, publish)
+    return MediaUploads(root / "uploads", environment_id, subject_id, publish)
 
 
 __all__ = ("compose_media_uploads",)

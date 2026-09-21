@@ -28,7 +28,6 @@ async def apply_life_materials(
     *,
     validation_id: UUID,
     subject_id: UUID,
-    generation_id: UUID,
     commit_id: UUID,
     materials: tuple[CandidateLifeMaterialDraft, ...],
     artifacts: dict[str, ArtifactRef],
@@ -38,7 +37,6 @@ async def apply_life_materials(
         cast(Any, connection),
         validation_id=validation_id,
         subject_id=subject_id,
-        generation_id=generation_id,
         commit_id=commit_id,
         drafts=materials,
         artifacts=artifacts,
@@ -76,21 +74,16 @@ class _MaterialConnection:
             material_id = cast(UUID, params[0])
             self.materials[material_id] = {
                 "subject_id": params[1],
-                "generation_id": params[2],
-                "kind": params[3],
-                "owner": params[4],
-                "current_revision_id": params[5],
+                "kind": params[2],
+                "owner": params[3],
+                "current_revision_id": params[4],
                 "head_version": 1,
                 "deleted_at": None,
             }
             return _Result()
         if "SELECT material.current_revision_id" in query:
             material = self.materials.get(cast(UUID, params[0]))
-            if (
-                material is None
-                or material["subject_id"] != params[1]
-                or material["generation_id"] != params[2]
-            ):
+            if material is None or material["subject_id"] != params[1]:
                 return _Result()
             revision_no = next(
                 cast(int, row[2])
@@ -204,7 +197,7 @@ def _artifact(artifact_id: ArtifactId, content: bytes) -> ArtifactRef:
 
 @pytest.mark.asyncio
 async def test_life_material_commit_appends_revision_and_cas_updates_head() -> None:
-    subject_id, generation_id, owner_party_id = uuid7(), uuid7(), uuid7()
+    subject_id, owner_party_id = uuid7(), uuid7()
     material_id = uuid7()
     connection = _MaterialConnection(
         subject_id=subject_id,
@@ -222,7 +215,6 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
-        generation_id=generation_id,
         commit_id=uuid7(),
         materials=(created,),
         artifacts={"proposal:1": _artifact(first_artifact, created.body_bytes or b"")},
@@ -245,7 +237,6 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
-        generation_id=generation_id,
         commit_id=uuid7(),
         materials=(updated,),
         artifacts={"proposal:1": _artifact(second_artifact, updated.body_bytes or b"")},
@@ -259,7 +250,7 @@ async def test_life_material_commit_appends_revision_and_cas_updates_head() -> N
 
 @pytest.mark.asyncio
 async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() -> None:
-    subject_id, generation_id, owner_party_id = uuid7(), uuid7(), uuid7()
+    subject_id, owner_party_id = uuid7(), uuid7()
     material_id = uuid7()
     connection = _MaterialConnection(
         subject_id=subject_id,
@@ -277,7 +268,6 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
-        generation_id=generation_id,
         commit_id=uuid7(),
         materials=(created,),
         artifacts={"proposal:1": _artifact(artifact_id, created.body_bytes or b"")},
@@ -297,7 +287,6 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
-        generation_id=generation_id,
         commit_id=uuid7(),
         materials=(private,),
         artifacts={},
@@ -320,7 +309,6 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
         connection,
         validation_id=uuid7(),
         subject_id=subject_id,
-        generation_id=generation_id,
         commit_id=uuid7(),
         materials=(deleted,),
         artifacts={},
@@ -344,7 +332,6 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
             connection,
             validation_id=uuid7(),
             subject_id=subject_id,
-            generation_id=generation_id,
             commit_id=uuid7(),
             materials=(update_after_delete,),
             artifacts={
@@ -360,7 +347,7 @@ async def test_life_material_privacy_and_delete_reuse_artifact_then_tombstone() 
 async def test_life_material_commit_rejects_duplicate_create_and_missing_artifact() -> (
     None
 ):
-    subject_id, generation_id, owner_party_id = uuid7(), uuid7(), uuid7()
+    subject_id, owner_party_id = uuid7(), uuid7()
     material_id = uuid7()
     connection = _MaterialConnection(
         subject_id=subject_id,
@@ -376,7 +363,6 @@ async def test_life_material_commit_rejects_duplicate_create_and_missing_artifac
     arguments = {
         "validation_id": uuid7(),
         "subject_id": subject_id,
-        "generation_id": generation_id,
         "commit_id": uuid7(),
         "materials": (draft,),
     }

@@ -38,7 +38,6 @@ class RecoveryOwnerIdentity:
 class RecoveryScope:
     environment_id: UUID
     subject_id: UUID
-    life_generation_id: UUID
     bundle_activation_id: UUID
     runtime_instance_id: UUID
     fence_token: int
@@ -47,7 +46,6 @@ class RecoveryScope:
         for value in (
             self.environment_id,
             self.subject_id,
-            self.life_generation_id,
             self.bundle_activation_id,
             self.runtime_instance_id,
         ):

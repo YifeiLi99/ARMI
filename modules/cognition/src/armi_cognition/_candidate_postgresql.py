@@ -81,7 +81,6 @@ class CandidateEpisodeSnapshot:
     episode_id: UUID
     model_attempt_id: UUID
     subject_id: UUID
-    generation_id: UUID
     bundle_activation_id: UUID
     base_subject_version: int
     base_state_epoch: int
@@ -365,7 +364,6 @@ class PostgreSQLCandidateValidationRepository:
             else await self._relationships.current_for_party(
                 unit_of_work.transaction,
                 subject_id=row[2],
-                generation_id=state.generation_id,
                 other_party_id=row[8],
                 scope=(
                     "other_human_social"
@@ -389,7 +387,6 @@ class PostgreSQLCandidateValidationRepository:
         material_rows = await self._materials.candidate_sources(
             unit_of_work.transaction,
             subject_id=row[2],
-            generation_id=state.generation_id,
             sources=material_context_sources,
         )
         if self._prompts is None:
@@ -425,7 +422,6 @@ class PostgreSQLCandidateValidationRepository:
             row[0],
             row[1],
             row[2],
-            state.generation_id,
             row[3],
             int(row[4]),
             int(row[5]),
@@ -550,7 +546,6 @@ class PostgreSQLCandidateValidationRepository:
                     validated_at = statement_timestamp(),
                     candidate_validation_id = %s,
                     validated_model_attempt_id = %s,
-                    validation_generation_id = %s,
                     validation_status = %s,
                     change_set_artifact_id = %s
                 WHERE cognitive_episode_id = %s
@@ -563,7 +558,6 @@ class PostgreSQLCandidateValidationRepository:
                     result.error_code,
                     result.validation_id.value if change_set is not None else None,
                     snapshot.model_attempt_id if change_set is not None else None,
-                    snapshot.generation_id if change_set is not None else None,
                     result.status.value,
                     change_set_artifact.artifact_id.value
                     if change_set_artifact is not None

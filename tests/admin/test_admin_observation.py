@@ -153,7 +153,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
     )
     ports["runtime"].subject.return_value = SimpleNamespace(
         subject_id=ids["subject"],
-        generation_id=ids["generation"],
         bundle_activation_id=None,
     )
     ports["runtime"].subject_work_ids.return_value = (ids["work"],)
@@ -382,7 +381,6 @@ class _Runtime:
             self._subject[0],
             self._subject[1],
             self._subject[2],
-            self._subject[4],
             self._subject[3],
             self._subject[5],
         )

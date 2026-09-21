@@ -61,7 +61,6 @@ async def _verify_metered(
         runtime_config_path("model-bindings.yaml", environment_root=environment_root)
     )
     subject_id = uuid7()
-    generation_id = uuid7()
     episode_id = uuid7()
     attempt_id = uuid7()
     activation_id = uuid7()
@@ -215,7 +214,6 @@ async def _verify_metered(
     validation = build_candidate_validator(
         CandidateValidationContext(
             subject_id,
-            generation_id,
             episode_id,
             attempt_id,
             0,

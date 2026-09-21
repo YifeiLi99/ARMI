@@ -115,7 +115,6 @@ class CandidateExactLifeQueryDraft:
 class SubjectChangeSet:
     canonical_bytes: bytes
     subject_id: UUID
-    generation_id: UUID
     episode_id: UUID
     model_attempt_id: UUID
     base_subject_version: int
@@ -140,7 +139,6 @@ class SubjectChangeSet:
                 type(value) is not UUID or value.version != 7
                 for value in (
                     self.subject_id,
-                    self.generation_id,
                     self.episode_id,
                     self.model_attempt_id,
                     self.bundle_activation_id,
@@ -232,7 +230,6 @@ class CognitionRuntimeStateSnapshot:
     subject_id: UUID
     subject_version: int
     state_epoch: int
-    generation_id: UUID
     bundle_activation_id: UUID
 
 
@@ -251,7 +248,6 @@ class CognitionContextEpisodeDraft:
     episode_id: UUID
     opportunity_id: UUID
     subject_id: UUID
-    generation_id: UUID
     scene_id: UUID | None
     context_party_id: UUID | None
     purpose: str
@@ -511,7 +507,6 @@ class CognitionCommitSnapshot:
     episode_id: UUID
     opportunity_id: UUID
     subject_id: UUID
-    generation_id: UUID
     activation_id: UUID
     change_set_artifact_id: ArtifactId
     base_subject_version: int
@@ -526,7 +521,6 @@ class CognitionCommitSnapshot:
             self.episode_id,
             self.opportunity_id,
             self.subject_id,
-            self.generation_id,
             self.activation_id,
         ):
             _require_uuid7(value)
@@ -619,7 +613,6 @@ class CognitionApplicationDraft:
     successor_opportunity_id: UUID | None
     observed_subject_version: int
     purpose: str | None = None
-    generation_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -658,7 +651,6 @@ class CognitionSubjectCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         acceptance_ordinal: int,
     ) -> None: ...
 

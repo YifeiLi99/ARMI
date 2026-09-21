@@ -30,7 +30,6 @@ def _record(
             RuntimeInstanceId(uuid7()),
             uuid7(),
             uuid7(),
-            uuid7(),
             1,
         ),
         status=status,
@@ -59,7 +58,6 @@ class _AuthorityPort:
             fence=RuntimeFence(
                 runtime_instance_id,
                 self.record.fence.subject_id,
-                self.record.fence.life_generation_id,
                 self.record.fence.bundle_activation_id,
                 self.record.fence.fence_token,
             ),
@@ -95,7 +93,7 @@ class RuntimeAuthorityContractTests(unittest.TestCase):
         with self.assertRaises(RuntimeAuthorityViolation):
             RuntimeInstanceId(uuid4())
         with self.assertRaises(RuntimeAuthorityViolation):
-            RuntimeFence(RuntimeInstanceId(uuid7()), uuid7(), uuid7(), uuid7(), 0)
+            RuntimeFence(RuntimeInstanceId(uuid7()), uuid7(), uuid7(), 0)
         with self.assertRaises(RuntimeAuthorityViolation):
             RuntimeAuthorityRecord(
                 fence=_record().fence,

@@ -24,7 +24,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _RUNTIME_OWNER = DataRightsOwnerIdentity("runtime")
 _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
 _VERSION = DataRightsContributionVersion(1)
-_RUNTIME_VERSION = DataRightsContributionVersion(2)
+_RUNTIME_VERSION = DataRightsContributionVersion(3)
 _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "admin_data_changes",
@@ -41,10 +41,6 @@ _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "durable_work",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.durable_work AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "life_generations",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.life_generations AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "runtime_instances",

@@ -101,7 +101,6 @@ def _maintenance_draft() -> CognitionContextEpisodeDraft:
         episode_id=uuid7(),
         opportunity_id=uuid7(),
         subject_id=uuid7(),
-        generation_id=uuid7(),
         scene_id=None,
         context_party_id=None,
         purpose="maintain_subjective_memory",
@@ -169,7 +168,6 @@ def test_new_experience_only_marks_cognition_maintenance_cursor() -> None:
         PostgreSQLCognitionSubjectCommit().note_accepted_experience(
             transaction,  # type: ignore[arg-type]
             subject_id=uuid7(),
-            generation_id=uuid7(),
             acceptance_ordinal=1,
         )
     )

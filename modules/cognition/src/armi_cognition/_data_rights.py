@@ -23,7 +23,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("cognition")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "cognitive_attempts",

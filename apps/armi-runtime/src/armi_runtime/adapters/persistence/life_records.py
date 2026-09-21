@@ -232,21 +232,9 @@ class PostgreSQLLifeRecordQuery:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
                 subject_id = await self._scope(connection, request.actor)
-                generation_row = await (
-                    await connection.execute(
-                        """
-                        SELECT life_generation_id FROM armi.life_generations
-                        WHERE subject_id = %s AND status = 'active'
-                        """,
-                        (subject_id,),
-                    )
-                ).fetchone()
-                if generation_row is None:
-                    raise LifeRecordQueryViolation("LIFE-QUERY-SCOPE")
                 relationship_snapshots = await self._relationships.all_current(
                     connection,
                     subject_id=subject_id,
-                    generation_id=generation_row[0],
                 )
                 activity_rows = (
                     await self._activities.life_record_branch(

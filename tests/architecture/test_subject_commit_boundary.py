@@ -87,7 +87,6 @@ def test_cognition_subject_commit_port_is_replaceable_by_public_fake() -> None:
             transaction,
             *,
             subject_id,
-            generation_id,
             experience_id,
         ):
             return None

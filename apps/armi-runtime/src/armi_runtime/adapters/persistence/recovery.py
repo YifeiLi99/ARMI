@@ -100,7 +100,6 @@ class PostgreSQLRuntimeRecovery:
         scope = RecoveryScope(
             self._environment_id,
             fence.subject_id,
-            fence.life_generation_id,
             fence.bundle_activation_id,
             fence.runtime_instance_id.value,
             fence.fence_token,
@@ -121,7 +120,6 @@ class PostgreSQLRuntimeRecovery:
         scope = RecoveryScope(
             self._environment_id,
             fence.subject_id,
-            fence.life_generation_id,
             fence.bundle_activation_id,
             fence.runtime_instance_id.value,
             fence.fence_token,
@@ -282,19 +280,13 @@ class PostgreSQLRuntimeRecovery:
                 """
                 SELECT count(*)
                 FROM armi.subjects AS subject
-                JOIN armi.life_generations AS generation
-                  ON generation.life_generation_id = subject.current_generation_id
-                 AND generation.subject_id = subject.subject_id
-                 AND generation.status = 'active'
                 WHERE subject.singleton_key = 1
                   AND subject.status = 'active'
                   AND subject.subject_id = %s
-                  AND subject.current_generation_id = %s
                   AND subject.current_bundle_activation_id = %s
                 """,
                 (
                     scope.subject_id,
-                    scope.life_generation_id,
                     scope.bundle_activation_id,
                 ),
             )
@@ -535,14 +527,12 @@ class PostgreSQLRuntimeRecovery:
                 """
                 SELECT status, lease_expires_at > statement_timestamp()
                 FROM armi.runtime_instances
-                WHERE runtime_instance_id = %s AND subject_id = %s
-                  AND life_generation_id = %s AND bundle_activation_id = %s
+                WHERE runtime_instance_id = %s AND subject_id = %s AND bundle_activation_id = %s
                   AND fence_token = %s
                 """,
                 (
                     fence.runtime_instance_id.value,
                     fence.subject_id,
-                    fence.life_generation_id,
                     fence.bundle_activation_id,
                     fence.fence_token,
                 ),

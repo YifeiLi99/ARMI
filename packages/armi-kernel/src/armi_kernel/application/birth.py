@@ -89,7 +89,6 @@ class BirthManifest:
 @dataclass(frozen=True, slots=True)
 class BirthResult:
     subject_id: UUID
-    life_generation_id: UUID
     bundle_activation_id: UUID
     request_digest: Digest
     created: bool
@@ -97,7 +96,6 @@ class BirthResult:
     def __post_init__(self) -> None:
         for value in (
             self.subject_id,
-            self.life_generation_id,
             self.bundle_activation_id,
         ):
             _require_uuid7(value)
@@ -108,7 +106,6 @@ class BirthResult:
         return {
             "status": "applied" if self.created else "existing",
             "subject_id": str(self.subject_id),
-            "life_generation_id": str(self.life_generation_id),
             "bundle_activation_id": str(self.bundle_activation_id),
             "request_digest": self.request_digest.to_wire(),
         }

@@ -21,7 +21,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "audit_events": TableOwnership("runtime", maintenance_writable=False),
     "deployment_environments": TableOwnership("runtime", maintenance_writable=False),
     "durable_work": TableOwnership("runtime", maintenance_writable=True),
-    "life_generations": TableOwnership("runtime", maintenance_writable=False),
     "runtime_instances": TableOwnership("runtime", maintenance_writable=False),
     "schema_baseline_identity": TableOwnership("runtime", maintenance_writable=False),
     "subject_commits": TableOwnership("runtime", maintenance_writable=False),

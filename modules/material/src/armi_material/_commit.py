@@ -28,7 +28,6 @@ class PostgreSQLMaterialCommit:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         drafts: tuple[CandidateLifeMaterialDraft, ...],
     ) -> bool:
         values = self._drafts(drafts)
@@ -36,29 +35,27 @@ class PostgreSQLMaterialCommit:
             value = next(item for item in values if item.material_id == material_id)
             row = await (
                 await transaction.execute(
-                    """SELECT current_revision_id,head_version,subject_id,life_generation_id,
-                              owner_party_id,material_kind,deleted_at
+                    """SELECT current_revision_id,head_version,subject_id,owner_party_id,material_kind,deleted_at
                        FROM armi.life_materials WHERE life_material_id=%s FOR UPDATE""",
                     (material_id,),
                 )
             ).fetchone()
             expected = (
-                (None, 0, None, None, None, None, None)
+                (None, 0, None, None, None, None)
                 if value.current_revision_id is None
                 else (
                     value.current_revision_id,
                     value.expected_head_version,
                     subject_id,
-                    generation_id,
                     value.owner_party_id,
                     value.material_kind.value,
                     None,
                 )
             )
             actual = (
-                (None, 0, None, None, None, None, None)
+                (None, 0, None, None, None, None)
                 if row is None
-                else (row[0], int(row[1]), row[2], row[3], row[4], str(row[5]), row[6])
+                else (row[0], int(row[1]), row[2], row[3], str(row[4]), row[5])
             )
             if actual != expected:
                 return False
@@ -70,7 +67,6 @@ class PostgreSQLMaterialCommit:
         *,
         validation_id: UUID,
         subject_id: UUID,
-        generation_id: UUID,
         commit_id: UUID,
         drafts: tuple[CandidateLifeMaterialDraft, ...],
         artifacts: dict[str, ArtifactRef],
@@ -97,13 +93,12 @@ class PostgreSQLMaterialCommit:
                 previous_revision_id = None
                 await transaction.execute(
                     """INSERT INTO armi.life_materials
-                       (life_material_id,subject_id,life_generation_id,material_kind,
+                       (life_material_id,subject_id,material_kind,
                         owner_party_id,current_revision_id,head_version)
-                       VALUES (%s,%s,%s,%s,%s,%s,1)""",
+                       VALUES (%s,%s,%s,%s,%s,1)""",
                     (
                         material.material_id,
                         subject_id,
-                        generation_id,
                         material.material_kind.value,
                         material.owner_party_id,
                         revision_id,
@@ -119,9 +114,8 @@ class PostgreSQLMaterialCommit:
                            FROM armi.life_materials AS material
                            JOIN armi.life_material_revisions AS revision
                              ON revision.life_material_revision_id=material.current_revision_id
-                           WHERE material.life_material_id=%s AND material.subject_id=%s
-                             AND material.life_generation_id=%s FOR UPDATE OF material""",
-                        (material.material_id, subject_id, generation_id),
+                           WHERE material.life_material_id=%s AND material.subject_id=%s FOR UPDATE OF material""",
+                        (material.material_id, subject_id),
                     )
                 ).fetchone()
                 if (

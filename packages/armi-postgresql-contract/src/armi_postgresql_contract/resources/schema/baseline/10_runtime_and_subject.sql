@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v51'::text
+        baseline_identity = 'armi.schema-baseline.v52'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v51');
+VALUES ('armi.schema-baseline.v52');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -46,26 +46,6 @@ CREATE TABLE armi.deployment_environments (
     CONSTRAINT deployment_environments_singleton_key_check CHECK (singleton_key)
 );
 
---
--- Name: life_generations; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.life_generations (
-    life_generation_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    generation_no bigint NOT NULL,
-    status text NOT NULL,
-    opened_subject_version bigint NOT NULL,
-    closed_subject_version bigint,
-    activation_reason text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    CONSTRAINT life_generations_activation_reason_check CHECK ((activation_reason = 'birth'::text)),
-    CONSTRAINT life_generations_closed_subject_version_check CHECK ((closed_subject_version IS NULL)),
-    CONSTRAINT life_generations_generation_no_check CHECK ((generation_no = 1)),
-    CONSTRAINT life_generations_life_generation_id_check CHECK ((uuid_extract_version(life_generation_id) = 7)),
-    CONSTRAINT life_generations_opened_subject_version_check CHECK ((opened_subject_version = 0)),
-    CONSTRAINT life_generations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'fenced'::text, 'preparing'::text])))
-);
 
 --
 -- Name: prompt_documents; Type: TABLE; Schema: armi; Owner: -
@@ -122,7 +102,6 @@ CREATE TABLE armi.prompt_revisions (
 CREATE TABLE armi.runtime_instances (
     runtime_instance_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     bundle_activation_id uuid NOT NULL,
     fence_token bigint NOT NULL,
     status text NOT NULL,
@@ -168,7 +147,6 @@ CREATE TABLE armi.subject_commits (
     candidate_validation_id uuid NOT NULL,
     cognitive_episode_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     bundle_activation_id uuid NOT NULL,
     base_subject_version bigint NOT NULL,
     new_subject_version bigint NOT NULL,
@@ -239,7 +217,6 @@ CREATE TABLE armi.subjects (
     birth_request_id uuid NOT NULL,
     birth_idempotency_key text NOT NULL,
     birth_manifest_digest text NOT NULL,
-    current_generation_id uuid NOT NULL,
     current_bundle_activation_id uuid NOT NULL UNIQUE,
     birth_contract_digest text NOT NULL,
     birth_creator_party_id uuid NOT NULL,
@@ -252,7 +229,6 @@ CREATE TABLE armi.subjects (
     CONSTRAINT subjects_birth_manifest_digest_check CHECK ((birth_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT subjects_birth_request_id_check CHECK ((uuid_extract_version(birth_request_id) = 7)),
     CONSTRAINT subjects_current_bundle_activation_id_check CHECK ((uuid_extract_version(current_bundle_activation_id) = 7)),
-    CONSTRAINT subjects_current_generation_id_check CHECK ((uuid_extract_version(current_generation_id) = 7)),
     CONSTRAINT subjects_singleton_key_check CHECK ((singleton_key = 1)),
     CONSTRAINT subjects_state_epoch_check CHECK ((state_epoch >= 0)),
     CONSTRAINT subjects_status_check CHECK ((status = ANY (ARRAY['active'::text, 'blocked'::text, 'deceased'::text]))),

@@ -28,12 +28,8 @@ class PostgreSQLRelationshipAdmin:
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT h.current_revision_id,h.head_version,h.tombstoned_at,r.facts,"
-                "r.interpretation,r.boundaries,r.commitments,r.open_issues,h.other_party_id "
-                "FROM armi.relationships h JOIN armi.relationship_revisions r "
-                "ON r.relationship_revision_id=h.current_revision_id WHERE h.relationship_id=%s "
-                "AND h.subject_id=%s AND h.life_generation_id=%s FOR UPDATE OF h",
-                (command.object_id, context.subject_id, context.generation_id),
+                "SELECT h.current_revision_id,h.head_version,h.tombstoned_at,r.facts,r.interpretation,r.boundaries,r.commitments,r.open_issues,h.other_party_id FROM armi.relationships h JOIN armi.relationship_revisions r ON r.relationship_revision_id=h.current_revision_id WHERE h.relationship_id=%s AND h.subject_id=%s FOR UPDATE OF h",
+                (command.object_id, context.subject_id),
             ).fetchone(),
         )
         if command.action == "create":
@@ -116,13 +112,10 @@ class PostgreSQLRelationshipAdmin:
             if other == context.subject_party_id:
                 raise RelationshipViolation("RELATIONSHIP-ADMIN-PARTY")
             tx.execute(
-                "INSERT INTO armi.relationships (relationship_id,subject_id,life_generation_id,"
-                "subject_party_id,other_party_id,scope,current_revision_id,head_version) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,1)",
+                "INSERT INTO armi.relationships (relationship_id,subject_id,subject_party_id,other_party_id,scope,current_revision_id,head_version) VALUES (%s,%s,%s,%s,%s,%s,1)",
                 (
                     command.object_id,
                     context.subject_id,
-                    context.generation_id,
                     context.subject_party_id,
                     other,
                     "creator_social"

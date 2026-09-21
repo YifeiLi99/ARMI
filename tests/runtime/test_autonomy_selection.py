@@ -50,12 +50,10 @@ def no_pending_raw_input(monkeypatch):
 async def test_result_opportunity_waits_for_enablement_and_single_subject_round(
     origin, autonomy_enabled, already_thinking, selected
 ):
-    subject, generation, root, current = (uuid7() for _ in range(4))
+    subject, root, current = (uuid7() for _ in range(3))
     unit = SimpleNamespace(
         transaction=AsyncMock(),
-        runtime_fence=SimpleNamespace(
-            subject_id=subject, life_generation_id=generation
-        ),
+        runtime_fence=SimpleNamespace(subject_id=subject),
         work=AsyncMock(),
         audit=AsyncMock(),
         environment_id=uuid7(),
@@ -162,7 +160,7 @@ async def _simultaneous_selectors(monkeypatch):
     dsn = os.environ.get("S009_ADMIN_DSN")
     if not dsn:
         pytest.skip("isolated PostgreSQL is not running")
-    subject, generation, opportunity = (uuid7() for _ in range(3))
+    subject, opportunity = (uuid7() for _ in range(2))
     committed = []
     lock_requests = 0
     competing = asyncio.Event()
@@ -182,9 +180,7 @@ async def _simultaneous_selectors(monkeypatch):
 
         unit = SimpleNamespace(
             transaction=SimpleNamespace(execute=execute, pending=pending),
-            runtime_fence=SimpleNamespace(
-                subject_id=subject, life_generation_id=generation
-            ),
+            runtime_fence=SimpleNamespace(subject_id=subject),
             work=AsyncMock(),
             audit=AsyncMock(),
             environment_id=uuid7(),

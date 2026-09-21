@@ -84,7 +84,6 @@ async def test_creator_reply_registers_effect_in_subject_transaction(
         uuid7(),
         uuid7(),
         subject,
-        uuid7(),
         scene,
         creator,
         None,
@@ -180,7 +179,6 @@ async def test_autonomous_expression_checks_contact_boundary_before_any_write() 
         uuid7(),
         uuid7(),
         subject,
-        uuid7(),
         scene,
         creator,
         None,
@@ -234,7 +232,7 @@ async def test_recovery_does_not_treat_missing_registration_work_as_corruption()
     result.fetchall.return_value = ((intent_id,),)
     transaction = AsyncMock()
     transaction.execute.return_value = result
-    scope = RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
+    scope = RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), 1)
 
     contribution = await ExpressionRecoveryParticipant().recover(transaction, scope, ())
 

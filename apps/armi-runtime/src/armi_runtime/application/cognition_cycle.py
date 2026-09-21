@@ -74,7 +74,7 @@ class RuntimeCognitionState:
         row = await (
             await transaction.execute(
                 """SELECT subject_id, subject_version, state_epoch,
-                      current_generation_id, current_bundle_activation_id
+                      current_bundle_activation_id
                FROM armi.subjects WHERE subject_id=%s AND singleton_key=1
                  AND status='active'""",
                 (subject_id,),
@@ -82,9 +82,7 @@ class RuntimeCognitionState:
         ).fetchone()
         if row is None:
             raise ContextViolation("CTX-SUBJECT-NOT-ACTIVE")
-        return ContextRuntimeSubjectSnapshot(
-            row[0], int(row[1]), int(row[2]), row[3], row[4]
-        )
+        return ContextRuntimeSubjectSnapshot(row[0], int(row[1]), int(row[2]), row[3])
 
     async def current_state(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -94,7 +92,6 @@ class RuntimeCognitionState:
             value.subject_id,
             value.subject_version,
             value.state_epoch,
-            value.generation_id,
             value.bundle_activation_id,
         )
 
@@ -295,7 +292,6 @@ class RuntimeCognitionCycleSelector:
                         episode_id,
                         candidate.opportunity_id,
                         candidate.subject_id,
-                        fence.life_generation_id,
                         candidate.scene_id,
                         candidate.context_party_id,
                         candidate.purpose,

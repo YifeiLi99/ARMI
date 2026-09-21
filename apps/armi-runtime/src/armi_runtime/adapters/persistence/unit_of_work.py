@@ -473,26 +473,17 @@ class PostgreSQLUnitOfWork:
         row = await (
             await connection.execute(
                 f"""
-                SELECT
-                    instance.status,
-                    instance.lease_expires_at > statement_timestamp()
+                SELECT instance.status,
+                       instance.lease_expires_at > statement_timestamp()
                 FROM armi.subjects AS subject
-                JOIN armi.life_generations AS generation
-                  ON generation.life_generation_id
-                    = subject.current_generation_id
-                 AND generation.subject_id = subject.subject_id
-                 AND generation.status = 'active'
                 JOIN armi.runtime_instances AS instance
                   ON instance.runtime_instance_id = %s
                  AND instance.subject_id = subject.subject_id
-                 AND instance.life_generation_id
-                    = generation.life_generation_id
-                 AND instance.bundle_activation_id
-                    = subject.current_bundle_activation_id
+                 AND instance.bundle_activation_id = subject.current_bundle_activation_id
                  AND instance.fence_token = %s
                 WHERE subject.singleton_key = 1
+                  AND subject.status = 'active'
                   AND subject.subject_id = %s
-                  AND subject.current_generation_id = %s
                   AND subject.current_bundle_activation_id = %s
                 {locking_clause}
                 """,
@@ -500,7 +491,6 @@ class PostgreSQLUnitOfWork:
                     fence.runtime_instance_id.value,
                     fence.fence_token,
                     fence.subject_id,
-                    fence.life_generation_id,
                     fence.bundle_activation_id,
                 ),
             )
@@ -519,10 +509,7 @@ class PostgreSQLUnitOfWork:
     async def _acquire_runtime_fence_locks(self) -> None:
         connection = cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
         fence = cast(RuntimeFence, self._runtime_fence)
-        for kind, value in (
-            ("subject", fence.subject_id),
-            ("generation", fence.life_generation_id),
-        ):
+        for kind, value in (("subject", fence.subject_id),):
             await connection.execute(
                 """
                 SELECT pg_advisory_xact_lock(

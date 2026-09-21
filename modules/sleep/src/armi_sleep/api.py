@@ -227,7 +227,6 @@ class SleepCommitContext:
     root_opportunity_id: UUID
     reconsideration_no: int
     subject_id: UUID
-    generation_id: UUID
     opportunity_purpose: str
     source_kind: str
     source_ref: UUID
@@ -250,8 +249,7 @@ class MaintenanceProgress:
 
 @dataclass(frozen=True, slots=True)
 class SleepRuntimeSnapshot:
-    generation_created_at: datetime
-    generation_no: int
+    born_at: datetime
     subject_version: int
     state_epoch: int
 

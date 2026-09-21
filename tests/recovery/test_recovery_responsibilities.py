@@ -22,7 +22,7 @@ from armi_subject_state.api import SubjectStateReadPort
 
 
 def _scope() -> RecoveryScope:
-    return RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
+    return RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), 1)
 
 
 def test_runtime_composition_builds_the_fixed_twenty_two_owner_roster() -> None:

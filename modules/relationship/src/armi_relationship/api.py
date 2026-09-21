@@ -528,7 +528,6 @@ class RelationshipReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         other_party_id: UUID,
         scope: str,
         expected_head_version: int | None = None,
@@ -539,7 +538,6 @@ class RelationshipReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
     ) -> tuple[RelationshipSnapshot, ...]: ...
 
     async def context_bundle(
@@ -547,7 +545,6 @@ class RelationshipReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         other_party_id: UUID | None,
         scope: str | None,
     ) -> RelationshipContextBundle: ...
@@ -577,7 +574,6 @@ class RelationshipCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         commit_id: UUID,
         validation_id: UUID,
         experience_ids: dict[str, UUID],

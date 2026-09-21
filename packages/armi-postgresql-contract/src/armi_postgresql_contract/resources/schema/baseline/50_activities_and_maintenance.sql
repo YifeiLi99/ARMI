@@ -88,7 +88,6 @@ CREATE TABLE armi.cognition_maintenance_batch_sources (
 CREATE TABLE armi.cognition_maintenance_batches (
     maintenance_batch_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     trigger_kind text NOT NULL,
     status text NOT NULL,
     base_subject_version bigint NOT NULL,
@@ -113,7 +112,6 @@ CREATE TABLE armi.cognition_maintenance_batches (
 
 CREATE TABLE armi.cognition_maintenance_cursors (
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     latest_accepted_ordinal bigint NOT NULL,
     processed_through_ordinal bigint DEFAULT 0 NOT NULL,
     updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
@@ -173,7 +171,6 @@ CREATE TABLE armi.maintenance_session_revisions (
 CREATE TABLE armi.maintenance_sessions (
     maintenance_session_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     origin_opportunity_id uuid,
     cycle_anchor_kind text NOT NULL,
     cycle_anchor_ref uuid NOT NULL,
@@ -195,7 +192,7 @@ CREATE TABLE armi.maintenance_sessions (
     CONSTRAINT maintenance_sessions_check CHECK ((consideration_at < deadline_at)),
     CONSTRAINT maintenance_sessions_check1 CHECK (((trigger_kind = 'subject_choice'::text) = (sleep_decision_id IS NOT NULL))),
     CONSTRAINT maintenance_sessions_current_revision_required CHECK ((current_revision_id IS NOT NULL)),
-    CONSTRAINT maintenance_sessions_cycle_anchor_kind_check CHECK ((cycle_anchor_kind = ANY (ARRAY['life_generation'::text, 'maintenance_session'::text]))),
+    CONSTRAINT maintenance_sessions_cycle_anchor_kind_check CHECK ((cycle_anchor_kind = ANY (ARRAY['subject_birth'::text, 'maintenance_session'::text]))),
     CONSTRAINT maintenance_sessions_cycle_anchor_ref_check CHECK ((uuid_extract_version(cycle_anchor_ref) = 7)),
     CONSTRAINT maintenance_sessions_head_version_check CHECK ((head_version > 0)),
     CONSTRAINT maintenance_sessions_maintenance_session_id_check CHECK ((uuid_extract_version(maintenance_session_id) = 7)),
@@ -220,7 +217,6 @@ CREATE TABLE armi.sleep_decisions (
     candidate_validation_id uuid NOT NULL,
     candidate_application_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     cycle_anchor_ref uuid NOT NULL,
     decision_kind text NOT NULL,
     review_not_before timestamp(6) with time zone,

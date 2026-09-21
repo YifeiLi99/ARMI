@@ -60,7 +60,6 @@ class RuntimeAuthorityStatus(StrEnum):
 class RuntimeFence:
     runtime_instance_id: RuntimeInstanceId
     subject_id: UUID
-    life_generation_id: UUID
     bundle_activation_id: UUID
     fence_token: int
 
@@ -69,7 +68,6 @@ class RuntimeFence:
             raise RuntimeAuthorityViolation("AUTH-DECLARATION")
         for value in (
             self.subject_id,
-            self.life_generation_id,
             self.bundle_activation_id,
         ):
             _require_uuid7(value)

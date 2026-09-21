@@ -35,9 +35,7 @@ class Harness:
     def __init__(self, root):
         self.creator = uuid7()
         self.effect = EffectId(uuid7())
-        self.fence = RuntimeFence(
-            RuntimeInstanceId(uuid7()), uuid7(), uuid7(), uuid7(), 1
-        )
+        self.fence = RuntimeFence(RuntimeInstanceId(uuid7()), uuid7(), uuid7(), 1)
         self.ref: ArtifactRef | None = None
         self.store = ContentAddressedArtifactStore(
             root, max_object_bytes=20 * 1024 * 1024
@@ -249,7 +247,11 @@ async def test_changed_reference_and_runtime_load_fresh_content(harness):
     assert (await h.read()).content == b"after"
     assert h.reads == 1
     assert len(h.pipeline._artifact_reader._entries) == 1
-    h.fence = replace(h.fence, life_generation_id=uuid7())
+    h.fence = replace(
+        h.fence,
+        runtime_instance_id=RuntimeInstanceId(uuid7()),
+        fence_token=h.fence.fence_token + 1,
+    )
     await h.read()
     assert h.reads == 2
     assert len(h.pipeline._artifact_reader._entries) == 1

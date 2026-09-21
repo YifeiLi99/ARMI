@@ -227,7 +227,6 @@ class PostgreSQLRelationshipOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         other_party_id: UUID,
         scope: str,
         expected_head_version: int | None = None,
@@ -256,7 +255,6 @@ class PostgreSQLRelationshipOwner:
                 JOIN armi.relationship_revisions AS revision
                   ON revision.relationship_revision_id = relationship.current_revision_id
                 WHERE relationship.subject_id = %s
-                  AND relationship.life_generation_id = %s
                   AND relationship.other_party_id = %s
                   AND relationship.scope = %s
                   AND relationship.tombstoned_at IS NULL
@@ -265,7 +263,6 @@ class PostgreSQLRelationshipOwner:
                 """,
                 (
                     subject_id,
-                    generation_id,
                     other_party_id,
                     scope,
                     expected_head_version,
@@ -293,7 +290,6 @@ class PostgreSQLRelationshipOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
     ) -> tuple[RelationshipSnapshot, ...]:
         rows = await (
             await transaction.execute(
@@ -319,11 +315,10 @@ class PostgreSQLRelationshipOwner:
                 JOIN armi.relationship_revisions AS revision
                   ON revision.relationship_revision_id = relationship.current_revision_id
                 WHERE relationship.subject_id = %s
-                  AND relationship.life_generation_id = %s
                   AND relationship.tombstoned_at IS NULL
                 ORDER BY relationship.relationship_id
                 """,
-                (subject_id, generation_id),
+                (subject_id,),
             )
         ).fetchall()
         return tuple(
@@ -344,7 +339,6 @@ class PostgreSQLRelationshipOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         other_party_id: UUID | None,
         scope: str | None,
     ) -> RelationshipContextBundle:
@@ -352,7 +346,6 @@ class PostgreSQLRelationshipOwner:
             await self.all_current(
                 transaction,
                 subject_id=subject_id,
-                generation_id=generation_id,
             )
             if other_party_id is None or scope is None
             else tuple(
@@ -361,7 +354,6 @@ class PostgreSQLRelationshipOwner:
                     await self.current_for_party(
                         transaction,
                         subject_id=subject_id,
-                        generation_id=generation_id,
                         other_party_id=other_party_id,
                         scope=scope,
                     ),
@@ -478,7 +470,6 @@ class PostgreSQLRelationshipOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         commit_id: UUID,
         validation_id: UUID,
         experience_ids: dict[str, UUID],
@@ -489,7 +480,6 @@ class PostgreSQLRelationshipOwner:
             await _commit_one(
                 transaction,
                 subject_id=subject_id,
-                generation_id=generation_id,
                 commit_id=commit_id,
                 validation_id=validation_id,
                 experience_ids=experience_ids,
@@ -518,7 +508,6 @@ async def _commit_one(
     connection: PostgreSQLTransaction,
     *,
     subject_id: UUID,
-    generation_id: UUID,
     commit_id: UUID,
     validation_id: UUID,
     experience_ids: dict[str, UUID],
@@ -547,15 +536,14 @@ async def _commit_one(
         await connection.execute(
             """
             INSERT INTO armi.relationships (
-                relationship_id, subject_id, life_generation_id,
+                relationship_id, subject_id,
                 subject_party_id, other_party_id, scope,
                 current_revision_id, head_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
+            ) VALUES (%s, %s, %s, %s, %s, %s, 1)
             """,
             (
                 relationship.relationship_id,
                 subject_id,
-                generation_id,
                 relationship.subject_party_id,
                 relationship.other_party_id,
                 relationship.scope,
@@ -576,10 +564,9 @@ async def _commit_one(
                   ON revision.relationship_revision_id = relationship.current_revision_id
                 WHERE relationship.relationship_id = %s
                   AND relationship.subject_id = %s
-                  AND relationship.life_generation_id = %s
                 FOR UPDATE OF relationship
                 """,
-                (relationship.relationship_id, subject_id, generation_id),
+                (relationship.relationship_id, subject_id),
             )
         ).fetchone()
         if (

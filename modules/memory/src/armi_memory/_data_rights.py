@@ -21,7 +21,7 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("memory")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "memory_relations",

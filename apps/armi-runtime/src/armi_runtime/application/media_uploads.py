@@ -35,10 +35,10 @@ class UploadDeclaration(BaseModel):
 
 class UploadRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    schema_version: Literal["armi.local-upload.v1"] = "armi.local-upload.v1"
+    schema_version: Literal["armi.local-upload.v2"] = "armi.local-upload.v2"
     upload_id: UUID
     environment_id: UUID
-    generation_id: UUID
+    subject_id: UUID
     creator_party_id: UUID
     delegate_id: UUID
     declaration: UploadDeclaration
@@ -196,12 +196,12 @@ class MediaUploads:
         self,
         root: Path,
         environment_id: UUID,
-        generation_id: UUID,
+        subject_id: UUID,
         publish: PublishUpload,
     ) -> None:
         self.root = root
         self.environment_id = environment_id
-        self.generation_id = generation_id
+        self.subject_id = subject_id
         self.publish = publish
         self._locks: dict[UUID, asyncio.Lock] = {}
 
@@ -224,10 +224,10 @@ class MediaUploads:
         if (
             record.upload_id,
             record.environment_id,
-            record.generation_id,
+            record.subject_id,
             record.creator_party_id,
             record.delegate_id,
-        ) != (upload_id, self.environment_id, self.generation_id, creator, delegate):
+        ) != (upload_id, self.environment_id, self.subject_id, creator, delegate):
             raise UploadViolation("UPLOAD-SCOPE")
         return record
 
@@ -257,7 +257,7 @@ class MediaUploads:
             json.dumps(
                 [
                     str(self.environment_id),
-                    str(self.generation_id),
+                    str(self.subject_id),
                     str(creator),
                     str(delegate),
                     key,
@@ -298,7 +298,7 @@ class MediaUploads:
             record = UploadRecord(
                 upload_id=uuid7(),
                 environment_id=self.environment_id,
-                generation_id=self.generation_id,
+                subject_id=self.subject_id,
                 creator_party_id=creator,
                 delegate_id=delegate,
                 declaration=declaration,

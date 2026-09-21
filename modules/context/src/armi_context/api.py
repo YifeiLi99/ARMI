@@ -591,7 +591,6 @@ class ContextRuntimeSubjectSnapshot:
     subject_id: UUID
     subject_version: int
     state_epoch: int
-    generation_id: UUID
     bundle_activation_id: UUID
 
 

@@ -29,7 +29,6 @@ async def test_phase_result_requires_an_unfinished_target(target_exists: bool) -
         uuid7(),
         0,
         uuid7(),
-        uuid7(),
         "perform_subject_self_check",
         "maintenance_phase_revision",
         revision_id,

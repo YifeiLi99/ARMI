@@ -633,7 +633,7 @@ async def _serve(
             media_uploads = compose_media_uploads(
                 prepared.data_root,
                 config.environment.environment_id,
-                authority.require_writable().life_generation_id,
+                authority.require_writable().subject_id,
                 runtime_unit_of_work_factory,
                 artifact_catalog,
             )

@@ -576,7 +576,6 @@ class ContextPipeline:
             return await self._embedding_repository.recall_parallel(
                 self._factory,
                 subject_id=snapshot.subject_id,
-                life_generation_id=snapshot.life_generation_id,
                 query_text=query,
                 query_vector=vector,
             )

@@ -49,7 +49,6 @@ _OWNER_BY_KIND = {
     },
     "artifact_object": "artifact-store",
     "runtime_instance": "runtime-foundation",
-    "life_generation": "runtime-foundation",
     "bundle_activation": "runtime-foundation",
     "artifact": "artifact-store",
     "audit_event": "runtime-foundation",
@@ -420,7 +419,7 @@ class AdminObservationGateway:
                 zip(
                     (
                         "runtime_instance_id",
-                        "life_generation_id",
+                        "subject_id",
                         "fence_token",
                         "status",
                         "last_heartbeat_at",
@@ -466,7 +465,6 @@ class AdminObservationGateway:
                 "subject_version": subject.subject_version,
                 "state_epoch": subject.state_epoch,
                 "status": subject.status,
-                "current_generation_id": str(subject.generation_id),
                 "current_bundle_activation_id": None
                 if subject.bundle_activation_id is None
                 else str(subject.bundle_activation_id),
@@ -742,14 +740,6 @@ class AdminObservationGateway:
             if kind == "subject":
                 subject = self._runtime.subject(tx, for_update=False, detailed=True)
                 if subject is not None and subject.subject_id == identity:
-                    link(
-                        kind,
-                        identity,
-                        "current_generation",
-                        "life_generation",
-                        subject.generation_id,
-                        "runtime-foundation",
-                    )
                     link(
                         kind,
                         identity,

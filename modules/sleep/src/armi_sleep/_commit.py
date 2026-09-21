@@ -153,10 +153,10 @@ class PostgreSQLSleepCommit:
             await transaction.execute(
                 """
                 SELECT 1 FROM armi.maintenance_sessions
-                WHERE subject_id=%s AND life_generation_id=%s
+                WHERE subject_id=%s
                   AND cycle_anchor_ref=%s
                 """,
-                (context.subject_id, context.generation_id, context.source_ref),
+                (context.subject_id, context.source_ref),
             )
         ).fetchone()
         return (
@@ -197,7 +197,6 @@ class PostgreSQLSleepCommit:
                  AND revision.maintenance_session_id = session.maintenance_session_id
                 WHERE session.maintenance_session_id = %s
                   AND session.subject_id = %s
-                  AND session.life_generation_id = %s
                   AND session.current_revision_id = %s
                   AND session.head_version = %s
                   AND session.finished_at IS NULL
@@ -207,7 +206,6 @@ class PostgreSQLSleepCommit:
                 (
                     decision.maintenance_session_id,
                     context.subject_id,
-                    context.generation_id,
                     decision.current_revision_id,
                     decision.expected_head_version,
                     decision.phase.value,
@@ -235,10 +233,9 @@ class PostgreSQLSleepCommit:
             """
             INSERT INTO armi.sleep_decisions (
                 sleep_decision_id, opportunity_id, cognitive_episode_id,
-                candidate_validation_id, candidate_application_id, subject_id,
-                life_generation_id, cycle_anchor_ref,
+                candidate_validation_id, candidate_application_id, subject_id, cycle_anchor_ref,
                 decision_kind, review_not_before) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 decision_id,
@@ -247,7 +244,6 @@ class PostgreSQLSleepCommit:
                 context.validation_id,
                 application_id,
                 context.subject_id,
-                context.generation_id,
                 decision.cycle_anchor_ref,
                 decision.decision_kind.value,
                 review_at,
@@ -261,20 +257,19 @@ class PostgreSQLSleepCommit:
         await transaction.execute(
             """
             INSERT INTO armi.maintenance_sessions (
-                maintenance_session_id, subject_id, life_generation_id,
+                maintenance_session_id, subject_id,
                 origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
                 consideration_at, deadline_at, trigger_kind,
                 sleep_decision_id, started_subject_version, started_state_epoch,
-                current_revision_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                current_revision_id) VALUES (%s, %s, %s, %s, %s, %s, %s,
                       'subject_choice', %s, %s, %s, %s)
             """,
             (
                 session_id,
                 context.subject_id,
-                context.generation_id,
                 context.opportunity_id,
-                "life_generation"
-                if context.source_ref == context.generation_id
+                "subject_birth"
+                if context.source_ref == context.subject_id
                 else "maintenance_session",
                 decision.cycle_anchor_ref,
                 context.opportunity_available_after,

@@ -235,7 +235,6 @@ def prepare_case(
     )
     validation = CandidateValidationContext(
         subject_id=identity(100),
-        generation_id=identity(101),
         episode_id=identity(105),
         model_attempt_id=identity(106),
         base_subject_version=1,

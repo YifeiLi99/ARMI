@@ -358,7 +358,6 @@ class MaterialOpportunitySource:
 @dataclass(frozen=True, slots=True)
 class MaterialProjectionSource:
     subject_id: UUID
-    generation_id: UUID
     material_id: UUID
     current_revision_id: UUID
     head_version: int
@@ -374,7 +373,6 @@ class MaterialProjectionSource:
 @dataclass(frozen=True, slots=True)
 class MaterialProjectionHead:
     subject_id: UUID
-    generation_id: UUID
     material_id: UUID
     head_version: int
 
@@ -386,7 +384,6 @@ class MaterialReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         sources: tuple[MaterialCandidateSourceRef, ...],
     ) -> tuple[MaterialCandidateSource, ...]: ...
 
@@ -406,7 +403,6 @@ class MaterialReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
     ) -> MaterialOpportunitySource | None: ...
 
     async def get_creator_visible(
@@ -448,7 +444,6 @@ class MaterialCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         drafts: tuple[CandidateLifeMaterialDraft, ...],
     ) -> bool: ...
 
@@ -458,7 +453,6 @@ class MaterialCommitPort(Protocol):
         *,
         validation_id: UUID,
         subject_id: UUID,
-        generation_id: UUID,
         commit_id: UUID,
         drafts: tuple[CandidateLifeMaterialDraft, ...],
         artifacts: dict[str, ArtifactRef],
@@ -484,7 +478,6 @@ class MaterialProjectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         sources: tuple[MaterialCandidateSourceRef, ...],
     ) -> tuple[MaterialCandidateSourceRef, ...]: ...
 
@@ -493,7 +486,6 @@ class MaterialProjectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        generation_id: UUID,
         source: MaterialCandidateSourceRef,
     ) -> bool: ...
 
@@ -502,7 +494,6 @@ class MaterialProjectionPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID | None = None,
-        generation_id: UUID | None = None,
     ) -> tuple[MaterialProjectionSource, ...]: ...
 
     async def load_source(

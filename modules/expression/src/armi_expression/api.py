@@ -106,7 +106,6 @@ class ExpressionCommitContext:
     opportunity_id: UUID
     root_opportunity_id: UUID
     subject_id: UUID
-    generation_id: UUID
     scene_id: UUID | None
     creator_party_id: UUID | None
     other_party_id: UUID | None
@@ -120,7 +119,6 @@ class ExpressionCommitContext:
             self.opportunity_id,
             self.root_opportunity_id,
             self.subject_id,
-            self.generation_id,
         ):
             _uuid7(value, "CON-RESPONSE-COMMIT-CONTEXT")
         for value in (self.scene_id, self.creator_party_id, self.other_party_id):

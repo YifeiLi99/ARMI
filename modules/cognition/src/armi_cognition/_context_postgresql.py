@@ -105,10 +105,10 @@ class PostgreSQLCognitionContextLifecycle:
                 await transaction.execute(
                     """SELECT latest_accepted_ordinal,processed_through_ordinal
                        FROM armi.cognition_maintenance_cursors
-                       WHERE subject_id=%s AND life_generation_id=%s
+                       WHERE subject_id=%s
                          AND latest_accepted_ordinal > processed_through_ordinal
                        FOR UPDATE""",
-                    (draft.subject_id, draft.generation_id),
+                    (draft.subject_id,),
                 )
             ).fetchone()
             if cursor is not None:
@@ -116,10 +116,10 @@ class PostgreSQLCognitionContextLifecycle:
                     await transaction.execute(
                         """SELECT maintenance_batch_id
                            FROM armi.cognition_maintenance_batches
-                           WHERE subject_id=%s AND life_generation_id=%s
+                           WHERE subject_id=%s
                              AND status IN ('prepared','running')
                            FOR UPDATE""",
-                        (draft.subject_id, draft.generation_id),
+                        (draft.subject_id,),
                     )
                 ).fetchone()
                 if existing is None:
@@ -143,15 +143,14 @@ class PostgreSQLCognitionContextLifecycle:
                     batch_id = uuid7()
                     await transaction.execute(
                         """INSERT INTO armi.cognition_maintenance_batches (
-                               maintenance_batch_id,subject_id,life_generation_id,
+                               maintenance_batch_id,subject_id,
                                trigger_kind,status,base_subject_version,
                                frozen_from_ordinal,frozen_through_ordinal,
                                visible_source_count)
-                           VALUES (%s,%s,%s,%s,'running',%s,%s,%s,%s)""",
+                           VALUES (%s,%s,%s,'running',%s,%s,%s,%s)""",
                         (
                             batch_id,
                             draft.subject_id,
-                            draft.generation_id,
                             draft.maintenance_trigger_kind,
                             draft.base_subject_version,
                             processed,
@@ -196,9 +195,8 @@ class PostgreSQLCognitionContextLifecycle:
                    FROM armi.cognition_maintenance_batches AS batch
                    WHERE episode.cognitive_episode_id=%s
                      AND batch.subject_id=%s
-                     AND batch.life_generation_id=%s
                      AND batch.status='running'""",
-                (draft.episode_id, draft.subject_id, draft.generation_id),
+                (draft.episode_id, draft.subject_id),
             )
         return row is not None
 

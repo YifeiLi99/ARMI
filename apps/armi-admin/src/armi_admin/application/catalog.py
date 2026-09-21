@@ -258,7 +258,7 @@ class AdminOperation:
 
 
 OPERATION_DESCRIPTIONS = {
-    "content_write": "Online owner management of memory, relationships, materials, components, mood, prompts and activities. Read the object version and generation first. Appends administrator revisions and retains history. Delete follows owner semantics. Busy objects are rejected without stopping Runtime. The receipt commits atomically.",
+    "content_write": "Online owner management of memory, relationships, materials, components, mood, prompts and activities. Read the subject identity and object version first. Appends administrator revisions and retains history. Delete follows owner semantics. Busy objects are rejected without stopping Runtime. The receipt commits atomically.",
     "database_catalog": "Read all ARMI tables and views, fields, keys, relations and explicit maintenance permissions.",
     "database_query": "Read structured predicates, selected fields and ordered pages. Values preserve PostgreSQL precision; no SQL is accepted.",
     "database_batch": "Atomically insert, update or delete explicit rows after normally stopping business processes. PostgreSQL remains running. Update/delete require primary keys and read versions. Protected identity, permission and receipt tables are read-only; this is physical maintenance, not online content editing.",

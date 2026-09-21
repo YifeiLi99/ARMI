@@ -34,7 +34,6 @@ def _create_schema(connection: psycopg.Connection[Any]) -> None:
              projection_id bigint PRIMARY KEY,
              source_ref bigint NOT NULL,
              subject_id bigint NOT NULL,
-             life_generation_id bigint NOT NULL,
              model_binding text NOT NULL,
              retrieval_text text NOT NULL,
              embedding armi_extensions.vector(1024) NOT NULL
@@ -52,10 +51,9 @@ def _insert_rows(connection: psycopg.Connection[Any], start: int, stop: int) -> 
     )
     connection.execute(
         """INSERT INTO bench.projections (
-             projection_id,source_ref,subject_id,life_generation_id,
-             model_binding,retrieval_text,embedding
+             projection_id,source_ref,subject_id,model_binding,retrieval_text,embedding
            )
-           SELECT row_id,row_id,1,1,%s,
+           SELECT row_id,row_id,1,%s,
                   format(
                     '生活资料块 %%s；专属编号 ARMI-%%s；日期 20%%s-%%s-%%s；'
                     '设备序列 DEV-%%s；这是用于模拟长期生活资料的唯一中文段落。%%s',

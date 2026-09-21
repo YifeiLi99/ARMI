@@ -162,7 +162,6 @@ class SubjectIdentity(Payload):
     subject_version: int
     state_epoch: int
     status: str
-    current_generation_id: str
     current_bundle_activation_id: str | None
 
 
@@ -689,7 +688,6 @@ class DatabaseMaintenancePayload(Payload):
 class BirthPayload(Payload):
     status: Literal["applied", "existing"]
     subject_id: str
-    life_generation_id: str
     bundle_activation_id: str
     request_digest: str
 

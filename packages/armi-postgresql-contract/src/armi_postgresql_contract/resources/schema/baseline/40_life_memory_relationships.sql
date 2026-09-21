@@ -43,7 +43,6 @@ CREATE TABLE armi.life_material_revisions (
 CREATE TABLE armi.life_materials (
     life_material_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     material_kind text NOT NULL,
     owner_party_id uuid NOT NULL,
     current_revision_id uuid NOT NULL,
@@ -139,7 +138,6 @@ CREATE TABLE armi.relationship_revisions (
 CREATE TABLE armi.relationships (
     relationship_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     subject_party_id uuid NOT NULL,
     other_party_id uuid NOT NULL,
     scope text NOT NULL,
@@ -164,7 +162,6 @@ CREATE TABLE armi.relationships (
 CREATE TABLE armi.subjective_memories (
     memory_id uuid NOT NULL,
     subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
     current_revision_id uuid NOT NULL,
     head_version bigint NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,

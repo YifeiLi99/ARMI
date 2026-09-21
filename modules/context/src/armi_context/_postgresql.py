@@ -89,7 +89,6 @@ class ContextEpisodeSnapshot:
     episode_id: UUID
     opportunity_id: UUID
     subject_id: UUID
-    life_generation_id: UUID
     scene_id: UUID | None
     creator_party_id: UUID | None
     other_party_id: UUID | None
@@ -239,7 +238,6 @@ class PostgreSQLContextRepository:
         memory_rows = await self._memories.maintenance_context(
             tx,
             subject_id=episode.subject_id,
-            generation_id=subject.generation_id,
             enabled=episode.purpose == "maintain_subjective_memory",
             limit=8,
         )
@@ -264,7 +262,6 @@ class PostgreSQLContextRepository:
         relationship_bundle = await self._relationships.context_bundle(
             tx,
             subject_id=episode.subject_id,
-            generation_id=subject.generation_id,
             other_party_id=None
             if episode.purpose
             in {
@@ -308,9 +305,7 @@ class PostgreSQLContextRepository:
         ):
             raise ContextViolation("CTX-WORK-STALE")
         capabilities = (
-            ()
-            if other_human
-            else self._capabilities.context_state_payloads()
+            () if other_human else self._capabilities.context_state_payloads()
         )
 
         evidence_source = None
@@ -397,7 +392,6 @@ class PostgreSQLContextRepository:
             episode_id=episode.episode_id,
             opportunity_id=episode.opportunity_id,
             subject_id=episode.subject_id,
-            life_generation_id=subject.generation_id,
             scene_id=episode.scene_id,
             creator_party_id=None if other_human else episode.context_party_id,
             other_party_id=episode.context_party_id if other_human else None,

@@ -71,10 +71,8 @@ class PostgreSQLMaterialAdminContent:
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT h.current_revision_id,h.head_version,h.deleted_at,r.artifact_id,r.title,r.metadata,r.material_status "
-                "FROM armi.life_materials h JOIN armi.life_material_revisions r ON r.life_material_revision_id=h.current_revision_id "
-                "WHERE h.life_material_id=%s AND h.subject_id=%s AND h.life_generation_id=%s FOR UPDATE OF h",
-                (command.object_id, context.subject_id, context.generation_id),
+                "SELECT h.current_revision_id,h.head_version,h.deleted_at,r.artifact_id,r.title,r.metadata,r.material_status FROM armi.life_materials h JOIN armi.life_material_revisions r ON r.life_material_revision_id=h.current_revision_id WHERE h.life_material_id=%s AND h.subject_id=%s FOR UPDATE OF h",
+                (command.object_id, context.subject_id),
             ).fetchone(),
         )
         if command.action == "create":
@@ -104,12 +102,10 @@ class PostgreSQLMaterialAdminContent:
         version = command.expected_version + 1
         if row is None:
             tx.execute(
-                "INSERT INTO armi.life_materials (life_material_id,subject_id,life_generation_id,material_kind,owner_party_id,current_revision_id,head_version) "
-                "VALUES (%s,%s,%s,%s,%s,%s,1)",
+                "INSERT INTO armi.life_materials (life_material_id,subject_id,material_kind,owner_party_id,current_revision_id,head_version) VALUES (%s,%s,%s,%s,%s,1)",
                 (
                     command.object_id,
                     context.subject_id,
-                    context.generation_id,
                     values["material_kind"],
                     context.subject_party_id,
                     revision,

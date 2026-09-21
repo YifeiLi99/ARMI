@@ -121,7 +121,6 @@ class PostgreSQLExpressionOwner:
             relationship = await self._relationships.current_for_party(
                 connection,
                 subject_id=context.subject_id,
-                generation_id=context.generation_id,
                 other_party_id=reply.creator_party_id,
                 scope="creator_social",
             )
@@ -395,7 +394,6 @@ class PostgreSQLExpressionOwner:
         relationship = await self._relationships.current_for_party(
             unit_of_work.transaction,
             subject_id=context.subject_id,
-            generation_id=context.generation_id,
             other_party_id=context.other_party_id,
             scope=relationship_scope,
         )

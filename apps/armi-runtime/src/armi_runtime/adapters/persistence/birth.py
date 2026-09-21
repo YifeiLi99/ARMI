@@ -49,28 +49,12 @@ def probe_continuity(
                 """
                 SELECT
                     subject.subject_id,
-                    subject.birth_contract_digest,
-                    (
-                        SELECT count(*) FROM armi.life_generations
-                        WHERE subject_id = subject.subject_id
-                          AND life_generation_id = subject.current_generation_id
-                          AND generation_no = 1 AND status = 'active'
-                    ),
-                    0::bigint,
-                    0::bigint,
-                    0::bigint,
-                    0::bigint
+                    subject.birth_contract_digest
                 FROM armi.subjects AS subject
                 ORDER BY subject.singleton_key
                 """
             ).fetchall()
             if not rows:
-                counts = connection.execute(
-                    """
-                    SELECT
-                        (SELECT count(*) FROM armi.life_generations)
-                    """
-                ).fetchone()
                 interaction_counts = interaction.continuity(
                     _BirthAdminTransaction(connection), subject_id=None
                 )
@@ -81,9 +65,7 @@ def probe_continuity(
                 mind_counts = mind.continuity(transaction, subject_id=None)
                 return (
                     ContinuityState.UNBORN
-                    if counts is not None
-                    and counts[0] == 0
-                    and interaction_counts.party_count == 0
+                    if interaction_counts.party_count == 0
                     and interaction_counts.default_scene_count == 0
                     and interaction_counts.timeline_count == 0
                     and prompt_counts.document_count == 0
@@ -116,10 +98,8 @@ def probe_continuity(
         and str(row[1]) not in historical_birth_contract_digests
     ):
         return ContinuityState.INVALID
-    counts = tuple(int(value) for value in row[2:])
     if (
-        counts[0] != 1
-        or interaction_counts.party_count != 2
+        interaction_counts.party_count != 2
         or prompt_counts.document_count != 3
         or prompt_counts.revision_count < 1
         or subject_counts.head_count != 2
@@ -202,7 +182,6 @@ class BirthRepository:
                 """
                 SELECT
                     subject_id,
-                    current_generation_id,
                     current_bundle_activation_id,
                     birth_request_id,
                     birth_idempotency_key,
@@ -218,18 +197,17 @@ class BirthRepository:
             raise BirthViolation("BIRTH-STATE-DIRTY")
         row = rows[0]
         if (
-            row[3] == manifest.birth_request_id
-            and str(row[4]) == manifest.idempotency_key
-            and str(row[5]) == manifest.request_digest.value
+            row[2] == manifest.birth_request_id
+            and str(row[3]) == manifest.idempotency_key
+            and str(row[4]) == manifest.request_digest.value
         ):
             return BirthResult(
                 subject_id=row[0],
-                life_generation_id=row[1],
-                bundle_activation_id=row[2],
+                bundle_activation_id=row[1],
                 request_digest=manifest.request_digest,
                 created=False,
             )
-        if str(row[4]) == manifest.idempotency_key:
+        if str(row[3]) == manifest.idempotency_key:
             raise BirthViolation("BIRTH-IDEMPOTENCY-CONFLICT")
         raise BirthViolation("BIRTH-ALREADY-BORN")
 
@@ -241,36 +219,24 @@ class BirthRepository:
     ) -> BirthResult:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         subject_id = uuid7()
-        generation_id = uuid7()
         activation_id = uuid7()
         await connection.execute(
             """
             INSERT INTO armi.subjects (
                 subject_id, singleton_key, birth_request_id,
-                birth_idempotency_key, birth_manifest_digest,
-                current_generation_id, current_bundle_activation_id,
+                birth_idempotency_key, birth_manifest_digest, current_bundle_activation_id,
                 birth_contract_digest, birth_creator_party_id
-            ) VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, 1, %s, %s, %s, %s, %s, %s)
             """,
             (
                 subject_id,
                 manifest.birth_request_id,
                 manifest.idempotency_key,
                 manifest.request_digest.value,
-                generation_id,
                 activation_id,
                 manifest.birth_contract_digest.value,
                 manifest.creator_party_id,
             ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.life_generations (
-                life_generation_id, subject_id, generation_no, status,
-                opened_subject_version, activation_reason
-            ) VALUES (%s, %s, 1, 'active', 0, 'birth')
-            """,
-            (generation_id, subject_id),
         )
         await self._interaction.initialize(
             unit_of_work.transaction,
@@ -291,7 +257,6 @@ class BirthRepository:
         await self._mood.initialize(unit_of_work.transaction, subject_id=subject_id)
         return BirthResult(
             subject_id=subject_id,
-            life_generation_id=generation_id,
             bundle_activation_id=activation_id,
             request_digest=manifest.request_digest,
             created=True,

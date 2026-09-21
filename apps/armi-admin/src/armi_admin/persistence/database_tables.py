@@ -115,7 +115,7 @@ class DatabaseTable:
                 "owner": online[0],
                 "actions": list(online[2]),
                 "expected_version_field": online[1],
-                "generation_field": "subjects.current_generation_id",
+                "subject_field": "subjects.subject_id",
                 "restriction": "Versioned owner writes retain history and reject busy targets. Singleton components use subject_id as object_id; personality_anchor is immutable.",
             },
             "restriction": "Runtime and business processes must stop; PostgreSQL stays running."

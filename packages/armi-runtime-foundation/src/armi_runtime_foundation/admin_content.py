@@ -18,7 +18,6 @@ class AdminContentViolation(ValueError):
 @dataclass(frozen=True, slots=True)
 class AdminContentContext:
     subject_id: UUID
-    generation_id: UUID
     change_id: UUID
     subject_party_id: UUID
     creator_party_id: UUID

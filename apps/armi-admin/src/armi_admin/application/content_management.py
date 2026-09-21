@@ -107,7 +107,7 @@ class ContentManagement:
             ):
                 raise AdminContentViolation("ADMIN-ENVIRONMENT-MISMATCH")
             subject = self.runtime.content_guard(
-                tx, generation_id=UUID(request.expected_generation_id)
+                tx, subject_id=UUID(request.expected_subject_id)
             )
             previous = self.runtime.read_admin_change(tx, **receipt_arguments)
             if previous is not None:
@@ -137,7 +137,6 @@ class ContentManagement:
                 tx,
                 AdminContentContext(
                     subject.subject_id,
-                    subject.generation_id,
                     change_id,
                     subject_party,
                     creator_party,
@@ -155,7 +154,6 @@ class ContentManagement:
                 "execution_mode": "online",
                 "owner": change.owner,
                 "action": change.action,
-                "generation_id": str(subject.generation_id),
                 "state_epoch": epoch,
                 "runtime_status": "not_started"
                 if instance is None
