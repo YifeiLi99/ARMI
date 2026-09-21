@@ -31,13 +31,13 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v54`，只维护最新数据库 |
-| 物理 schema | 当前 baseline 76 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v55`，只维护最新数据库 |
+| 物理 schema | 当前 baseline 75 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
 
-已实现的正式路径包括 Creator 文本/多场合对话、其他人隔离交流、Experience、Memory、Relationship、Activity、Material、Mood、Sleep、Prompt、Capability、Effect/outbox、精确生命查询、数据导出与数据权利；可选边界包括本地混合语义召回、Codex 委托及互联网研究、QQ/NapCat、实时语音、常驻视觉和 ESP32 私有心情窗。
+已实现的正式路径包括 Creator 文本/多场合对话、其他人隔离交流、Experience、Memory、Relationship、Activity、Material、Mood、Sleep、Prompt、Capability、Effect（含待执行状态）、精确生命查询、数据导出与数据权利；可选边界包括本地混合语义召回、Codex 委托及互联网研究、QQ/NapCat、实时语音、常驻视觉和 ESP32 私有心情窗。
 
 “仓库存在实现”不等于目标环境已经启用、供应商可用、账号已登录、设备已连接或 live 已验收。
 
@@ -52,7 +52,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
   → interaction / evidence / opportunity
   → 冻结 purpose-scoped Context
   → cognition.execute：模型生成 → 候选校验 → 制品准备
-  → 原子提交校验/应用结果 + 主体变化 + 意图 + Effect/outbox + 工作结算
+  → 原子提交校验/应用结果 + 主体变化 + 意图 + Effect（含待执行状态） + 工作结算
   → 边界执行与回执核验
 ```
 
@@ -285,7 +285,7 @@ uv run python tools/verify_live_creator_roundtrip.py `
   --client-config C:\path\to\interaction-client.yaml
 ```
 
-该 gate 会产生真实对话记录和模型调用，并验证 cognition、Subject Commit、reply Effect、outbox 和回复 artifact。详细 gate 边界见 [质量门禁与 Live 验证](docs/05-运行与验证/02-质量门禁与Live验证.md)。
+该 gate 会产生真实对话记录和模型调用，并验证 cognition、Subject Commit、reply Effect 及其执行状态 和回复 artifact。详细 gate 边界见 [质量门禁与 Live 验证](docs/05-运行与验证/02-质量门禁与Live验证.md)。
 
 ## 文档
 

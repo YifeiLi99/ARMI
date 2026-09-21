@@ -27,33 +27,32 @@ class PostgreSQLEffectCodexLifecycle:
         row = await (
             await transaction.execute(
                 """
-                SELECT outbox.effect_outbox_item_id, effect.effect_id,
+                SELECT effect.effect_id,
                        effect.action_intent_id,
                        effect.subject_id, effect.scene_id, effect.context_party_id,
-                       effect.trace_id, outbox.claim_token,
-                       outbox.dispatch_deadline
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
-                WHERE outbox.status='ready'
-                  AND outbox.available_at<=statement_timestamp()
-                  AND (outbox.dispatch_deadline IS NULL OR statement_timestamp()<outbox.dispatch_deadline)
-                  AND outbox.attempt_count=0 AND outbox.max_attempts=1
+                       effect.trace_id, effect.claim_token,
+                       effect.dispatch_deadline
+                FROM armi.effects AS effect
+                WHERE effect.dispatch_status='ready'
+                  AND effect.available_at<=statement_timestamp()
+                  AND (effect.dispatch_deadline IS NULL OR statement_timestamp()<effect.dispatch_deadline)
+                  AND effect.attempt_count=0 AND effect.max_attempts=1
                   AND effect.status='registered'
                   AND effect.effect_kind='codex_delegation'
-                ORDER BY outbox.available_at, outbox.effect_outbox_item_id
-                FOR UPDATE OF outbox, effect SKIP LOCKED LIMIT 1
+                ORDER BY effect.available_at, effect.effect_id
+                FOR UPDATE OF effect SKIP LOCKED LIMIT 1
                 """
             )
         ).fetchone()
         if row is None:
             return None
-        attempt_id, token = uuid7(), int(row[7]) + 1
+        attempt_id, token = uuid7(), int(row[6]) + 1
         await transaction.execute(
             """
-            UPDATE armi.effect_outbox_items SET status='claimed', claim_owner=%s,
+            UPDATE armi.effects SET dispatch_status='claimed', claim_owner=%s,
                 claim_expires_at=statement_timestamp()+interval '60 seconds',
                 claim_token=%s, attempt_count=1
-            WHERE effect_outbox_item_id=%s AND status='ready'
+            WHERE effect_id=%s AND dispatch_status='ready'
             """,
             (claim_owner, token, row[0]),
         )
@@ -64,7 +63,7 @@ class PostgreSQLEffectCodexLifecycle:
                 claim_token, dispatch_state)
             VALUES (%s,%s,1,%s,%s,'prepared')
             """,
-            (attempt_id, row[1], _BINDING, token),
+            (attempt_id, row[0], _BINDING, token),
         )
         await transaction.execute(
             """
@@ -72,20 +71,19 @@ class PostgreSQLEffectCodexLifecycle:
                 verification_status='pending', current_attempt_id=%s
             WHERE effect_id=%s AND status='registered'
             """,
-            (attempt_id, row[1]),
+            (attempt_id, row[0]),
         )
         return EffectCodexClaim(
             row[0],
-            row[1],
             attempt_id,
             claim_owner,
             token,
+            row[1],
             row[2],
             row[3],
             row[4],
-            row[5],
-            TraceId(str(row[6])),
-            None if row[8] is None else Instant(row[8]),
+            TraceId(str(row[5])),
+            None if row[7] is None else Instant(row[7]),
         )
 
     async def mark_codex_dispatching(
@@ -105,13 +103,13 @@ class PostgreSQLEffectCodexLifecycle:
                     dispatch_runtime_fence_token=%s,
                     data_rights_contact_generation=%s,
                     data_rights_use_generation=%s
-                FROM armi.effect_outbox_items AS outbox, armi.effects AS effect
+                FROM armi.effects AS effect
                 WHERE attempt.effect_attempt_id=%s AND attempt.dispatch_state='prepared'
                   AND effect.current_attempt_id=attempt.effect_attempt_id
-                  AND effect.effect_id=outbox.effect_id AND effect.status='dispatching'
-                  AND outbox.effect_outbox_item_id=%s AND outbox.status='claimed'
-                  AND outbox.claim_owner=%s AND outbox.claim_token=%s
-                  AND outbox.claim_expires_at>statement_timestamp()
+                  AND effect.status='dispatching'
+                  AND effect.effect_id=%s AND effect.dispatch_status='claimed'
+                  AND effect.claim_owner=%s AND effect.claim_token=%s
+                  AND effect.claim_expires_at>statement_timestamp()
                 RETURNING attempt.effect_attempt_id
                 """,
                 (
@@ -120,7 +118,7 @@ class PostgreSQLEffectCodexLifecycle:
                     data_rights_fence.contact_generation,
                     data_rights_fence.use_generation,
                     claim.attempt_id,
-                    claim.outbox_id,
+                    claim.effect_id,
                     claim.claim_owner,
                     claim.claim_token,
                 ),
@@ -136,13 +134,13 @@ class PostgreSQLEffectCodexLifecycle:
         row = await (
             await transaction.execute(
                 """
-                UPDATE armi.effect_outbox_items
+                UPDATE armi.effects
                 SET claim_expires_at=statement_timestamp()+interval '60 seconds'
-                WHERE effect_outbox_item_id=%s AND status='claimed'
+                WHERE effect_id=%s AND dispatch_status='claimed'
                   AND claim_owner=%s AND claim_token=%s
-                RETURNING effect_outbox_item_id
+                RETURNING effect_id
                 """,
-                (claim.outbox_id, claim.claim_owner, claim.claim_token),
+                (claim.effect_id, claim.claim_owner, claim.claim_token),
             )
         ).fetchone()
         return row is not None
@@ -160,20 +158,20 @@ class PostgreSQLEffectCodexLifecycle:
             await transaction.execute(
                 """SELECT attempt.dispatch_state
                FROM armi.effects AS effect
-               JOIN armi.effect_outbox_items AS outbox USING (effect_id)
+
                JOIN armi.effect_attempts AS attempt
                  ON attempt.effect_attempt_id=effect.current_attempt_id
                WHERE effect.effect_id=%s AND effect.status='dispatching'
                  AND attempt.effect_attempt_id=%s
                  AND attempt.dispatch_state IN ('prepared','dispatching')
-                 AND outbox.effect_outbox_item_id=%s AND outbox.status='claimed'
-                 AND outbox.claim_owner=%s AND outbox.claim_token=%s
-                 AND outbox.claim_expires_at>statement_timestamp()
-               FOR UPDATE OF effect,outbox,attempt""",
+                 AND effect.effect_id=%s AND effect.dispatch_status='claimed'
+                 AND effect.claim_owner=%s AND effect.claim_token=%s
+                 AND effect.claim_expires_at>statement_timestamp()
+               FOR UPDATE OF effect, attempt""",
                 (
                     claim.effect_id,
                     claim.attempt_id,
-                    claim.outbox_id,
+                    claim.effect_id,
                     claim.claim_owner,
                     claim.claim_token,
                 ),
@@ -223,7 +221,7 @@ class PostgreSQLEffectCodexLifecycle:
             attempt_result,
             effect_status,
             verification,
-            outbox_status,
+            dispatch_status,
             observation,
             reliability,
         ) = mapping
@@ -281,19 +279,18 @@ class PostgreSQLEffectCodexLifecycle:
         )
         await transaction.execute(
             """
-            UPDATE armi.effect_outbox_items SET status=%s, claim_owner=NULL,
+            UPDATE armi.effects SET dispatch_status=%s, claim_owner=NULL,
                 claim_expires_at=NULL,
                 delivered_at=CASE WHEN %s='delivered' THEN statement_timestamp() ELSE NULL END,
-                cancelled_at=CASE WHEN %s='cancelled' THEN statement_timestamp() ELSE NULL END,
+
                 last_error_code=%s
-            WHERE effect_outbox_item_id=%s AND claim_owner=%s AND claim_token=%s
+            WHERE effect_id=%s AND claim_owner=%s AND claim_token=%s
             """,
             (
-                outbox_status,
-                outbox_status,
-                outbox_status,
+                dispatch_status,
+                dispatch_status,
                 error_code,
-                claim.outbox_id,
+                claim.effect_id,
                 claim.claim_owner,
                 claim.claim_token,
             ),

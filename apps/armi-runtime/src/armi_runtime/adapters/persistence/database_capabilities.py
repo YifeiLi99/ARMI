@@ -30,7 +30,7 @@ context_embedding_projections context_embedding_source_sets creator_exports mana
 managed_data_snapshots data_rights_order_items
 data_rights_identity_keys data_rights_party_fences data_rights_order_retry_attempts data_rights_orders
 dialogue_decisions durable_work effect_attempts effect_observations
-effect_outbox_items  effects exact_life_query_intents
+ effects exact_life_query_intents
 experience_evidence_links
 external_channel_bindings
 external_evidence external_message_parts interaction_scenes
@@ -63,7 +63,7 @@ cognitive_episodes
 context_embedding_coverage context_embedding_source_sets creator_exports
 managed_data_snapshots
 data_rights_party_fences data_rights_order_items data_rights_orders dialogue_decisions durable_work effect_attempts
-effect_outbox_items  effects exact_life_query_intents
+ effects exact_life_query_intents
 external_channel_bindings
 external_evidence external_message_parts
 interaction_scenes life_material_revisions life_materials live_vision_observation_frames
@@ -86,7 +86,7 @@ artifact_object_deletions artifact_objects artifact_publications artifacts
 """
 
 _ADMIN_UPDATE = """
-durable_work effect_outbox_items effects mood_heads runtime_instances
+durable_work effects mood_heads runtime_instances
 mind_heads subject_component_heads subjects artifact_object_deletions artifact_objects
 artifact_publications artifacts
 """

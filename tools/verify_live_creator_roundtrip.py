@@ -46,7 +46,7 @@ SELECT episode.cognitive_episode_id,
        effect.effect_id,
        effect.status,
        effect.verification_status,
-       outbox.status,
+       effect.dispatch_status,
        artifact_object.storage_locator,
        artifact_object.content_digest,
        artifact_object.byte_size,
@@ -58,8 +58,7 @@ LEFT JOIN armi.cognitive_episodes AS episode
 LEFT JOIN armi.effects AS effect
   ON effect.trace_id=interaction.trace_id
  AND effect.effect_kind='creator_response'
-LEFT JOIN armi.effect_outbox_items AS outbox
-  ON outbox.effect_id=effect.effect_id
+
 LEFT JOIN armi.artifacts AS artifact
   ON artifact.artifact_id=effect.payload_artifact_id
  AND artifact.retention_status='retained'

@@ -22,7 +22,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("effect")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "effect_attempts",
@@ -33,11 +33,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         "effect_observations",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.effect_observations AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "effect_outbox_items",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.effect_outbox_items AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "effects",

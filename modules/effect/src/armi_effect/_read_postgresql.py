@@ -77,12 +77,12 @@ class PostgreSQLEffectOperationRead:
                        observation.observation_kind, observation.reliability,
                        attempt.effect_attempt_id,attempt.attempt_no,
                        attempt.dispatch_state,observation.effect_observation_id,
-                       observation.conclusion,coalesce(observation.reason_code, outbox.last_error_code),
+                       observation.conclusion,coalesce(observation.reason_code, effect.last_error_code),
                        observation.evidence_kind
                 FROM armi.effects AS effect
                 LEFT JOIN armi.effect_observations AS observation
                   ON observation.effect_observation_id=effect.current_observation_id
-                LEFT JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id
+
                 LEFT JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id=effect.current_attempt_id
                 WHERE effect.effect_id=%s

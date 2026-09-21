@@ -503,19 +503,7 @@ ALTER TABLE ONLY armi.effect_observations
 ALTER TABLE ONLY armi.effect_observations
     ADD CONSTRAINT effect_observations_pkey PRIMARY KEY (effect_observation_id);
 
---
--- Name: effect_outbox_items effect_outbox_items_effect_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.effect_outbox_items
-    ADD CONSTRAINT effect_outbox_items_effect_id_key UNIQUE (effect_id);
-
---
--- Name: effect_outbox_items effect_outbox_items_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.effect_outbox_items
-    ADD CONSTRAINT effect_outbox_items_pkey PRIMARY KEY (effect_outbox_item_id);
 
 --
 -- Name: effects effects_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1409,16 +1397,16 @@ ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_predecessor_fk FOREIGN KEY (predecessor_work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
 
 --
--- Name: effect_outbox_items_claim_expiry_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: effects_dispatch_claim_expiry_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX effect_outbox_items_claim_expiry_idx ON armi.effect_outbox_items USING btree (claim_expires_at, effect_outbox_item_id) WHERE (status = 'claimed'::text);
+CREATE INDEX effects_dispatch_claim_expiry_idx ON armi.effects USING btree (claim_expires_at, effect_id) WHERE (dispatch_status = 'claimed'::text);
 
 --
--- Name: effect_outbox_items_ready_claim_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: effects_dispatch_ready_claim_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX effect_outbox_items_ready_claim_idx ON armi.effect_outbox_items USING btree (available_at, effect_outbox_item_id) WHERE (status = 'ready'::text);
+CREATE INDEX effects_dispatch_ready_claim_idx ON armi.effects USING btree (available_at, effect_id) WHERE (dispatch_status = 'ready'::text);
 
 --
 -- Name: effects_unknown_settlement_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2161,12 +2149,6 @@ ALTER TABLE ONLY armi.effect_observations
 ALTER TABLE ONLY armi.effect_observations
     ADD CONSTRAINT effect_observations_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
---
--- Name: effect_outbox_items effect_outbox_items_effect_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.effect_outbox_items
-    ADD CONSTRAINT effect_outbox_items_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
 
 

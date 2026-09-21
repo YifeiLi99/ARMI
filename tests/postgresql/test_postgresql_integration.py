@@ -493,7 +493,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("maintenance_sessions", "schedule_digest"),
     ("sleep_decisions", "source_digest"),
     ("effect_attempts", "request_digest"),
-    ("effect_outbox_items", "payload_digest"),
     ("effects", "settlement_digest"),
     ("dialogue_decisions", "basis_digest"),
     ("outbox_items", "payload_digest"),
@@ -5797,59 +5796,45 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute("SET session_replication_role = replica")
             connection.execute(
                 """
-                INSERT INTO armi.effect_outbox_items (
-                    effect_outbox_item_id, effect_id, message_kind,
-                    status, available_at, dispatch_deadline
-                )
-                SELECT uuidv7(), uuidv7(), 'effect.dispatch',
-                       'ready',
-                       statement_timestamp() - (ordinal || ' seconds')::interval,
-                       statement_timestamp() + interval '1 day'
-                FROM generate_series(1, 10000) AS ordinal
-                """
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.effect_outbox_items (
-                    effect_outbox_item_id, effect_id, message_kind,
-                    status, available_at, claim_owner,
-                    claim_expires_at, claim_token, attempt_count,
-                    dispatch_deadline
-                )
-                SELECT uuidv7(), uuidv7(), 'effect.dispatch',
-                       'claimed',
-                       statement_timestamp() - interval '1 day', uuidv7(),
-                       statement_timestamp() - (ordinal || ' seconds')::interval,
-                       1, 1, statement_timestamp() + interval '1 day'
-                FROM generate_series(1, 10000) AS ordinal
-                """
-            )
-            connection.execute(
-                """
                 INSERT INTO armi.effects (
-                    effect_id,
-                    subject_id, scene_id,
-                    context_party_id, payload_artifact_id, payload_digest,
-                    payload_bytes, effect_kind, capability_kind,
-                    operation_class, audience_scope, data_scope, purpose,
-                    authorization_basis, destination_kind,
+                    effect_id, subject_id, scene_id, context_party_id,
+                    payload_artifact_id, payload_digest, payload_bytes,
+                    effect_kind, capability_kind, operation_class, audience_scope,
+                    data_scope, purpose, authorization_basis, destination_kind,
                     destination_party_id, registration_digest, status,
                     verification_status, trace_id, current_attempt_id,
-                    current_observation_id, settled_at,
-                    action_intent_id
-                )
-                SELECT uuidv7(), %s,
-                       uuidv7(), uuidv7(), uuidv7(),
+                    current_observation_id, settled_at, action_intent_id,
+                    root_opportunity_id, operation_ref, candidate_validation_id,
+                    proposal_ref, subject_commit_id, dispatch_status,
+                    available_at, dispatch_deadline, claim_owner, claim_expires_at,
+                    claim_token, attempt_count, last_error_code)
+                SELECT uuidv7(), %s, uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
                        'creator_response', 'creator.scene.reply', 'send',
-                       'creator', 'creator_visible_response',
-                       'respond_to_creator', 'runtime_builtin',
-                       'creator_inbox', uuidv7(),
-                       'sha256:' || repeat('f', 64), 'unknown',
-                       'inconclusive', repeat('1', 32), uuidv7(), uuidv7(),
+                       'creator', 'creator_visible_response', 'respond_to_creator',
+                       'runtime_builtin', 'creator_inbox', uuidv7(),
+                       'sha256:' || repeat('f', 64),
+                       CASE state WHEN 'ready' THEN 'registered'
+                         WHEN 'claimed' THEN 'dispatching' ELSE 'unknown' END,
+                       CASE state WHEN 'ready' THEN 'not_started'
+                         WHEN 'claimed' THEN 'pending' ELSE 'inconclusive' END,
+                       repeat('1', 32),
+                       CASE WHEN state <> 'ready' THEN uuidv7() END,
+                       CASE WHEN state = 'unknown' THEN uuidv7() END,
+                       CASE WHEN state = 'unknown' THEN
+                         statement_timestamp() - (ordinal || ' seconds')::interval END,
+                       uuidv7(), uuidv7(), uuidv7(), uuidv7(), 'proposal:1', uuidv7(),
+                       state,
                        statement_timestamp() - (ordinal || ' seconds')::interval,
-                       uuidv7()
+                       statement_timestamp() + interval '1 day',
+                       CASE WHEN state = 'claimed' THEN uuidv7() END,
+                       CASE WHEN state = 'claimed' THEN
+                         statement_timestamp() - (ordinal || ' seconds')::interval END,
+                       CASE WHEN state = 'ready' THEN 0 ELSE 1 END,
+                       CASE WHEN state = 'ready' THEN 0 ELSE 1 END,
+                       CASE WHEN state = 'unknown' THEN 'EFFECT-RESULT-UNKNOWN' END
                 FROM generate_series(1, 10000) AS ordinal
+                CROSS JOIN (VALUES ('ready'), ('claimed'), ('unknown')) AS states(state)
                 """,
                 (subject_id,),
             )
@@ -5871,7 +5856,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute("SET session_replication_role = origin")
             connection.execute(
                 """
-                ANALYZE armi.effect_outbox_items;
                 ANALYZE armi.effects;
                 ANALYZE armi.cognitive_episodes
                 """
@@ -5880,22 +5864,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute(
                     """
                     EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-                    SELECT effect_outbox_item_id
-                    FROM armi.effect_outbox_items
-                    WHERE status = 'ready'
+                    SELECT effect_id
+                    FROM armi.effects
+                    WHERE dispatch_status = 'ready'
                       AND available_at <= statement_timestamp()
-                    ORDER BY available_at, effect_outbox_item_id
+                    ORDER BY available_at, effect_id
                     LIMIT 50
                     """
                 ).fetchone(),
                 connection.execute(
                     """
                     EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-                    SELECT effect_outbox_item_id
-                    FROM armi.effect_outbox_items
-                    WHERE status = 'claimed'
+                    SELECT effect_id
+                    FROM armi.effects
+                    WHERE dispatch_status = 'claimed'
                       AND claim_expires_at <= statement_timestamp()
-                    ORDER BY claim_expires_at, effect_outbox_item_id
+                    ORDER BY claim_expires_at, effect_id
                     LIMIT 50
                     """
                 ).fetchone(),
@@ -5928,8 +5912,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(len(plan_text), 4)
         for expected_index, plan in zip(
             (
-                "effect_outbox_items_ready_claim_idx",
-                "effect_outbox_items_claim_expiry_idx",
+                "effects_dispatch_ready_claim_idx",
+                "effects_dispatch_claim_expiry_idx",
                 "effects_unknown_settlement_idx",
                 "cognitive_episodes_subject_purpose_recent_idx",
             ),
@@ -7823,7 +7807,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     async with factory.unit_of_work(read_only=True) as uow:
                         for table in (
                             "effects",
-                            "effect_outbox_items",
                             "subject_commits",
                         ):
                             self.assertEqual(
@@ -7852,7 +7835,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
                 pool_min=1,
-                pool_max=1,
+                pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
                 authority_admission=lambda: fence,
@@ -8207,10 +8190,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute("""
                     SELECT (SELECT subject_version FROM armi.subjects),
                            (SELECT count(*) FROM armi.subject_commits),
-                           (SELECT count(*) FROM armi.effects),
-                           (SELECT count(*) FROM armi.effect_outbox_items)
+                           (SELECT count(*) FROM armi.effects)
                 """).fetchone(),
-                    (0, 0, 0, 0),
+                    (0, 0, 0),
                 )
                 if autonomous_codex:
                     self.assertEqual(
@@ -8486,12 +8468,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 dispatch_repository = PostgreSQLEffectDispatchRepository(
                     interaction_actions.routes,
                 )
-                async with response_factory.unit_of_work() as unit_of_work:
-                    dispatch_snapshot = await dispatch_repository.claim(
-                        unit_of_work,
-                        claim_owner=ids["runtime"],
-                    )
-                assert dispatch_snapshot is not None
+
+                async def claim_once():
+                    async with response_factory.unit_of_work() as unit_of_work:
+                        return await dispatch_repository.claim(
+                            unit_of_work, claim_owner=ids["runtime"]
+                        )
+
+                claims = await asyncio.gather(claim_once(), claim_once())
+                claimed = [item for item in claims if item is not None]
+                self.assertEqual(len(claimed), 1)
+                dispatch_snapshot = claimed[0]
                 intent_reader = bootstrap_effect_intent_read()
                 async with response_factory.unit_of_work(read_only=True) as unit:
                     registered = await bootstrap_effect_operation_read().by_effect_id(
@@ -8694,16 +8681,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             effect_state = connection.execute(
                 """
-                SELECT effect.status, effect_outbox.status,
+                SELECT effect.status, effect.dispatch_status,
                        'effect_' || effect.status,
-                       effect_outbox.dispatch_deadline,
+                       effect.dispatch_deadline,
                        (SELECT count(*) FROM armi.effects WHERE local_delivery_id IS NOT NULL),
                        (SELECT count(*) FROM armi.effect_attempts),
                        (SELECT count(*) FROM armi.effect_observations),
                        (SELECT count(*) FROM armi.scene_timeline_items
                         WHERE source_kind = 'party_response')
                 FROM armi.effects AS effect
-                JOIN armi.effect_outbox_items AS effect_outbox USING (effect_id)
+
                 """
             ).fetchone()
         self.assertEqual(

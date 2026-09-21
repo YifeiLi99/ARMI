@@ -40,7 +40,6 @@ class _AbsentDisposition(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class EffectDispatchSnapshot:
-    outbox_id: UUID
     claim_owner: UUID | None
     claim_token: int
     attempt_no: int
@@ -68,26 +67,25 @@ class PostgreSQLEffectDispatchRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT outbox.effect_outbox_item_id, effect.effect_id,
+                SELECT effect.effect_id,
                        effect.subject_id, effect.scene_id,
                        effect.destination_party_id, effect.payload_artifact_id,
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
-                       outbox.attempt_count, outbox.claim_token,
-                       effect.destination_kind, outbox.dispatch_deadline,
+                       effect.attempt_count, effect.claim_token,
+                       effect.destination_kind, effect.dispatch_deadline,
                        effect.live_voice_turn_id
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                WHERE outbox.status = 'ready'
-                  AND outbox.available_at <= statement_timestamp()
-                  AND (outbox.dispatch_deadline IS NULL OR statement_timestamp() < outbox.dispatch_deadline)
-                  AND outbox.attempt_count < outbox.max_attempts
+                FROM armi.effects AS effect
+                WHERE effect.dispatch_status = 'ready'
+                  AND effect.available_at <= statement_timestamp()
+                  AND (effect.dispatch_deadline IS NULL OR statement_timestamp() < effect.dispatch_deadline)
+                  AND effect.attempt_count < effect.max_attempts
                   AND effect.status = 'registered'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
                       'external_private', 'live_voice_audio'
                   )
-                ORDER BY outbox.available_at, outbox.effect_outbox_item_id
-                FOR UPDATE OF outbox, effect SKIP LOCKED
+                ORDER BY effect.available_at, effect.effect_id
+                FOR UPDATE OF effect SKIP LOCKED
                 LIMIT 1
                 """
             )
@@ -95,14 +93,14 @@ class PostgreSQLEffectDispatchRepository:
         if row is None:
             return None
         attempt_id = uuid7()
-        attempt_no = int(row[9]) + 1
-        claim_token = int(row[10]) + 1
-        destination_kind = str(row[11])
+        attempt_no = int(row[8]) + 1
+        claim_token = int(row[9]) + 1
+        destination_kind = str(row[10])
         try:
             route = await self._routes.effect_route(
                 connection,
-                scene_id=row[3],
-                context_party_id=row[4],
+                scene_id=row[2],
+                context_party_id=row[3],
                 intended_destination_kind=(
                     "creator_inbox"
                     if destination_kind == "live_voice_audio"
@@ -114,12 +112,12 @@ class PostgreSQLEffectDispatchRepository:
                 """UPDATE armi.effects SET status='cancelled',verification_status='verified',
                    cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
                    WHERE effect_id=%s AND status='registered'""",
-                (row[1],),
+                (row[0],),
             )
             await connection.execute(
-                """UPDATE armi.effect_outbox_items SET status='cancelled',
-                   cancelled_at=statement_timestamp(),last_error_code='EFFECT-DESTINATION-UNAVAILABLE'
-                   WHERE effect_outbox_item_id=%s AND status='ready'""",
+                """UPDATE armi.effects SET dispatch_status='cancelled',
+                   last_error_code='EFFECT-DESTINATION-UNAVAILABLE'
+                   WHERE effect_id=%s AND dispatch_status='ready'""",
                 (row[0],),
             )
             return None
@@ -127,12 +125,12 @@ class PostgreSQLEffectDispatchRepository:
         updated = await (
             await connection.execute(
                 """
-                UPDATE armi.effect_outbox_items
-                SET status = 'claimed', claim_owner = %s,
+                UPDATE armi.effects
+                SET dispatch_status = 'claimed', claim_owner = %s,
                     claim_expires_at = statement_timestamp() + interval '60 seconds',
                     claim_token = %s, attempt_count = %s
-                WHERE effect_outbox_item_id = %s AND status = 'ready'
-                RETURNING effect_outbox_item_id
+                WHERE effect_id = %s AND dispatch_status = 'ready'
+                RETURNING effect_id
                 """,
                 (claim_owner, claim_token, attempt_no, row[0]),
             )
@@ -147,7 +145,7 @@ class PostgreSQLEffectDispatchRepository:
             """,
             (
                 attempt_id,
-                row[1],
+                row[0],
                 attempt_no,
                 adapter_binding,
                 claim_token,
@@ -160,14 +158,14 @@ class PostgreSQLEffectDispatchRepository:
                 current_attempt_id = %s
             WHERE effect_id = %s AND status = 'registered'
             """,
-            (attempt_id, row[1]),
+            (attempt_id, row[0]),
         )
         request = FrozenEffectRequest(
-            EffectId(row[1]),
+            EffectId(row[0]),
             EffectAttemptId(attempt_id),
+            row[1],
             row[2],
             row[3],
-            row[4],
             cast(
                 Literal[
                     "creator_inbox",
@@ -181,19 +179,18 @@ class PostgreSQLEffectDispatchRepository:
             route.external_channel,
             route.external_account_key,
             route.external_conversation_key,
-            Digest(str(row[6])),
-            int(row[7]),
-            TraceId(str(row[8])),
-            row[13],
+            Digest(str(row[5])),
+            int(row[6]),
+            TraceId(str(row[7])),
+            row[12],
         )
         return EffectDispatchSnapshot(
-            row[0],
             claim_owner,
             claim_token,
             attempt_no,
-            row[5],
+            row[4],
             route.scene_key,
-            None if row[12] is None else Instant(row[12]),
+            None if row[11] is None else Instant(row[11]),
             request,
         )
 
@@ -214,7 +211,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="cancelled",
             verification="verified",
-            outbox_status="cancelled",
+            dispatch_status="cancelled",
             operation_status="effect_cancelled",
             attempt_result="cancelled",
             error_code=None,
@@ -237,7 +234,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="cancelled",
             verification="verified",
-            outbox_status="cancelled",
+            dispatch_status="cancelled",
             operation_status="effect_cancelled",
             attempt_result="cancelled",
             error_code="EFFECT-QQ-POLICY-NOT-ALLOWED",
@@ -250,21 +247,20 @@ class PostgreSQLEffectDispatchRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT outbox.effect_outbox_item_id, outbox.attempt_count,
+                SELECT effect.effect_id, effect.attempt_count,
                        effect.effect_id, effect.subject_id, effect.purpose,
                        effect.trace_id, effect.authorization_basis,
-                       effect.destination_kind, outbox.claim_token
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
-                WHERE outbox.status='ready'
-                  AND outbox.dispatch_deadline<=statement_timestamp()
+                       effect.destination_kind, effect.claim_token
+                FROM armi.effects AS effect
+                WHERE effect.dispatch_status='ready'
+                  AND effect.dispatch_deadline<=statement_timestamp()
                   AND effect.status='registered'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
                       'external_private', 'live_voice_audio'
                   )
-                ORDER BY outbox.dispatch_deadline, outbox.effect_outbox_item_id
-                FOR UPDATE OF outbox, effect SKIP LOCKED
+                ORDER BY effect.dispatch_deadline, effect.effect_id
+                FOR UPDATE OF effect SKIP LOCKED
                 LIMIT 1
                 """
             )
@@ -279,7 +275,7 @@ class PostgreSQLEffectDispatchRepository:
         error_code = None if cancelled else "EFFECT-DISPATCH-DEADLINE"
         result_status = "cancelled" if cancelled else "failed"
         effect_status = "cancelled" if cancelled else "failed"
-        outbox_status = "cancelled" if cancelled else "dead"
+        dispatch_status = "cancelled" if cancelled else "dead"
         adapter_binding = _adapter_binding(str(row[7]))
         digest = Digest.from_bytes(
             rfc8785.dumps(
@@ -353,18 +349,15 @@ class PostgreSQLEffectDispatchRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.effect_outbox_items SET status=%s,
-                attempt_count=%s,claim_token=%s,last_error_code=%s,
-                cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END
-            WHERE effect_outbox_item_id=%s AND status='ready'
+            UPDATE armi.effects SET dispatch_status=%s,
+                attempt_count=%s,claim_token=%s,last_error_code=%s
+            WHERE effect_id=%s AND dispatch_status='ready'
             """,
             (
-                outbox_status,
+                dispatch_status,
                 attempt_no,
                 claim_token,
                 error_code,
-                outbox_status,
-                settled_at,
                 row[0],
             ),
         )
@@ -390,130 +383,29 @@ class PostgreSQLEffectDispatchRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT outbox.effect_outbox_item_id, outbox.claim_owner,
-                       outbox.claim_token, outbox.attempt_count,
+                SELECT effect.claim_owner,
+                       effect.claim_token, effect.attempt_count,
                        effect.payload_artifact_id, effect.scene_id,
                        effect.effect_id, attempt.effect_attempt_id,
                        effect.subject_id, effect.scene_id,
                        effect.destination_party_id, effect.payload_digest,
                        effect.payload_bytes, effect.trace_id,
                        effect.destination_kind, NULL::text, NULL::text, NULL::text,
-                       effect.live_voice_turn_id, outbox.dispatch_deadline,
+                       effect.live_voice_turn_id, effect.dispatch_deadline,
                        attempt.dispatch_state
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
+                FROM armi.effects AS effect
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
-                WHERE outbox.status = 'claimed'
-                  AND outbox.claim_expires_at <= statement_timestamp()
+                WHERE effect.dispatch_status = 'claimed'
+                  AND effect.claim_expires_at <= statement_timestamp()
                   AND effect.status = 'dispatching'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
                       'external_private', 'live_voice_audio'
                   )
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
-                ORDER BY outbox.claim_expires_at, outbox.effect_outbox_item_id
-                FOR UPDATE OF outbox, effect, attempt SKIP LOCKED
-                LIMIT 1
-                """
-            )
-        ).fetchone()
-        if row is None:
-            return None
-        route = await self._routes.effect_route(
-            connection,
-            scene_id=row[9],
-            context_party_id=row[10],
-            intended_destination_kind=(
-                "creator_inbox" if str(row[14]) == "live_voice_audio" else str(row[14])
-            ),
-        )
-        snapshot = EffectDispatchSnapshot(
-            row[0],
-            row[1],
-            int(row[2]),
-            int(row[3]),
-            row[4],
-            route.scene_key,
-            None if row[19] is None else Instant(row[19]),
-            FrozenEffectRequest(
-                EffectId(row[6]),
-                EffectAttemptId(row[7]),
-                row[8],
-                row[9],
-                row[10],
-                cast(
-                    Literal[
-                        "creator_inbox",
-                        "other_human_inbox",
-                        "external_group",
-                        "external_private",
-                        "live_voice_audio",
-                    ],
-                    str(row[14]),
-                ),
-                route.external_channel,
-                route.external_account_key,
-                route.external_conversation_key,
-                Digest(str(row[11])),
-                int(row[12]),
-                TraceId(str(row[13])),
-                row[18],
-            ),
-        )
-        if str(row[20]) == "prepared":
-            await self._settle(
-                uow,
-                snapshot,
-                observation_kind="query",
-                reliability="reliable",
-                observation_digest=_observation_digest(
-                    snapshot, "query", "predispatch_expired"
-                ),
-                receiver_ref=None,
-                receiver_external_ref=None,
-                status="cancelled",
-                verification="verified",
-                outbox_status="cancelled",
-                operation_status="effect_cancelled",
-                attempt_result="cancelled",
-                error_code="EFFECT-PREDISPATCH-CANCELLED",
-            )
-            return None
-        return snapshot
-
-    async def unknown(
-        self, uow: PostgreSQLRuntimeUnitOfWork
-    ) -> EffectDispatchSnapshot | None:
-        connection = uow.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT outbox.effect_outbox_item_id, attempt.effect_attempt_id,
-                       outbox.claim_token, outbox.attempt_count,
-                       effect.payload_artifact_id, effect.scene_id,
-                       effect.effect_id, effect.subject_id,
-                       effect.scene_id, effect.destination_party_id,
-                       effect.payload_digest, effect.payload_bytes,
-                       effect.trace_id,
-                       effect.destination_kind, NULL::text, NULL::text, NULL::text,
-                       effect.live_voice_turn_id, outbox.dispatch_deadline
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                JOIN armi.effect_attempts AS attempt
-                  ON attempt.effect_attempt_id = effect.current_attempt_id
-                WHERE outbox.status = 'unknown'
-                  AND NOT (effect.effect_kind='creator_response'
-                           AND outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED')
-                  AND effect.status = 'unknown'
-                  AND effect.destination_kind IN (
-                      'creator_inbox', 'other_human_inbox', 'external_group',
-                      'external_private', 'live_voice_audio'
-                  )
-                  AND attempt.dispatch_state = 'settled'
-                  AND attempt.result_status = 'unknown'
-                ORDER BY effect.settled_at, effect.effect_id
-                FOR UPDATE OF outbox, effect SKIP LOCKED
+                ORDER BY effect.claim_expires_at, effect.effect_id
+                FOR UPDATE OF effect, attempt SKIP LOCKED
                 LIMIT 1
                 """
             )
@@ -528,17 +420,16 @@ class PostgreSQLEffectDispatchRepository:
                 "creator_inbox" if str(row[13]) == "live_voice_audio" else str(row[13])
             ),
         )
-        return EffectDispatchSnapshot(
+        snapshot = EffectDispatchSnapshot(
             row[0],
-            None,
+            int(row[1]),
             int(row[2]),
-            int(row[3]),
-            row[4],
+            row[3],
             route.scene_key,
             None if row[18] is None else Instant(row[18]),
             FrozenEffectRequest(
-                EffectId(row[6]),
-                EffectAttemptId(row[1]),
+                EffectId(row[5]),
+                EffectAttemptId(row[6]),
                 row[7],
                 row[8],
                 row[9],
@@ -559,6 +450,104 @@ class PostgreSQLEffectDispatchRepository:
                 int(row[11]),
                 TraceId(str(row[12])),
                 row[17],
+            ),
+        )
+        if str(row[19]) == "prepared":
+            await self._settle(
+                uow,
+                snapshot,
+                observation_kind="query",
+                reliability="reliable",
+                observation_digest=_observation_digest(
+                    snapshot, "query", "predispatch_expired"
+                ),
+                receiver_ref=None,
+                receiver_external_ref=None,
+                status="cancelled",
+                verification="verified",
+                dispatch_status="cancelled",
+                operation_status="effect_cancelled",
+                attempt_result="cancelled",
+                error_code="EFFECT-PREDISPATCH-CANCELLED",
+            )
+            return None
+        return snapshot
+
+    async def unknown(
+        self, uow: PostgreSQLRuntimeUnitOfWork
+    ) -> EffectDispatchSnapshot | None:
+        connection = uow.transaction
+        row = await (
+            await connection.execute(
+                """
+                SELECT attempt.effect_attempt_id,
+                       effect.claim_token, effect.attempt_count,
+                       effect.payload_artifact_id, effect.scene_id,
+                       effect.effect_id, effect.subject_id,
+                       effect.scene_id, effect.destination_party_id,
+                       effect.payload_digest, effect.payload_bytes,
+                       effect.trace_id,
+                       effect.destination_kind, NULL::text, NULL::text, NULL::text,
+                       effect.live_voice_turn_id, effect.dispatch_deadline
+                FROM armi.effects AS effect
+                JOIN armi.effect_attempts AS attempt
+                  ON attempt.effect_attempt_id = effect.current_attempt_id
+                WHERE effect.dispatch_status = 'unknown'
+                  AND NOT (effect.effect_kind='creator_response'
+                           AND effect.last_error_code='EFFECT-RUNTIME-INTERRUPTED')
+                  AND effect.status = 'unknown'
+                  AND effect.destination_kind IN (
+                      'creator_inbox', 'other_human_inbox', 'external_group',
+                      'external_private', 'live_voice_audio'
+                  )
+                  AND attempt.dispatch_state = 'settled'
+                  AND attempt.result_status = 'unknown'
+                ORDER BY effect.settled_at, effect.effect_id
+                FOR UPDATE OF effect SKIP LOCKED
+                LIMIT 1
+                """
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        route = await self._routes.effect_route(
+            connection,
+            scene_id=row[7],
+            context_party_id=row[8],
+            intended_destination_kind=(
+                "creator_inbox" if str(row[12]) == "live_voice_audio" else str(row[12])
+            ),
+        )
+        return EffectDispatchSnapshot(
+            None,
+            int(row[1]),
+            int(row[2]),
+            row[3],
+            route.scene_key,
+            None if row[17] is None else Instant(row[17]),
+            FrozenEffectRequest(
+                EffectId(row[5]),
+                EffectAttemptId(row[0]),
+                row[6],
+                row[7],
+                row[8],
+                cast(
+                    Literal[
+                        "creator_inbox",
+                        "other_human_inbox",
+                        "external_group",
+                        "external_private",
+                        "live_voice_audio",
+                    ],
+                    str(row[12]),
+                ),
+                route.external_channel,
+                route.external_account_key,
+                route.external_conversation_key,
+                Digest(str(row[9])),
+                int(row[10]),
+                TraceId(str(row[11])),
+                row[16],
             ),
         )
 
@@ -627,7 +616,7 @@ class PostgreSQLEffectDispatchRepository:
                     receiver_external_ref=None,
                     status="cancelled",
                     verification="verified",
-                    outbox_status="cancelled",
+                    dispatch_status="cancelled",
                     operation_status="effect_cancelled",
                     attempt_result="cancelled",
                     error_code="EFFECT-DESTINATION-UNAVAILABLE",
@@ -645,13 +634,13 @@ class PostgreSQLEffectDispatchRepository:
                     dispatch_runtime_fence_token = %s,
                     data_rights_contact_generation = %s,
                     data_rights_use_generation = %s
-                FROM armi.effect_outbox_items AS outbox
+                FROM armi.effects AS effect
                 WHERE attempt.effect_attempt_id = %s
                   AND attempt.dispatch_state = 'prepared'
-                  AND outbox.effect_outbox_item_id = %s
-                  AND outbox.status = 'claimed' AND outbox.claim_owner = %s
-                  AND outbox.claim_token = %s
-                  AND outbox.claim_expires_at > statement_timestamp()
+                  AND effect.effect_id = %s
+                  AND effect.dispatch_status = 'claimed' AND effect.claim_owner = %s
+                  AND effect.claim_token = %s
+                  AND effect.claim_expires_at > statement_timestamp()
                 RETURNING attempt.effect_attempt_id
                 """,
                 (
@@ -660,7 +649,7 @@ class PostgreSQLEffectDispatchRepository:
                     data_rights_fence.contact_generation,
                     data_rights_fence.use_generation,
                     snapshot.request.attempt_id.value,
-                    snapshot.outbox_id,
+                    snapshot.request.effect_id.value,
                     snapshot.claim_owner,
                     snapshot.claim_token,
                 ),
@@ -679,20 +668,20 @@ class PostgreSQLEffectDispatchRepository:
         row = await (
             await connection.execute(
                 """
-                UPDATE armi.effect_outbox_items AS outbox
+                UPDATE armi.effects AS effect
                 SET claim_expires_at = statement_timestamp() + interval '60 seconds'
                 FROM armi.effect_attempts AS attempt
-                WHERE outbox.effect_outbox_item_id = %s
-                  AND outbox.status = 'claimed'
-                  AND outbox.claim_owner = %s
-                  AND outbox.claim_token = %s
-                  AND outbox.claim_expires_at > statement_timestamp()
+                WHERE effect.effect_id = %s
+                  AND effect.dispatch_status = 'claimed'
+                  AND effect.claim_owner = %s
+                  AND effect.claim_token = %s
+                  AND effect.claim_expires_at > statement_timestamp()
                   AND attempt.effect_attempt_id = %s
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
-                RETURNING outbox.effect_outbox_item_id
+                RETURNING effect.effect_id
                 """,
                 (
-                    snapshot.outbox_id,
+                    snapshot.request.effect_id.value,
                     snapshot.claim_owner,
                     snapshot.claim_token,
                     snapshot.request.attempt_id.value,
@@ -772,7 +761,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=receipt.external_receiver_ref,
             status="completed",
             verification="verified",
-            outbox_status="delivered",
+            dispatch_status="delivered",
             operation_status="effect_completed",
             attempt_result="succeeded",
             error_code=None,
@@ -797,7 +786,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="failed",
             verification="verified",
-            outbox_status="dead",
+            dispatch_status="dead",
             operation_status="effect_failed",
             attempt_result="failed",
             error_code=error_code,
@@ -829,7 +818,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="failed",
             verification="verified",
-            outbox_status="dead",
+            dispatch_status="dead",
             operation_status="effect_failed",
             attempt_result="failed",
             error_code="EFFECT-RECEIVER-NOT-DELIVERED",
@@ -844,25 +833,24 @@ class PostgreSQLEffectDispatchRepository:
         current = await (
             await connection.execute(
                 """
-                SELECT outbox.attempt_count, outbox.max_attempts,
-                       (outbox.dispatch_deadline IS NULL OR statement_timestamp() < outbox.dispatch_deadline),
+                SELECT effect.attempt_count, effect.max_attempts,
+                       (effect.dispatch_deadline IS NULL OR statement_timestamp() < effect.dispatch_deadline),
                        attempt.dispatch_state
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
+                FROM armi.effects AS effect
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
-                WHERE outbox.effect_outbox_item_id = %s
-                  AND outbox.status = 'claimed'
-                  AND outbox.claim_owner = %s
-                  AND outbox.claim_token = %s
+                WHERE effect.effect_id = %s
+                  AND effect.dispatch_status = 'claimed'
+                  AND effect.claim_owner = %s
+                  AND effect.claim_token = %s
                   AND effect.effect_id = %s
                   AND effect.status = 'dispatching'
                   AND effect.current_attempt_id = %s
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
-                FOR UPDATE OF outbox, effect, attempt
+                FOR UPDATE OF effect, attempt
                 """,
                 (
-                    snapshot.outbox_id,
+                    snapshot.request.effect_id.value,
                     snapshot.claim_owner,
                     snapshot.claim_token,
                     snapshot.request.effect_id.value,
@@ -892,7 +880,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="unknown",
             verification="inconclusive",
-            outbox_status="unknown",
+            dispatch_status="unknown",
             operation_status="effect_unknown",
             attempt_result="unknown",
             error_code="EFFECT-RESULT-UNKNOWN",
@@ -913,7 +901,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=receipt.external_receiver_ref,
             status="completed",
             verification="verified",
-            outbox_status="delivered",
+            dispatch_status="delivered",
             operation_status="effect_completed",
             error_code=None,
         )
@@ -932,7 +920,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="failed",
             verification="verified",
-            outbox_status="dead",
+            dispatch_status="dead",
             operation_status="effect_failed",
             error_code="EFFECT-RECEIVER-NOT-DELIVERED",
         )
@@ -952,7 +940,7 @@ class PostgreSQLEffectDispatchRepository:
             receiver_external_ref=None,
             status="failed",
             verification="verified",
-            outbox_status="dead",
+            dispatch_status="dead",
             operation_status="effect_failed",
             attempt_result="failed",
             error_code="EFFECT-PAYLOAD-INVALID",
@@ -1014,14 +1002,14 @@ class PostgreSQLEffectDispatchRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.effect_outbox_items SET status='ready', available_at=statement_timestamp(),
+            UPDATE armi.effects SET dispatch_status='ready', available_at=statement_timestamp(),
                 claim_owner=NULL, claim_expires_at=NULL,
                 last_error_code=%s
-            WHERE effect_outbox_item_id=%s AND claim_token=%s
+            WHERE effect_id=%s AND claim_token=%s
             """,
             (
                 "EFFECT-RECEIVER-NOT-DELIVERED" if was_dispatched else None,
-                snapshot.outbox_id,
+                snapshot.request.effect_id.value,
                 snapshot.claim_token,
             ),
         )
@@ -1038,7 +1026,7 @@ class PostgreSQLEffectDispatchRepository:
         receiver_external_ref: str | None,
         status: str,
         verification: str,
-        outbox_status: str,
+        dispatch_status: str,
         operation_status: str,
         attempt_result: str,
         error_code: str | None,
@@ -1106,21 +1094,19 @@ class PostgreSQLEffectDispatchRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.effect_outbox_items SET status=%s,
+            UPDATE armi.effects SET dispatch_status=%s,
                 claim_owner=NULL, claim_expires_at=NULL,
                 delivered_at=CASE WHEN %s='delivered' THEN %s ELSE NULL END,
-                cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END,
+
                 last_error_code=%s
-            WHERE effect_outbox_item_id=%s AND claim_token=%s
+            WHERE effect_id=%s AND claim_token=%s
             """,
             (
-                outbox_status,
-                outbox_status,
-                attempt[0],
-                outbox_status,
+                dispatch_status,
+                dispatch_status,
                 attempt[0],
                 error_code,
-                snapshot.outbox_id,
+                snapshot.request.effect_id.value,
                 snapshot.claim_token,
             ),
         )
@@ -1157,7 +1143,7 @@ class PostgreSQLEffectDispatchRepository:
         receiver_external_ref: str | None,
         status: str,
         verification: str,
-        outbox_status: str,
+        dispatch_status: str,
         operation_status: str,
         error_code: str | None,
     ) -> None:
@@ -1203,26 +1189,26 @@ class PostgreSQLEffectDispatchRepository:
         ).fetchone()
         if effect is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        outbox = await (
+        dispatch = await (
             await connection.execute(
                 """
-                UPDATE armi.effect_outbox_items
-                SET status=%s,
+                UPDATE armi.effects
+                SET dispatch_status=%s,
                     delivered_at=CASE WHEN %s='delivered' THEN %s ELSE NULL END,
                     last_error_code=%s
-                WHERE effect_outbox_item_id=%s AND status='unknown'
-                RETURNING effect_outbox_item_id
+                WHERE effect_id=%s AND dispatch_status='unknown'
+                RETURNING effect_id
                 """,
                 (
-                    outbox_status,
-                    outbox_status,
+                    dispatch_status,
+                    dispatch_status,
                     effect[0],
                     error_code,
-                    snapshot.outbox_id,
+                    snapshot.request.effect_id.value,
                 ),
             )
         ).fetchone()
-        if outbox is None:
+        if dispatch is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
         await uow.audit.append(
             AuditDraft(

@@ -36,7 +36,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
     async def register_codex_delegation(
         self, transaction: PostgreSQLTransaction, draft: CodexEffectDraft
     ) -> UUID:
-        # Immutable intent and mutable delivery state share one row; see DESIGN.md.
+        # Intent, dispatch lease and delivery result share one row; see DESIGN.md.
         task = draft.delegation
         effect_id = uuid7()
         digest = Digest.from_bytes(
@@ -50,13 +50,13 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         )
         await transaction.execute(
             """INSERT INTO armi.effects (
-                effect_id,action_intent_id,
+                effect_id,action_intent_id,max_attempts,
                 root_opportunity_id,operation_ref,candidate_validation_id,proposal_ref,subject_commit_id,codex_task_source_id,
                 subject_id,scene_id,context_party_id,payload_artifact_id,
                 payload_digest,payload_bytes,effect_kind,capability_kind,
                 operation_class,purpose,authorization_basis,destination_kind,
                 destination_party_id,registration_digest,trace_id,status,verification_status)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'codex_delegation',
+               VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'codex_delegation',
                  'codex.delegated-work','execute','delegate_codex_work',
                  'runtime_configuration','codex_workspace',%s,%s,%s,'registered','not_started')""",
             (
@@ -78,12 +78,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 digest.value,
                 task.trace_id.value,
             ),
-        )
-        await transaction.execute(
-            """INSERT INTO armi.effect_outbox_items (
-                effect_outbox_item_id,effect_id,message_kind,status,dispatch_deadline,max_attempts)
-               VALUES (%s,%s,'effect.dispatch','ready',NULL,1)""",
-            (uuid7(), effect_id),
         )
         return effect_id
 
@@ -113,7 +107,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         await transaction.execute(
             """
             INSERT INTO armi.effects (
-                effect_id, action_intent_id,
+                effect_id, action_intent_id, dispatch_deadline, max_attempts,
                 root_opportunity_id,operation_ref,candidate_validation_id,proposal_ref,subject_commit_id,
                 subject_id, scene_id, context_party_id, payload_artifact_id,
                 payload_digest, payload_bytes,
@@ -122,7 +116,8 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 destination_party_id, destination_binding_id,
                 live_voice_turn_id, status, verification_status,
                 registration_digest, trace_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, CASE WHEN %s THEN NULL ELSE statement_timestamp() + interval '1 hour' END, %s,
+                %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, 'send', %s, %s,
                 %s, %s, %s, %s, %s,
@@ -131,6 +126,8 @@ class PostgreSQLDeclaredResponseEffectRegistration:
             (
                 effect_id,
                 draft.action_intent_id,
+                draft.effect_kind == "creator_response",
+                draft.max_attempts,
                 draft.root_opportunity_id,
                 draft.operation_ref,
                 draft.candidate_validation_id,
@@ -158,21 +155,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 draft.live_voice_turn_id,
                 registration_digest.value,
                 draft.trace_id.value,
-            ),
-        )
-        await transaction.execute(
-            """
-            INSERT INTO armi.effect_outbox_items (
-                effect_outbox_item_id, effect_id, message_kind,
-                status, dispatch_deadline, max_attempts) VALUES (
-                %s, %s, 'effect.dispatch', 'ready',
-                CASE WHEN %s THEN NULL ELSE statement_timestamp() + interval '1 hour' END, %s)
-            """,
-            (
-                uuid7(),
-                effect_id,
-                draft.effect_kind == "creator_response",
-                draft.max_attempts,
             ),
         )
         return effect_id
@@ -220,10 +202,10 @@ class PostgreSQLEffectLedgerRepository:
                        observation.observation_kind, observation.reliability,
                        attempt.effect_attempt_id,attempt.attempt_no,
                        attempt.dispatch_state,observation.effect_observation_id,
-                       observation.conclusion,CASE WHEN outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED' THEN outbox.last_error_code ELSE COALESCE(observation.reason_code,outbox.last_error_code) END,
+                       observation.conclusion,CASE WHEN effect.last_error_code='EFFECT-RUNTIME-INTERRUPTED' THEN effect.last_error_code ELSE COALESCE(observation.reason_code,effect.last_error_code) END,
                        observation.evidence_kind
                 FROM armi.effects AS effect
-                JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id
+
                 LEFT JOIN armi.effect_observations AS observation
                   ON observation.effect_observation_id=effect.current_observation_id
                 LEFT JOIN armi.effect_attempts AS attempt
@@ -286,10 +268,10 @@ class PostgreSQLEffectLedgerRepository:
                    effect.settled_at,effect.destination_kind,
                    attempt.effect_attempt_id,attempt.attempt_no,
                    attempt.dispatch_state,observation.effect_observation_id,
-                   observation.conclusion,CASE WHEN outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED' THEN outbox.last_error_code ELSE COALESCE(observation.reason_code,outbox.last_error_code) END,
+                   observation.conclusion,CASE WHEN effect.last_error_code='EFFECT-RUNTIME-INTERRUPTED' THEN effect.last_error_code ELSE COALESCE(observation.reason_code,effect.last_error_code) END,
                    observation.evidence_kind
             FROM armi.effects AS effect
-            JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id
+
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
             LEFT JOIN armi.effect_attempts AS attempt

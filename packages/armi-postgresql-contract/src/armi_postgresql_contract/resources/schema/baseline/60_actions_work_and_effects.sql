@@ -183,17 +183,15 @@ CREATE TABLE armi.effect_observations (
     CONSTRAINT effect_observations_reliability_check CHECK ((reliability = ANY (ARRAY['reliable'::text, 'operator_attested'::text, 'inconclusive'::text])))
 );
 
+
 --
--- Name: effect_outbox_items; Type: TABLE; Schema: armi; Owner: -
+-- Name: effects; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.effect_outbox_items (
-    effect_outbox_item_id uuid NOT NULL,
+CREATE TABLE armi.effects (
     effect_id uuid NOT NULL,
-    message_kind text NOT NULL,
-    status text NOT NULL,
+    dispatch_status text DEFAULT 'ready'::text NOT NULL,
     available_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    cancelled_at timestamp(6) with time zone,
     claim_owner uuid,
     claim_expires_at timestamp(6) with time zone,
     claim_token bigint DEFAULT 0 NOT NULL,
@@ -202,23 +200,13 @@ CREATE TABLE armi.effect_outbox_items (
     dispatch_deadline timestamp(6) with time zone,
     delivered_at timestamp(6) with time zone,
     last_error_code text,
-    CONSTRAINT effect_outbox_items_attempt_count_check CHECK (((attempt_count >= 0) AND (attempt_count <= 2))),
-    CONSTRAINT effect_outbox_items_check CHECK ((((status = 'ready'::text) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (cancelled_at IS NULL) AND (delivered_at IS NULL)) OR ((status = 'claimed'::text) AND (claim_owner IS NOT NULL) AND (claim_expires_at IS NOT NULL) AND (claim_token > 0) AND (cancelled_at IS NULL) AND (delivered_at IS NULL)) OR ((status = 'delivered'::text) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (cancelled_at IS NULL) AND (delivered_at IS NOT NULL)) OR ((status = ANY (ARRAY['dead'::text, 'unknown'::text])) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (cancelled_at IS NULL) AND (delivered_at IS NULL) AND (last_error_code IS NOT NULL)) OR ((status = 'cancelled'::text) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (cancelled_at IS NOT NULL) AND (delivered_at IS NULL)))),
-    CONSTRAINT effect_outbox_items_claim_token_check CHECK ((claim_token >= 0)),
-    CONSTRAINT effect_outbox_items_deadline_check CHECK ((dispatch_deadline IS NULL OR dispatch_deadline > available_at)),
-    CONSTRAINT effect_outbox_items_effect_outbox_item_id_check CHECK ((uuid_extract_version(effect_outbox_item_id) = 7)),
-    CONSTRAINT effect_outbox_items_last_error_code_check CHECK (((last_error_code IS NULL) OR (last_error_code ~ '^(EFFECT|CODEX)-[A-Z0-9-]+$'::text))),
-    CONSTRAINT effect_outbox_items_max_attempts_check CHECK (((max_attempts >= 1) AND (max_attempts <= 2))),
-    CONSTRAINT effect_outbox_items_message_kind_check CHECK ((message_kind = 'effect.dispatch'::text)),
-    CONSTRAINT effect_outbox_items_status_check CHECK ((status = ANY (ARRAY['ready'::text, 'claimed'::text, 'delivered'::text, 'dead'::text, 'unknown'::text, 'cancelled'::text])))
-);
-
---
--- Name: effects; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.effects (
-    effect_id uuid NOT NULL,
+    CONSTRAINT effects_dispatch_attempt_count_check CHECK (((attempt_count >= 0) AND (attempt_count <= 2))),
+    CONSTRAINT effects_dispatch_check CHECK ((((dispatch_status = 'ready'::text) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (delivered_at IS NULL)) OR ((dispatch_status = 'claimed'::text) AND (claim_owner IS NOT NULL) AND (claim_expires_at IS NOT NULL) AND (claim_token > 0) AND (delivered_at IS NULL)) OR ((dispatch_status = 'delivered'::text) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (delivered_at IS NOT NULL)) OR ((dispatch_status = ANY (ARRAY['dead'::text, 'unknown'::text])) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (delivered_at IS NULL) AND (last_error_code IS NOT NULL)) OR ((dispatch_status = 'cancelled'::text) AND (claim_owner IS NULL) AND (claim_expires_at IS NULL) AND (delivered_at IS NULL)))),
+    CONSTRAINT effects_dispatch_claim_token_check CHECK ((claim_token >= 0)),
+    CONSTRAINT effects_dispatch_deadline_check CHECK ((dispatch_deadline IS NULL OR dispatch_deadline > available_at)),
+    CONSTRAINT effects_dispatch_last_error_code_check CHECK (((last_error_code IS NULL) OR (last_error_code ~ '^(EFFECT|CODEX)-[A-Z0-9-]+$'::text))),
+    CONSTRAINT effects_dispatch_max_attempts_check CHECK (((max_attempts >= 1) AND (max_attempts <= 2))),
+    CONSTRAINT effects_dispatch_status_check CHECK ((dispatch_status = ANY (ARRAY['ready'::text, 'claimed'::text, 'delivered'::text, 'dead'::text, 'unknown'::text, 'cancelled'::text]))),
     subject_id uuid NOT NULL,
     scene_id uuid NOT NULL,
     context_party_id uuid NOT NULL,

@@ -67,7 +67,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
             "operation",
             "intent",
             "effect",
-            "outbox",
             "delivery",
             "commit",
             "manifest",
@@ -137,7 +136,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
         effect_id=ids["effect"],
         status="completed",
         action_intent_id=ids["intent"],
-        outbox_id=ids["outbox"],
         delivery_id=ids["delivery"],
         receipt_digest="sha256:" + "1" * 64,
     )
@@ -179,7 +177,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
         "subject_commit",
         "operation",
         "effect",
-        "outbox",
         "delivery",
     }
     assert len(nodes) == len({(node["kind"], node["id"]) for node in nodes})

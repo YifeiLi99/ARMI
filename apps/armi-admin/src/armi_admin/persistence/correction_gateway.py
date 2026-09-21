@@ -702,7 +702,7 @@ class AdminCorrectionGateway:
         return {
             "target_identity": _digest({"effect_id": str(effect.effect_id)}),
             "target_versions": {"effect_state": "unknown"},
-            "target_count": 3,
+            "target_count": 2,
             "dependency_count": 2,
             "side_work_required": False,
             "before_digest": before,
@@ -711,7 +711,6 @@ class AdminCorrectionGateway:
                 "effect_id": str(effect.effect_id),
                 "attempt_id": str(effect.attempt_id),
                 "operation_ref": str(intent.operation_ref),
-                "outbox_id": str(effect.outbox_id),
                 "delivery_id": None
                 if effect.delivery_id is None
                 else str(effect.delivery_id),
@@ -732,7 +731,7 @@ class AdminCorrectionGateway:
                 "reliability": reliability,
                 "reason_code": reason_code,
                 "evidence_kind": evidence_kind,
-                "outbox_status": "unknown"
+                "dispatch_status": "unknown"
                 if result_status == "unknown"
                 else "delivered"
                 if result_status == "completed"

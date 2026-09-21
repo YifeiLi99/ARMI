@@ -55,8 +55,8 @@ class EffectRecoveryParticipant:
             )
         ).fetchall()
         await transaction.execute(
-            """UPDATE armi.effect_outbox_items
-               SET status='cancelled',cancelled_at=statement_timestamp(),
+            """UPDATE armi.effects
+               SET dispatch_status='cancelled',
                    claim_owner=NULL,claim_expires_at=NULL,
                    last_error_code='EFFECT-RUNTIME-INTERRUPTED'
                WHERE effect_id=ANY(%s::uuid[])""",
@@ -66,26 +66,25 @@ class EffectRecoveryParticipant:
             await transaction.execute(
                 """
                 SELECT effect.effect_id, attempt.effect_attempt_id,
-                       outbox.effect_outbox_item_id, outbox.claim_token, effect.effect_kind
+                       effect.claim_token, effect.effect_kind
                 FROM armi.effects AS effect
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                  AND attempt.effect_id = effect.effect_id
-                JOIN armi.effect_outbox_items AS outbox
-                  ON outbox.effect_id = effect.effect_id
+
                 WHERE effect.subject_id = %s
                   AND effect.status = 'dispatching'
                   AND (NOT %s OR effect.effect_kind IN ('creator_response','codex_delegation'))
                   AND attempt.dispatch_state = 'dispatching'
-                  AND outbox.status = 'claimed'
+                  AND effect.dispatch_status = 'claimed'
                 ORDER BY effect.effect_id
-                FOR UPDATE OF effect, attempt, outbox
+                FOR UPDATE OF effect, attempt
                 """,
                 (scope.subject_id, conversation_only),
             )
         ).fetchall()
         audits: list[RecoveryAuditContribution] = []
-        for effect_id, attempt_id, outbox_id, claim_token, effect_kind in dispatched:
+        for effect_id, attempt_id, claim_token, effect_kind in dispatched:
             reason = (
                 "EFFECT-RUNTIME-INTERRUPTED"
                 if effect_kind in {"creator_response", "codex_delegation"}
@@ -138,14 +137,14 @@ class EffectRecoveryParticipant:
             )
             await transaction.execute(
                 """
-                UPDATE armi.effect_outbox_items
-                SET status = 'unknown', claim_owner = NULL,
+                UPDATE armi.effects
+                SET dispatch_status = 'unknown', claim_owner = NULL,
                     claim_expires_at = NULL,
                     last_error_code = %s
-                WHERE effect_outbox_item_id = %s AND claim_token = %s
-                  AND status = 'claimed'
+                WHERE effect_id = %s AND claim_token = %s
+                  AND dispatch_status = 'claimed'
                 """,
-                (reason, outbox_id, claim_token),
+                (reason, effect_id, claim_token),
             )
             audits.append(
                 RecoveryAuditContribution(
@@ -156,10 +155,10 @@ class EffectRecoveryParticipant:
                 )
             )
         await transaction.execute(
-            """UPDATE armi.effect_outbox_items AS outbox
+            """UPDATE armi.effects AS effect
                SET last_error_code='EFFECT-RUNTIME-INTERRUPTED'
-               FROM armi.effects AS effect
-               WHERE outbox.effect_id=effect.effect_id AND effect.subject_id=%s
+
+               WHERE effect.subject_id=%s
                  AND effect.effect_kind IN ('creator_response','codex_delegation') AND effect.status='unknown'""",
             (scope.subject_id,),
         )
@@ -172,20 +171,19 @@ class EffectRecoveryParticipant:
                       AND effect.effect_kind NOT IN ('creator_response','codex_delegation')
                 ),
                 count(*) FILTER (
-                    WHERE (effect.status = 'registered' AND outbox.status <> 'ready')
+                    WHERE (effect.status = 'registered' AND effect.dispatch_status <> 'ready')
                        OR (effect.status = 'dispatching' AND (
-                           outbox.status <> 'claimed'
+                           effect.dispatch_status <> 'claimed'
                            OR attempt.dispatch_state <> 'dispatching'
                        ))
                        OR (effect.status = 'unknown' AND (
-                           outbox.status <> 'unknown'
+                           effect.dispatch_status <> 'unknown'
                            OR attempt.result_status <> 'unknown'
                            OR observation.reliability <> 'inconclusive'
                        ))
                 )
             FROM armi.effects AS effect
-            JOIN armi.effect_outbox_items AS outbox
-              ON outbox.effect_id = effect.effect_id
+
             LEFT JOIN armi.effect_attempts AS attempt
               ON attempt.effect_attempt_id = effect.current_attempt_id
              AND attempt.effect_id = effect.effect_id
@@ -201,7 +199,7 @@ class EffectRecoveryParticipant:
         uncertain_external_work = [
             row
             for row in dispatched
-            if row[4] not in {"creator_response", "codex_delegation"}
+            if row[3] not in {"creator_response", "codex_delegation"}
         ]
         return RecoveryContribution(
             self.owner_identity,

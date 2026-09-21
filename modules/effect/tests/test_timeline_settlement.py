@@ -63,7 +63,6 @@ def _snapshot() -> EffectDispatchSnapshot:
     )
     return EffectDispatchSnapshot(
         uuid7(),
-        uuid7(),
         1,
         1,
         uuid7(),
@@ -204,7 +203,6 @@ async def test_verified_receipt_records_every_party_destination(
         TraceId(uuid7().hex),
     )
     snapshot = EffectDispatchSnapshot(
-        uuid7(),
         uuid7(),
         1,
         1,

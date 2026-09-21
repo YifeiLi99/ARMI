@@ -12,9 +12,9 @@ async def response_delivery_activity(
     row = await (
         await transaction.execute(
             """SELECT COALESCE(bool_or(e.status IN ('registered','dispatching')
-                    OR o.status IN ('ready','claimed')),false),
-                  GREATEST(max(e.settled_at),max(o.delivered_at))
-           FROM armi.effects e LEFT JOIN armi.effect_outbox_items o USING(effect_id)
+                    OR e.dispatch_status IN ('ready','claimed')),false),
+                  GREATEST(max(e.settled_at),max(e.delivered_at))
+           FROM armi.effects e
            WHERE e.action_intent_id=ANY(%s::uuid[])""",
             (list(action_intent_ids),),
         )

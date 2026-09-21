@@ -27,7 +27,6 @@ class EffectAdminSnapshot:
     attempt_id: UUID | None
     payload_digest: str
     action_intent_id: UUID | None
-    outbox_id: UUID
     delivery_id: UUID | None
     receipt_digest: str | None
 
@@ -412,7 +411,6 @@ class EffectLedgerSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EffectCodexClaim:
-    outbox_id: UUID
     effect_id: UUID
     attempt_id: UUID
     claim_owner: UUID

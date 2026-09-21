@@ -59,7 +59,6 @@ _OWNER_BY_KIND = {
     "input": "interaction",
     "evidence": "evidence",
     "subject_commit": "runtime-foundation",
-    "outbox": "effect",
     "delivery": "effect",
     "scene": "interaction",
     "subject": "runtime-foundation",
@@ -848,14 +847,6 @@ class AdminObservationGateway:
                         "realizes",
                         "operation",
                         None if intent is None else intent.operation_ref,
-                        "effect",
-                    )
-                    link(
-                        kind,
-                        identity,
-                        "dispatches",
-                        "outbox",
-                        effect.outbox_id,
                         "effect",
                     )
                     link(
