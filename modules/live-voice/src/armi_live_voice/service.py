@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -27,8 +28,18 @@ from .api import (
     VoiceInputAcceptancePort,
     VoiceJournalPort,
     VoiceModelCompatibilityPort,
+    VoiceProviderBinding,
+    VoiceProviderDiagnostic,
     VoiceTurnSnapshot,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ProviderCall:
+    identity: UUID
+    turn_id: UUID | None
+    session_id: UUID | None
+    binding: VoiceProviderBinding
 
 
 class LiveVoiceService:
@@ -46,6 +57,7 @@ class LiveVoiceService:
         journal: VoiceJournalPort,
         binding: LiveVoiceBinding,
         prices: PriceCatalog,
+        provider_diagnostic: Callable[[VoiceProviderDiagnostic], None] | None = None,
     ) -> None:
         self._audio = audio
         self._asr = asr
@@ -56,6 +68,7 @@ class LiveVoiceService:
         self._journal = journal
         self._binding = binding
         self._prices = prices
+        self._provider_diagnostic = provider_diagnostic
         self._machine = HalfDuplexStateMachine()
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -182,67 +195,103 @@ class LiveVoiceService:
         )
         await self._transition(LiveVoiceSessionState.LISTENING)
 
-    def _meter_scope(self, attempt_id: UUID, purpose: str) -> ProviderMeterScope:
+    def _begin_provider_call(
+        self,
+        *,
+        turn_id: UUID | None,
+        binding: VoiceProviderBinding,
+        session_id: UUID | None = None,
+    ) -> _ProviderCall:
+        call = _ProviderCall(uuid7(), turn_id, session_id, binding)
+        self._provider_event(call=call, event="prepared")
+        return call
+
+    def _provider_event(
+        self,
+        *,
+        call: _ProviderCall,
+        event: str,
+        outcome: AttemptOutcome | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        if self._provider_diagnostic is not None:
+            self._provider_diagnostic(
+                VoiceProviderDiagnostic(
+                    event,
+                    str(call.identity),
+                    None if call.turn_id is None else str(call.turn_id),
+                    None if call.session_id is None else str(call.session_id),
+                    call.binding.service.value,
+                    call.binding.provider,
+                    call.binding.resource_id,
+                    call.binding.model_identity,
+                    None if outcome is None else outcome.value,
+                    error_code,
+                )
+            )
+
+    def _meter_scope(self, call: _ProviderCall, purpose: str) -> ProviderMeterScope:
         async def save(receipt: ProviderCallReceipt) -> None:
             await self._journal.record_provider_call(
-                attempt_id=attempt_id, receipt=receipt
+                turn_id=call.turn_id, session_id=call.session_id, receipt=receipt
             )
 
         return ProviderMeterScope(save, self._prices, purpose)
 
     async def _prepare_model(self) -> None:
         assert self._session_id is not None
-        attempt = await self._journal.begin_provider_attempt(
+        attempt = self._begin_provider_call(
             turn_id=None,
             session_id=self._session_id,
             binding=self._binding.llm,
         )
         try:
-            await self._journal.mark_provider_dispatched(attempt_id=attempt)
+            self._provider_event(event="dispatched", call=attempt)
             with provider_meter_scope(
                 self._meter_scope(attempt, "voice_compatibility")
             ):
                 await self._model.prepare()
         except BaseException:
-            await self._journal.settle_provider_attempt(
-                attempt_id=attempt,
+            self._provider_event(
+                event="settled",
+                call=attempt,
                 outcome=AttemptOutcome.UNKNOWN,
                 error_code="VOICE-LLM-PREPARE-FAILED",
             )
             raise
-        await self._journal.settle_provider_attempt(
-            attempt_id=attempt, outcome=AttemptOutcome.COMPLETED
+        self._provider_event(
+            event="settled", call=attempt, outcome=AttemptOutcome.COMPLETED
         )
 
     async def _execute_turn(self, turn_id: UUID) -> tuple[AttemptOutcome, str, bool]:
         await self._transition(LiveVoiceSessionState.RECOGNIZING)
-        asr_attempt = await self._journal.begin_provider_attempt(
+        asr_attempt = self._begin_provider_call(
             turn_id=turn_id, binding=self._binding.asr
         )
         transcript = ""
         received_asr = False
         try:
-            await self._journal.mark_provider_dispatched(attempt_id=asr_attempt)
+            self._provider_event(event="dispatched", call=asr_attempt)
             with provider_meter_scope(self._meter_scope(asr_attempt, "voice_asr")):
                 async for event in self._asr.recognize(self._audio.capture()):
                     if not received_asr:
-                        await self._journal.mark_provider_first_result(
-                            attempt_id=asr_attempt
-                        )
+                        self._provider_event(event="first_result", call=asr_attempt)
                         received_asr = True
                     transcript = event.text
                     if event.utterance_ended:
                         break
         except asyncio.CancelledError:
-            await self._journal.settle_provider_attempt(
-                attempt_id=asr_attempt,
+            self._provider_event(
+                event="settled",
+                call=asr_attempt,
                 outcome=AttemptOutcome.UNKNOWN,
                 error_code="VOICE-ASR-CANCELLED",
             )
             raise
         except LiveVoiceViolation as error:
-            await self._journal.settle_provider_attempt(
-                attempt_id=asr_attempt,
+            self._provider_event(
+                event="settled",
+                call=asr_attempt,
                 outcome=(
                     AttemptOutcome.PARTIAL if received_asr else AttemptOutcome.FAILED
                 ),
@@ -250,8 +299,9 @@ class LiveVoiceService:
             )
             raise
         except Exception as error:
-            await self._journal.settle_provider_attempt(
-                attempt_id=asr_attempt,
+            self._provider_event(
+                event="settled",
+                call=asr_attempt,
                 outcome=(
                     AttemptOutcome.PARTIAL if received_asr else AttemptOutcome.UNKNOWN
                 ),
@@ -260,8 +310,8 @@ class LiveVoiceService:
             raise LiveVoiceViolation(
                 "VOICE-ASR-UNKNOWN", "speech recognition failed"
             ) from error
-        await self._journal.settle_provider_attempt(
-            attempt_id=asr_attempt, outcome=AttemptOutcome.COMPLETED
+        self._provider_event(
+            event="settled", call=asr_attempt, outcome=AttemptOutcome.COMPLETED
         )
         if not transcript.strip():
             await self._journal.record_transcript(
@@ -346,7 +396,7 @@ class LiveVoiceService:
 
     async def _speak(self, turn_id: UUID, fragments: AsyncIterator[str]) -> str:
         spoken: list[str] = []
-        tts_attempt = await self._journal.begin_provider_attempt(
+        tts_attempt = self._begin_provider_call(
             turn_id=turn_id, binding=self._binding.tts
         )
         tts_frames = 0
@@ -370,9 +420,7 @@ class LiveVoiceService:
                 if not frame:
                     continue
                 if tts_frames == 0:
-                    await self._journal.mark_provider_first_result(
-                        attempt_id=tts_attempt
-                    )
+                    self._provider_event(event="first_result", call=tts_attempt)
                 tts_frames += 1
                 yield frame
 
@@ -386,7 +434,7 @@ class LiveVoiceService:
 
         await self._journal.mark_playback_dispatched(turn_id=turn_id)
         try:
-            await self._journal.mark_provider_dispatched(attempt_id=tts_attempt)
+            self._provider_event(event="dispatched", call=tts_attempt)
             with provider_meter_scope(self._meter_scope(tts_attempt, "voice_tts")):
                 reported_frames = await self._audio.play(
                     observed_audio(), on_frame_written=frame_written
@@ -398,8 +446,9 @@ class LiveVoiceService:
             if tts_frames == 0 or written_frames == 0:
                 raise LiveVoiceViolation("VOICE-TTS-EMPTY", "TTS returned no audio")
         except asyncio.CancelledError:
-            await self._journal.settle_provider_attempt(
-                attempt_id=tts_attempt,
+            self._provider_event(
+                event="settled",
+                call=tts_attempt,
                 outcome=AttemptOutcome.UNKNOWN,
                 error_code="VOICE-TTS-CANCELLED",
             )
@@ -418,8 +467,9 @@ class LiveVoiceService:
                 if error.code == "VOICE-PLAYBACK-COUNT"
                 else AttemptOutcome.PARTIAL
             )
-            await self._journal.settle_provider_attempt(
-                attempt_id=tts_attempt,
+            self._provider_event(
+                event="settled",
+                call=tts_attempt,
                 outcome=(
                     AttemptOutcome.PARTIAL if tts_frames else AttemptOutcome.FAILED
                 ),
@@ -438,8 +488,9 @@ class LiveVoiceService:
             )
             raise LiveVoiceViolation(code, "voice playback did not complete") from error
         except Exception as error:
-            await self._journal.settle_provider_attempt(
-                attempt_id=tts_attempt,
+            self._provider_event(
+                event="settled",
+                call=tts_attempt,
                 outcome=(
                     AttemptOutcome.PARTIAL if tts_frames else AttemptOutcome.UNKNOWN
                 ),
@@ -459,8 +510,8 @@ class LiveVoiceService:
                 else "VOICE-PLAYBACK-RESULT-UNKNOWN"
             )
             raise LiveVoiceViolation(code, "audio playback failed") from error
-        await self._journal.settle_provider_attempt(
-            attempt_id=tts_attempt, outcome=AttemptOutcome.COMPLETED
+        self._provider_event(
+            event="settled", call=tts_attempt, outcome=AttemptOutcome.COMPLETED
         )
         await self._journal.settle_playback(
             turn_id=turn_id,

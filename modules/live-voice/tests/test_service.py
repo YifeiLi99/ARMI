@@ -16,6 +16,7 @@ from armi_live_voice.api import (
     PlaybackExtent,
     RecognitionEvent,
     VoiceProviderBinding,
+    VoiceProviderDiagnostic,
     VoiceProviderService,
     VoiceTurnSnapshot,
 )
@@ -140,19 +141,7 @@ class FakeJournal:
     async def settle_turn(self, **_: object) -> None:
         pass
 
-    async def begin_provider_attempt(self, **_: object):
-        return uuid7()
-
-    async def mark_provider_dispatched(self, **_: object) -> None:
-        pass
-
     async def record_provider_call(self, **_: object) -> None:
-        pass
-
-    async def mark_provider_first_result(self, **_: object) -> None:
-        pass
-
-    async def settle_provider_attempt(self, **_: object) -> None:
         pass
 
     async def mark_playback_dispatched(self, **_: object) -> None:
@@ -182,6 +171,7 @@ async def test_committed_effect_is_registered_before_audio_and_only_then_complet
     None
 ):
     log: list[str] = []
+    provider_events: list[VoiceProviderDiagnostic] = []
     inputs = FakeInputs()
     journal = FakeJournal()
     service = LiveVoiceService(
@@ -194,6 +184,7 @@ async def test_committed_effect_is_registered_before_audio_and_only_then_complet
         journal=journal,
         binding=_binding(),
         prices=PriceCatalog(()),
+        provider_diagnostic=provider_events.append,
     )
     await service.start()
     await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
@@ -202,6 +193,16 @@ async def test_committed_effect_is_registered_before_audio_and_only_then_complet
     await service.stop()
 
     assert frames == 1
+    tts_events = [event for event in provider_events if event.service == "tts"]
+    assert [event.event for event in tts_events] == [
+        "prepared",
+        "dispatched",
+        "first_result",
+        "settled",
+    ]
+    assert tts_events[-1].outcome == "completed"
+    assert all(event.turn_id == str(journal.turn_id) for event in tts_events)
+    assert len({event.call_id for event in tts_events}) == 1
     assert set(log[:2]) == {"model_ready", "tts_ready"}
     assert log[2:] == ["registered", "synthesized", "played"]
 

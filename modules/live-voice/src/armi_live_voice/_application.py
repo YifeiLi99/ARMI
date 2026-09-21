@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable
 from datetime import datetime
 from typing import Literal, cast
-from uuid import UUID, uuid7
+from uuid import UUID
 
 from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import (
@@ -20,7 +20,6 @@ from .api import (
     LiveVoiceSessionState,
     LiveVoiceViolation,
     PlaybackExtent,
-    VoiceProviderBinding,
     VoiceTimelinePort,
     VoiceTurnSnapshot,
 )
@@ -257,105 +256,50 @@ class PostgreSQLLiveVoiceJournal:
                     occurred_at=row[0],
                 )
 
-    async def begin_provider_attempt(
-        self,
-        *,
-        turn_id: UUID | None,
-        binding: VoiceProviderBinding,
-        session_id: UUID | None = None,
-    ) -> UUID:
-        if (turn_id is None) == (session_id is None):
-            raise LiveVoiceViolation(
-                "VOICE-JOURNAL-ATTEMPT", "exactly one parent is required"
-            )
-        attempt_id = uuid7()
-        async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """INSERT INTO armi.live_voice_provider_attempts
-                   (provider_attempt_id,turn_id,session_id,service_kind,provider,
-                    resource_id,model_identity,dispatch_state,result_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,'prepared','started')""",
-                (
-                    attempt_id,
-                    turn_id,
-                    session_id,
-                    binding.service.value,
-                    binding.provider,
-                    binding.resource_id,
-                    binding.model_identity,
-                ),
-            )
-        return attempt_id
-
     async def record_provider_call(
         self,
         *,
-        attempt_id: UUID,
+        turn_id: UUID | None,
+        session_id: UUID | None,
         receipt: ProviderCallReceipt,
     ) -> None:
+        if (turn_id is None) == (session_id is None):
+            raise LiveVoiceViolation(
+                "VOICE-JOURNAL-USAGE", "exactly one parent is required"
+            )
+        # Keep consumption with its owner, including late receipts after interruption.
+        # Only registration requires an open parent; see DESIGN.md.
+        parameters = (
+            receipt.call_id,
+            json.dumps(receipt.document()),
+            turn_id if turn_id is not None else session_id,
+            receipt.registration,
+            receipt.call_id,
+            receipt.registration,
+            receipt.call_id,
+        )
         async with self._factory.provider_usage_unit_of_work(receipt=receipt) as unit:
-            result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_provider_attempts
-                   SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
-               WHERE provider_attempt_id=%s
-                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
-                      OR (NOT %s AND provider_calls ? %s))""",
-                (
-                    receipt.call_id,
-                    json.dumps(receipt.document()),
-                    attempt_id,
-                    receipt.registration,
-                    receipt.call_id,
-                    receipt.registration,
-                    receipt.call_id,
-                ),
-            )
-            if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-ATTEMPT", "attempt is missing")
-
-    async def mark_provider_dispatched(self, *, attempt_id: UUID) -> None:
-        async with self._factory.unit_of_work() as unit:
-            result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_provider_attempts
-                   SET dispatch_state='dispatched',
-                       dispatched_at=statement_timestamp()
-                   WHERE provider_attempt_id=%s AND dispatch_state='prepared'
-                     AND settled_at IS NULL""",
-                (attempt_id,),
-            )
-            if result.rowcount != 1:
-                raise LiveVoiceViolation(
-                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+            if turn_id is not None:
+                result = await unit.transaction.execute(
+                    """UPDATE armi.live_voice_turns
+                       SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+                       WHERE turn_id=%s
+                         AND ((%s AND completed_at IS NULL AND NOT (provider_calls ? %s))
+                              OR (NOT %s AND provider_calls ? %s))""",
+                    parameters,
                 )
-
-    async def mark_provider_first_result(self, *, attempt_id: UUID) -> None:
-        async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """UPDATE armi.live_voice_provider_attempts
-                   SET first_result_at=COALESCE(first_result_at,statement_timestamp())
-                   WHERE provider_attempt_id=%s AND settled_at IS NULL""",
-                (attempt_id,),
-            )
-
-    async def settle_provider_attempt(
-        self,
-        *,
-        attempt_id: UUID,
-        outcome: AttemptOutcome,
-        error_code: str | None = None,
-    ) -> None:
-        error_code = _require_voice_error(error_code, outcome)
-        async with self._factory.unit_of_work() as unit:
-            result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_provider_attempts
-                   SET dispatch_state='settled',result_status=%s,error_code=%s,
-                       settled_at=statement_timestamp()
-                   WHERE provider_attempt_id=%s AND settled_at IS NULL""",
-                (outcome.value, error_code, attempt_id),
-            )
+            else:
+                result = await unit.transaction.execute(
+                    """UPDATE armi.live_voice_sessions
+                       SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+                       WHERE session_id=%s
+                         AND ((%s AND ended_at IS NULL AND NOT (provider_calls ? %s))
+                              OR (NOT %s AND provider_calls ? %s))""",
+                    parameters,
+                )
             if result.rowcount != 1:
                 raise LiveVoiceViolation(
-                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+                    "VOICE-JOURNAL-USAGE", "usage parent or registration is unavailable"
                 )
 
     async def register_fragment(

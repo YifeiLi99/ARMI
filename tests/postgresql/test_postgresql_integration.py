@@ -782,6 +782,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_voice_playback_result_survives_restart_without_attempt_table(self) -> None:
         from unittest.mock import AsyncMock
 
+        from armi_kernel.application import ProviderCallReceipt, estimate_cost
         from armi_live_voice.api import (
             AttemptOutcome,
             LiveVoiceBinding,
@@ -861,6 +862,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 session_id = _uuid7()
                 await journal.open_session(session_id=session_id)
+
+                def pending_receipt():
+                    return ProviderCallReceipt(
+                        str(_uuid7()),
+                        "test-provider",
+                        "test-model",
+                        "asr",
+                        "voice_asr",
+                        datetime.now(UTC).isoformat(),
+                        None,
+                        estimate_cost(
+                            quantities=(),
+                            required_units=(),
+                            snapshot=None,
+                            billable=True,
+                        ),
+                        True,
+                    )
+
+                session_receipt = pending_receipt()
+                await journal.record_provider_call(
+                    turn_id=None,
+                    session_id=session_id,
+                    receipt=session_receipt,
+                )
+                turn_receipts = []
                 turns = []
                 for number, outcome in enumerate(
                     (
@@ -879,6 +906,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         turn_no=number,
                         context_version="ctx:1",
                     )
+                    receipt = pending_receipt()
+                    turn_receipts.append(receipt)
+                    await journal.record_provider_call(
+                        turn_id=turn_id,
+                        session_id=None,
+                        receipt=receipt,
+                    )
+                    with self.assertRaises(LiveVoiceViolation):
+                        await journal.record_provider_call(
+                            turn_id=turn_id,
+                            session_id=None,
+                            receipt=receipt,
+                        )
                     await journal.record_transcript(
                         turn_id=turn_id,
                         transcript="你好",
@@ -922,6 +962,53 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ),
                         (),
                     )
+                async with factory.unit_of_work(read_only=True) as unit:
+                    usage = await (
+                        await unit.transaction.execute(
+                            "SELECT reference_kind,reference_id,receipt->>'outcome' "
+                            "FROM armi.provider_usage_calls WHERE owner='live-voice'"
+                        )
+                    ).fetchall()
+                self.assertEqual(len(usage), 5)
+                self.assertTrue(all(row[2] == "unknown" for row in usage))
+                self.assertEqual({row[1] for row in usage}, {session_id, *turns})
+                for turn_id, receipt in [
+                    (None, session_receipt),
+                    (turns[0], turn_receipts[0]),
+                ]:
+                    parent_session = session_id if turn_id is None else None
+                    with self.assertRaises(LiveVoiceViolation):
+                        await journal.record_provider_call(
+                            turn_id=turn_id,
+                            session_id=parent_session,
+                            receipt=pending_receipt(),
+                        )
+                    with self.assertRaises(LiveVoiceViolation):
+                        await journal.record_provider_call(
+                            turn_id=turn_id,
+                            session_id=parent_session,
+                            receipt=replace(
+                                pending_receipt(),
+                                finished_at=datetime.now(UTC).isoformat(),
+                            ),
+                        )
+                    await journal.record_provider_call(
+                        turn_id=turn_id,
+                        session_id=parent_session,
+                        receipt=replace(
+                            receipt,
+                            outcome="returned",
+                            finished_at=datetime.now(UTC).isoformat(),
+                        ),
+                    )
+                async with factory.unit_of_work(read_only=True) as unit:
+                    returned = await (
+                        await unit.transaction.execute(
+                            "SELECT count(*) FROM armi.provider_usage_calls "
+                            "WHERE owner='live-voice' AND receipt->>'outcome'='returned'"
+                        )
+                    ).fetchone()
+                self.assertEqual(returned, (2,))
                 async with factory.unit_of_work(read_only=True) as unit:
                     rows = await (
                         await unit.transaction.execute(
@@ -1008,6 +1095,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(installed, declared)
 
     @pytest.mark.test_group("admin", "runtime")
+    @pytest.mark.test_group("live-voice")
     def test_provider_usage_summary_filters_and_pagination_share_receipts(self) -> None:
         from dataclasses import replace
         from datetime import UTC, datetime

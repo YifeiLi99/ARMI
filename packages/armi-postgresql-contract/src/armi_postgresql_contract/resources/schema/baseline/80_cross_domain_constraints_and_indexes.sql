@@ -845,20 +845,6 @@ ALTER TABLE ONLY armi.live_vision_sessions
     ADD CONSTRAINT live_vision_sessions_pkey PRIMARY KEY (session_id);
 
 --
--- Name: live_voice_provider_attempts live_voice_provider_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.live_voice_provider_attempts
-    ADD CONSTRAINT live_voice_provider_attempts_pkey PRIMARY KEY (provider_attempt_id);
-
---
--- Name: live_voice_provider_attempts live_voice_provider_attempts_turn_id_service_kind_attempt_n_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.live_voice_provider_attempts
-    ADD CONSTRAINT live_voice_provider_attempts_turn_id_service_kind_attempt_n_key UNIQUE (turn_id, service_kind, attempt_no);
-
---
 -- Name: live_voice_sessions live_voice_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3083,16 +3069,6 @@ ALTER TABLE ONLY armi.live_vision_observations
 
 ALTER TABLE ONLY armi.live_vision_sessions
     ADD CONSTRAINT live_vision_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: live_voice_provider_attempts live_voice_provider_attempts_turn_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.live_voice_provider_attempts
-    ADD CONSTRAINT live_voice_provider_attempts_turn_id_fkey FOREIGN KEY (turn_id) REFERENCES armi.live_voice_turns(turn_id);
-
-ALTER TABLE ONLY armi.live_voice_provider_attempts
-    ADD CONSTRAINT live_voice_provider_attempts_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_voice_sessions(session_id);
 
 --
 -- Name: live_voice_sessions live_voice_sessions_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

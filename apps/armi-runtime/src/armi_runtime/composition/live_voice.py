@@ -15,6 +15,7 @@ from armi_live_voice.api import (
     LiveVoiceRuntimePort,
     LiveVoiceViolation,
     VoiceProviderBinding,
+    VoiceProviderDiagnostic,
     VoiceProviderService,
     VoiceTimelinePort,
 )
@@ -44,6 +45,7 @@ def compose_runtime_live_voice(
     creator: CreatorIdentityContext,
     interaction: CreatorInteractionPort,
     timeline: VoiceTimelinePort,
+    provider_diagnostic: Callable[[VoiceProviderDiagnostic], None] | None = None,
     playback_diagnostic: Callable[[str, UUID, int, str | None], None] | None = None,
 ) -> LiveVoiceRuntimePort | None:
     config = prepared.effective.config
@@ -167,6 +169,7 @@ def compose_runtime_live_voice(
         scene_key=creator.default_scene_key,
     )
     return compose_live_voice(
+        provider_diagnostic=provider_diagnostic,
         prices=load_price_catalog(
             runtime_config_path("provider-pricing.yaml", environment_root=prepared.root)
         ),

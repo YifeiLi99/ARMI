@@ -33,20 +33,6 @@ class LiveVoiceRecoveryParticipant:
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
         del scope, work
-        provider_rows = await (
-            await transaction.execute(
-                """UPDATE armi.live_voice_provider_attempts
-                   SET dispatch_state='settled',
-                       result_status=CASE dispatch_state
-                           WHEN 'prepared' THEN 'cancelled' ELSE 'unknown' END,
-                       settled_at=statement_timestamp(),
-                       error_code=CASE dispatch_state
-                           WHEN 'prepared' THEN 'VOICE-PRE-DISPATCH-CANCELLED'
-                           ELSE 'VOICE-RUNTIME-RESTARTED' END
-                   WHERE settled_at IS NULL
-                   RETURNING provider_attempt_id"""
-            )
-        ).fetchall()
         turn_rows = await (
             await transaction.execute(
                 """UPDATE armi.live_voice_turns AS turn
@@ -82,9 +68,6 @@ class LiveVoiceRecoveryParticipant:
                 ),
             ),
             metrics=(
-                RecoveryMetricContribution(
-                    "live_voice.ended_provider_attempt_count", len(provider_rows)
-                ),
                 RecoveryMetricContribution(
                     "live_voice.ended_turn_count", len(turn_rows)
                 ),

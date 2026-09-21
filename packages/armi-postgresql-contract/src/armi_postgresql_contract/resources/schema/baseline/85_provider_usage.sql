@@ -46,17 +46,19 @@ WITH parents AS (
     LEFT JOIN armi.cognitive_episodes e ON e.cognitive_episode_id = v.origin_episode_id
     LEFT JOIN armi.opportunities o ON o.opportunity_id = e.opportunity_id
     UNION ALL
-    SELECT 'live-voice', a.provider_attempt_id, t.root_opportunity_id,
-           CASE WHEN a.turn_id IS NULL THEN 'voice_session' ELSE 'voice_turn' END,
-           COALESCE(a.turn_id, a.session_id), a.result_status, a.settled_at,
-           a.provider_calls, a.usage_contract_version, a.provider,
-           COALESCE(a.model_identity, a.resource_id),
-           CASE WHEN a.service_kind = 'llm' THEN 'generation' ELSE a.service_kind END,
-           'live_voice', a.dispatched_at, NULL::text, a.model_identity,
-           NULL::integer, NULL::integer, NULL::integer, NULL::integer,
-           NULL::bigint, a.error_code
-    FROM armi.live_voice_provider_attempts a
-    LEFT JOIN armi.live_voice_turns t USING (turn_id)
+    SELECT 'live-voice', t.turn_id, t.root_opportunity_id, 'voice_turn',
+           t.turn_id, t.result_status, t.completed_at, t.provider_calls, 1,
+           NULL::text, NULL::text, NULL::text, 'live_voice', t.created_at,
+           NULL::text, NULL::text, NULL::integer, NULL::integer,
+           NULL::integer, NULL::integer, NULL::bigint, t.error_code
+    FROM armi.live_voice_turns t
+    UNION ALL
+    SELECT 'live-voice', s.session_id, NULL::uuid, 'voice_session',
+           s.session_id, s.state, s.ended_at, s.provider_calls, 1,
+           NULL::text, NULL::text, NULL::text, 'live_voice', s.started_at,
+           NULL::text, NULL::text, NULL::integer, NULL::integer,
+           NULL::integer, NULL::integer, NULL::bigint, s.error_code
+    FROM armi.live_voice_sessions s
     UNION ALL
     SELECT 'web-observation', a.observation_attempt_id, o.root_opportunity_id,
            'web_observation', a.web_observation_request_id, a.result_status,

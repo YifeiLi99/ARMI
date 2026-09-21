@@ -341,44 +341,11 @@ CREATE TABLE armi.live_vision_sessions (
 );
 
 --
--- Name: live_voice_provider_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.live_voice_provider_attempts (
-    provider_attempt_id uuid NOT NULL,
-    turn_id uuid,
-    CONSTRAINT live_voice_provider_parent_check CHECK ((turn_id IS NULL) <> (session_id IS NULL)),
-    service_kind text NOT NULL,
-    provider text NOT NULL,
-    resource_id text NOT NULL,
-    model_identity text,
-    attempt_no smallint DEFAULT 1 NOT NULL,
-    dispatch_state text DEFAULT 'prepared'::text NOT NULL,
-    result_status text NOT NULL,
-    error_code text,
-    started_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    dispatched_at timestamp(6) with time zone,
-    first_result_at timestamp(6) with time zone,
-    settled_at timestamp(6) with time zone,
-    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version IN (0, 1)),
-    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
-    session_id uuid,
-    CONSTRAINT live_voice_attempts_binding_check CHECK ((((length(btrim(provider)) >= 1) AND (length(btrim(provider)) <= 64)) AND ((length(btrim(resource_id)) >= 1) AND (length(btrim(resource_id)) <= 128)))),
-    CONSTRAINT live_voice_attempts_error_check CHECK (((error_code IS NULL) OR (error_code ~ '^VOICE-[A-Z0-9-]{1,120}$'::text))),
-    CONSTRAINT live_voice_attempts_id_check CHECK ((uuid_extract_version(provider_attempt_id) = 7)),
-    CONSTRAINT live_voice_attempts_number_check CHECK ((attempt_no = 1)),
-    CONSTRAINT live_voice_attempts_dispatch_check CHECK ((((dispatch_state = 'prepared'::text) AND (dispatched_at IS NULL) AND (settled_at IS NULL)) OR ((dispatch_state = 'dispatched'::text) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL)) OR ((dispatch_state = 'settled'::text) AND (settled_at IS NOT NULL)))),
-    CONSTRAINT live_voice_attempts_result_check CHECK ((((result_status = 'started'::text) AND (settled_at IS NULL) AND (error_code IS NULL)) OR ((result_status = 'completed'::text) AND (settled_at IS NOT NULL) AND (error_code IS NULL)) OR ((result_status = ANY (ARRAY['failed'::text, 'partial'::text, 'unknown'::text, 'cancelled'::text])) AND (settled_at IS NOT NULL) AND (error_code IS NOT NULL)))),
-    CONSTRAINT live_voice_attempts_service_check CHECK ((service_kind = ANY (ARRAY['asr'::text, 'llm'::text, 'tts'::text]))),
-    CONSTRAINT live_voice_attempts_status_check CHECK ((result_status = ANY (ARRAY['started'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'cancelled'::text]))),
-    CONSTRAINT live_voice_attempts_dispatch_state_check CHECK ((dispatch_state = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'settled'::text])))
-);
-
---
 -- Name: live_voice_sessions; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.live_voice_sessions (
+    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
     session_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     creator_party_id uuid NOT NULL,
@@ -405,6 +372,7 @@ CREATE TABLE armi.live_voice_sessions (
 --
 
 CREATE TABLE armi.live_voice_turns (
+    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
     turn_id uuid NOT NULL,
     session_id uuid NOT NULL,
     turn_no bigint NOT NULL,

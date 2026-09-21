@@ -18,6 +18,7 @@ from armi_artifact_store.api import ArtifactDeletionDiagnostic
 from armi_cognition.api import CandidateValidationDiagnostic
 from armi_context.api import EmbeddingAttemptDiagnostic, EmbeddingFailureDiagnostic
 from armi_kernel.contracts import Instant
+from armi_live_voice.api import VoiceProviderDiagnostic
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_web_observation.api import WebToolCallDiagnostic
 
@@ -354,6 +355,9 @@ class StructuredDiagnosticLog:
                     "owner": item.owner,
                 },
             )
+
+    def voice_provider(self, event: VoiceProviderDiagnostic) -> None:
+        self.emit("live_voice.provider." + event.event, details=asdict(event))
 
     def web_tool_call(self, step: WebToolCallDiagnostic) -> None:
         self.emit("web.observation.tool_call", details=asdict(step))

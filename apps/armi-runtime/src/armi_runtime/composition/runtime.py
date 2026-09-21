@@ -970,6 +970,7 @@ async def _serve(
                             creator=creator_context,
                             interaction=interaction_module.creator_input,
                             timeline=interaction_module.effect_delivery,
+                            provider_diagnostic=diagnostic.voice_provider,
                             playback_diagnostic=lambda event, turn_id, frames, error: (
                                 diagnostic.emit(
                                     f"live_voice.playback.{event}",

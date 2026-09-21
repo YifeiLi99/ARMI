@@ -223,9 +223,9 @@ async def test_silent_failed_and_unknown_turns_do_not_enter_scene_timeline(
 
 
 @pytest.mark.asyncio
-async def test_recovery_terminalizes_attempts_turns_then_session() -> None:
+async def test_recovery_terminalizes_turns_and_session() -> None:
     result_sets = []
-    for row in (uuid7(), uuid7(), uuid7()):
+    for row in (uuid7(), uuid7()):
         result = AsyncMock()
         result.fetchall.return_value = ((row,),)
         result_sets.append(result)
@@ -236,9 +236,7 @@ async def test_recovery_terminalizes_attempts_turns_then_session() -> None:
     contribution = await LiveVoiceRecoveryParticipant().recover(transaction, scope, ())
 
     statements = [call.args[0] for call in transaction.execute.await_args_list]
-    assert "provider_attempts" in statements[0]
-    assert "WHEN 'prepared' THEN 'cancelled'" in statements[0]
-    assert "live_voice_turns" in statements[1]
-    assert "live_voice_sessions" in statements[2]
-    assert [metric.value for metric in contribution.metrics] == [1, 1, 1]
+    assert "live_voice_turns" in statements[0]
+    assert "live_voice_sessions" in statements[1]
+    assert [metric.value for metric in contribution.metrics] == [1, 1]
     assert contribution.findings[0].kind == "live_voice_session"

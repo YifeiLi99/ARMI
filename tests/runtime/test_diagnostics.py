@@ -11,6 +11,7 @@ from unittest.mock import patch
 from armi_artifact_store.api import ArtifactDeletionDiagnostic
 from armi_cognition.api import CandidateDiagnostic, CandidateValidationDiagnostic
 from armi_context.api import EmbeddingFailureDiagnostic
+from armi_live_voice.api import VoiceProviderDiagnostic
 from armi_runtime.application.creator_contract import RuntimeState
 from armi_runtime.composition.diagnostics import StructuredDiagnosticLog
 from armi_runtime.composition.lifecycle import LifecycleController
@@ -25,6 +26,34 @@ class _WriteFailure(io.StringIO):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_voice_provider_result_reaches_rotating_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root, environment_id=_ENVIRONMENT, instance_id="instance"
+            )
+            diagnostic.voice_provider(
+                VoiceProviderDiagnostic(
+                    "settled",
+                    "call",
+                    "turn",
+                    None,
+                    "asr",
+                    "provider",
+                    "resource",
+                    None,
+                    "unknown",
+                    "VOICE-ASR-CANCELLED",
+                )
+            )
+            diagnostic.close()
+            record = json.loads(
+                next((root / "logs").glob("*.jsonl")).read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["event"], "live_voice.provider.settled")
+            self.assertEqual(record["details"]["error_code"], "VOICE-ASR-CANCELLED")
+            self.assertEqual(record["details"]["turn_id"], "turn")
+
     def test_candidate_rejection_details_reach_rotating_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

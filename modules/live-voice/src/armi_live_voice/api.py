@@ -216,6 +216,20 @@ class VoiceExpressionPort(Protocol):
     ) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class VoiceProviderDiagnostic:
+    event: str
+    call_id: str
+    turn_id: str | None
+    session_id: str | None
+    service: str
+    provider: str
+    resource_id: str
+    model_identity: str | None
+    outcome: str | None = None
+    error_code: str | None = None
+
+
 @runtime_checkable
 class VoiceJournalPort(Protocol):
     async def recent_turn(self) -> VoiceTurnSnapshot | None: ...
@@ -255,27 +269,12 @@ class VoiceJournalPort(Protocol):
         error_code: str | None = None,
         silent: bool = False,
     ) -> None: ...
-    async def begin_provider_attempt(
-        self,
-        *,
-        turn_id: UUID | None,
-        binding: VoiceProviderBinding,
-        session_id: UUID | None = None,
-    ) -> UUID: ...
     async def record_provider_call(
         self,
         *,
-        attempt_id: UUID,
+        turn_id: UUID | None,
+        session_id: UUID | None,
         receipt: ProviderCallReceipt,
-    ) -> None: ...
-    async def mark_provider_dispatched(self, *, attempt_id: UUID) -> None: ...
-    async def mark_provider_first_result(self, *, attempt_id: UUID) -> None: ...
-    async def settle_provider_attempt(
-        self,
-        *,
-        attempt_id: UUID,
-        outcome: AttemptOutcome,
-        error_code: str | None = None,
     ) -> None: ...
     async def mark_playback_dispatched(self, *, turn_id: UUID) -> None: ...
     async def mark_playback_first_frame(self, *, turn_id: UUID) -> None: ...
@@ -467,6 +466,7 @@ __all__ = (
     "VoiceJournalPort",
     "VoiceModelCompatibilityPort",
     "VoiceProviderBinding",
+    "VoiceProviderDiagnostic",
     "VoiceProviderService",
     "VoiceTimelinePort",
     "VoiceTurnSnapshot",
