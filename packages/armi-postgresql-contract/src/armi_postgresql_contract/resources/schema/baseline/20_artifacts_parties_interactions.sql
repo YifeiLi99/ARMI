@@ -429,22 +429,6 @@ CREATE TABLE armi.live_voice_sessions (
 );
 
 --
--- Name: live_voice_text_fragments; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.live_voice_text_fragments (
-    fragment_id uuid NOT NULL,
-    turn_id uuid NOT NULL,
-    fragment_no smallint NOT NULL,
-    body text,
-    registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    data_rights_redacted_at timestamp(6) with time zone,
-    CONSTRAINT live_voice_fragments_body_check CHECK (((data_rights_redacted_at IS NOT NULL) OR ((length(btrim(body)) >= 1) AND (length(btrim(body)) <= 160)))),
-    CONSTRAINT live_voice_fragments_id_check CHECK ((uuid_extract_version(fragment_id) = 7)),
-    CONSTRAINT live_voice_fragments_number_check CHECK (((fragment_no >= 1) AND (fragment_no <= 64)))
-);
-
---
 -- Name: live_voice_turns; Type: TABLE; Schema: armi; Owner: -
 --
 
@@ -456,6 +440,7 @@ CREATE TABLE armi.live_voice_turns (
     root_opportunity_id uuid,
     final_transcript text,
     registered_response_text text DEFAULT ''::text,
+    response_fragment_count smallint DEFAULT 0 NOT NULL CHECK (response_fragment_count BETWEEN 0 AND 64),
     playback_extent text DEFAULT 'none'::text NOT NULL,
     frames_written bigint DEFAULT 0 NOT NULL,
     model_identity text,

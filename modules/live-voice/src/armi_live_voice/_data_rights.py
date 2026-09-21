@@ -34,11 +34,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            FROM armi.live_voice_turns AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "live_voice_text_fragments",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.live_voice_text_fragments AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "live_voice_provider_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.live_voice_provider_attempts AS source ORDER BY to_jsonb(source)::text""",
@@ -86,15 +81,6 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
             item.ref for item in request.related_refs if item.kind == "live-voice"
         )
         if request.order_kind == "delete_related" and sessions:
-            await transaction.execute(
-                """UPDATE armi.live_voice_text_fragments AS fragment
-                   SET body=NULL,data_rights_redacted_at=statement_timestamp()
-                   FROM armi.live_voice_turns AS turn
-                   WHERE fragment.turn_id=turn.turn_id
-                     AND turn.session_id=ANY(%s::uuid[])
-                     AND fragment.data_rights_redacted_at IS NULL""",
-                (list(sessions),),
-            )
             await transaction.execute(
                 """UPDATE armi.live_voice_turns
                    SET final_transcript=NULL,registered_response_text=NULL,

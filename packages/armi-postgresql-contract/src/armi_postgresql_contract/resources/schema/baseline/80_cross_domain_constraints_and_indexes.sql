@@ -929,20 +929,6 @@ ALTER TABLE ONLY armi.live_voice_sessions
     ADD CONSTRAINT live_voice_sessions_pkey PRIMARY KEY (session_id);
 
 --
--- Name: live_voice_text_fragments live_voice_text_fragments_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.live_voice_text_fragments
-    ADD CONSTRAINT live_voice_text_fragments_pkey PRIMARY KEY (fragment_id);
-
---
--- Name: live_voice_text_fragments live_voice_text_fragments_turn_id_fragment_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.live_voice_text_fragments
-    ADD CONSTRAINT live_voice_text_fragments_turn_id_fragment_no_key UNIQUE (turn_id, fragment_no);
-
---
 -- Name: live_voice_turns live_voice_turns_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3277,13 +3263,6 @@ ALTER TABLE ONLY armi.live_voice_sessions
 
 ALTER TABLE ONLY armi.live_voice_sessions
     ADD CONSTRAINT live_voice_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: live_voice_text_fragments live_voice_text_fragments_turn_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.live_voice_text_fragments
-    ADD CONSTRAINT live_voice_text_fragments_turn_id_fkey FOREIGN KEY (turn_id) REFERENCES armi.live_voice_turns(turn_id);
 
 --
 -- Name: live_voice_turns live_voice_turns_interaction_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

@@ -310,7 +310,6 @@ class LiveVoiceService:
                     "VOICE-PLAYBACK-RESULT-UNKNOWN",
                     "voice playback text could not be verified",
                 )
-            await self._expression.seal(turn_id=turn_id)
             snapshot = await self._journal.recent_turn()
         except LiveVoiceViolation as error:
             completion.set_exception(error)

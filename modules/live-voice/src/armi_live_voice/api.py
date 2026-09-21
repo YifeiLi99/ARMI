@@ -215,8 +215,6 @@ class VoiceExpressionPort(Protocol):
         text: str,
     ) -> None: ...
 
-    async def seal(self, *, turn_id: UUID) -> None: ...
-
 
 @runtime_checkable
 class VoiceJournalPort(Protocol):

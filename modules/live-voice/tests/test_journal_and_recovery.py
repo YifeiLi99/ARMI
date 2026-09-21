@@ -10,6 +10,7 @@ from armi_live_voice._recovery import LiveVoiceRecoveryParticipant
 from armi_live_voice.api import (
     AttemptOutcome,
     LiveVoiceBinding,
+    LiveVoiceViolation,
     VoiceProviderBinding,
     VoiceProviderService,
 )
@@ -47,6 +48,52 @@ def _binding() -> LiveVoiceBinding:
         ),
         VoiceProviderBinding(VoiceProviderService.TTS, "volcengine", "tts", "voice"),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rowcount", [0, 1])
+async def test_fragment_append_rejects_stale_or_closed_turn(rowcount: int) -> None:
+    result = AsyncMock()
+    result.rowcount = rowcount
+    transaction = AsyncMock()
+    transaction.execute.return_value = result
+    journal = PostgreSQLLiveVoiceJournal(
+        factory=_Factory(transaction),  # type: ignore[arg-type]
+        subject_id=uuid7(),
+        creator_party_id=uuid7(),
+        scene_id=uuid7(),
+        binding=_binding(),
+        timeline=AsyncMock(),
+    )
+    turn_id = uuid7()
+    if rowcount:
+        await journal.register_fragment(turn_id=turn_id, fragment_no=2, text="你好")
+    else:
+        with pytest.raises(LiveVoiceViolation, match="out of sequence"):
+            await journal.register_fragment(turn_id=turn_id, fragment_no=2, text="你好")
+    query, params = transaction.execute.call_args.args
+    assert params == ("你好", 2, turn_id, 1)
+    assert "response_fragment_count=%s" in query
+    assert "completed_at IS NULL AND data_rights_redacted_at IS NULL" in query
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "number,text", [(0, "你好"), (65, "你好"), (1, " "), (1, "a" * 161)]
+)
+async def test_invalid_fragment_never_writes(number: int, text: str) -> None:
+    transaction = AsyncMock()
+    journal = PostgreSQLLiveVoiceJournal(
+        factory=_Factory(transaction),  # type: ignore[arg-type]
+        subject_id=uuid7(),
+        creator_party_id=uuid7(),
+        scene_id=uuid7(),
+        binding=_binding(),
+        timeline=AsyncMock(),
+    )
+    with pytest.raises(LiveVoiceViolation):
+        await journal.register_fragment(turn_id=uuid7(), fragment_no=number, text=text)
+    transaction.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -137,7 +184,7 @@ async def test_post_playback_failure_cannot_rewrite_completed_playback() -> None
     )
 
     settlement = transaction.execute.await_args_list[2].args[1]
-    assert settlement[:5] == ("completed", "已经完整播出", "complete", 2, None)
+    assert settlement[:4] == ("completed", "complete", 2, None)
     timeline.record_live_voice_response.assert_awaited_once()
 
 

@@ -109,14 +109,6 @@ class FakeExpression:
     async def register_fragment(self, **_: object) -> None:
         self.log.append("registered")
 
-    async def seal(self, **_: object) -> None:
-        self.log.append("sealed")
-
-
-class FailingExpression(FakeExpression):
-    async def seal(self, **_: object) -> None:
-        raise RuntimeError("timeline failed")
-
 
 class FakeJournal:
     def __init__(self) -> None:
@@ -214,7 +206,7 @@ async def test_committed_effect_is_registered_before_audio_and_only_then_complet
 
     assert frames == 1
     assert set(log[:2]) == {"model_ready", "tts_ready"}
-    assert log[2:] == ["registered", "synthesized", "played", "sealed"]
+    assert log[2:] == ["registered", "synthesized", "played"]
 
 
 @pytest.mark.asyncio
@@ -310,14 +302,19 @@ async def test_failure_after_full_playback_is_unknown_and_never_safe_to_replay()
 ):
     log: list[str] = []
     inputs = FakeInputs()
-    journal = FakeJournal()
+
+    class FailingJournal(FakeJournal):
+        async def recent_turn(self):
+            raise RuntimeError("playback status read failed")
+
+    journal = FailingJournal()
     service = LiveVoiceService(
         audio=FakeAudio(log),
         asr=FakeAsr(),
         model=FakeModelCompatibility(log),
         tts=FakeTts(log),
         inputs=inputs,
-        expression=FailingExpression(log),
+        expression=FakeExpression(log),
         journal=journal,
         binding=_binding(),
         prices=PriceCatalog(()),

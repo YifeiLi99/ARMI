@@ -66,11 +66,6 @@ class LiveVoiceRecoveryParticipant:
                 """UPDATE armi.live_voice_turns AS turn
                    SET result_status='unknown',completed_at=statement_timestamp(),
                        error_code='VOICE-RUNTIME-RESTARTED',
-                       registered_response_text=COALESCE((
-                           SELECT string_agg(fragment.body, '' ORDER BY fragment.fragment_no)
-                           FROM armi.live_voice_text_fragments AS fragment
-                           WHERE fragment.turn_id=turn.turn_id
-                       ), turn.registered_response_text),
                        frames_written=COALESCE((
                            SELECT playback.frames_written
                            FROM armi.live_voice_playback_attempts AS playback

@@ -222,9 +222,8 @@ class PostgreSQLLiveVoiceJournal:
             ).fetchone()
             response = await (
                 await unit.transaction.execute(
-                    "SELECT COALESCE(string_agg(body,'' ORDER BY fragment_no),'') "
-                    "FROM armi.live_voice_text_fragments WHERE turn_id=%s "
-                    "AND data_rights_redacted_at IS NULL",
+                    "SELECT registered_response_text FROM armi.live_voice_turns "
+                    "WHERE turn_id=%s FOR UPDATE",
                     (turn_id,),
                 )
             ).fetchone()
@@ -246,12 +245,12 @@ class PostgreSQLLiveVoiceJournal:
                     status = "unknown"
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns
-                   SET result_status=%s,registered_response_text=%s,
+                   SET result_status=%s,
                        playback_extent=%s,frames_written=%s,error_code=%s,
                        completed_at=statement_timestamp()
                    WHERE turn_id=%s AND completed_at IS NULL
                    RETURNING first_audio_at""",
-                (status, str(response[0]), extent, frames_written, error_code, turn_id),
+                (status, extent, frames_written, error_code, turn_id),
             )
             row = await result.fetchone()
             if row is None:
@@ -376,26 +375,31 @@ class PostgreSQLLiveVoiceJournal:
         fragment_no: int,
         text: str,
     ) -> None:
-        async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """INSERT INTO armi.live_voice_text_fragments
-                   (fragment_id,turn_id,fragment_no,body)
-                   VALUES (%s,%s,%s,%s)""",
-                (uuid7(), turn_id, fragment_no, text),
+        if (
+            type(fragment_no) is not int
+            or not 1 <= fragment_no <= 64
+            or not 1 <= len(text.strip()) <= 160
+            or "\x00" in text
+        ):
+            raise LiveVoiceViolation(
+                "VOICE-JOURNAL-FRAGMENT", "voice fragment is invalid"
             )
-
-    async def seal(self, *, turn_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:
+            # One atomic append keeps order and rejects duplicate fragments (DESIGN.md).
             result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_turns SET registered_response_text=(
-                       SELECT COALESCE(string_agg(body,'' ORDER BY fragment_no),'')
-                       FROM armi.live_voice_text_fragments
-                       WHERE turn_id=%s AND data_rights_redacted_at IS NULL)
-                   WHERE turn_id=%s AND completed_at IS NULL""",
-                (turn_id, turn_id),
+                """UPDATE armi.live_voice_turns
+                   SET registered_response_text=registered_response_text || %s,
+                       response_fragment_count=%s
+                   WHERE turn_id=%s AND response_fragment_count=%s
+                     AND completed_at IS NULL AND data_rights_redacted_at IS NULL
+                     AND registered_response_text IS NOT NULL""",
+                (text, fragment_no, turn_id, fragment_no - 1),
             )
             if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-FRAGMENT",
+                    "voice fragment is out of sequence or turn is closed",
+                )
 
     async def begin_playback(self, *, turn_id: UUID) -> UUID:
         attempt_id = uuid7()
