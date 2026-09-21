@@ -43,10 +43,9 @@ class PostgreSQLEffectAdmin:
         suffix = " FOR UPDATE OF effect,outbox" if for_update else ""
         row = transaction.execute(
             "SELECT effect.effect_id,effect.status,effect.current_attempt_id,effect.payload_digest,"
-            "effect.action_intent_id,outbox.effect_outbox_item_id,delivery.delivery_id,delivery.receipt_digest "
+            "effect.action_intent_id,outbox.effect_outbox_item_id,effect.local_delivery_id,effect.local_receipt_digest "
             "FROM armi.effects AS effect JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id "
-            "LEFT JOIN armi.local_inbox_deliveries AS delivery ON delivery.effect_id=effect.effect_id "
-            "AND delivery.payload_digest=effect.payload_digest WHERE effect.effect_id=%s"
+            "WHERE effect.effect_id=%s"
             + suffix,
             (effect_id,),
         ).fetchone()
@@ -163,8 +162,8 @@ class PostgreSQLEffectAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         row = transaction.execute(
-            "SELECT (SELECT count(*) FROM armi.effects WHERE payload_artifact_id=%s)+(SELECT count(*) FROM armi.local_inbox_deliveries WHERE payload_artifact_id=%s)",
-            (artifact_id, artifact_id),
+            "SELECT count(*) FROM armi.effects WHERE payload_artifact_id=%s",
+            (artifact_id,),
         ).fetchone()
         return 0 if row is None else int(cast(int, row[0]))
 

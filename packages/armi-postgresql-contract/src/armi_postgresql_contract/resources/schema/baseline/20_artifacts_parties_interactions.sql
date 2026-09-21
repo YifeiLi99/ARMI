@@ -383,25 +383,6 @@ CREATE TABLE armi.live_voice_turns (
     CONSTRAINT live_voice_turns_transcript_check CHECK (((final_transcript IS NULL) OR ((length(btrim(final_transcript)) >= 1) AND (length(btrim(final_transcript)) <= 4096))))
 );
 
---
--- Name: local_inbox_deliveries; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.local_inbox_deliveries (
-    delivery_id uuid NOT NULL,
-    effect_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    destination_party_id uuid NOT NULL,
-    payload_artifact_id uuid NOT NULL,
-    payload_digest text NOT NULL,
-    payload_bytes integer NOT NULL,
-    receipt_digest text NOT NULL,
-    delivered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT local_inbox_deliveries_id_check CHECK ((uuid_extract_version(delivery_id) = 7)),
-    CONSTRAINT local_inbox_deliveries_payload_bytes_check CHECK (((payload_bytes IS NULL) OR ((payload_bytes >= 1) AND (payload_bytes <= 65536)))),
-    CONSTRAINT local_inbox_deliveries_payload_digest_check CHECK ((payload_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT local_inbox_deliveries_receipt_digest_check CHECK ((receipt_digest ~ '^sha256:[0-9a-f]{64}$'::text))
-);
 
 --
 -- Name: parties; Type: TABLE; Schema: armi; Owner: -

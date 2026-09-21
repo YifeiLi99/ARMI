@@ -60,7 +60,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         ("effect",),
         (
             ("effects", "payload_artifact_id", "objective"),
-            ("local_inbox_deliveries", "payload_artifact_id", "objective"),
         ),
     ),
     _contract(

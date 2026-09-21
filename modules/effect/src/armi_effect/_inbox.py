@@ -26,7 +26,7 @@ from .api import (
 
 
 class PostgreSQLLocalInbox(ActionAdapterPort):
-    """Receive one local party response without access to the effect ledger."""
+    """Record a local receipt on its effect before the separate settlement."""
 
     __slots__ = ("_factory",)
 
@@ -51,26 +51,23 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
         receipt_digest = _receipt_digest(request, delivery_id)
         async with self._factory.unit_of_work() as uow:
             connection = uow.transaction
+            # Receipt persistence precedes settlement; see DESIGN.md's local inbox contract.
             row = await (
                 await connection.execute(
                     """
-                    INSERT INTO armi.local_inbox_deliveries (
-                        delivery_id, effect_id, scene_id,
-                        destination_party_id, payload_artifact_id, payload_digest,
-                        payload_bytes, receipt_digest
-                    )
-                    SELECT %s, effect.effect_id, effect.scene_id,
-                           effect.destination_party_id, effect.payload_artifact_id,
-                           effect.payload_digest, effect.payload_bytes, %s
-                    FROM armi.effects AS effect
+                    UPDATE armi.effects AS effect
+                    SET local_delivery_id = %s,
+                        local_receipt_digest = %s,
+                        local_delivered_at = statement_timestamp()
                     WHERE effect.effect_id = %s
                       AND effect.subject_id = %s
                       AND effect.scene_id = %s
                       AND effect.destination_party_id = %s
                       AND effect.payload_digest = %s
                       AND effect.payload_bytes = %s
-                    ON CONFLICT (effect_id) DO NOTHING
-                    RETURNING delivery_id, receipt_digest, delivered_at
+                      AND effect.destination_kind = %s
+                      AND effect.local_delivery_id IS NULL
+                    RETURNING local_delivery_id, local_receipt_digest, local_delivered_at
                     """,
                     (
                         delivery_id,
@@ -81,6 +78,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                         request.destination_party_id,
                         request.payload_digest.value,
                         request.payload_bytes,
+                        request.destination_kind,
                     ),
                 )
             ).fetchone()
@@ -133,11 +131,11 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
         row = await (
             await connection.execute(
                 """
-                SELECT delivery_id, receipt_digest, delivered_at,
+                SELECT local_delivery_id, local_receipt_digest, local_delivered_at,
                        payload_digest, payload_bytes, scene_id,
-                       destination_party_id
-                FROM armi.local_inbox_deliveries
-                WHERE effect_id = %s
+                       destination_party_id, subject_id, destination_kind
+                FROM armi.effects
+                WHERE effect_id = %s AND local_delivery_id IS NOT NULL
                 """,
                 (request.effect_id.value,),
             )
@@ -149,6 +147,8 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
             or int(row[4]) != request.payload_bytes
             or row[5] != request.scene_id
             or row[6] != request.destination_party_id
+            or row[7] != request.subject_id
+            or row[8] != request.destination_kind
         ):
             raise EffectViolation("EFFECT-RECEIVER-CONFLICT")
         return row

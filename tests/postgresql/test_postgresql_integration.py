@@ -8503,10 +8503,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                 response_timeline = PostgreSQLInteractionPerception()
                 adapter = PostgreSQLLocalInbox(response_factory)
-                receipt = await adapter.dispatch(
-                    dispatch_snapshot.request,
-                    payloads["reply"],
+                receipts = await asyncio.gather(
+                    adapter.dispatch(dispatch_snapshot.request, payloads["reply"]),
+                    adapter.dispatch(dispatch_snapshot.request, payloads["reply"]),
                 )
+                self.assertEqual(sum(item.duplicate for item in receipts), 1)
+                self.assertEqual(receipts[0].delivery_id, receipts[1].delivery_id)
+                receipt = receipts[0]
+                observed = await adapter.observe(dispatch_snapshot.request)
+                assert observed is not None
+                self.assertEqual(observed.delivery_id, receipt.delivery_id)
+                self.assertEqual(observed.receipt_digest, receipt.receipt_digest)
+                self.assertEqual(observed.received_at, receipt.received_at)
                 duplicate_receipt = await adapter.dispatch(
                     dispatch_snapshot.request,
                     payloads["reply"],
@@ -8664,7 +8672,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 SELECT effect.status, effect_outbox.status,
                        'effect_' || effect.status,
                        effect_outbox.dispatch_deadline,
-                       (SELECT count(*) FROM armi.local_inbox_deliveries),
+                       (SELECT count(*) FROM armi.effects WHERE local_delivery_id IS NOT NULL),
                        (SELECT count(*) FROM armi.effect_attempts),
                        (SELECT count(*) FROM armi.effect_observations),
                        (SELECT count(*) FROM armi.scene_timeline_items

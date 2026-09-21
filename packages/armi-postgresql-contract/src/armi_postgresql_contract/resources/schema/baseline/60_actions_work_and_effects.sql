@@ -283,6 +283,17 @@ CREATE TABLE armi.effects (
     action_intent_id uuid NOT NULL,
     destination_binding_id uuid,
     live_voice_turn_id uuid,
+    local_delivery_id uuid UNIQUE,
+    local_receipt_digest text,
+    local_delivered_at timestamp(6) with time zone,
+    CONSTRAINT effects_local_delivery_check CHECK (
+        (local_delivery_id IS NULL AND local_receipt_digest IS NULL AND local_delivered_at IS NULL)
+        OR (local_delivery_id IS NOT NULL AND local_receipt_digest IS NOT NULL
+            AND local_delivered_at IS NOT NULL
+            AND destination_kind IN ('creator_inbox', 'other_human_inbox'))
+    ),
+    CONSTRAINT effects_local_delivery_id_check CHECK (uuid_extract_version(local_delivery_id) = 7),
+    CONSTRAINT effects_local_receipt_digest_check CHECK (local_receipt_digest ~ '^sha256:[0-9a-f]{64}$'),
     CONSTRAINT effects_authorization_check CHECK ((authorization_basis = ANY (ARRAY['runtime_builtin'::text, 'runtime_configuration'::text]))),
     CONSTRAINT effects_destination_check CHECK ((destination_kind = ANY (ARRAY['creator_inbox'::text, 'other_human_inbox'::text, 'codex_workspace'::text, 'external_group'::text, 'external_private'::text, 'live_voice_audio'::text]))),
     CONSTRAINT effects_live_voice_shape_check CHECK (((destination_kind = 'live_voice_audio'::text) = (live_voice_turn_id IS NOT NULL))),

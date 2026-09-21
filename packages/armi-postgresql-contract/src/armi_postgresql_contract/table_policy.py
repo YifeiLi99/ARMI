@@ -122,7 +122,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "effect_observations": TableOwnership("effect", maintenance_writable=False),
     "effect_outbox_items": TableOwnership("effect", maintenance_writable=False),
     "effects": TableOwnership("effect", maintenance_writable=False),
-    "local_inbox_deliveries": TableOwnership("effect", maintenance_writable=False),
     # Web, Codex, and Data Rights.
     "codex_task_sources": TableOwnership("codex", maintenance_writable=True),
     "codex_verification_results": TableOwnership("codex", maintenance_writable=False),

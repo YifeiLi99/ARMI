@@ -37,7 +37,7 @@ external_evidence external_message_parts interaction_scenes
 life_material_revisions life_materials live_vision_observation_frames
 live_vision_observations live_vision_sessions
 live_voice_sessions
-live_voice_turns local_inbox_deliveries
+live_voice_turns
 maintenance_session_revisions maintenance_sessions memory_relations
 mood_appraisal_events mood_heads mood_revisions
 opportunities parties
@@ -69,7 +69,7 @@ external_evidence external_message_parts
 interaction_scenes life_material_revisions life_materials live_vision_observation_frames
 live_vision_observations live_vision_sessions
 live_voice_sessions
-live_voice_turns local_inbox_deliveries maintenance_sessions mood_appraisal_events mood_heads
+live_voice_turns maintenance_sessions mood_appraisal_events mood_heads
 opportunities parties party_input_interactions
   prompt_documents relationship_revisions relationships
 runtime_instances
@@ -93,7 +93,7 @@ artifact_publications artifacts
 
 _ADMIN_DELETE = """
 artifacts audit_events dialogue_decisions
-external_evidence external_message_parts local_inbox_deliveries opportunities
+external_evidence external_message_parts opportunities
 party_input_interactions scene_timeline_items
 """
 

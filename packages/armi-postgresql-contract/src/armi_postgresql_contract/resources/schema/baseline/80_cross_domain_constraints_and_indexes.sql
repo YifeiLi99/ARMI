@@ -760,19 +760,7 @@ ALTER TABLE ONLY armi.live_voice_turns
 ALTER TABLE ONLY armi.live_voice_turns
     ADD CONSTRAINT live_voice_turns_root_opportunity_id_key UNIQUE (root_opportunity_id);
 
---
--- Name: local_inbox_deliveries local_inbox_deliveries_effect_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.local_inbox_deliveries
-    ADD CONSTRAINT local_inbox_deliveries_effect_key UNIQUE (effect_id);
-
---
--- Name: local_inbox_deliveries local_inbox_deliveries_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.local_inbox_deliveries
-    ADD CONSTRAINT local_inbox_deliveries_pkey PRIMARY KEY (delivery_id);
 
 ALTER TABLE ONLY armi.maintenance_session_revisions
     ADD CONSTRAINT maintenance_revisions_result_candidate_application_id_key UNIQUE (candidate_application_id);
@@ -2613,33 +2601,9 @@ ALTER TABLE ONLY armi.live_voice_turns
 ALTER TABLE ONLY armi.live_voice_turns
     ADD CONSTRAINT live_voice_turns_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_voice_sessions(session_id);
 
---
--- Name: local_inbox_deliveries local_inbox_deliveries_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.local_inbox_deliveries
-    ADD CONSTRAINT local_inbox_deliveries_artifact_fkey FOREIGN KEY (payload_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: local_inbox_deliveries local_inbox_deliveries_effect_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.local_inbox_deliveries
-    ADD CONSTRAINT local_inbox_deliveries_effect_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
-
---
--- Name: local_inbox_deliveries local_inbox_deliveries_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.local_inbox_deliveries
-    ADD CONSTRAINT local_inbox_deliveries_party_fkey FOREIGN KEY (destination_party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: local_inbox_deliveries local_inbox_deliveries_scene_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.local_inbox_deliveries
-    ADD CONSTRAINT local_inbox_deliveries_scene_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
 
 ALTER TABLE ONLY armi.maintenance_session_revisions
     ADD CONSTRAINT maintenance_revisions_result_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
