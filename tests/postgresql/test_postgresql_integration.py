@@ -67,10 +67,15 @@ from armi_codex.api import (
 from armi_cognition.api import (
     CandidateExactLifeQueryDraft,
     CognitionAcceptedCandidate,
+    CognitionApplicationDraft,
+    CognitionContextEpisodeDraft,
     CognitionSchemaDocument,
     SubjectChangeSet,
 )
-from armi_cognition.bootstrap import bootstrap_cognition_exact_life_query
+from armi_cognition.bootstrap import (
+    bootstrap_cognition_context,
+    bootstrap_cognition_exact_life_query,
+)
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
 from armi_expression.api import (
@@ -110,6 +115,7 @@ from armi_kernel.application import (
     BirthManifest,
     BirthResult,
     BirthViolation,
+    CandidateApplicationId,
     CandidateApplicationStatus,
     CandidateBasis,
     CandidateDisposition,
@@ -6872,6 +6878,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             interruption_stage="rollback", check_life_query=True
         )
 
+    @pytest.mark.test_group("cognition", "context", "experience")
+    def test_maintenance_scope_and_reflections_share_source_episode(self) -> None:
+        self._exercise_creator_reply(check_maintenance_scope=True)
+
     def _exercise_creator_reply(
         self,
         *,
@@ -6882,6 +6892,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         neutral_mood: bool = False,
         check_sleep_decisions: bool = False,
         check_life_query: bool = False,
+        check_maintenance_scope: bool = False,
         check_dialogue_decisions: bool = False,
         purpose: str | None = None,
         technical_failure: str | None = None,
@@ -8470,6 +8481,156 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertIs(status, CandidateApplicationStatus.APPLIED)
         self.assertEqual(version, 1)
+        if check_maintenance_scope:
+
+            async def check_maintenance() -> None:
+                owner = bootstrap_cognition_context(
+                    experiences=bootstrap_experience_owner()
+                )
+                async with await psycopg.AsyncConnection.connect(
+                    fixture.runtime_dsn
+                ) as connection:
+                    transaction = cast(Any, connection)
+
+                    async def create(purpose: str) -> UUID:
+                        opportunity_id, episode_id = uuid7(), uuid7()
+                        await connection.execute(
+                            """INSERT INTO armi.opportunities
+                               (opportunity_id,subject_id,purpose,eligibility_status,
+                                current_disposition,root_opportunity_id,source_kind,
+                                source_ref,source_version)
+                               VALUES (%s,%s,%s,'eligible','open',%s,'maintenance_window',%s,1)""",
+                            (
+                                opportunity_id,
+                                born.subject_id,
+                                purpose,
+                                opportunity_id,
+                                opportunity_id,
+                            ),
+                        )
+                        self.assertTrue(
+                            await owner.create_context_episode(
+                                transaction,
+                                CognitionContextEpisodeDraft(
+                                    episode_id=episode_id,
+                                    opportunity_id=opportunity_id,
+                                    subject_id=born.subject_id,
+                                    scene_id=None,
+                                    context_party_id=None,
+                                    purpose=purpose,
+                                    base_subject_version=1,
+                                    base_state_epoch=0,
+                                    bundle_activation_id=born.bundle_activation_id,
+                                    mechanism_identity="armi.context-compiler.layered-v3",
+                                    trace_id=TraceId(trace),
+                                    maintenance_trigger_kind="runtime_idle",
+                                ),
+                            )
+                        )
+                        return episode_id
+
+                    root_id = await create("maintain_subjective_memory")
+                    frozen = await (
+                        await connection.execute(
+                            """SELECT maintenance_from_ordinal,maintenance_through_ordinal,
+                                  maintenance_experience_ids
+                           FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s""",
+                            (root_id,),
+                        )
+                    ).fetchone()
+                    assert frozen is not None
+                    self.assertEqual(frozen[:2], (0, 1))
+                    self.assertEqual(len(frozen[2]), 1)
+                    # An interrupted cognition ends, while its frozen life progress
+                    # remains available to a newly created maintenance opportunity.
+                    await connection.execute(
+                        "UPDATE armi.cognitive_episodes SET status='cancelled',failure_code='COGNITION-RUNTIME-INTERRUPTED' WHERE cognitive_episode_id=%s",
+                        (root_id,),
+                    )
+                    repeated_id = await create("maintain_subjective_memory")
+                    reflected_id = await create("reflect_prompt")
+                    for episode_id in (repeated_id, reflected_id):
+                        self.assertEqual(
+                            await (
+                                await connection.execute(
+                                    "SELECT maintenance_source_episode_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                                    (episode_id,),
+                                )
+                            ).fetchone(),
+                            (root_id,),
+                        )
+                    context = await owner.context_episode(
+                        transaction, episode_id=repeated_id
+                    )
+                    self.assertEqual(
+                        [item.experience_id for item in context.experience_context],
+                        frozen[2],
+                    )
+                    self.assertEqual(
+                        await (
+                            await connection.execute(
+                                "SELECT count(*) FROM armi.cognitive_episodes WHERE maintenance_status='running'",
+                            )
+                        ).fetchone(),
+                        (1,),
+                    )
+                    # Reuse the fixture's validated episode to exercise the final
+                    # reflection commit without another model invocation.
+                    application = await (
+                        await connection.execute(
+                            "SELECT candidate_application_id,subject_commit_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                            (ids["episode"],),
+                        )
+                    ).fetchone()
+                    assert application is not None
+                    await connection.execute(
+                        """UPDATE armi.cognitive_episodes
+                           SET purpose='reflect_prompt',scene_id=NULL,context_party_id=NULL,
+                               status='finalizing',application_resolution=NULL,committed_at=NULL,
+                               candidate_application_id=NULL,subject_commit_id=NULL,
+                               observed_subject_version=NULL,maintenance_source_episode_id=%s
+                           WHERE cognitive_episode_id=%s""",
+                        (root_id, ids["episode"]),
+                    )
+                    await bootstrap_cognition_subject_commit().record_application(
+                        transaction,
+                        CognitionApplicationDraft(
+                            application_id=CandidateApplicationId(application[0]),
+                            validation_id=ids["validation"],
+                            episode_id=ids["episode"],
+                            status=CandidateApplicationStatus.APPLIED,
+                            subject_commit_id=application[1],
+                            successor_opportunity_id=None,
+                            observed_subject_version=1,
+                            purpose="reflect_prompt",
+                        ),
+                    )
+                    self.assertEqual(
+                        await (
+                            await connection.execute(
+                                "SELECT maintenance_status FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                                (root_id,),
+                            )
+                        ).fetchone(),
+                        ("completed",),
+                    )
+                    self.assertEqual(
+                        await (
+                            await connection.execute(
+                                "SELECT processed_through_ordinal FROM armi.cognition_maintenance_cursors WHERE subject_id=%s",
+                                (born.subject_id,),
+                            )
+                        ).fetchone(),
+                        (1,),
+                    )
+                    await connection.rollback()
+
+            asyncio.run(
+                check_maintenance(),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
         if concerns:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 core = connection.execute(

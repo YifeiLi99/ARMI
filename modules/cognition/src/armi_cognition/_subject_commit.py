@@ -352,7 +352,7 @@ class PostgreSQLCognitionSubjectCommit:
         ):
             episode = await (
                 await transaction.execute(
-                    """SELECT subject_id,maintenance_batch_id FROM armi.cognitive_episodes
+                    """SELECT subject_id,maintenance_source_episode_id FROM armi.cognitive_episodes
                        WHERE cognitive_episode_id=%s""",
                     (draft.episode_id,),
                 )
@@ -361,18 +361,18 @@ class PostgreSQLCognitionSubjectCommit:
                 raise SubjectCommitViolation("SUBJECT-EPISODE-STATE")
             await transaction.execute(
                 """WITH completed AS (
-                     UPDATE armi.cognition_maintenance_batches
-                     SET status='completed',finished_at=statement_timestamp()
-                     WHERE maintenance_batch_id=%s
+                     UPDATE armi.cognitive_episodes
+                     SET maintenance_status='completed',maintenance_finished_at=statement_timestamp()
+                     WHERE cognitive_episode_id=%s
                        AND subject_id=%s
-                       AND status='running'
-                     RETURNING frozen_from_ordinal,frozen_through_ordinal
+                       AND maintenance_status='running'
+                     RETURNING maintenance_from_ordinal,maintenance_through_ordinal
                    )
                    UPDATE armi.cognition_maintenance_cursors
-                   SET processed_through_ordinal=(SELECT frozen_through_ordinal FROM completed),
+                   SET processed_through_ordinal=(SELECT maintenance_through_ordinal FROM completed),
                        updated_at=statement_timestamp()
                    WHERE subject_id=%s
-                     AND processed_through_ordinal=(SELECT frozen_from_ordinal FROM completed)
+                     AND processed_through_ordinal=(SELECT maintenance_from_ordinal FROM completed)
                      AND EXISTS (SELECT 1 FROM completed)""",
                 (
                     episode[1],

@@ -75,12 +75,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "accepted_experiences": TableOwnership("experience", maintenance_writable=True),
     "cognitive_attempts": TableOwnership("cognition", maintenance_writable=False),
     "cognitive_episodes": TableOwnership("cognition", maintenance_writable=True),
-    "cognition_maintenance_batch_sources": TableOwnership(
-        "cognition", maintenance_writable=True
-    ),
-    "cognition_maintenance_batches": TableOwnership(
-        "cognition", maintenance_writable=True
-    ),
     "cognition_maintenance_cursors": TableOwnership(
         "cognition", maintenance_writable=True
     ),

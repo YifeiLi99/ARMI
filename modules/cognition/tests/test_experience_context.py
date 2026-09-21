@@ -158,7 +158,7 @@ def test_maintenance_context_keeps_batch_ownership_in_cognition() -> None:
     assert tuple(item.ordinal for item in result.experience_context) == (1, 2)
     assert all(item.maintenance_source for item in result.experience_context)
     statements = "\n".join(call[0] for call in transaction.calls)
-    assert "cognition_maintenance_batch_sources" in statements
+    assert "maintenance_experience_ids" in statements
     assert "accepted_experiences" not in statements
 
 
@@ -197,15 +197,14 @@ def test_maintenance_batch_freezes_sixty_four_of_sixty_five_visible_sources() ->
     batch_call = next(
         call
         for call in transaction.calls
-        if "INSERT INTO armi.cognition_maintenance_batches" in call[0]
+        if "maintenance_experience_ids=%s::uuid[]" in call[0]
     )
-    assert batch_call[1][-3:] == (0, 64, 64)  # type: ignore[index]
-    source_call = next(
-        call
-        for call in transaction.calls
-        if "INSERT INTO armi.cognition_maintenance_batch_sources" in call[0]
-    )
-    assert len(source_call[1][1]) == 64  # type: ignore[index]
+    params = cast(tuple[object, ...], batch_call[1])
+    assert params[1:3] == (0, 64)
+    assert params[3] == [
+        item.experience_id.value for item in experiences.snapshots[:64]
+    ]
+    assert params[4] == draft.episode_id
 
 
 def test_hidden_tail_still_creates_an_empty_batch_with_frozen_coverage() -> None:
@@ -227,10 +226,8 @@ def test_hidden_tail_still_creates_an_empty_batch_with_frozen_coverage() -> None
     batch_call = next(
         call
         for call in transaction.calls
-        if "INSERT INTO armi.cognition_maintenance_batches" in call[0]
+        if "maintenance_experience_ids=%s::uuid[]" in call[0]
     )
-    assert batch_call[1][-3:] == (0, 5, 0)  # type: ignore[index]
-    assert not any(
-        "INSERT INTO armi.cognition_maintenance_batch_sources" in statement
-        for statement, _params in transaction.calls
-    )
+    params = cast(tuple[object, ...], batch_call[1])
+    assert params[1:4] == (0, 5, [])
+    assert params[4] == draft.episode_id

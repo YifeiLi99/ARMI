@@ -233,26 +233,8 @@ ALTER TABLE ONLY armi.codex_task_sources
 ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_result_id_key UNIQUE (codex_verification_id);
 
---
--- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_so_maintenance_batch_id_ordinal_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
-    ADD CONSTRAINT cognition_maintenance_batch_so_maintenance_batch_id_ordinal_key UNIQUE (maintenance_batch_id, ordinal);
 
---
--- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
-    ADD CONSTRAINT cognition_maintenance_batch_sources_pkey PRIMARY KEY (maintenance_batch_id, experience_id);
-
---
--- Name: cognition_maintenance_batches cognition_maintenance_batches_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_batches
-    ADD CONSTRAINT cognition_maintenance_batches_pkey PRIMARY KEY (maintenance_batch_id);
 
 --
 -- Name: cognition_maintenance_cursors cognition_maintenance_cursors_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1228,11 +1210,6 @@ CREATE INDEX audit_events_trace_idx ON armi.audit_events USING btree (trace_id, 
 
 
 
---
--- Name: cognition_maintenance_batches_active_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE UNIQUE INDEX cognition_maintenance_batches_active_idx ON armi.cognition_maintenance_batches USING btree (subject_id) WHERE (status = ANY (ARRAY['prepared'::text, 'running'::text]));
 
 --
 -- Name: cognitive_attempts_episode_status_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1750,27 +1727,9 @@ ALTER TABLE ONLY armi.codex_task_sources
 ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_result_final_result_artifact_id_fkey FOREIGN KEY (final_result_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
-    ADD CONSTRAINT cognition_maintenance_batch_sources_experience_id_fkey FOREIGN KEY (experience_id) REFERENCES armi.accepted_experiences(experience_id);
-
---
--- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_maintenance_batch_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
-    ADD CONSTRAINT cognition_maintenance_batch_sources_maintenance_batch_id_fkey FOREIGN KEY (maintenance_batch_id) REFERENCES armi.cognition_maintenance_batches(maintenance_batch_id);
 
 
---
--- Name: cognition_maintenance_batches cognition_maintenance_batches_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognition_maintenance_batches
-    ADD CONSTRAINT cognition_maintenance_batches_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 
 --
@@ -1865,9 +1824,6 @@ ALTER TABLE ONLY armi.cognitive_episodes
 
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_context_party_fkey FOREIGN KEY (context_party_id) REFERENCES armi.parties(party_id);
-
-ALTER TABLE ONLY armi.cognitive_episodes
-    ADD CONSTRAINT cognitive_episodes_maintenance_batch_fkey FOREIGN KEY (maintenance_batch_id) REFERENCES armi.cognition_maintenance_batches(maintenance_batch_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_opportunity_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3054,3 +3010,12 @@ ALTER TABLE ONLY armi.cognitive_episodes
 
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_life_query_result_opportunity_id_fkey FOREIGN KEY (life_query_result_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_identity_subject_key UNIQUE (cognitive_episode_id, subject_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_maintenance_source_fkey
+    FOREIGN KEY (maintenance_source_episode_id, subject_id)
+    REFERENCES armi.cognitive_episodes(cognitive_episode_id, subject_id);
+CREATE UNIQUE INDEX cognitive_episodes_maintenance_active_idx
+    ON armi.cognitive_episodes(subject_id) WHERE maintenance_status='running';

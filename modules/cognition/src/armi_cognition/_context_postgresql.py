@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import cast
-from uuid import UUID, uuid7
+from uuid import UUID
 
 from armi_experience.api import AcceptedExperienceSnapshot, ExperienceReadPort
 from armi_kernel.application import CandidateViolation
@@ -114,10 +114,10 @@ class PostgreSQLCognitionContextLifecycle:
             if cursor is not None:
                 existing = await (
                     await transaction.execute(
-                        """SELECT maintenance_batch_id
-                           FROM armi.cognition_maintenance_batches
+                        """SELECT cognitive_episode_id
+                           FROM armi.cognitive_episodes
                            WHERE subject_id=%s
-                             AND status IN ('prepared','running')
+                             AND maintenance_status='running'
                            FOR UPDATE""",
                         (draft.subject_id,),
                     )
@@ -140,49 +140,31 @@ class PostgreSQLCognitionContextLifecycle:
                         if len(candidate_sources) == 65
                         else latest
                     )
-                    batch_id = uuid7()
+                    source_episode_id = draft.episode_id
+                    # The first episode owns the frozen scope for the whole
+                    # maintenance sequence, including later reflections (DESIGN.md).
                     await transaction.execute(
-                        """INSERT INTO armi.cognition_maintenance_batches (
-                               maintenance_batch_id,subject_id,
-                               trigger_kind,status,base_subject_version,
-                               frozen_from_ordinal,frozen_through_ordinal,
-                               visible_source_count)
-                           VALUES (%s,%s,%s,'running',%s,%s,%s,%s)""",
+                        """UPDATE armi.cognitive_episodes
+                           SET maintenance_source_episode_id=cognitive_episode_id,
+                               maintenance_trigger_kind=%s,maintenance_status='running',
+                               maintenance_from_ordinal=%s,maintenance_through_ordinal=%s,
+                               maintenance_experience_ids=%s::uuid[]
+                           WHERE cognitive_episode_id=%s""",
                         (
-                            batch_id,
-                            draft.subject_id,
                             draft.maintenance_trigger_kind,
-                            draft.base_subject_version,
                             processed,
                             frozen_through,
-                            len(sources),
+                            [item.experience_id.value for item in sources],
+                            source_episode_id,
                         ),
                     )
-                    if sources:
-                        await transaction.execute(
-                            """INSERT INTO armi.cognition_maintenance_batch_sources (
-                                   maintenance_batch_id,experience_id,ordinal)
-                               SELECT %s,source.experience_id,source.ordinal::smallint
-                               FROM unnest(%s::uuid[]) WITH ORDINALITY
-                                 AS source(experience_id,ordinal)""",
-                            (
-                                batch_id,
-                                [item.experience_id.value for item in sources],
-                            ),
-                        )
                 else:
-                    batch_id = cast(UUID, existing[0])
+                    source_episode_id = cast(UUID, existing[0])
                     await transaction.execute(
-                        """UPDATE armi.cognition_maintenance_batches
-                           SET status='running'
-                           WHERE maintenance_batch_id=%s AND status='prepared'""",
-                        (batch_id,),
+                        """UPDATE armi.cognitive_episodes SET maintenance_source_episode_id=%s
+                           WHERE cognitive_episode_id=%s""",
+                        (source_episode_id, draft.episode_id),
                     )
-                await transaction.execute(
-                    """UPDATE armi.cognitive_episodes SET maintenance_batch_id=%s
-                       WHERE cognitive_episode_id=%s""",
-                    (batch_id, draft.episode_id),
-                )
         elif row is not None and draft.purpose in {
             "reflect_self",
             "reflect_mind",
@@ -191,11 +173,11 @@ class PostgreSQLCognitionContextLifecycle:
         }:
             await transaction.execute(
                 """UPDATE armi.cognitive_episodes AS episode
-                   SET maintenance_batch_id=batch.maintenance_batch_id
-                   FROM armi.cognition_maintenance_batches AS batch
+                   SET maintenance_source_episode_id=source.cognitive_episode_id
+                   FROM armi.cognitive_episodes AS source
                    WHERE episode.cognitive_episode_id=%s
-                     AND batch.subject_id=%s
-                     AND batch.status='running'""",
+                     AND source.subject_id=%s
+                     AND source.maintenance_status='running'""",
                 (draft.episode_id, draft.subject_id),
             )
         return row is not None
@@ -231,12 +213,12 @@ class PostgreSQLCognitionContextLifecycle:
                 await transaction.execute(
                     """SELECT source.experience_id,source.ordinal
                        FROM armi.cognitive_episodes AS episode
-                       JOIN armi.cognition_maintenance_batch_sources AS source
-                         ON source.maintenance_batch_id=episode.maintenance_batch_id
-                       JOIN armi.cognition_maintenance_batches AS batch
-                         ON source.maintenance_batch_id=batch.maintenance_batch_id
+                       JOIN armi.cognitive_episodes AS root
+                         ON root.cognitive_episode_id=episode.maintenance_source_episode_id
+                       CROSS JOIN LATERAL unnest(root.maintenance_experience_ids)
+                         WITH ORDINALITY AS source(experience_id,ordinal)
                        WHERE episode.cognitive_episode_id=%s
-                         AND batch.status='running'
+                         AND root.maintenance_status='running'
                        ORDER BY source.ordinal""",
                     (episode_id,),
                 )

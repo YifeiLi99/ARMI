@@ -142,7 +142,39 @@ CREATE TABLE armi.cognitive_episodes (
     base_state_epoch bigint NOT NULL,
     bundle_activation_id uuid NOT NULL,
     mechanism_identity text NOT NULL,
-    maintenance_batch_id uuid,
+    maintenance_source_episode_id uuid,
+    maintenance_trigger_kind text,
+    maintenance_status text,
+    maintenance_from_ordinal bigint,
+    maintenance_through_ordinal bigint,
+    maintenance_experience_ids uuid[],
+    maintenance_finished_at timestamp(6) with time zone,
+    CONSTRAINT cognitive_episodes_maintenance_shape CHECK (
+        (maintenance_trigger_kind IS NULL AND maintenance_status IS NULL
+         AND maintenance_from_ordinal IS NULL AND maintenance_through_ordinal IS NULL
+         AND maintenance_experience_ids IS NULL AND maintenance_finished_at IS NULL)
+        OR (maintenance_trigger_kind IS NOT NULL AND maintenance_status IS NOT NULL
+            AND maintenance_source_episode_id IS NOT NULL
+            AND maintenance_source_episode_id=cognitive_episode_id
+            AND purpose='maintain_subjective_memory'
+            AND maintenance_from_ordinal IS NOT NULL AND maintenance_from_ordinal>=0
+            AND maintenance_through_ordinal IS NOT NULL
+            AND maintenance_through_ordinal>maintenance_from_ordinal
+            AND maintenance_experience_ids IS NOT NULL
+            AND cardinality(maintenance_experience_ids)<=64
+            AND (cardinality(maintenance_experience_ids)=0 OR array_ndims(maintenance_experience_ids)=1)
+            AND array_position(maintenance_experience_ids,NULL) IS NULL)
+    ),
+    CONSTRAINT cognitive_episodes_maintenance_trigger CHECK (
+        maintenance_trigger_kind IN ('runtime_idle','sleep')
+    ),
+    CONSTRAINT cognitive_episodes_maintenance_status CHECK (
+        maintenance_status='running' OR maintenance_status='completed'
+    ),
+    CONSTRAINT cognitive_episodes_maintenance_finished CHECK (
+        maintenance_status IS NULL OR
+        ((maintenance_status='completed') = (maintenance_finished_at IS NOT NULL))
+    ),
     context_manifest_artifact_id uuid,
     compiled_context_artifact_id uuid,
     context_manifest_digest text,

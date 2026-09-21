@@ -22,7 +22,7 @@ accepted_experiences activities
 activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts audit_events
 codex_task_sources
-cognition_maintenance_batch_sources cognition_maintenance_batches
+
 cognition_maintenance_cursors cognitive_attempts
 cognitive_context_items cognitive_episodes
 context_embedding_coverage
@@ -59,8 +59,8 @@ autonomy_plans
 accepted_experiences activities
 activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts
- cognition_maintenance_batch_sources
-cognition_maintenance_batches cognition_maintenance_cursors cognitive_attempts
+
+ cognition_maintenance_cursors cognitive_attempts
 cognitive_episodes
 context_embedding_coverage context_embedding_source_sets creator_exports
 
