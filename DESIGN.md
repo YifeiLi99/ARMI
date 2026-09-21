@@ -409,7 +409,7 @@ Creator `/v1/autonomy/status`、`/v1/autonomy/history` 与 Admin CLI/MCP 共用�
 
 启动恢复的数量统计仅随恢复结论写入轮转诊断日志，不持久化为业务表，也不纳入数据库导出。恢复运行状态与各 Owner 实际处理结果仍保存在数据库。
 
-语音回复文字每段在播放前原子追加到本轮 registered_response_text，response_fragment_count 控制连续顺序并拒绝重复。完成、重启与删除流程不再拼接第二份分段正文；已关闭或隐私删除的轮次不能追加，实际播放范围仍由播放记录负责。
+语音回复文字每段在播放前原子追加到本轮 registered_response_text，response_fragment_count 控制连续顺序并拒绝重复。完成、重启与删除流程不再拼接第二份分段正文；已关闭或隐私删除的轮次不能追加，实际播放范围直接保存在轮次的 playback_extent；frames_written 与 first_audio_at 供效果回执和对话时间线使用。播放前先标记 unknown_completion，确认结果后更新为 none、partial_prefix、complete 或 unknown_completion；重启保留已确认结果，不补播。播放步骤、错误与逐次时间写诊断日志，不再建立独立播放尝试表。
 
 物理文件删除的逐次尝试只写轮转诊断日志，保留删除任务 ID、尝试 ID、次数、结果和错误码。最终删除状态、最近错误、重试次数及调度继续保存在数据库，日志不替代删除核验。
 

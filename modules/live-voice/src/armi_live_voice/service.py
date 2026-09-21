@@ -349,7 +349,6 @@ class LiveVoiceService:
         tts_attempt = await self._journal.begin_provider_attempt(
             turn_id=turn_id, binding=self._binding.tts
         )
-        playback_attempt = await self._journal.begin_playback(turn_id=turn_id)
         tts_frames = 0
         written_frames = 0
 
@@ -381,15 +380,13 @@ class LiveVoiceService:
             nonlocal written_frames
             if written_frames == 0:
                 written_frames += 1
-                await self._journal.mark_playback_first_frame(
-                    attempt_id=playback_attempt
-                )
+                await self._journal.mark_playback_first_frame(turn_id=turn_id)
             else:
                 written_frames += 1
 
+        await self._journal.mark_playback_dispatched(turn_id=turn_id)
         try:
             await self._journal.mark_provider_dispatched(attempt_id=tts_attempt)
-            await self._journal.mark_playback_dispatched(attempt_id=playback_attempt)
             with provider_meter_scope(self._meter_scope(tts_attempt, "voice_tts")):
                 reported_frames = await self._audio.play(
                     observed_audio(), on_frame_written=frame_written
@@ -407,7 +404,7 @@ class LiveVoiceService:
                 error_code="VOICE-TTS-CANCELLED",
             )
             await self._journal.settle_playback(
-                attempt_id=playback_attempt,
+                turn_id=turn_id,
                 outcome=AttemptOutcome.UNKNOWN,
                 frames_written=written_frames,
                 error_code="VOICE-PLAYBACK-CANCELLED",
@@ -429,7 +426,7 @@ class LiveVoiceService:
                 error_code=error.code,
             )
             await self._journal.settle_playback(
-                attempt_id=playback_attempt,
+                turn_id=turn_id,
                 outcome=playback_outcome,
                 frames_written=written_frames,
                 error_code=error.code,
@@ -449,7 +446,7 @@ class LiveVoiceService:
                 error_code="VOICE-TTS-UNKNOWN",
             )
             await self._journal.settle_playback(
-                attempt_id=playback_attempt,
+                turn_id=turn_id,
                 outcome=(
                     AttemptOutcome.PARTIAL if written_frames else AttemptOutcome.UNKNOWN
                 ),
@@ -466,7 +463,7 @@ class LiveVoiceService:
             attempt_id=tts_attempt, outcome=AttemptOutcome.COMPLETED
         )
         await self._journal.settle_playback(
-            attempt_id=playback_attempt,
+            turn_id=turn_id,
             outcome=AttemptOutcome.COMPLETED,
             frames_written=written_frames,
         )

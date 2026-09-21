@@ -970,6 +970,16 @@ async def _serve(
                             creator=creator_context,
                             interaction=interaction_module.creator_input,
                             timeline=interaction_module.effect_delivery,
+                            playback_diagnostic=lambda event, turn_id, frames, error: (
+                                diagnostic.emit(
+                                    f"live_voice.playback.{event}",
+                                    details={
+                                        "turn_id": str(turn_id),
+                                        "frames_written": frames,
+                                        "error_code": error,
+                                    },
+                                )
+                            ),
                         )
                 except LiveVoiceViolation:
                     live_voice_service = None

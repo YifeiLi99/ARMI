@@ -47,39 +47,16 @@ class LiveVoiceRecoveryParticipant:
                    RETURNING provider_attempt_id"""
             )
         ).fetchall()
-        playback_rows = await (
-            await transaction.execute(
-                """UPDATE armi.live_voice_playback_attempts
-                   SET dispatch_state='settled',
-                       result_status=CASE dispatch_state
-                           WHEN 'prepared' THEN 'cancelled' ELSE 'unknown' END,
-                       settled_at=statement_timestamp(),
-                       error_code=CASE dispatch_state
-                           WHEN 'prepared' THEN 'VOICE-PRE-DISPATCH-CANCELLED'
-                           ELSE 'VOICE-RUNTIME-RESTARTED' END
-                   WHERE settled_at IS NULL
-                   RETURNING playback_attempt_id"""
-            )
-        ).fetchall()
         turn_rows = await (
             await transaction.execute(
                 """UPDATE armi.live_voice_turns AS turn
-                   SET result_status='unknown',completed_at=statement_timestamp(),
-                       error_code='VOICE-RUNTIME-RESTARTED',
-                       frames_written=COALESCE((
-                           SELECT playback.frames_written
-                           FROM armi.live_voice_playback_attempts AS playback
-                           WHERE playback.turn_id=turn.turn_id
-                           ORDER BY playback.registered_at DESC LIMIT 1
-                       ), 0),
-                       playback_extent=CASE
-                           WHEN EXISTS (
-                               SELECT 1 FROM armi.live_voice_playback_attempts AS playback
-                               WHERE playback.turn_id=turn.turn_id
-                                 AND playback.dispatched_at IS NOT NULL
-                           ) THEN 'unknown_completion'
-                           ELSE 'none'
-                       END
+                   SET result_status=CASE
+                           WHEN result_status IN ('recognizing','thinking','speaking')
+                           THEN 'unknown' ELSE result_status END,
+                       completed_at=statement_timestamp(),
+                       error_code=CASE
+                           WHEN result_status IN ('recognizing','thinking','speaking')
+                           THEN 'VOICE-RUNTIME-RESTARTED' ELSE error_code END
                    WHERE turn.completed_at IS NULL
                    RETURNING turn_id"""
             )
@@ -107,9 +84,6 @@ class LiveVoiceRecoveryParticipant:
             metrics=(
                 RecoveryMetricContribution(
                     "live_voice.ended_provider_attempt_count", len(provider_rows)
-                ),
-                RecoveryMetricContribution(
-                    "live_voice.ended_playback_attempt_count", len(playback_rows)
                 ),
                 RecoveryMetricContribution(
                     "live_voice.ended_turn_count", len(turn_rows)

@@ -777,6 +777,194 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         gateway = PostgreSQLSchemaGateway()
         return gateway.install(conninfo, environment_id=environment_id)
 
+    @pytest.mark.test_group("live-voice")
+    def test_voice_playback_result_survives_restart_without_attempt_table(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from armi_live_voice.api import (
+            AttemptOutcome,
+            LiveVoiceBinding,
+            LiveVoiceViolation,
+            VoiceProviderBinding,
+            VoiceProviderService,
+        )
+        from armi_live_voice.bootstrap import (
+            bootstrap_live_voice_recovery,
+            compose_live_voice_journal,
+        )
+        from armi_runtime_foundation import RecoveryScope
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+
+        async def exercise(root: Path) -> None:
+            factory = await self._new_uow_factory(fixture)
+            try:
+                born = await BirthTransaction(
+                    _publishing_artifact_store(root, factory),
+                    ArtifactCatalogRepository(),
+                    _birth_repository(),
+                    factory,
+                ).birth(
+                    BirthManifest(
+                        schema_version="armi.birth-manifest.v1",
+                        environment_id=fixture.environment_id,
+                        birth_request_id=_uuid7(),
+                        creator_party_id=_uuid7(),
+                        idempotency_key="voice-playback-results",
+                        personality_anchor=PersonalityAnchor(
+                            schema_version="armi.personality-anchor.v1",
+                            voice_style="约 16 岁少女口吻",
+                            traits=("好奇",),
+                        ),
+                        birth_contract_digest=packaged_birth_digests()[
+                            "birth_contract_digest"
+                        ],
+                        request_digest=Digest.from_bytes(b"voice-playback-results"),
+                    )
+                )
+                async with factory.unit_of_work(read_only=True) as unit:
+                    scene = await (
+                        await unit.transaction.execute(
+                            "SELECT scene_id,primary_party_id FROM armi.interaction_scenes "
+                            "WHERE subject_id=%s AND scene_key='default'",
+                            (born.subject_id,),
+                        )
+                    ).fetchone()
+                assert scene is not None
+                events = []
+                journal = compose_live_voice_journal(
+                    factory=factory,
+                    subject_id=born.subject_id,
+                    creator_party_id=scene[1],
+                    scene_id=scene[0],
+                    binding=LiveVoiceBinding(
+                        "Windows WASAPI",
+                        "microphone",
+                        "Windows WASAPI",
+                        "speaker",
+                        VoiceProviderBinding(
+                            VoiceProviderService.ASR, "volcengine", "asr"
+                        ),
+                        VoiceProviderBinding(
+                            VoiceProviderService.LLM, "ark", "llm", "model"
+                        ),
+                        VoiceProviderBinding(
+                            VoiceProviderService.TTS, "volcengine", "tts", "voice"
+                        ),
+                    ),
+                    timeline=AsyncMock(),
+                    playback_diagnostic=lambda *event: events.append(event),
+                )
+                session_id = _uuid7()
+                await journal.open_session(session_id=session_id)
+                turns = []
+                for number, outcome in enumerate(
+                    (
+                        None,
+                        AttemptOutcome.COMPLETED,
+                        AttemptOutcome.PARTIAL,
+                        AttemptOutcome.FAILED,
+                    ),
+                    1,
+                ):
+                    turn_id = _uuid7()
+                    turns.append(turn_id)
+                    await journal.begin_turn(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        turn_no=number,
+                        context_version="ctx:1",
+                    )
+                    await journal.record_transcript(
+                        turn_id=turn_id,
+                        transcript="你好",
+                        interaction_id=None,
+                        opportunity_id=None,
+                    )
+                    await journal.mark_playback_dispatched(turn_id=turn_id)
+                    with self.assertRaises(LiveVoiceViolation):
+                        await journal.mark_playback_dispatched(turn_id=turn_id)
+                    if outcome is not AttemptOutcome.FAILED:
+                        await journal.register_fragment(
+                            turn_id=turn_id, fragment_no=1, text="你好"
+                        )
+                        await journal.mark_playback_first_frame(turn_id=turn_id)
+                    if outcome is not None:
+                        await journal.settle_playback(
+                            turn_id=turn_id,
+                            outcome=outcome,
+                            frames_written=0 if outcome is AttemptOutcome.FAILED else 2,
+                            error_code=None
+                            if outcome is AttemptOutcome.COMPLETED
+                            else "VOICE-TEST-FAILED",
+                        )
+                        with self.assertRaises(LiveVoiceViolation):
+                            await journal.settle_playback(
+                                turn_id=turn_id,
+                                outcome=AttemptOutcome.UNKNOWN,
+                                frames_written=0,
+                                error_code="VOICE-TEST-FAILED",
+                            )
+                async with factory.unit_of_work() as unit:
+                    await bootstrap_live_voice_recovery().recover(
+                        unit.transaction,
+                        RecoveryScope(
+                            fixture.environment_id,
+                            born.subject_id,
+                            born.life_generation_id,
+                            born.bundle_activation_id,
+                            _uuid7(),
+                            1,
+                        ),
+                        (),
+                    )
+                async with factory.unit_of_work(read_only=True) as unit:
+                    rows = await (
+                        await unit.transaction.execute(
+                            "SELECT playback_extent,frames_written FROM armi.live_voice_turns "
+                            "WHERE session_id=%s ORDER BY turn_no",
+                            (session_id,),
+                        )
+                    ).fetchall()
+                    completed = (
+                        await bootstrap_live_voice_context_read().completed_playback(
+                            unit.transaction,
+                            turn_id=turns[1],
+                        )
+                    )
+                    interrupted = (
+                        await bootstrap_live_voice_context_read().completed_playback(
+                            unit.transaction,
+                            turn_id=turns[0],
+                        )
+                    )
+                self.assertEqual(
+                    rows,
+                    [
+                        ("unknown_completion", 1),
+                        ("complete", 2),
+                        ("partial_prefix", 2),
+                        ("none", 0),
+                    ],
+                )
+                assert completed is not None
+                self.assertEqual(completed[:2], (turns[1], "你好"))
+                self.assertIsNone(interrupted)
+                self.assertEqual(len(events), 10)
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+
     @pytest.mark.test_group("data-rights", "artifacts")
     def test_data_rights_artifact_fk_contract_matches_installed_catalog(self) -> None:
         fixture = self.create_database()

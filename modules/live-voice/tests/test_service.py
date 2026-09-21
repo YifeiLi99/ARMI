@@ -155,9 +155,6 @@ class FakeJournal:
     async def settle_provider_attempt(self, **_: object) -> None:
         pass
 
-    async def begin_playback(self, **_: object):
-        return uuid7()
-
     async def mark_playback_dispatched(self, **_: object) -> None:
         pass
 

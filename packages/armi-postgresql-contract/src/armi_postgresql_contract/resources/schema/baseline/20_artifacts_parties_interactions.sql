@@ -341,34 +341,6 @@ CREATE TABLE armi.live_vision_sessions (
 );
 
 --
--- Name: live_voice_playback_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.live_voice_playback_attempts (
-    playback_attempt_id uuid NOT NULL,
-    turn_id uuid NOT NULL,
-    destination_kind text DEFAULT 'local_audio'::text NOT NULL,
-    attempt_no smallint DEFAULT 1 NOT NULL,
-    dispatch_state text DEFAULT 'prepared'::text NOT NULL,
-    result_status text NOT NULL,
-    frames_written bigint DEFAULT 0 NOT NULL,
-    error_code text,
-    registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    dispatched_at timestamp(6) with time zone,
-    first_frame_at timestamp(6) with time zone,
-    settled_at timestamp(6) with time zone,
-    CONSTRAINT live_voice_playback_attempt_check CHECK ((attempt_no = 1)),
-    CONSTRAINT live_voice_playback_destination_check CHECK ((destination_kind = 'local_audio'::text)),
-    CONSTRAINT live_voice_playback_error_check CHECK (((error_code IS NULL) OR (error_code ~ '^VOICE-[A-Z0-9-]{1,120}$'::text))),
-    CONSTRAINT live_voice_playback_frames_check CHECK ((frames_written >= 0)),
-    CONSTRAINT live_voice_playback_id_check CHECK ((uuid_extract_version(playback_attempt_id) = 7)),
-    CONSTRAINT live_voice_playback_dispatch_check CHECK ((((dispatch_state = 'prepared'::text) AND (dispatched_at IS NULL) AND (settled_at IS NULL)) OR ((dispatch_state = 'dispatched'::text) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL)) OR ((dispatch_state = 'settled'::text) AND (settled_at IS NOT NULL)))),
-    CONSTRAINT live_voice_playback_result_check CHECK ((((result_status = 'registered'::text) AND (settled_at IS NULL) AND (error_code IS NULL)) OR ((result_status = 'completed'::text) AND (settled_at IS NOT NULL) AND (frames_written > 0) AND (error_code IS NULL)) OR ((result_status = ANY (ARRAY['failed'::text, 'partial'::text, 'unknown'::text, 'cancelled'::text])) AND (settled_at IS NOT NULL) AND (error_code IS NOT NULL)))),
-    CONSTRAINT live_voice_playback_status_check CHECK ((result_status = ANY (ARRAY['registered'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'cancelled'::text]))),
-    CONSTRAINT live_voice_playback_dispatch_state_check CHECK ((dispatch_state = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'settled'::text])))
-);
-
---
 -- Name: live_voice_provider_attempts; Type: TABLE; Schema: armi; Owner: -
 --
 

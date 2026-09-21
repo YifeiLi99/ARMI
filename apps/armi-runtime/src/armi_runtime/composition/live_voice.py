@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 from uuid import UUID
 
@@ -43,6 +44,7 @@ def compose_runtime_live_voice(
     creator: CreatorIdentityContext,
     interaction: CreatorInteractionPort,
     timeline: VoiceTimelinePort,
+    playback_diagnostic: Callable[[str, UUID, int, str | None], None] | None = None,
 ) -> LiveVoiceRuntimePort | None:
     config = prepared.effective.config
     voice = config.voice
@@ -158,6 +160,7 @@ def compose_runtime_live_voice(
         scene_id=creator.scene_id,
         binding=binding,
         timeline=timeline,
+        playback_diagnostic=playback_diagnostic,
     )
     bridge = RuntimeLiveVoiceInteraction(
         acceptance=interaction,

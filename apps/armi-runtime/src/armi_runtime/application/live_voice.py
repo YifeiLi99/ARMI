@@ -125,11 +125,11 @@ class RuntimeLiveVoiceEffectAdapter(ActionAdapterPort):
             )
         if result is None:
             return None
-        attempt_id, text, settled_at = result
+        delivery_id, text, occurred_at = result
         return EffectAdapterReceipt(
-            EffectDeliveryId(attempt_id),
+            EffectDeliveryId(delivery_id),
             Digest.from_bytes(text.encode("utf-8")),
-            Instant(settled_at),
+            Instant(occurred_at),
             duplicate=True,
             external_receiver_ref=f"live_voice:{turn_id}",
         )

@@ -56,9 +56,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "live_voice_provider_attempts": TableOwnership(
         "live-voice", maintenance_writable=False
     ),
-    "live_voice_playback_attempts": TableOwnership(
-        "live-voice", maintenance_writable=True
-    ),
     # Persistent local camera observation custody.
     "live_vision_sessions": TableOwnership("live-vision", maintenance_writable=True),
     "live_vision_observations": TableOwnership(
