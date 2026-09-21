@@ -137,7 +137,6 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
         context_manifest_artifact_id=ids["manifest"],
         compiled_context_artifact_id=ids["compiled"],
         response_artifact_ids=(ids["response"],),
-        diagnostic_artifact_ids=(ids["diagnostic"],),
     )
     ports["cognition"].episode.return_value = episode
     ports["cognition"].episode_for_opportunity.return_value = episode
@@ -207,9 +206,7 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
             "failure_code": "CANDIDATE-CONTRACT",
             "send_unknown": False,
         }
-    assert {str(ids["response"]), str(ids["diagnostic"])} <= {
-        node["id"] for node in nodes
-    }
+    assert {str(ids["response"])} <= {node["id"] for node in nodes}
     ports["runtime"].audit_trace.return_value = (
         (
             "opportunity",

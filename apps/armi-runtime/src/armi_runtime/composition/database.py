@@ -53,6 +53,7 @@ from armi_codex.bootstrap import (
     bootstrap_codex_timeline_projection,
 )
 from armi_cognition.api import (
+    CandidateValidationDiagnostic,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
     CognitionFinalizationPort,
@@ -76,6 +77,7 @@ from armi_context.api import (
     ContextEmbeddingRuntimePort,
     ContextProjectionInvalidationPort,
     ContextRuntimePort,
+    EmbeddingAttemptSink,
     EmbeddingBinding,
     EmbeddingFailureSink,
     load_embedding_binding,
@@ -1403,6 +1405,7 @@ def compose_context_embedding_pipeline(
     memory_projection: MemoryProjectionPort,
     material_projection: MaterialProjectionPort,
     failure_diagnostic: EmbeddingFailureSink | None = None,
+    attempt_diagnostic: EmbeddingAttemptSink | None = None,
 ) -> ContextEmbeddingRuntimePort:
     return bootstrap_context_embedding(
         factory=unit_of_work_factory,
@@ -1416,6 +1419,7 @@ def compose_context_embedding_pipeline(
         memories=memory_projection,
         materials=material_projection,
         failure_diagnostic=failure_diagnostic,
+        attempt_diagnostic=attempt_diagnostic,
     )
 
 
@@ -1743,6 +1747,8 @@ def compose_candidate_validation_pipeline(
     catalog: ArtifactCatalogPort,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
+    validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
+    | None = None,
     voice: LiveVoiceRuntimePort | None = None,
 ) -> CognitionFinalizationPort:
     """Resolve the Runtime credential for the active S025 validator."""
@@ -1787,6 +1793,7 @@ def compose_candidate_validation_pipeline(
         web_search_active=config.web.enabled,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
+        validation_diagnostic=validation_diagnostic,
     )
 
 

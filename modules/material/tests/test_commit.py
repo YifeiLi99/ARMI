@@ -65,8 +65,6 @@ class _MaterialConnection:
         query: str,
         params: tuple[object, ...] = (),
     ) -> _Result:
-        if "FROM armi.cognitive_candidate_validation_items" in query:
-            return _Result((1,))
         if "FROM armi.parties" in query:
             return _Result(
                 (1,) if params == (self.owner_party_id, self.subject_id) else None

@@ -64,7 +64,11 @@ from armi_codex.api import (
     CreatorCodexTaskCommand,
     bind_autonomous_codex_task,
 )
-from armi_cognition.api import CognitionSchemaDocument, SubjectChangeSet
+from armi_cognition.api import (
+    CognitionAcceptedCandidate,
+    CognitionSchemaDocument,
+    SubjectChangeSet,
+)
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
 from armi_expression.api import CreatorReplyDraft
@@ -102,6 +106,7 @@ from armi_kernel.application import (
     CandidateDisposition,
     CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateOwnerDraft,
     CognitionPurpose,
     CredentialLocator,
     LifeRecordActor,
@@ -492,7 +497,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("cognitive_attempts", "binding_digest"),
     ("cognitive_attempts", "request_digest"),
     ("cognitive_candidate_applications", "completion_digest"),
-    ("cognitive_candidate_validation_items", "semantic_digest"),
     ("cognitive_candidate_validations", "candidate_digest"),
     ("cognitive_candidate_validations", "policy_digest"),
     ("cognitive_candidate_validations", "change_set_digest"),
@@ -7705,122 +7709,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ids["runtime"],
                 ),
             )
-            for ordinal, experience in enumerate(change_set.experiences, 1):
-                connection.execute(
-                    """
-                    INSERT INTO armi.cognitive_candidate_validation_items (
-                        candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status, ordinal)
-                        VALUES (%s, %s, %s, 'experience', %s, 'accepted', %s)
-                    """,
-                    (
-                        ids["validation"],
-                        experience.proposal_ref,
-                        experience.atomic_group_ref,
-                        experience.fact_class.value,
-                        ordinal,
-                    ),
-                )
-                connection.execute(
-                    """
-                    INSERT INTO armi.cognitive_candidate_basis_links (
-                        candidate_validation_id, proposal_ref,
-                        context_item_id, ordinal
-                    ) VALUES (%s, %s, %s, 1)
-                    """,
-                    (
-                        ids["validation"],
-                        experience.proposal_ref,
-                        ids["context_item"],
-                    ),
-                )
-            for ordinal, draft in enumerate(change_set.owner_drafts, 1):
-                connection.execute(
-                    """
-                    INSERT INTO armi.cognitive_candidate_validation_items (
-                        candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status, ordinal)
-                        VALUES (%s, %s, %s, %s, %s, 'accepted', %s)
-                    """,
-                    (
-                        ids["validation"],
-                        draft.proposal_ref,
-                        draft.atomic_group_ref,
-                        draft.owner,
-                        draft.fact_class.value,
-                        len(change_set.experiences) + ordinal,
-                    ),
-                )
-                for basis_ordinal in draft.basis_ordinals:
-                    context_item_id = (
-                        ids["context_item"]
-                        if basis_ordinal == 1
-                        else (
-                            ids["context_scene"]
-                            if basis_ordinal == 2
-                            else ids["context_capability"]
-                        )
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO armi.cognitive_candidate_basis_links (
-                            candidate_validation_id, proposal_ref,
-                            context_item_id, ordinal
-                        ) VALUES (%s, %s, %s, %s)
-                        """,
-                        (
-                            ids["validation"],
-                            draft.proposal_ref,
-                            context_item_id,
-                            basis_ordinal,
-                        ),
-                    )
-            for ordinal, action in enumerate(
-                (*change_set.action_choices, *change_set.codex_delegations), 1
-            ):
-                connection.execute(
-                    """
-                    INSERT INTO armi.cognitive_candidate_validation_items (
-                        candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status, ordinal)
-                        VALUES (%s, %s, %s, %s, 'inference', 'accepted', %s)
-                    """,
-                    (
-                        ids["validation"],
-                        action.proposal_ref,
-                        action.atomic_group_ref,
-                        "codex_delegation"
-                        if isinstance(action, CodexDelegationDraft)
-                        else "action",
-                        len(change_set.experiences)
-                        + len(change_set.owner_drafts)
-                        + ordinal,
-                    ),
-                )
-                for basis_ordinal in action.basis_ordinals:
-                    context_item_id = (
-                        ids["context_item"]
-                        if basis_ordinal == 1
-                        else (
-                            ids["context_scene"]
-                            if basis_ordinal == 2
-                            else ids["context_capability"]
-                        )
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO armi.cognitive_candidate_basis_links (
-                            candidate_validation_id, proposal_ref,
-                            context_item_id, ordinal
-                        ) VALUES (%s, %s, %s, %s)
-                        """,
-                        (
-                            ids["validation"],
-                            action.proposal_ref,
-                            context_item_id,
-                            basis_ordinal,
-                        ),
-                    )
             if codex:
                 connection.execute(
                     """
@@ -8062,7 +7950,53 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 async with factory.unit_of_work() as unit_of_work:
                     snapshot = await repository.snapshot(
-                        unit_of_work, lease, ids["episode"]
+                        unit_of_work,
+                        lease,
+                        ids["episode"],
+                        accepted_candidates=tuple(
+                            CognitionAcceptedCandidate(
+                                proposal_ref=draft.proposal_ref,
+                                atomic_group_ref=draft.atomic_group_ref,
+                                owner_identity=(
+                                    "experience"
+                                    if isinstance(draft, CandidateExperienceDraft)
+                                    else draft.owner
+                                    if isinstance(draft, CandidateOwnerDraft)
+                                    else "codex_delegation"
+                                    if isinstance(draft, CodexDelegationDraft)
+                                    else "action"
+                                ),
+                                fact_class=(
+                                    draft.fact_class
+                                    if isinstance(
+                                        draft,
+                                        (CandidateExperienceDraft, CandidateOwnerDraft),
+                                    )
+                                    else CandidateFactClass.INFERENCE
+                                ),
+                                ordinal=ordinal,
+                                basis_context_ids=tuple(
+                                    {
+                                        1: ids["context_item"],
+                                        2: ids["context_scene"],
+                                        3: ids["context_capability"],
+                                    }[index]
+                                    for index in draft.basis_ordinals
+                                ),
+                            )
+                            for ordinal, draft in enumerate(
+                                sorted(
+                                    (
+                                        *change_set.experiences,
+                                        *change_set.owner_drafts,
+                                        *change_set.action_choices,
+                                        *change_set.codex_delegations,
+                                    ),
+                                    key=lambda item: item.proposal_ref,
+                                ),
+                                1,
+                            )
+                        ),
                     )
                     owner_drafts = SubjectCommitPipeline.collect_owner_drafts(
                         change_set
@@ -8176,14 +8110,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             "finalizing",
         }:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
-                connection.execute(
-                    "DELETE FROM armi.cognitive_candidate_basis_links WHERE candidate_validation_id=%s",
-                    (ids["validation"],),
-                )
-                connection.execute(
-                    "DELETE FROM armi.cognitive_candidate_validation_items WHERE candidate_validation_id=%s",
-                    (ids["validation"],),
-                )
                 connection.execute(
                     "DELETE FROM armi.cognitive_candidate_validations WHERE candidate_validation_id=%s",
                     (ids["validation"],),

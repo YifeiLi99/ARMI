@@ -118,41 +118,6 @@ CREATE TABLE armi.cognitive_candidate_applications (
 );
 
 --
--- Name: cognitive_candidate_basis_links; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.cognitive_candidate_basis_links (
-    candidate_validation_id uuid CONSTRAINT cognitive_candidate_basis_link_candidate_validation_id_not_null NOT NULL,
-    proposal_ref text NOT NULL,
-    context_item_id uuid NOT NULL,
-    ordinal smallint NOT NULL,
-    CONSTRAINT cognitive_candidate_basis_links_ordinal_check CHECK (((ordinal >= 1) AND (ordinal <= 8)))
-);
-
---
--- Name: cognitive_candidate_validation_items; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.cognitive_candidate_validation_items (
-    candidate_validation_id uuid CONSTRAINT cognitive_candidate_validatio_candidate_validation_id_not_null1 NOT NULL,
-    proposal_ref text NOT NULL,
-    atomic_group_ref text NOT NULL,
-    owner_kind text NOT NULL,
-    fact_class text NOT NULL,
-    validation_status text NOT NULL,
-    reason_code text,
-    ordinal smallint NOT NULL,
-    CONSTRAINT cognitive_candidate_validation_items_atomic_group_ref_check CHECK ((atomic_group_ref ~ '^group:[1-9][0-9]{0,2}$'::text)),
-    CONSTRAINT cognitive_candidate_validation_items_check CHECK ((((validation_status = 'accepted'::text) AND (reason_code IS NULL)) OR ((validation_status = 'rejected'::text) AND (reason_code IS NOT NULL)))),
-    CONSTRAINT cognitive_candidate_validation_items_fact_class_check CHECK ((fact_class = ANY (ARRAY['objective_fact'::text, 'external_claim'::text, 'subjective_understanding'::text, 'inference'::text, 'unknown'::text]))),
-    CONSTRAINT cognitive_candidate_validation_items_ordinal_check CHECK (((ordinal >= 1) AND (ordinal <= 16))),
-    CONSTRAINT cognitive_candidate_validation_items_owner_kind_check CHECK ((owner_kind = ANY (ARRAY['experience'::text, 'self'::text, 'mind'::text, 'mood'::text, 'life_mode'::text, 'memory'::text, 'relationship'::text, 'activity'::text, 'action'::text, 'web_research'::text, 'visual_observation'::text, 'codex_delegation'::text, 'sleep'::text, 'material'::text, 'prompt'::text, 'exact_life_query'::text, 'maintenance'::text]))),
-    CONSTRAINT cognitive_candidate_validation_items_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
-    CONSTRAINT cognitive_candidate_validation_items_reason_code_check CHECK (((reason_code IS NULL) OR (reason_code ~ '^CANDIDATE-[A-Z0-9-]+$'::text))),
-    CONSTRAINT cognitive_candidate_validation_items_validation_status_check CHECK ((validation_status = ANY (ARRAY['accepted'::text, 'rejected'::text])))
-);
-
---
 -- Name: cognitive_candidate_validations; Type: TABLE; Schema: armi; Owner: -
 --
 
@@ -178,7 +143,6 @@ CREATE TABLE armi.cognitive_candidate_validations (
     validated_by_runtime_instance_id uuid CONSTRAINT cognitive_candidate_validat_validated_by_runtime_insta_not_null NOT NULL,
     validation_fence_token bigint NOT NULL,
     validated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    diagnostic_artifact_id uuid,
     CONSTRAINT cognitive_candidate_validation_candidate_contract_version_check CHECK ((candidate_contract_version = ANY (ARRAY['armi.cognition-candidate.v12'::text, 'armi.creator-dialogue-candidate.v25'::text, 'armi.creator-dialogue-candidate.v26'::text, 'armi.creator-cognitive-act-candidate.v3'::text, 'armi.creator-voice-act-candidate.v3'::text, 'armi.autonomous-activity-candidate.v4'::text, 'armi.activity-attention-candidate.v4'::text, 'armi.activity-internal-work-candidate.v3'::text, 'armi.sleep-decision-candidate.v1'::text, 'armi.maintenance-work-candidate.v1'::text, 'armi.owner-reflection-candidate.v1'::text, 'armi.other-human-dialogue-candidate.v6'::text, 'armi.visual-observation-candidate.v1'::text, 'armi.creator-cognitive-act-candidate.v4'::text, 'armi.creator-cognitive-act-candidate.v5'::text, 'armi.creator-cognitive-act-candidate.v6'::text, 'armi.creator-cognitive-act-candidate.v7'::text, 'armi.creator-voice-act-candidate.v4'::text, 'armi.creator-voice-act-candidate.v5'::text, 'armi.creator-voice-act-candidate.v6'::text, 'armi.creator-voice-act-candidate.v7'::text, 'armi.cognition-candidate.v13'::text, 'armi.cognition-candidate.v14'::text, 'armi.cognition-candidate.v15'::text, 'armi.cognition-candidate.v16'::text, 'armi.cognition-candidate.v17'::text, 'armi.activity-attention-candidate.v5'::text, 'armi.activity-internal-work-candidate.v4'::text, 'armi.activity-internal-work-candidate.v5'::text, 'armi.autonomous-activity-candidate.v5'::text, 'armi.autonomous-activity-candidate.v6'::text, 'armi.autonomous-activity-candidate.v7'::text, 'armi.autonomous-activity-candidate.v8'::text, 'armi.autonomous-activity-candidate.v9'::text, 'armi.autonomous-activity-candidate.v10'::text, 'armi.autonomous-activity-candidate.v11'::text, 'armi.autonomy-check-candidate.v1'::text, 'armi.other-human-dialogue-candidate.v7'::text, 'armi.other-human-dialogue-candidate.v8'::text, 'armi.other-human-dialogue-candidate.v9'::text, 'armi.visual-observation-candidate.v2'::text, 'armi.visual-observation-candidate.v3'::text, 'armi.visual-observation-candidate.v4'::text, 'armi.owner-reflection-candidate.v2'::text, 'armi.owner-reflection-candidate.v3'::text, 'armi.owner-reflection-candidate.v4'::text, 'armi.maintenance-work-candidate.v2'::text, 'armi.maintenance-work-candidate.v3'::text]))),
     CONSTRAINT cognitive_candidate_validations_accepted_count_check CHECK (((accepted_count >= 0) AND (accepted_count <= 16))),
     CONSTRAINT cognitive_candidate_validations_base_state_epoch_check CHECK ((base_state_epoch >= 0)),

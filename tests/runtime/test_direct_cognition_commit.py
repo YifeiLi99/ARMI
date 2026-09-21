@@ -92,7 +92,10 @@ async def test_validation_and_application_commit_or_rollback_together(fail) -> N
         codex_delegations=(),
     )
     candidate = SimpleNamespace(
-        episode_id=uuid7(), result=SimpleNamespace(change_set=changes), record=record
+        episode_id=uuid7(),
+        result=SimpleNamespace(change_set=changes),
+        record=record,
+        accepted_candidates=(),
     )
     if fail:
         with pytest.raises(SubjectCommitViolation, match="SUBJECT-INJECTED"):

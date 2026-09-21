@@ -64,9 +64,7 @@ class CognitionAttemptPayload(Payload):
 
 class CognitionArtifactPayload(Payload):
     artifact_id: str
-    role: Literal[
-        "context_manifest", "compiled_context", "request", "response", "diagnostic"
-    ]
+    role: Literal["context_manifest", "compiled_context", "request", "response"]
     retained: bool
     content_digest: str | None
     byte_size: int | None

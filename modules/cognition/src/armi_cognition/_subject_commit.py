@@ -8,7 +8,6 @@ from armi_kernel.application import (
     ArtifactId,
     CandidateApplicationId,
     CandidateApplicationStatus,
-    CandidateFactClass,
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
@@ -118,7 +117,11 @@ class PostgreSQLCognitionSubjectCommit:
     __slots__ = ()
 
     async def snapshot(
-        self, transaction: PostgreSQLTransaction, *, episode_id: UUID
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        accepted_candidates: tuple[CognitionAcceptedCandidate, ...],
     ) -> CognitionCommitSnapshot:
         row = await (
             await transaction.execute(
@@ -153,37 +156,6 @@ class PostgreSQLCognitionSubjectCommit:
         ).fetchone()
         if row is None:
             raise SubjectCommitViolation("SUBJECT-WORK-STALE")
-        item_rows = await (
-            await transaction.execute(
-                """
-                SELECT item.proposal_ref, item.atomic_group_ref, item.owner_kind,
-                       item.fact_class, item.ordinal,
-                       COALESCE(array_agg(basis.context_item_id ORDER BY basis.ordinal)
-                                FILTER (WHERE basis.context_item_id IS NOT NULL), '{}')
-                FROM armi.cognitive_candidate_validation_items AS item
-                LEFT JOIN armi.cognitive_candidate_basis_links AS basis
-                  ON basis.candidate_validation_id = item.candidate_validation_id
-                 AND basis.proposal_ref = item.proposal_ref
-                WHERE item.candidate_validation_id = %s
-                  AND item.validation_status = 'accepted'
-                GROUP BY item.proposal_ref, item.atomic_group_ref, item.owner_kind,
-                         item.fact_class, item.ordinal
-                ORDER BY item.ordinal
-                """,
-                (row[0],),
-            )
-        ).fetchall()
-        accepted = tuple(
-            CognitionAcceptedCandidate(
-                proposal_ref=str(item[0]),
-                atomic_group_ref=str(item[1]),
-                owner_identity=str(item[2]),
-                fact_class=CandidateFactClass(str(item[3])),
-                ordinal=int(item[4]),
-                basis_context_ids=tuple(item[5]),
-            )
-            for item in item_rows
-        )
         return CognitionCommitSnapshot(
             validation_id=row[0],
             episode_id=row[1],
@@ -196,7 +168,7 @@ class PostgreSQLCognitionSubjectCommit:
             base_state_epoch=int(row[8]),
             context_digest=Digest(str(row[9])),
             trace_id=TraceId(str(row[10])),
-            accepted_candidates=accepted,
+            accepted_candidates=accepted_candidates,
         )
 
     async def existing_application(

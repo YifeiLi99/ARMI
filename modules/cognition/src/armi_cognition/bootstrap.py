@@ -77,6 +77,7 @@ from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from ._validator import CandidateValidationContext, DeterministicCandidateValidator
 from .api import (
+    CandidateValidationDiagnostic,
     CandidateValidator,
     CognitionAdminPort,
     CognitionArtifactCatalogPort,
@@ -225,6 +226,8 @@ def bootstrap_cognition_candidate(
     web_search_active: bool = False,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
+    validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
+    | None = None,
     failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> CognitionFinalizationPort:
     return CandidateValidationService(
@@ -264,6 +267,7 @@ def bootstrap_cognition_candidate(
         web_search_active=web_search_active,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
+        validation_diagnostic=validation_diagnostic,
     )
 
 

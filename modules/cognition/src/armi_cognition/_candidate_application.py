@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort, ActivityStatus
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
@@ -91,6 +90,7 @@ from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPo
 from ._candidate_postgresql import (
     CandidateEpisodeSnapshot,
     PostgreSQLCandidateValidationRepository,
+    accepted_candidates,
 )
 from ._dialogue_output import expand_dialogue_output
 from ._validation_diagnostics import contract_rejection
@@ -104,7 +104,9 @@ from ._validator import (
     DeterministicCandidateValidator,
 )
 from .api import (
+    CandidateValidationDiagnostic,
     CandidateValidationResult,
+    CognitionAcceptedCandidate,
     CognitionArtifactCatalogPort,
     CognitionRuntimeStatePort,
     CognitionSubmissionPort,
@@ -126,7 +128,7 @@ class _PreparedCandidate:
     publication: ArtifactPublication | None
     catalog: CognitionArtifactCatalogPort
     repository: PostgreSQLCandidateValidationRepository
-    diagnostic_publication: ArtifactPublication | None = None
+    accepted_candidates: tuple[CognitionAcceptedCandidate, ...]
 
     @property
     def episode_id(self) -> UUID:
@@ -149,16 +151,6 @@ class _PreparedCandidate:
                 await unit_of_work.audit.append(
                     _artifact_audit(unit_of_work, artifact, self.snapshot)
                 )
-        diagnostic_artifact = None
-        if self.diagnostic_publication is not None:
-            registration = await self.catalog.register(
-                unit_of_work, ArtifactId(uuid7()), self.diagnostic_publication
-            )
-            diagnostic_artifact = registration.ref
-            if registration.inserted:
-                await unit_of_work.audit.append(
-                    _artifact_audit(unit_of_work, diagnostic_artifact, self.snapshot)
-                )
         await self.repository.settle(
             unit_of_work,
             lease=lease,
@@ -166,7 +158,6 @@ class _PreparedCandidate:
             result=self.result,
             validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
             change_set_artifact=artifact,
-            diagnostic_artifact=diagnostic_artifact,
         )
 
 
@@ -191,6 +182,7 @@ class CandidateValidationService:
         "_storage",
         "_subject_state_cognition",
         "_submission",
+        "_validation_diagnostic",
         "_visual_sources_active",
         "_web_search_active",
     )
@@ -233,6 +225,8 @@ class CandidateValidationService:
         web_search_active: bool = False,
         visual_sources_active: frozenset[str] = frozenset(),
         diagnostic: Callable[[str], None] | None = None,
+        validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
+        | None = None,
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
@@ -274,6 +268,7 @@ class CandidateValidationService:
             mind=mind_read,
         )
         self._diagnostic = diagnostic or _ignore_diagnostic
+        self._validation_diagnostic = validation_diagnostic
 
     async def finalize(
         self, work: WorkRecord, attempt_id: ModelAttemptId, response_bytes: bytes
@@ -422,23 +417,18 @@ class CandidateValidationService:
             if result.change_set is not None
             else None
         )
-        diagnostic_publication = (
-            await self._publish(
-                rfc8785.dumps(
-                    {
-                        "schema_version": "armi.cognition-diagnostic.v1",
-                        "response_artifact_id": str(
-                            snapshot.response_artifact.artifact_id.value
-                        ),
-                        "details": [asdict(item) for item in result.diagnostics],
-                    }
-                ),
-                snapshot,
-                logical_kind="cognition.diagnostic",
+        if self._validation_diagnostic is not None:
+            self._validation_diagnostic(
+                CandidateValidationDiagnostic(
+                    str(snapshot.episode_id),
+                    str(snapshot.model_attempt_id),
+                    result.status.value,
+                    result.error_code,
+                    result.diagnostics,
+                )
             )
-            if result.diagnostics
-            else None
-        )
+        else:
+            self._diagnostic("cognition.candidate.validated")
         await self._submission.submit(
             cast(WorkLease, work.lease),
             _PreparedCandidate(
@@ -447,7 +437,7 @@ class CandidateValidationService:
                 published,
                 self._catalog,
                 self._repository,
-                diagnostic_publication,
+                accepted_candidates(result, snapshot),
             ),
         )
         if result.error_code is not None and self._failure_notification is not None:

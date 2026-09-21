@@ -20,11 +20,6 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
     ArtifactViolation,
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
     CognitiveEpisodeId,
     ConsiderationSignal,
     WorkDraft,
@@ -39,7 +34,6 @@ from armi_kernel.contracts import (
     Digest,
     IdempotencyKey,
     Instant,
-    Purpose,
     SubjectId,
     TraceId,
 )
@@ -556,32 +550,6 @@ class PostgreSQLContextRepository:
         )
         await unit_of_work.work.complete(
             lease, WorkResultRef("cognitive_episode", episode_id)
-        )
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.context"),
-                "cognition.context.prepared",
-                AuditReference("cognitive_episode", episode_id),
-                AuditResultStatus.COMPLETED,
-                episode.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(episode.subject_id),
-            )
-        )
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.model"),
-                "cognition.model.queued",
-                AuditReference("cognitive_episode", episode_id),
-                AuditResultStatus.WAITING,
-                episode.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(episode.subject_id),
-            )
         )
 
     async def fail(

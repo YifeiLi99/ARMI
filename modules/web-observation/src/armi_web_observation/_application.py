@@ -253,8 +253,8 @@ class WebSearchPipeline:
                     await unit_of_work.audit.append(
                         _artifact_audit(unit_of_work, registration.ref, draft)
                     )
-                await unit_of_work.audit.append(_request_audit(unit_of_work, draft))
-                return record
+            self._diagnostic("web.observation.admitted")
+            return record
         except WebObservationViolation:
             raise
         except ArtifactViolation, RuntimeTransactionFailure, WorkViolation:
@@ -607,13 +607,7 @@ class WebSearchPipeline:
                             for source in normalized_evidence.sources
                         ),
                     )
-                await unit.audit.append(
-                    _settlement_audit(
-                        unit,
-                        snapshot,
-                        AuditResultStatus.COMPLETED,
-                    )
-                )
+            self._diagnostic("web.observation.completed")
             return
         async with self._factory.unit_of_work() as unit:
             await self._repository.settle_failure(
@@ -623,16 +617,8 @@ class WebSearchPipeline:
                 attempt_id=attempt_id,
                 result=result,
             )
-            await unit.audit.append(
-                _settlement_audit(
-                    unit,
-                    snapshot,
-                    AuditResultStatus.UNKNOWN
-                    if result.status is WebObservationResultStatus.OUTCOME_UNKNOWN
-                    else AuditResultStatus.FAILED,
-                )
-            )
 
+        self._diagnostic("web.observation." + result.status.value)
         await self._notify_failure(snapshot, result.error_code or "WEB-PROVIDER-FAILED")
 
     async def _notify_failure(
@@ -711,22 +697,6 @@ def _artifact_audit(
     )
 
 
-def _request_audit(
-    unit: PostgreSQLRuntimeUnitOfWork, draft: WebObservationDraft
-) -> AuditDraft:
-    return AuditDraft(
-        AuditEventId(uuid7()),
-        AuditReference("runtime", unit.environment_id),
-        Purpose("web.observation"),
-        "web.observation.admitted",
-        AuditReference("web_observation", draft.request_id.value),
-        AuditResultStatus.ACCEPTED,
-        draft.trace_id,
-        AuditSensitivity.RESTRICTED,
-        subject_id=draft.subject_id,
-    )
-
-
 def _result_artifact_audit(
     unit: PostgreSQLRuntimeUnitOfWork,
     ref: ArtifactRef,
@@ -739,24 +709,6 @@ def _result_artifact_audit(
         "artifact.catalog.registered",
         AuditReference("artifact", ref.artifact_id.value),
         AuditResultStatus.APPLIED,
-        snapshot.trace_id,
-        AuditSensitivity.RESTRICTED,
-        subject_id=snapshot.subject_id,
-    )
-
-
-def _settlement_audit(
-    unit: PostgreSQLRuntimeUnitOfWork,
-    snapshot: WebObservationSnapshot,
-    status: AuditResultStatus,
-) -> AuditDraft:
-    return AuditDraft(
-        AuditEventId(uuid7()),
-        AuditReference("runtime", unit.environment_id),
-        Purpose("web.observation"),
-        "web.observation.settled",
-        AuditReference("web_observation", snapshot.request_id.value),
-        status,
         snapshot.trace_id,
         AuditSensitivity.RESTRICTED,
         subject_id=snapshot.subject_id,

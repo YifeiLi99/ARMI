@@ -32,8 +32,8 @@ def read_case():
         finally:
             active.pop()
 
-    ids = [uuid7() for _ in range(6)]
-    episode, opportunity, manifest, request, response, diagnostic = ids
+    ids = [uuid7() for _ in range(5)]
+    episode, opportunity, manifest, request, response = ids
     cognition = Mock()
     cognition.episode.return_value = CognitionAdminEpisodeSnapshot(
         episode,
@@ -44,7 +44,6 @@ def read_case():
         manifest,
         None,
         (response,),
-        (diagnostic,),
     )
     cognition.attempts.return_value = (
         CognitionAdminAttempt(
@@ -113,7 +112,6 @@ def test_directory_and_lossless_unicode_pages(read_case):
         "context_manifest",
         "request",
         "response",
-        "diagnostic",
     }
     artifacts.read_verified_bytes.assert_not_called()
     chunks = []

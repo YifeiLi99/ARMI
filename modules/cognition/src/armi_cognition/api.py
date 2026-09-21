@@ -409,6 +409,15 @@ class CognitionWorkerPort(Protocol):
     async def run_worker(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CandidateValidationDiagnostic:
+    episode_id: str
+    model_attempt_id: str
+    status: str
+    error_code: str | None
+    diagnostics: tuple[CandidateDiagnostic, ...]
+
+
 class CognitionPreparedCandidate(Protocol):
     """An in-memory validation result with its Cognition-owned fact writer."""
 
@@ -420,6 +429,9 @@ class CognitionPreparedCandidate(Protocol):
 
     @property
     def result(self) -> CandidateValidationResult: ...
+
+    @property
+    def accepted_candidates(self) -> tuple[CognitionAcceptedCandidate, ...]: ...
 
     async def record(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
@@ -636,7 +648,11 @@ class CognitionExactLifeQueryIntentDraft:
 @runtime_checkable
 class CognitionSubjectCommitPort(Protocol):
     async def snapshot(
-        self, transaction: PostgreSQLTransaction, *, episode_id: UUID
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        accepted_candidates: tuple[CognitionAcceptedCandidate, ...],
     ) -> CognitionCommitSnapshot: ...
 
     async def existing_application(
@@ -723,7 +739,6 @@ class CognitionAdminEpisodeSnapshot:
     context_manifest_artifact_id: UUID | None = None
     compiled_context_artifact_id: UUID | None = None
     response_artifact_ids: tuple[UUID, ...] = ()
-    diagnostic_artifact_ids: tuple[UUID, ...] = ()
 
 
 @runtime_checkable
@@ -807,6 +822,7 @@ __all__ = (
     "AUTONOMY_CHECK_VERSION",
     "CandidateDiagnostic",
     "CandidateExactLifeQueryDraft",
+    "CandidateValidationDiagnostic",
     "CandidateValidationResult",
     "CandidateValidationStatus",
     "CandidateValidator",

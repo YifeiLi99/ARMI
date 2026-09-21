@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -13,11 +13,6 @@ from armi_interaction.api import human_input_activity
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
     ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
@@ -33,8 +28,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import (
     Digest,
-    Purpose,
-    SubjectId,
     TraceId,
 )
 from armi_live_voice.api import voice_activity
@@ -216,14 +209,6 @@ class PostgreSQLCognitiveModelRepository:
                          AND status IN ('prepared','calling_model')""",
                     (snapshot.episode_id,),
                 )
-                await unit_of_work.audit.append(
-                    _settlement_audit(
-                        unit_of_work,
-                        snapshot,
-                        previous_id,
-                        AuditResultStatus.FAILED,
-                    )
-                )
                 await self._resolve_selected_opportunity(
                     unit_of_work, snapshot.episode_id
                 )
@@ -313,19 +298,6 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if updated is None:
             raise ModelViolation("MODEL-EPISODE-STATE")
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.model"),
-                "cognition.model.attempt.prepared",
-                AuditReference("model_attempt", attempt_id.value),
-                AuditResultStatus.ACCEPTED,
-                snapshot.trace_id,
-                AuditSensitivity.RESTRICTED,
-                subject_id=SubjectId(snapshot.subject_id),
-            )
-        )
         return attempt_id
 
     async def attach_request(
@@ -440,28 +412,6 @@ class PostgreSQLCognitiveModelRepository:
             result=result,
             response_artifact_id=response_artifact.artifact_id,
         )
-        await unit_of_work.audit.append(
-            _settlement_audit(
-                unit_of_work,
-                snapshot,
-                attempt_id,
-                AuditResultStatus.COMPLETED,
-            )
-        )
-        if result.response_error_code == "MODEL-RESPONSE-SCHEMA":
-            # The provider returned successfully; reject its content separately.
-            # Existing attempt constraints and original response remain intact.
-            await unit_of_work.audit.append(
-                replace(
-                    _settlement_audit(
-                        unit_of_work, snapshot, attempt_id, AuditResultStatus.REJECTED
-                    ),
-                    operation="cognition.model.response.format_rejected",
-                    request=AuditReference(
-                        "artifact", response_artifact.artifact_id.value
-                    ),
-                )
-            )
 
     async def settle_failure(
         self,
@@ -480,14 +430,6 @@ class PostgreSQLCognitiveModelRepository:
             attempt_id=attempt_id,
             result=result,
             response_artifact_id=None,
-        )
-        await unit_of_work.audit.append(
-            _settlement_audit(
-                unit_of_work,
-                snapshot,
-                attempt_id,
-                AuditResultStatus.FAILED,
-            )
         )
 
     async def fail_before_attempt(
@@ -512,19 +454,6 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if updated is None:
             raise ModelViolation("MODEL-EPISODE-STATE")
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.model"),
-                "cognition.model.request.rejected",
-                AuditReference("cognitive_episode", snapshot.episode_id),
-                AuditResultStatus.FAILED,
-                snapshot.trace_id,
-                AuditSensitivity.RESTRICTED,
-                subject_id=SubjectId(snapshot.subject_id),
-            )
-        )
 
     async def finalize_primary_success(
         self,
@@ -733,25 +662,6 @@ class PostgreSQLCognitiveModelRepository:
             unit_of_work.transaction, opportunity_id=row[0], failure_code=row[1]
         ):
             raise ModelViolation("MODEL-OPPORTUNITY-STATE")
-
-
-def _settlement_audit(
-    unit_of_work: PostgreSQLRuntimeUnitOfWork,
-    snapshot: ModelEpisodeSnapshot,
-    attempt_id: ModelAttemptId,
-    status: AuditResultStatus,
-) -> AuditDraft:
-    return AuditDraft(
-        AuditEventId(uuid7()),
-        AuditReference("runtime", unit_of_work.environment_id),
-        Purpose("cognition.model"),
-        "cognition.model.attempt.settled",
-        AuditReference("model_attempt", attempt_id.value),
-        status,
-        snapshot.trace_id,
-        AuditSensitivity.RESTRICTED,
-        subject_id=SubjectId(snapshot.subject_id),
-    )
 
 
 __all__ = (

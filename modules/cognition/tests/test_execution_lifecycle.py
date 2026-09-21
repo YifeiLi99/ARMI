@@ -382,6 +382,8 @@ async def test_format_retry_preserves_request_and_finalizes_once(
     )
     invalid = response('{"action":"reply","content":["bad"],"event_null":false}')
     valid = response('{"action":"reply","content":["hello"]}')
+    events: list[str] = []
+    pipeline._diagnostic = lambda _event: events.append(_event)
     pipeline.adapter.invoke.side_effect = [invalid] * failures + [valid]
     if failures == 5:
         pipeline._finalization.finalize.side_effect = CandidateViolation(
@@ -389,6 +391,7 @@ async def test_format_retry_preserves_request_and_finalizes_once(
         )
     await pipeline._execute(cast(Any, record))
     calls = min(failures + 1, 5)
+    assert events.count("cognition.model.response.format_rejected") == min(failures, 5)
     assert pipeline.adapter.invoke.await_count == calls
     assert all(
         item.args[0] is request for item in pipeline.adapter.invoke.await_args_list

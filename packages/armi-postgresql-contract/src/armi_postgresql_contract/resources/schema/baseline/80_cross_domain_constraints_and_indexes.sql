@@ -354,34 +354,6 @@ ALTER TABLE ONLY armi.cognitive_candidate_applications
     ADD CONSTRAINT cognitive_candidate_applications_work_id_key UNIQUE (work_id);
 
 --
--- Name: cognitive_candidate_basis_links cognitive_candidate_basis_lin_candidate_validation_id_propo_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_basis_links
-    ADD CONSTRAINT cognitive_candidate_basis_lin_candidate_validation_id_propo_key UNIQUE (candidate_validation_id, proposal_ref, context_item_id);
-
---
--- Name: cognitive_candidate_basis_links cognitive_candidate_basis_links_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_basis_links
-    ADD CONSTRAINT cognitive_candidate_basis_links_pkey PRIMARY KEY (candidate_validation_id, proposal_ref, ordinal);
-
---
--- Name: cognitive_candidate_validation_items cognitive_candidate_validatio_candidate_validation_id_ordin_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validation_items
-    ADD CONSTRAINT cognitive_candidate_validatio_candidate_validation_id_ordin_key UNIQUE (candidate_validation_id, ordinal);
-
---
--- Name: cognitive_candidate_validation_items cognitive_candidate_validation_items_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validation_items
-    ADD CONSTRAINT cognitive_candidate_validation_items_pkey PRIMARY KEY (candidate_validation_id, proposal_ref);
-
---
 -- Name: cognitive_candidate_validations cognitive_candidate_validations_cognitive_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2016,13 +1988,6 @@ ALTER TABLE ONLY armi.action_intents
     ADD CONSTRAINT action_intents_artifact_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
--- Name: action_intents action_intents_candidate_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intents
-    ADD CONSTRAINT action_intents_candidate_fkey FOREIGN KEY (candidate_validation_id, proposal_ref) REFERENCES armi.cognitive_candidate_validation_items(candidate_validation_id, proposal_ref);
-
---
 -- Name: action_intents action_intents_codex_source_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2379,32 +2344,11 @@ ALTER TABLE ONLY armi.cognitive_candidate_applications
     ADD CONSTRAINT cognitive_candidate_applications_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
 --
--- Name: cognitive_candidate_basis_links cognitive_candidate_basis_lin_candidate_validation_id_prop_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_basis_links
-    ADD CONSTRAINT cognitive_candidate_basis_lin_candidate_validation_id_prop_fkey FOREIGN KEY (candidate_validation_id, proposal_ref) REFERENCES armi.cognitive_candidate_validation_items(candidate_validation_id, proposal_ref);
-
---
--- Name: cognitive_candidate_basis_links cognitive_candidate_basis_links_context_item_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_basis_links
-    ADD CONSTRAINT cognitive_candidate_basis_links_context_item_id_fkey FOREIGN KEY (context_item_id) REFERENCES armi.cognitive_context_items(context_item_id);
-
---
 -- Name: cognitive_candidate_validations cognitive_candidate_validatio_validated_by_runtime_instanc_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognitive_candidate_validations
     ADD CONSTRAINT cognitive_candidate_validatio_validated_by_runtime_instanc_fkey FOREIGN KEY (validated_by_runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
-
---
--- Name: cognitive_candidate_validation_items cognitive_candidate_validation_ite_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validation_items
-    ADD CONSTRAINT cognitive_candidate_validation_ite_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
 
 --
 -- Name: cognitive_candidate_validations cognitive_candidate_validations_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2420,8 +2364,19 @@ ALTER TABLE ONLY armi.cognitive_candidate_validations
 ALTER TABLE ONLY armi.cognitive_candidate_validations
     ADD CONSTRAINT cognitive_candidate_validations_change_set_artifact_id_fkey FOREIGN KEY (change_set_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_diagnostic_artifact_id_fkey FOREIGN KEY (diagnostic_artifact_id) REFERENCES armi.artifacts(artifact_id);
+--
+-- Name: action_intents action_intents_validation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+
+--
+-- Name: dialogue_decisions dialogue_decisions_validation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.dialogue_decisions
+    ADD CONSTRAINT dialogue_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
 
 --
 -- Name: cognitive_candidate_validations cognitive_candidate_validations_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2592,13 +2547,6 @@ ALTER TABLE ONLY armi.data_rights_orders
 
 ALTER TABLE ONLY armi.dialogue_decisions
     ADD CONSTRAINT dialogue_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_candidate_applications(candidate_application_id);
-
---
--- Name: dialogue_decisions dialogue_decisions_candidate_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_candidate_fkey FOREIGN KEY (candidate_validation_id, proposal_ref) REFERENCES armi.cognitive_candidate_validation_items(candidate_validation_id, proposal_ref);
 
 --
 -- Name: dialogue_decisions dialogue_decisions_commit_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

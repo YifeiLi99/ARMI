@@ -1236,6 +1236,7 @@ async def _serve(
                 visual_sources_active=frozenset(
                     kind.value for kind in live_vision_services
                 ),
+                validation_diagnostic=diagnostic.candidate_validation,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
                     result_code="CANDIDATE_PIPELINE",

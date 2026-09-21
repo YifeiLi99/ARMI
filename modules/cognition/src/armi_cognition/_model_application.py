@@ -644,6 +644,7 @@ class ModelPipeline:
             if attempt_id is None:
                 self._diagnostic("model.outcome_unknown")
                 return
+            self._diagnostic("cognition.model.attempt.prepared")
             bound_attempt = attempt_id
 
             async def save_usage(receipt: ProviderCallReceipt) -> None:
@@ -767,6 +768,9 @@ class ModelPipeline:
                             attempt_id=attempt_id,
                             response_artifact=response_registration.ref,
                         )
+                self._diagnostic("cognition.model.attempt.settled")
+                if structure_error is not None:
+                    self._diagnostic("cognition.model.response.format_rejected")
                 response_saved = True
                 if self._stop.is_set():
                     return
@@ -782,6 +786,7 @@ class ModelPipeline:
                         )
                     if attempt_id is None:
                         return
+                    self._diagnostic("cognition.model.attempt.prepared")
                     bound_attempt = attempt_id
                     response_saved = False
                     continue
@@ -1087,6 +1092,7 @@ class ModelPipeline:
                 snapshot=snapshot,
                 code=result.error_code or "MODEL-PROVIDER-FAILED",
             )
+        self._diagnostic("cognition.model.attempt.failed")
         if self._failure_notification is not None and not self._stop.is_set():
             await self._failure_notification(
                 snapshot.episode_id, result.error_code or "MODEL-PROVIDER-FAILED"

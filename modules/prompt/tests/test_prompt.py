@@ -85,8 +85,6 @@ class _PromptTransaction:
     async def execute(self, query: str, params: tuple[object, ...] = ()) -> _Result:
         if "FOR UPDATE OF document" in query:
             return _Result((self.current_revision_id, self.revision_no))
-        if "cognitive_candidate_validation_items" in query:
-            return _Result((1,))
         if "FROM armi.parties" in query:
             return _Result((self.subject_party_id,))
         if "INSERT INTO armi.prompt_revisions" in query:

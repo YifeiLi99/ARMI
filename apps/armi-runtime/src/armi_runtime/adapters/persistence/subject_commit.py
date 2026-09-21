@@ -426,11 +426,15 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         lease: WorkLease,
         episode_id: UUID,
+        *,
+        accepted_candidates: tuple[CognitionAcceptedCandidate, ...],
     ) -> SubjectCommitSnapshot:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
         await _assert_lease(connection, lease, episode_id)
         cognition = await self._cognition_commit.snapshot(
-            unit_of_work.transaction, episode_id=episode_id
+            unit_of_work.transaction,
+            episode_id=episode_id,
+            accepted_candidates=accepted_candidates,
         )
         try:
             opportunity = await self._opportunity_transition.subject_commit_snapshot(

@@ -167,9 +167,7 @@ def test_format_retry_attempts_preserve_evidence_and_do_not_resume(
             assert all(row[3] is None for row in rows)
             assert connection.execute(
                 "SELECT count(*) FROM armi.audit_events WHERE operation='cognition.model.response.format_rejected'"
-            ).fetchone() == (
-                {"returned": 3, "exhausted": 4, "interrupted": 1}[outcome],
-            )
+            ).fetchone() == (0,)
             assert connection.execute(
                 "SELECT status FROM armi.cognitive_episodes"
             ).fetchone() == (

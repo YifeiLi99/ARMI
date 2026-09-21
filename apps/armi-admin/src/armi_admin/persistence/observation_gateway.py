@@ -311,9 +311,6 @@ class AdminObservationGateway:
                     refs[attempt.request_artifact_id] = "request"
                 if attempt.response_artifact_id is not None:
                     refs[attempt.response_artifact_id] = "response"
-            refs.update(
-                (identity, "diagnostic") for identity in episode.diagnostic_artifact_ids
-            )
             selected = None if artifact_id is None else UUID(artifact_id)
             if selected is not None and selected not in refs:
                 raise RuntimeViolation(
@@ -986,15 +983,6 @@ class AdminObservationGateway:
                             kind,
                             identity,
                             "model_response",
-                            "artifact",
-                            artifact_id,
-                            "cognition",
-                        )
-                    for artifact_id in episode.diagnostic_artifact_ids:
-                        link(
-                            kind,
-                            identity,
-                            "validation_diagnostic",
                             "artifact",
                             artifact_id,
                             "cognition",

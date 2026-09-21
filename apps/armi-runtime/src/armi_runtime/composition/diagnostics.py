@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TextIO
 
 from armi_artifact_store.api import ArtifactDeletionDiagnostic
+from armi_cognition.api import CandidateValidationDiagnostic
 from armi_context.api import EmbeddingAttemptDiagnostic, EmbeddingFailureDiagnostic
 from armi_kernel.contracts import Instant
 from armi_local_control.runtime_errors import RuntimeViolation
@@ -331,6 +332,28 @@ class StructuredDiagnosticLog:
             else logging.WARNING,
             details=asdict(attempt),
         )
+
+    def candidate_validation(self, result: CandidateValidationDiagnostic) -> None:
+        self.emit(
+            "cognition.candidate.validated",
+            details={
+                "episode_id": result.episode_id,
+                "model_attempt_id": result.model_attempt_id,
+                "status": result.status,
+                "error_code": result.error_code,
+            },
+        )
+        for item in result.diagnostics:
+            self.emit(
+                "cognition.candidate.diagnostic",
+                details={
+                    "episode_id": result.episode_id,
+                    "stage": item.stage,
+                    "code": item.code,
+                    "path": json.dumps(item.field_path, ensure_ascii=False),
+                    "owner": item.owner,
+                },
+            )
 
     def web_tool_call(self, step: WebToolCallDiagnostic) -> None:
         self.emit("web.observation.tool_call", details=asdict(step))

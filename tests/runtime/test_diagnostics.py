@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from armi_artifact_store.api import ArtifactDeletionDiagnostic
+from armi_cognition.api import CandidateDiagnostic, CandidateValidationDiagnostic
 from armi_context.api import EmbeddingFailureDiagnostic
 from armi_runtime.application.creator_contract import RuntimeState
 from armi_runtime.composition.diagnostics import StructuredDiagnosticLog
@@ -24,6 +25,42 @@ class _WriteFailure(io.StringIO):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_candidate_rejection_details_reach_rotating_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root, environment_id=_ENVIRONMENT, instance_id="instance"
+            )
+            diagnostic.candidate_validation(
+                CandidateValidationDiagnostic(
+                    "episode",
+                    "attempt",
+                    "rejected",
+                    "CANDIDATE-CONTRACT",
+                    (
+                        CandidateDiagnostic(
+                            "structure",
+                            "string_type",
+                            ("decision", "content"),
+                            "cognition",
+                        ),
+                    ),
+                )
+            )
+            diagnostic.close()
+            records = [
+                json.loads(line)
+                for line in next((root / "logs").glob("*.jsonl"))
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertEqual(records[0]["details"]["model_attempt_id"], "attempt")
+            self.assertEqual(records[1]["event"], "cognition.candidate.diagnostic")
+            self.assertEqual(records[1]["details"]["code"], "string_type")
+            self.assertEqual(
+                json.loads(records[1]["details"]["path"]), ["decision", "content"]
+            )
+
     def test_deletion_attempt_reaches_rotating_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

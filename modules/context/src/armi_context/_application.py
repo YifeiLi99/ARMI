@@ -460,6 +460,8 @@ class ContextPipeline:
                     compiled_artifact=compiled_registration.ref,
                     snapshot=snapshot,
                 )
+            self._diagnostic("cognition.context.prepared")
+            self._diagnostic("cognition.model.queued")
             self._wakeups.notify(COGNITION_EXECUTE)
             return True
         except ContextViolation as error:

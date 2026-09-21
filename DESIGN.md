@@ -2,6 +2,8 @@
 
 数据库仅保留有长期用途的事实与保证正确性所需的当前状态。Web 搜索步骤、检索索引逐次生成过程写诊断日志；索引本体、来源版本、完整性和任务重试仍由原表负责。每个 Runtime 的启动恢复状态、起止时间和阻塞数直接保存在 runtime_instances，沿用实例 ID 关联恢复结果；过程与统计写日志，不另建恢复流水表或追加重复的启动检查审计。
 
+候选校验与提交在同一次执行中直接传递已接受的修改及 Context 引用，不建立逐项校验表或候选引用中间表。拒绝仅更新 episode 失败状态，详细原因写日志；接受后的校验摘要、change set 和实际 application 保留，作为已提交业务事实的来源与幂等依据。Context 准备、模型排队/调用/格式拒绝、候选校验、Web 接纳/结算等技术过程写日志，不追加 audit_events；权限与管理变更继续保留正式审计。
+
 本文描述仓库当前代码姿态，不是路线图。精确字段、状态、枚举、DDL、依赖和默认值以当前代码、`armi-postgresql-contract` 打包 schema、唯一 Alembic `0000`、`configs/`、锁文件和测试为准。
 
 产品约束以本节及 [AGENTS.md](AGENTS.md) 为准。普通 Creator 回复与 Codex 委托均在配置范围内直接执行，中断即结束；管理端授权保持独立合同。
@@ -178,9 +180,9 @@ frozen Context + expected subject/owner versions
 
 执行器将实际模型响应、usage 与模型成功以短事务保存；文本格式重试期间认知保持 `calling_model`，选定最终返回后进入 `finalizing`。最终响应直接传入校验器，类型化变更集直接传入提交服务；受治理存档保留，正常执行不重读存档接续工作。制品在事务外准备，最终事务原子登记校验、应用事实、主体变化、意图、Effect/outbox 并结算工作；全程共享同一租约、续租和取消信号。后续失败不改写已成功的模型调用。
 
-模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 使用原合同解析器判断文本是否需要格式重试，选定最终返回后仍由正式校验器绑定 Owner 命令。独立的 `cognition.diagnostic` 制品保存最终校验的阶段、错误码、字段路径、责任 Owner 和原始响应引用；管理端因果链关联两类制品，数据权利发现与引用计数同时覆盖它们。格式错误返回保留独立 attempt 与原文，并在同一结算事务追加 cognition.model.response.format_rejected 审计，关联 attempt 与响应制品。调用成功事实与内容拒绝分开记录，不改写为网络失败，也不提交被放弃的候选。
+模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 使用原合同解析器判断文本是否需要格式重试，选定最终返回后仍由正式校验器绑定 Owner 命令。最终校验的阶段、错误码、字段路径和责任 Owner 只写诊断日志，以 episode/attempt ID 关联原始返回；不生成诊断制品。格式错误返回仍保留独立 attempt 与原文，格式拒绝写日志，不追加技术审计。调用成功事实与内容拒绝分开记录，不改写为网络失败，也不提交被放弃的候选。
 
-Admin `cognition_read`（CLI `cognition-read` / MCP `admin_cognition_read`）按 episode ID 返回 Context manifest、compiled Context、各 attempt 的请求/响应及诊断引用；给定其中的 artifact ID 后分段读取经过完整性核验的 UTF-8 正文。offset/length 以 Unicode 字符计，默认 16384、单页最多 65536 字符；返回 next_offset，不解析或执行历史候选。独立 `cognition_read` scope 授权正文读取，本机拥有者包含此权限，普通 trace/diagnostics 权限不自动获得正文。只读取该 episode 直接引用且仍 retained 的制品；文件 I/O 在事务外，返回前重验退役状态，缺失、损坏、越轮引用分别明确失败。
+Admin `cognition_read`（CLI `cognition-read` / MCP `admin_cognition_read`）按 episode ID 返回 Context manifest、compiled Context、各 attempt 的请求/响应引用；给定其中的 artifact ID 后分段读取经过完整性核验的 UTF-8 正文。offset/length 以 Unicode 字符计，默认 16384、单页最多 65536 字符；返回 next_offset，不解析或执行历史候选。独立 `cognition_read` scope 授权正文读取，本机拥有者包含此权限，普通 trace/diagnostics 权限不自动获得正文。只读取该 episode 直接引用且仍 retained 的制品；文件 I/O 在事务外，返回前重验退役状态，缺失、损坏、越轮引用分别明确失败。
 
 新调用的 `model.request` 制品采用 `armi.model-input-evidence.v1`，保存实际 provider_request（系统指令、输入、输出 Schema、模型及生成参数），由与 SDK 发送共用的参数构造方法生成，不重复保存相同输入，不含凭据或认证头。确定性心情计算明确标记 deterministic，只保存 canonical_request，没有 provider_request。历史请求仍按原始字节读取，缺失的旧系统指令不按当前配置重建；attempt 的 dispatched/result 状态用于区分已准备输入和真正发生的模型调用。
 

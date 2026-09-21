@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
-from uuid import UUID, uuid7
+from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
 from armi_attention.api import (
@@ -24,11 +23,6 @@ from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
     CandidateBasis,
     CandidateExperienceDraft,
     CandidateFactClass,
@@ -44,8 +38,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import (
     Digest,
-    Purpose,
-    SubjectId,
     TraceId,
 )
 from armi_live_vision.api import VisualObservationRequestDraft
@@ -66,7 +58,6 @@ from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
-    PostgreSQLTransaction,
 )
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
@@ -77,6 +68,7 @@ from .api import (
     CandidateExactLifeQueryDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
+    CognitionAcceptedCandidate,
     CognitionArtifactCatalogPort,
     CognitionRuntimeStatePort,
     SubjectChangeSet,
@@ -536,7 +528,6 @@ class PostgreSQLCandidateValidationRepository:
         result: CandidateValidationResult,
         validator_identity: str,
         change_set_artifact: ArtifactRef | None,
-        diagnostic_artifact: ArtifactRef | None = None,
     ) -> None:
         connection = unit_of_work.transaction
         await unit_of_work.work.validate_lease(lease)
@@ -545,51 +536,48 @@ class PostgreSQLCandidateValidationRepository:
         if fence is None:
             raise CandidateViolation("CANDIDATE-FENCE")
         change_set = result.change_set
-        await connection.execute(
-            """
-            INSERT INTO armi.cognitive_candidate_validations (
-                candidate_validation_id, cognitive_episode_id, model_attempt_id,
-                work_id, subject_id, life_generation_id, bundle_activation_id,
-                base_subject_version, base_state_epoch, context_digest,
-                candidate_contract_version, validator_identity, validation_status,
-                final_disposition, change_set_artifact_id,
-                accepted_count, rejected_count, error_code,
-                validated_by_runtime_instance_id, validation_fence_token,
-                diagnostic_artifact_id)
-            VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                result.validation_id.value,
-                snapshot.episode_id,
-                snapshot.model_attempt_id,
-                lease.work_id.value,
-                snapshot.subject_id,
-                snapshot.generation_id,
-                snapshot.bundle_activation_id,
-                snapshot.base_subject_version,
-                snapshot.base_state_epoch,
-                snapshot.context_digest.value,
-                snapshot.candidate_contract_version,
-                validator_identity,
-                result.status.value,
-                change_set.disposition.value if change_set else None,
-                (
-                    change_set_artifact.artifact_id.value
-                    if change_set_artifact is not None
-                    else None
-                ),
-                result.accepted_count,
-                result.rejected_count,
-                result.error_code,
-                fence.runtime_instance_id.value,
-                fence.fence_token,
-                diagnostic_artifact.artifact_id.value if diagnostic_artifact else None,
-            ),
-        )
         if change_set is not None:
-            await _insert_items(connection, result, snapshot)
+            await connection.execute(
+                """
+                INSERT INTO armi.cognitive_candidate_validations (
+                    candidate_validation_id, cognitive_episode_id, model_attempt_id,
+                    work_id, subject_id, life_generation_id, bundle_activation_id,
+                    base_subject_version, base_state_epoch, context_digest,
+                    candidate_contract_version, validator_identity, validation_status,
+                    final_disposition, change_set_artifact_id,
+                    accepted_count, rejected_count, error_code,
+                    validated_by_runtime_instance_id, validation_fence_token)
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    result.validation_id.value,
+                    snapshot.episode_id,
+                    snapshot.model_attempt_id,
+                    lease.work_id.value,
+                    snapshot.subject_id,
+                    snapshot.generation_id,
+                    snapshot.bundle_activation_id,
+                    snapshot.base_subject_version,
+                    snapshot.base_state_epoch,
+                    snapshot.context_digest.value,
+                    snapshot.candidate_contract_version,
+                    validator_identity,
+                    result.status.value,
+                    change_set.disposition.value if change_set else None,
+                    (
+                        change_set_artifact.artifact_id.value
+                        if change_set_artifact is not None
+                        else None
+                    ),
+                    result.accepted_count,
+                    result.rejected_count,
+                    result.error_code,
+                    fence.runtime_instance_id.value,
+                    fence.fence_token,
+                ),
+            )
         episode_status = (
             "candidate_rejected"
             if result.status is CandidateValidationStatus.REJECTED
@@ -626,28 +614,8 @@ class PostgreSQLCandidateValidationRepository:
             raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
         if result.status is CandidateValidationStatus.REJECTED:
             await unit_of_work.work.complete(
-                lease, WorkResultRef("candidate_validation", result.validation_id.value)
+                lease, WorkResultRef("cognitive_episode", snapshot.episode_id)
             )
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.candidate"),
-                "cognition.candidate.validated",
-                AuditReference(
-                    "candidate_validation",
-                    result.validation_id.value,
-                ),
-                (
-                    AuditResultStatus.REJECTED
-                    if result.status is CandidateValidationStatus.REJECTED
-                    else AuditResultStatus.COMPLETED
-                ),
-                snapshot.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(snapshot.subject_id),
-            )
-        )
 
     async def _artifact_ref(
         self,
@@ -660,19 +628,23 @@ class PostgreSQLCandidateValidationRepository:
         return ref
 
 
-async def _insert_items(
-    connection: PostgreSQLTransaction,
+def accepted_candidates(
     result: CandidateValidationResult,
     snapshot: CandidateEpisodeSnapshot,
-) -> None:
-    change_set = cast(SubjectChangeSet, result.change_set)
+) -> tuple[CognitionAcceptedCandidate, ...]:
+    """Pass validated proposals straight to the same atomic commit; see DESIGN.md."""
+    if result.change_set is None:
+        return ()
     item_id_by_ordinal = dict(snapshot.basis_item_ids)
-    drafts = _validation_drafts(change_set)
+    candidates: list[CognitionAcceptedCandidate] = []
     for ordinal, draft in enumerate(
-        sorted(drafts, key=lambda item: item.proposal_ref), 1
+        sorted(
+            _validation_drafts(result.change_set), key=lambda item: item.proposal_ref
+        ),
+        1,
     ):
-        accepted = not isinstance(draft, CandidateRejection)
-        owner = _owner(draft)
+        if isinstance(draft, CandidateRejection):
+            continue
         fact_class = (
             draft.fact_class
             if isinstance(
@@ -682,49 +654,27 @@ async def _insert_items(
                     CandidateMemoryDraft,
                     CandidateMemoryRevisionDraft,
                     CandidateOwnerDraft,
-                    CandidateRejection,
                 ),
             )
             else None
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.cognitive_candidate_validation_items (
-                candidate_validation_id, proposal_ref, atomic_group_ref,
-                owner_kind, fact_class, validation_status, reason_code,
-                ordinal)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                result.validation_id.value,
-                draft.proposal_ref,
-                draft.atomic_group_ref,
-                owner.value,
-                (fact_class or _implicit_fact_class(draft)).value,
-                "accepted" if accepted else "rejected",
-                None if accepted else draft.code,
-                ordinal,
-            ),
-        )
-        for link_ordinal, basis_ordinal in enumerate(draft.basis_ordinals, 1):
-            context_item_id = item_id_by_ordinal.get(basis_ordinal)
-            if context_item_id is None:
-                raise CandidateViolation("CANDIDATE-BASIS-MISSING")
-            await connection.execute(
-                """
-                INSERT INTO armi.cognitive_candidate_basis_links (
-                    candidate_validation_id, proposal_ref,
-                    context_item_id, ordinal
-                )
-                VALUES (%s, %s, %s, %s)
-                """,
-                (
-                    result.validation_id.value,
-                    draft.proposal_ref,
-                    context_item_id,
-                    link_ordinal,
-                ),
+        try:
+            basis_ids = tuple(
+                item_id_by_ordinal[index] for index in draft.basis_ordinals
             )
+        except KeyError:
+            raise CandidateViolation("CANDIDATE-BASIS-MISSING") from None
+        candidates.append(
+            CognitionAcceptedCandidate(
+                proposal_ref=draft.proposal_ref,
+                atomic_group_ref=draft.atomic_group_ref,
+                owner_identity=_owner(draft).value,
+                fact_class=fact_class or _implicit_fact_class(draft),
+                ordinal=ordinal,
+                basis_context_ids=basis_ids,
+            )
+        )
+    return tuple(candidates)
 
 
 def _validation_drafts(

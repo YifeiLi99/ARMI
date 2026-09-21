@@ -277,7 +277,10 @@ class SubjectCommitPipeline:
             async with self._factory.unit_of_work() as unit_of_work:
                 await candidate.record(unit_of_work, lease)
                 snapshot = await self._repository.snapshot(
-                    unit_of_work, lease, episode_id
+                    unit_of_work,
+                    lease,
+                    episode_id,
+                    accepted_candidates=candidate.accepted_candidates,
                 )
                 snapshot = self._bind_accepted_owner_payloads(snapshot, change_set)
                 response_artifact = None

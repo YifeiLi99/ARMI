@@ -92,12 +92,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "cognitive_candidate_applications": TableOwnership(
         "cognition", maintenance_writable=True
     ),
-    "cognitive_candidate_basis_links": TableOwnership(
-        "cognition", maintenance_writable=True
-    ),
-    "cognitive_candidate_validation_items": TableOwnership(
-        "cognition", maintenance_writable=True
-    ),
     "cognitive_candidate_validations": TableOwnership(
         "cognition", maintenance_writable=True
     ),
