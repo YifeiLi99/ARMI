@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Literal, cast
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_expression.api import (
     CodexEffectDraft,
     DeclaredResponseEffectDraft,
@@ -40,24 +39,15 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         # Intent, dispatch lease and delivery result share one row; see DESIGN.md.
         task = draft.delegation
         effect_id = uuid7()
-        digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "action_intent_id": str(draft.action_intent_id),
-                    "task_source_id": str(task.task_source_id),
-                    "manifest_digest": task.task_manifest_digest.value,
-                }
-            )
-        )
         await transaction.execute(
             """INSERT INTO armi.effects (
                 effect_id,action_intent_id,max_attempts,
                 root_opportunity_id,operation_ref,candidate_validation_id,proposal_ref,subject_commit_id,codex_task_source_id,
                 subject_id,scene_id,context_party_id,payload_artifact_id,
                 payload_digest,payload_bytes,effect_kind,destination_kind,
-                destination_party_id,registration_digest,trace_id,status,verification_status)
+                destination_party_id,trace_id,status,verification_status)
                VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'codex_delegation',
-                 'codex_workspace',%s,%s,%s,'registered','not_started')""",
+                 'codex_workspace',%s,%s,'registered','not_started')""",
             (
                 effect_id,
                 draft.action_intent_id,
@@ -74,7 +64,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 task.task_manifest_digest.value,
                 task.task_manifest_bytes,
                 task.creator_party_id,
-                digest.value,
                 task.trace_id.value,
             ),
         )
@@ -86,23 +75,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         draft: DeclaredResponseEffectDraft,
     ) -> UUID:
         effect_id = uuid7()
-        registration_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "effect_id": str(effect_id),
-                    "action_intent_id": str(draft.action_intent_id),
-                    "scene_id": str(draft.scene_id),
-                    "other_party_id": str(draft.context_party_id),
-                    "destination_party_id": str(draft.destination_party_id),
-                    "destination_binding_id": (
-                        None
-                        if draft.destination_binding_id is None
-                        else str(draft.destination_binding_id)
-                    ),
-                    "response_digest": draft.payload_digest.value,
-                }
-            )
-        )
         await transaction.execute(
             """
             INSERT INTO armi.effects (
@@ -113,12 +85,12 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 effect_kind, destination_kind,
                 destination_party_id, destination_binding_id,
                 live_voice_turn_id, status, verification_status,
-                registration_digest, trace_id) VALUES (
+                trace_id) VALUES (
                 %s, %s, CASE WHEN %s THEN NULL ELSE statement_timestamp() + interval '1 hour' END, %s,
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, 'registered', 'not_started', %s, %s)
+                %s, 'registered', 'not_started', %s)
             """,
             (
                 effect_id,
@@ -141,7 +113,6 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 draft.destination_party_id,
                 draft.destination_binding_id,
                 draft.live_voice_turn_id,
-                registration_digest.value,
                 draft.trace_id.value,
             ),
         )

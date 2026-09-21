@@ -6436,7 +6436,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     effect_id, subject_id, scene_id, context_party_id,
                     payload_artifact_id, payload_digest, payload_bytes,
                     effect_kind, destination_kind,
-                    destination_party_id, registration_digest, status,
+                    destination_party_id, status,
                     verification_status, trace_id, current_attempt_id,
                     current_observation_id, settled_at, action_intent_id,
                     root_opportunity_id, operation_ref, candidate_validation_id,
@@ -6446,7 +6446,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 SELECT uuidv7(), %s, uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
                        'creator_response', 'creator_inbox', uuidv7(),
-                       'sha256:' || repeat('f', 64),
                        CASE state WHEN 'ready' THEN 'registered'
                          WHEN 'claimed' THEN 'dispatching' ELSE 'unknown' END,
                        CASE state WHEN 'ready' THEN 'not_started'
@@ -7317,10 +7316,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        effect_id,action_intent_id,subject_id,scene_id,context_party_id,
                        payload_artifact_id,payload_digest,payload_bytes,effect_kind,
                        destination_kind,destination_party_id,destination_binding_id,
-                       live_voice_turn_id,codex_task_source_id,registration_digest,
+                       live_voice_turn_id,codex_task_source_id,
                        status,verification_status,trace_id,root_opportunity_id,
                        operation_ref,candidate_validation_id,proposal_ref,subject_commit_id)
-                       VALUES (%s,%s,uuidv7(),uuidv7(),%s,%s,%s,5,%s,%s,%s,%s,%s,%s,%s,
+                       VALUES (%s,%s,uuidv7(),uuidv7(),%s,%s,%s,5,%s,%s,%s,%s,%s,%s,
                          'registered','not_started',%s,uuidv7(),uuidv7(),uuidv7(),'proposal:1',uuidv7())""",
                     (
                         effect_id,
@@ -7334,7 +7333,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         binding,
                         uuid7() if destination == "live_voice_audio" else None,
                         uuid7() if kind == "codex_delegation" else None,
-                        Digest.from_bytes(b"registration").value,
                         uuid7().hex,
                     ),
                 )

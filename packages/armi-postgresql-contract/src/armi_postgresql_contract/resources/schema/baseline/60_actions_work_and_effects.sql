@@ -191,7 +191,6 @@ CREATE TABLE armi.effects (
     effect_kind text NOT NULL,
     destination_kind text NOT NULL,
     destination_party_id uuid,
-    registration_digest text NOT NULL,
     status text NOT NULL,
     verification_status text NOT NULL,
     registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
@@ -240,8 +239,7 @@ CREATE TABLE armi.effects (
     CONSTRAINT effects_id_check CHECK ((uuid_extract_version(effect_id) = 7)),
     CONSTRAINT effects_lifecycle_check CHECK ((((status = 'registered'::text) AND (verification_status = 'not_started'::text) AND (current_attempt_id IS NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = 'dispatching'::text) AND (verification_status = 'pending'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (verification_status = ANY (ARRAY['verified'::text, 'operator_attested'::text])) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'unknown'::text) AND (verification_status = 'inconclusive'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'cancelled'::text) AND (verification_status = 'verified'::text) AND (settled_at IS NOT NULL) AND (cancelled_at = settled_at)))),
     CONSTRAINT effects_payload_bytes_check CHECK (((payload_bytes >= 1) AND (payload_bytes <= 65536))),
-    CONSTRAINT effects_payload_digest_check CHECK ((payload_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT effects_registration_digest_check CHECK ((registration_digest ~ '^sha256:[0-9a-f]{64}$'::text))
+    CONSTRAINT effects_payload_digest_check CHECK ((payload_digest ~ '^sha256:[0-9a-f]{64}$'::text))
 );
 
 --
