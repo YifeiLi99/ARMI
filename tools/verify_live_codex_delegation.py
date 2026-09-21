@@ -26,7 +26,7 @@ class _Lifecycle:
     effect_status: str | None
     verification_id: str | None
     verification_status: str | None
-    result_source_id: str | None
+    result_evidence_id: str | None
     second_episode_status: str | None
     second_commit_id: str | None
     experience_id: str | None
@@ -56,16 +56,12 @@ WITH task AS (
       ON effect.action_intent_id=intent.action_intent_id
     ORDER BY effect.registered_at,effect.effect_id LIMIT 1
 ), verification AS (
-    SELECT result.codex_verification_id,result.execution_status FROM effect
+    SELECT result.codex_verification_id,result.execution_status,result.evidence_id FROM effect
     JOIN armi.codex_verification_results AS result ON result.effect_id=effect.effect_id
-), result_source AS (
-    SELECT source.codex_result_source_id,source.evidence_id FROM verification
-    JOIN armi.codex_result_sources AS source
-      ON source.codex_verification_id=verification.codex_verification_id
 ), second_episode AS (
-    SELECT episode.cognitive_episode_id,episode.status FROM result_source
+    SELECT episode.cognitive_episode_id,episode.status FROM verification
     JOIN armi.opportunities AS opportunity
-      ON opportunity.evidence_id=result_source.evidence_id
+      ON opportunity.evidence_id=verification.evidence_id
     JOIN armi.cognitive_episodes AS episode
       ON episode.opportunity_id=opportunity.opportunity_id
     ORDER BY episode.prepared_at NULLS LAST,episode.cognitive_episode_id LIMIT 1
@@ -74,9 +70,9 @@ WITH task AS (
     JOIN armi.subject_commits AS commit
       ON commit.cognitive_episode_id=second_episode.cognitive_episode_id
 ), experience AS (
-    SELECT accepted.experience_id FROM result_source
+    SELECT accepted.experience_id FROM verification
     JOIN armi.experience_evidence_links AS link
-      ON link.evidence_id=result_source.evidence_id
+      ON link.evidence_id=verification.evidence_id
     JOIN armi.accepted_experiences AS accepted
       ON accepted.experience_id=link.experience_id
     ORDER BY accepted.experience_id LIMIT 1
@@ -86,7 +82,7 @@ SELECT
     (SELECT effect_id FROM effect),(SELECT status FROM effect),
     (SELECT codex_verification_id FROM verification),
     (SELECT execution_status FROM verification),
-    (SELECT codex_result_source_id FROM result_source),(SELECT status FROM second_episode),
+    (SELECT evidence_id FROM verification),(SELECT status FROM second_episode),
     (SELECT subject_commit_id FROM second_commit),(SELECT experience_id FROM experience)
 """
 
@@ -205,7 +201,7 @@ def verify(
                 if (
                     last.effect_status == "completed"
                     and last.verification_status == "verified"
-                    and last.result_source_id is not None
+                    and last.result_evidence_id is not None
                     and last.second_episode_status == "completed"
                     and last.second_commit_id is not None
                     and last.experience_id is not None
@@ -217,7 +213,7 @@ def verify(
                         "task_source_id": last.task_source_id,
                         "effect_id": last.effect_id,
                         "verification_id": last.verification_id,
-                        "result_source_id": last.result_source_id,
+                        "result_evidence_id": last.result_evidence_id,
                         "second_commit_id": last.second_commit_id,
                         "experience_id": last.experience_id,
                     }

@@ -34,13 +34,6 @@ class CodexCleanupStatus(StrEnum):
     FAILED = "failed"
 
 
-class CodexResultEvidenceKind(StrEnum):
-    VERIFIED_COMPLETION = "verified_completion"
-    EXECUTION_FAILURE = "execution_failure"
-    OUTCOME_UNKNOWN = "outcome_unknown"
-    CANCELLED = "cancelled"
-
-
 class CodexDelegationViolation(RuntimeError):
     __slots__ = ("code",)
 
@@ -68,14 +61,6 @@ class CodexVerificationId:
 
     def __post_init__(self) -> None:
         _uuid7(self.value, "CODEX-VERIFICATION-ID")
-
-
-@dataclass(frozen=True, slots=True)
-class CodexResultSourceId:
-    value: UUID
-
-    def __post_init__(self) -> None:
-        _uuid7(self.value, "CODEX-RESULT-SOURCE-ID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,30 +209,6 @@ class CodexVerificationResult:
             raise CodexDelegationViolation("CODEX-VERIFICATION-RESULT")
 
 
-@dataclass(frozen=True, slots=True)
-class CodexResultEvidence:
-    result_source_id: CodexResultSourceId
-    verification_id: CodexVerificationId
-    effect_id: UUID
-    evidence_id: UUID
-    opportunity_id: UUID
-    kind: CodexResultEvidenceKind
-    evidence_artifact_id: ArtifactId
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.result_source_id) is not CodexResultSourceId
-            or type(self.verification_id) is not CodexVerificationId
-            or type(self.effect_id) is not UUID
-            or self.effect_id.version != 7
-            or type(self.kind) is not CodexResultEvidenceKind
-            or type(self.evidence_artifact_id) is not ArtifactId
-        ):
-            raise CodexDelegationViolation("CODEX-RESULT-EVIDENCE")
-        _uuid7(self.evidence_id, "CODEX-RESULT-EVIDENCE")
-        _uuid7(self.opportunity_id, "CODEX-RESULT-EVIDENCE")
-
-
 @runtime_checkable
 class CodexTaskSourceAdmissionPort(Protocol):
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId: ...
@@ -268,9 +229,6 @@ __all__ = (
     "CodexDelegationDraft",
     "CodexDelegationPort",
     "CodexDelegationViolation",
-    "CodexResultEvidence",
-    "CodexResultEvidenceKind",
-    "CodexResultSourceId",
     "CodexTaskSourceAdmissionPort",
     "CodexTaskSourceDraft",
     "CodexTaskSourceId",

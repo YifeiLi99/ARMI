@@ -44,22 +44,6 @@ CREATE TABLE armi.audit_events (
 );
 
 --
--- Name: codex_result_sources; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.codex_result_sources (
-    codex_result_source_id uuid NOT NULL,
-    codex_verification_id uuid NOT NULL,
-    evidence_id uuid NOT NULL,
-    opportunity_id uuid NOT NULL,
-    result_kind text NOT NULL,
-    evidence_artifact_id uuid NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT codex_result_sources_codex_result_source_id_check CHECK ((uuid_extract_version(codex_result_source_id) = 7)),
-    CONSTRAINT codex_result_sources_result_kind_check CHECK ((result_kind = ANY (ARRAY['verified_completion'::text, 'execution_failure'::text, 'outcome_unknown'::text, 'cancelled'::text])))
-);
-
---
 -- Name: codex_task_sources; Type: TABLE; Schema: armi; Owner: -
 --
 
@@ -84,6 +68,8 @@ CREATE TABLE armi.codex_task_sources (
 
 CREATE TABLE armi.codex_verification_results (
     codex_verification_id uuid NOT NULL,
+    evidence_id uuid NOT NULL,
+    opportunity_id uuid NOT NULL,
     effect_id uuid NOT NULL,
     effect_attempt_id uuid NOT NULL,
     execution_status text NOT NULL,

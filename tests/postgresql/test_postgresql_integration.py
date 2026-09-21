@@ -519,7 +519,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("audit_events", "artifact_digest"),
     ("audit_events", "details_digest"),
     ("audit_events", "bundle_digest"),
-    ("codex_result_sources", "evidence_digest"),
     ("codex_task_sources", "path_scope_digest"),
     ("codex_verification_results", "validation_digest"),
     ("creator_exports", "manifest_digest"),
@@ -8724,7 +8723,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     original.context_manifest_digest, original.compiled_context_digest,
                                     original.trace_id, statement_timestamp()
                                 FROM armi.cognitive_episodes AS original
-                                CROSS JOIN armi.codex_result_sources AS result
+                                CROSS JOIN armi.codex_verification_results AS result
                                 WHERE original.cognitive_episode_id=%s
                             """,
                                 (result_episode, ids["episode"]),
@@ -8852,7 +8851,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     connection.execute("""
                     SELECT opportunity.current_disposition
-                    FROM armi.codex_result_sources AS result
+                    FROM armi.codex_verification_results AS result
                     JOIN armi.opportunities AS opportunity
                       ON opportunity.opportunity_id=result.opportunity_id
                 """).fetchall(),

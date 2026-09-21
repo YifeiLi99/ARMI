@@ -26,11 +26,6 @@ _OWNER = DataRightsOwnerIdentity("codex")
 _VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
-        "codex_result_sources",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.codex_result_sources AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "codex_task_sources",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.codex_task_sources AS source ORDER BY to_jsonb(source)::text""",

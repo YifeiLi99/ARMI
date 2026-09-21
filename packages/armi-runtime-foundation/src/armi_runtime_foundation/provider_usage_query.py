@@ -94,9 +94,8 @@ def usage_statement(
                     LEFT JOIN armi.opportunities vo ON vo.opportunity_id = ve.opportunity_id
                     UNION
                     SELECT child.root_opportunity_id, intent.root_opportunity_id
-                    FROM armi.codex_result_sources result
-                    JOIN armi.opportunities child ON child.opportunity_id = result.opportunity_id
-                    JOIN armi.codex_verification_results verification ON verification.codex_verification_id = result.codex_verification_id
+                    FROM armi.codex_verification_results verification
+                    JOIN armi.opportunities child ON child.opportunity_id = verification.opportunity_id
                     JOIN armi.effects effect ON effect.effect_id = verification.effect_id
                     JOIN armi.action_intents intent ON intent.action_intent_id = effect.action_intent_id
                     UNION

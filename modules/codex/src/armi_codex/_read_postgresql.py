@@ -73,12 +73,10 @@ class PostgreSQLCodexReadOwner:
                 SELECT source.codex_task_source_id,
                        verification.codex_verification_id,
                        verification.execution_status,
-                       result.opportunity_id
+                       verification.opportunity_id
                 FROM armi.codex_task_sources AS source
                 LEFT JOIN armi.codex_verification_results AS verification
                   ON verification.effect_id=%s
-                LEFT JOIN armi.codex_result_sources AS result
-                  ON result.codex_verification_id=verification.codex_verification_id
                 WHERE source.codex_task_source_id=%s
                 ORDER BY verification.completed_at DESC NULLS LAST
                 LIMIT 1

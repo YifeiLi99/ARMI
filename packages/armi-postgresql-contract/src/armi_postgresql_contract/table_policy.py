@@ -177,7 +177,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "web_research_intents": TableOwnership(
         "web-observation", maintenance_writable=True
     ),
-    "codex_result_sources": TableOwnership("codex", maintenance_writable=True),
     "codex_task_sources": TableOwnership("codex", maintenance_writable=True),
     "codex_verification_results": TableOwnership("codex", maintenance_writable=False),
     "creator_exports": TableOwnership("data-rights", maintenance_writable=False),

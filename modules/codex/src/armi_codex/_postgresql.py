@@ -44,7 +44,6 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from ._delegation_contract import (
     CodexCleanupStatus,
     CodexDelegationViolation,
-    CodexResultEvidenceKind,
     CodexTaskSourceDraft,
     CodexTaskSourceId,
     CodexVerificationStatus,
@@ -418,24 +417,6 @@ class PostgreSQLCodexDelegationRepository:
         connection = uow.transaction
         verification_id = uuid7()
         final_result = artifacts["final_result"]
-        await connection.execute(
-            """
-            INSERT INTO armi.codex_verification_results (
-                codex_verification_id, effect_id, effect_attempt_id,
-                execution_status, cleanup_status, final_result_artifact_id,
-                execution_error_code, cleanup_error_code) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                verification_id,
-                snapshot.effect_id,
-                snapshot.attempt_id,
-                status.value,
-                cleanup_status.value,
-                final_result.artifact_id.value,
-                execution_error_code,
-                cleanup_error_code,
-            ),
-        )
         terminal_error_code = execution_error_code or (
             "CODEX-DELEGATION-FAILED"
             if status is CodexVerificationStatus.FAILED
@@ -453,7 +434,7 @@ class PostgreSQLCodexDelegationRepository:
                 else None
             ),
         )
-        evidence_id, result_source_id = uuid7(), uuid7()
+        evidence_id = uuid7()
         evidence_ref = final_result
         await self._evidence.accept(
             uow,
@@ -483,26 +464,25 @@ class PostgreSQLCodexDelegationRepository:
         opportunity_id = admitted.opportunity_id
         if opportunity_id is None:
             raise CodexDelegationViolation("CODEX-RESULT-ADMISSION")
-        result_kind = {
-            CodexVerificationStatus.VERIFIED: CodexResultEvidenceKind.VERIFIED_COMPLETION,
-            CodexVerificationStatus.FAILED: CodexResultEvidenceKind.EXECUTION_FAILURE,
-            CodexVerificationStatus.UNKNOWN: CodexResultEvidenceKind.OUTCOME_UNKNOWN,
-            CodexVerificationStatus.CANCELLED: CodexResultEvidenceKind.CANCELLED,
-        }[status]
+        # Evidence points back here; its deferred FK checks the atomic commit.
         await connection.execute(
             """
-            INSERT INTO armi.codex_result_sources (
-                codex_result_source_id, codex_verification_id,
-                evidence_id, opportunity_id, result_kind,
-                evidence_artifact_id) VALUES (%s,%s,%s,%s,%s,%s)
+            INSERT INTO armi.codex_verification_results (
+                codex_verification_id, effect_id, effect_attempt_id,
+                execution_status, cleanup_status, final_result_artifact_id,
+                execution_error_code, cleanup_error_code, evidence_id, opportunity_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
-                result_source_id,
                 verification_id,
+                snapshot.effect_id,
+                snapshot.attempt_id,
+                status.value,
+                cleanup_status.value,
+                final_result.artifact_id.value,
+                execution_error_code,
+                cleanup_error_code,
                 evidence_id,
                 opportunity_id,
-                result_kind.value,
-                evidence_ref.artifact_id.value,
             ),
         )
         return verification_id

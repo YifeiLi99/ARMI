@@ -33,7 +33,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         tuple(
             (table, column, "party")
             for table, column in (
-                ("codex_result_sources", "evidence_artifact_id"),
                 ("codex_task_sources", "task_manifest_artifact_id"),
                 ("codex_verification_results", "final_result_artifact_id"),
             )

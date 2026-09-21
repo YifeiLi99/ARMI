@@ -228,34 +228,6 @@ ALTER TABLE ONLY armi.capabilities
 
 
 --
--- Name: codex_result_sources codex_result_sources_codex_verification_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_codex_verification_id_key UNIQUE (codex_verification_id);
-
---
--- Name: codex_result_sources codex_result_sources_evidence_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_evidence_id_key UNIQUE (evidence_id);
-
---
--- Name: codex_result_sources codex_result_sources_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_opportunity_id_key UNIQUE (opportunity_id);
-
---
--- Name: codex_result_sources codex_result_sources_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_pkey PRIMARY KEY (codex_result_source_id);
-
---
 -- Name: codex_task_sources codex_task_sources_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2340,34 +2312,6 @@ ALTER TABLE ONLY armi.activity_revisions
 
 
 --
--- Name: codex_result_sources codex_result_sources_codex_verification_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_codex_verification_id_fkey FOREIGN KEY (codex_verification_id) REFERENCES armi.codex_verification_results(codex_verification_id);
-
---
--- Name: codex_result_sources codex_result_sources_evidence_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_evidence_artifact_id_fkey FOREIGN KEY (evidence_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: codex_result_sources codex_result_sources_evidence_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_evidence_id_fkey FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
-
---
--- Name: codex_result_sources codex_result_sources_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.codex_result_sources
-    ADD CONSTRAINT codex_result_sources_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
 -- Name: codex_task_sources codex_task_sources_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3076,7 +3020,7 @@ ALTER TABLE ONLY armi.external_evidence
 --
 
 ALTER TABLE ONLY armi.external_evidence
-    ADD CONSTRAINT external_evidence_codex_verification_fkey FOREIGN KEY (codex_verification_id) REFERENCES armi.codex_verification_results(codex_verification_id);
+    ADD CONSTRAINT external_evidence_codex_verification_fkey FOREIGN KEY (codex_verification_id) REFERENCES armi.codex_verification_results(codex_verification_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: external_evidence external_evidence_interaction_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -4320,3 +4264,12 @@ CREATE INDEX mind_revisions_payload_trgm_idx ON armi.mind_revisions USING gin ((
 -- One immutable intent registers at most one effect.
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_action_intent_key UNIQUE (action_intent_id);
+
+ALTER TABLE ONLY armi.codex_verification_results
+    ADD CONSTRAINT codex_verification_results_evidence_key UNIQUE (evidence_id);
+ALTER TABLE ONLY armi.codex_verification_results
+    ADD CONSTRAINT codex_verification_results_opportunity_key UNIQUE (opportunity_id);
+ALTER TABLE ONLY armi.codex_verification_results
+    ADD CONSTRAINT codex_verification_results_evidence_fk FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
+ALTER TABLE ONLY armi.codex_verification_results
+    ADD CONSTRAINT codex_verification_results_opportunity_fk FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
