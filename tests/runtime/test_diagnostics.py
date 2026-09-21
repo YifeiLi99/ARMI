@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from armi_context.api import EmbeddingFailureDiagnostic
 from armi_runtime.application.creator_contract import RuntimeState
 from armi_runtime.composition.diagnostics import StructuredDiagnosticLog
 from armi_runtime.composition.lifecycle import LifecycleController
@@ -22,6 +23,31 @@ class _WriteFailure(io.StringIO):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_embedding_failure_details_reach_rotating_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root, environment_id=_ENVIRONMENT, instance_id="instance"
+            )
+            diagnostic.embedding_failure(
+                EmbeddingFailureDiagnostic(
+                    work_id="work",
+                    source_kind="subjective_memory",
+                    source_ref="memory",
+                    source_version=2,
+                    error_code="MODEL-UNAVAILABLE",
+                    disposition="degraded",
+                    retry_at=None,
+                )
+            )
+            diagnostic.close()
+            record = json.loads(
+                next((root / "logs").glob("*.jsonl")).read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["event"], "context.embedding.failure")
+            self.assertEqual(record["details"]["source_ref"], "memory")
+            self.assertEqual(record["details"]["error_code"], "MODEL-UNAVAILABLE")
+
     def test_recovery_counts_are_written_to_diagnostic_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

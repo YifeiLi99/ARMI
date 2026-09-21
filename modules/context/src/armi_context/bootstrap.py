@@ -60,6 +60,7 @@ from .api import (
     ContextSelectionPort,
     ContextVoiceResponseReadPort,
     ContextWakeupPort,
+    EmbeddingFailureSink,
     EmbeddingPort,
 )
 
@@ -165,6 +166,7 @@ def bootstrap_context_embedding(
     custody: ExecutionCustodyPort,
     memories: MemoryProjectionPort,
     materials: MaterialProjectionPort,
+    failure_diagnostic: EmbeddingFailureSink | None = None,
 ) -> ContextEmbeddingRuntimePort:
     return ContextEmbeddingPipeline(
         factory=factory,
@@ -174,6 +176,7 @@ def bootstrap_context_embedding(
         custody=custody,
         memories=memories,
         materials=materials,
+        failure_diagnostic=failure_diagnostic,
     )
 
 
@@ -189,8 +192,10 @@ def bootstrap_context_data_rights() -> DataRightsParticipant:
     return PostgreSQLContextDataRightsParticipant()
 
 
-def bootstrap_context_recovery() -> RecoveryParticipant:
-    return ContextRecoveryParticipant()
+def bootstrap_context_recovery(
+    failure_diagnostic: EmbeddingFailureSink | None = None,
+) -> RecoveryParticipant:
+    return ContextRecoveryParticipant(failure_diagnostic)
 
 
 @dataclass(frozen=True, slots=True)

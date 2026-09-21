@@ -9,11 +9,12 @@ import stat
 import sys
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
+from armi_context.api import EmbeddingFailureDiagnostic
 from armi_kernel.contracts import Instant
 from armi_local_control.runtime_errors import RuntimeViolation
 
@@ -289,6 +290,7 @@ class StructuredDiagnosticLog:
         duration_ms: int | None = None,
         reason_codes: tuple[str, ...] = (),
         metrics: dict[str, int] | None = None,
+        details: dict[str, str | int | None] | None = None,
     ) -> None:
         if _EVENT.fullmatch(event) is None:
             raise RuntimeViolation("LOG-EVENT", "diagnostic event name is invalid")
@@ -315,7 +317,16 @@ class StructuredDiagnosticLog:
             payload["reason_codes"] = list(reason_codes)
         if metrics is not None:
             payload["metrics"] = metrics
+        if details is not None:
+            payload["details"] = details
         self._logger.log(level, payload)
+
+    def embedding_failure(self, failure: EmbeddingFailureDiagnostic) -> None:
+        self.emit(
+            "context.embedding.failure",
+            level=logging.WARNING,
+            details=asdict(failure),
+        )
 
     def close(self) -> None:
         self._handler.close()

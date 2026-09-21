@@ -77,6 +77,7 @@ from armi_context.api import (
     ContextProjectionInvalidationPort,
     ContextRuntimePort,
     EmbeddingBinding,
+    EmbeddingFailureSink,
     load_embedding_binding,
 )
 from armi_context.bootstrap import (
@@ -1400,6 +1401,7 @@ def compose_context_embedding_pipeline(
     custody: ExecutionCustodyPort,
     memory_projection: MemoryProjectionPort,
     material_projection: MaterialProjectionPort,
+    failure_diagnostic: EmbeddingFailureSink | None = None,
 ) -> ContextEmbeddingRuntimePort:
     return bootstrap_context_embedding(
         factory=unit_of_work_factory,
@@ -1412,6 +1414,7 @@ def compose_context_embedding_pipeline(
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         memories=memory_projection,
         materials=material_projection,
+        failure_diagnostic=failure_diagnostic,
     )
 
 

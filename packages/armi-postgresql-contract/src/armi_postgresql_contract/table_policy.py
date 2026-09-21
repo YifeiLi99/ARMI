@@ -91,7 +91,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "cognitive_context_items": TableOwnership("context", maintenance_writable=True),
     "context_embedding_attempts": TableOwnership("context", maintenance_writable=True),
     "context_embedding_coverage": TableOwnership("context", maintenance_writable=True),
-    "context_embedding_failures": TableOwnership("context", maintenance_writable=True),
     "context_embedding_projections": TableOwnership(
         "context", maintenance_writable=True
     ),

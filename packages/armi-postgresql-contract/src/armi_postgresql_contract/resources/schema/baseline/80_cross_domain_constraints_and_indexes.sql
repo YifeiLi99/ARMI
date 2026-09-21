@@ -486,12 +486,6 @@ ALTER TABLE ONLY armi.cognitive_episodes
 ALTER TABLE ONLY armi.context_embedding_attempts
     ADD CONSTRAINT context_embedding_attempts_pkey PRIMARY KEY (context_embedding_attempt_id);
 
-ALTER TABLE ONLY armi.context_embedding_failures
-    ADD CONSTRAINT context_embedding_failures_pkey PRIMARY KEY (context_embedding_failure_id);
-
-ALTER TABLE ONLY armi.context_embedding_failures
-    ADD CONSTRAINT context_embedding_failures_work_key UNIQUE (work_id);
-
 --
 -- Name: context_embedding_attempts context_embedding_attempts_source_kind_source_ref_source_ve_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -2699,15 +2693,6 @@ ALTER TABLE ONLY armi.context_embedding_attempts
 
 ALTER TABLE ONLY armi.context_embedding_attempts
     ADD CONSTRAINT context_embedding_attempts_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
-ALTER TABLE ONLY armi.context_embedding_failures
-    ADD CONSTRAINT context_embedding_failures_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.context_embedding_failures
-    ADD CONSTRAINT context_embedding_failures_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.context_embedding_failures
-    ADD CONSTRAINT context_embedding_failures_generation_fk FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id) ON DELETE RESTRICT;
 
 --
 -- Name: context_embedding_projections context_embedding_projections_context_embedding_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

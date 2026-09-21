@@ -18,6 +18,7 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_data_rights,
     bootstrap_cognition_recovery,
 )
+from armi_context.api import EmbeddingFailureSink
 from armi_context.bootstrap import (
     bootstrap_context_data_rights,
     bootstrap_context_recovery,
@@ -177,6 +178,7 @@ def compose_runtime_owner_roster(
     prompt_read: PromptReadPort,
     subject_state_read: SubjectStateReadPort,
     mind_read: MindReadPort,
+    embedding_failure_diagnostic: EmbeddingFailureSink | None = None,
 ) -> RuntimeOwnerRoster:
     recovery = {
         "interaction": bootstrap_interaction_recovery(),
@@ -202,7 +204,7 @@ def compose_runtime_owner_roster(
         "effect": bootstrap_effect_recovery(),
         "web-observation": bootstrap_web_observation_recovery(),
         "codex": bootstrap_codex_recovery(),
-        "context": bootstrap_context_recovery(),
+        "context": bootstrap_context_recovery(embedding_failure_diagnostic),
         "data-rights": bootstrap_data_rights_recovery(),
     }
     data_rights_participants = {

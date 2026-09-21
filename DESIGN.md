@@ -256,7 +256,7 @@ PostgreSQL 保存 subject、life、work、effect 与治理事实。多数可变�
 
 ### 7.4 派生投影
 
-Embedding、关键词索引、列表投影、游标和前端缓存可删除重建。语义召回仅覆盖 current accessible memory 与未删除 material：固定 Qwen 1024 维 embedding，HNSW/halfvec 取稠密候选，GiST trigram 取关键词候选，原向量/真实词相似度精排，owner 集合 SQL 复核资格，再用 RRF 融合。投影 binding/profile/head/coverage 不符时不得进入 Context。
+Embedding、关键词索引、列表投影、游标和前端缓存可删除重建。语义召回仅覆盖 current accessible memory 与未删除 material：固定 Qwen 1024 维 embedding，HNSW/halfvec 取稠密候选，GiST trigram 取关键词候选，原向量/真实词相似度精排，owner 集合 SQL 复核资格，再用 RRF 融合。投影 binding/profile/head/coverage 不符时不得进入 Context。 建索引失败详情只写轮转诊断日志，包含任务、来源引用、版本、错误码及重试计划，不记录正文；日志不代表恢复事务已提交。重试和终态仍由 durable_work 与索引覆盖状态负责，不另建失败留档表。
 
 ## 8. Mood
 
@@ -551,6 +551,6 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 
 ### 心理合同 v26 数据升级
 
-当前 baseline 为 v32，只维护最新数据库的空库安装与精确校验。动作意图及其内容统一存于 action_intents。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
+当前 baseline 为 v33，只维护最新数据库的空库安装与精确校验。动作意图及其内容统一存于 action_intents。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
 
 出生合同摘要是出生时的历史身份，不随心理模板更新改写。启动连续性检查接受当前合同及受支持 v21–v25 来源的明确历史摘要，未知摘要仍拒绝；不执行旧候选或恢复旧出生流程。升级回归必须使用对应历史出生摘要，并验证升级后连续性与未知摘要拒绝，不能只用当前出生模板构造旧库。

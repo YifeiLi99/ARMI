@@ -14,6 +14,7 @@ from armi_runtime_foundation import (
 )
 
 from ._embedding import EMBEDDING_BINDING_ID
+from .api import EmbeddingFailureDiagnostic, EmbeddingFailureSink
 
 
 class ContextRecoveryParticipant:
@@ -22,6 +23,9 @@ class ContextRecoveryParticipant:
         ("life_material", "context.embedding.project"),
         ("subjective_memory", "context.embedding.project"),
     )
+
+    def __init__(self, failure_diagnostic: EmbeddingFailureSink | None = None) -> None:
+        self._failure_diagnostic = failure_diagnostic
 
     async def recover(
         self,
@@ -50,27 +54,21 @@ class ContextRecoveryParticipant:
                 if retry_seconds is not None
                 else None
             )
-            await transaction.execute(
-                """INSERT INTO armi.context_embedding_failures (
-                       context_embedding_failure_id,work_id,subject_id,
-                       life_generation_id,source_kind,source_ref,source_version,
-                       model_binding,work_generation,disposition,error_code,retry_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (
-                    uuid7(),
-                    item.work_id,
-                    item.subject_id,
-                    scope.life_generation_id,
-                    item.owner_kind,
-                    item.owner_ref,
-                    source_version,
-                    EMBEDDING_BINDING_ID,
-                    item.generation,
-                    "retry_wait" if retry_at is not None else "degraded",
-                    item.last_error_code or "WORK-ATTEMPTS-EXHAUSTED",
-                    retry_at,
-                ),
-            )
+            # This logs the observed failure, not a successful recovery commit.
+            if self._failure_diagnostic is not None:
+                self._failure_diagnostic(
+                    EmbeddingFailureDiagnostic(
+                        work_id=str(item.work_id),
+                        source_kind=item.owner_kind,
+                        source_ref=str(item.owner_ref),
+                        source_version=source_version,
+                        error_code=item.last_error_code or "WORK-ATTEMPTS-EXHAUSTED",
+                        disposition="retry_wait"
+                        if retry_at is not None
+                        else "degraded",
+                        retry_at=retry_at.isoformat() if retry_at is not None else None,
+                    )
+                )
             if retry_at is not None:
                 await reconciliation.fail_with_successor(
                     item.work_id,

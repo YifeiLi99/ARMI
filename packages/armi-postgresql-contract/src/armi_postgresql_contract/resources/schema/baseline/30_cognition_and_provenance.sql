@@ -339,29 +339,6 @@ CREATE TABLE armi.context_embedding_attempts (
     CONSTRAINT context_embedding_attempts_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'succeeded'::text, 'failed'::text])))
 );
 
-CREATE TABLE armi.context_embedding_failures (
-    context_embedding_failure_id uuid NOT NULL,
-    work_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
-    source_kind text NOT NULL,
-    source_ref uuid NOT NULL,
-    source_version bigint NOT NULL,
-    model_binding text NOT NULL,
-    work_generation integer NOT NULL,
-    disposition text NOT NULL,
-    error_code text NOT NULL,
-    retry_at timestamp(6) with time zone,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT context_embedding_failures_id_check CHECK ((uuid_extract_version(context_embedding_failure_id) = 7)),
-    CONSTRAINT context_embedding_failures_source_check CHECK ((source_kind = ANY (ARRAY['subjective_memory'::text, 'life_material'::text]))),
-    CONSTRAINT context_embedding_failures_source_ref_check CHECK ((uuid_extract_version(source_ref) = 7)),
-    CONSTRAINT context_embedding_failures_version_check CHECK (((source_version > 0) AND (work_generation > 0))),
-    CONSTRAINT context_embedding_failures_disposition_check CHECK ((disposition = ANY (ARRAY['retry_wait'::text, 'degraded'::text, 'terminal'::text]))),
-    CONSTRAINT context_embedding_failures_retry_check CHECK (((disposition = 'retry_wait'::text) = (retry_at IS NOT NULL))),
-    CONSTRAINT context_embedding_failures_error_check CHECK ((error_code ~ '^[A-Z][A-Z0-9-]{0,127}$'::text))
-);
-
 --
 -- Name: context_embedding_coverage; Type: TABLE; Schema: armi; Owner: -
 --

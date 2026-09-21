@@ -54,7 +54,12 @@ from ._embedding_postgresql import (
     EmbeddingProjectionSource,
     PostgreSQLContextEmbeddingRepository,
 )
-from .api import EmbeddingPort, EmbeddingResponse
+from .api import (
+    EmbeddingFailureDiagnostic,
+    EmbeddingFailureSink,
+    EmbeddingPort,
+    EmbeddingResponse,
+)
 
 _WORK_KIND = WorkType.CONTEXT_EMBEDDING_PROJECT
 
@@ -64,6 +69,7 @@ class ContextEmbeddingPipeline:
         "_adapter",
         "_custody",
         "_factory",
+        "_failure_diagnostic",
         "_lease_owner",
         "_repository",
         "_stop",
@@ -81,7 +87,9 @@ class ContextEmbeddingPipeline:
         custody: ExecutionCustodyPort,
         memories: MemoryProjectionPort,
         materials: MaterialProjectionPort,
+        failure_diagnostic: EmbeddingFailureSink | None = None,
     ) -> None:
+        self._failure_diagnostic = failure_diagnostic
         self._factory = factory
         self._custody = custody
         self._storage = storage
@@ -410,27 +418,6 @@ class ContextEmbeddingPipeline:
                 if delay_seconds is not None
                 else None
             )
-            await unit_of_work.transaction.execute(
-                """INSERT INTO armi.context_embedding_failures (
-                       context_embedding_failure_id,work_id,subject_id,
-                       life_generation_id,source_kind,source_ref,source_version,
-                       model_binding,work_generation,disposition,error_code,retry_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (
-                    uuid7(),
-                    record.draft.work_id.value,
-                    source.subject_id,
-                    source.life_generation_id,
-                    source.source_kind,
-                    source.source_ref,
-                    source.source_version,
-                    EMBEDDING_BINDING_ID,
-                    record.draft.generation,
-                    disposition,
-                    code,
-                    retry_at,
-                ),
-            )
             await unit_of_work.work.fail(lease, error_code=code)
             if successor_generation is not None:
                 assert retry_at is not None
@@ -472,6 +459,20 @@ class ContextEmbeddingPipeline:
                            WHERE model_binding=%s""",
                         (EMBEDDING_BINDING_ID,),
                     )
+
+        # Diagnostics follow commit; work/coverage remain the authority (DESIGN.md).
+        if self._failure_diagnostic is not None:
+            self._failure_diagnostic(
+                EmbeddingFailureDiagnostic(
+                    work_id=str(record.draft.work_id.value),
+                    source_kind=source.source_kind,
+                    source_ref=str(source.source_ref),
+                    source_version=source.source_version,
+                    error_code=code,
+                    disposition=disposition,
+                    retry_at=retry_at.isoformat() if retry_at is not None else None,
+                )
+            )
 
 
 async def _guard_lease(

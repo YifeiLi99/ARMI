@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -26,6 +27,22 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTrans
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^CTX-[A-Z0-9-]+$", re.ASCII)
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingFailureDiagnostic:
+    """Failure observation only; durable work owns retries and final state."""
+
+    work_id: str
+    source_kind: str
+    source_ref: str
+    source_version: int
+    error_code: str
+    disposition: str
+    retry_at: str | None
+
+
+EmbeddingFailureSink = Callable[[EmbeddingFailureDiagnostic], None]
 
 
 class ContextViolation(RuntimeError):
@@ -709,6 +726,8 @@ __all__ = (
     "ContextVoiceResponseReadPort",
     "ContextWakeupPort",
     "EmbeddingBinding",
+    "EmbeddingFailureDiagnostic",
+    "EmbeddingFailureSink",
     "EmbeddingPort",
     "EmbeddingResponse",
     "RecallStatus",

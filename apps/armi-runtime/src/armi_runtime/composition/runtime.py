@@ -696,6 +696,7 @@ async def _serve(
             data_rights_core = compose_data_rights_core()
             owner_roster = compose_runtime_owner_roster(
                 data_rights=data_rights_core.participant,
+                embedding_failure_diagnostic=diagnostic.embedding_failure,
                 mood_read=mood_module.read,
                 prompt_read=prompt_module.read,
                 subject_state_read=subject_state_module.read,
@@ -1308,6 +1309,7 @@ async def _serve(
                             custody=execution_custody,
                             memory_projection=memory_module.projection,
                             material_projection=material_module.projection,
+                            failure_diagnostic=diagnostic.embedding_failure,
                         )
                         await context_embedding_pipeline.open()
                 except ModelViolation:
