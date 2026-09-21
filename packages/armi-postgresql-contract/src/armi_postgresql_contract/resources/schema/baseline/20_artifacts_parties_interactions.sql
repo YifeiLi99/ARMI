@@ -291,6 +291,11 @@ CREATE TABLE armi.live_vision_observations (
     registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     settled_at timestamp(6) with time zone,
     error_code text,
+    request_artifact_id uuid,
+    response_artifact_id uuid,
+    provider_request_id text,
+    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT live_vision_observations_provider_calls_check CHECK (jsonb_typeof(provider_calls) = 'object'),
     CONSTRAINT live_vision_observations_idempotency_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
     CONSTRAINT live_vision_observations_request_digest_check CHECK ((request_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT live_vision_observations_capture_work_id_check CHECK (((capture_work_id IS NULL) OR (uuid_extract_version(capture_work_id) = 7))),
@@ -555,35 +560,4 @@ CREATE TABLE armi.scene_timeline_items (
     CONSTRAINT scene_timeline_items_source_kind_check CHECK ((source_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
     CONSTRAINT scene_timeline_items_source_ref_check CHECK ((uuid_extract_version(source_ref) = 7)),
     CONSTRAINT scene_timeline_items_timeline_item_id_check CHECK ((uuid_extract_version(timeline_item_id) = 7))
-);
-
---
--- Name: visual_recognition_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.visual_recognition_attempts (
-    visual_attempt_id uuid NOT NULL,
-    observation_id uuid NOT NULL,
-    attempt_no smallint DEFAULT 1 NOT NULL,
-    provider text NOT NULL,
-    model_id text NOT NULL,
-    request_artifact_id uuid NOT NULL,
-    response_artifact_id uuid,
-    provider_request_id text,
-    status text NOT NULL,
-    input_tokens integer,
-    output_tokens integer,
-    error_code text,
-    prepared_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    dispatched_at timestamp(6) with time zone,
-    settled_at timestamp(6) with time zone,
-    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version IN (0, 1)),
-    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
-    CONSTRAINT visual_recognition_attempts_attempt_no_check CHECK ((attempt_no = 1)),
-    CONSTRAINT visual_recognition_attempts_check CHECK ((((status = 'prepared'::text) AND (dispatched_at IS NULL) AND (settled_at IS NULL)) OR ((status = 'dispatched'::text) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL)) OR ((status = 'succeeded'::text) AND (dispatched_at IS NOT NULL) AND (settled_at IS NOT NULL) AND (response_artifact_id IS NOT NULL) AND (error_code IS NULL)) OR ((status = ANY (ARRAY['failed'::text, 'unknown'::text])) AND (settled_at IS NOT NULL) AND (error_code IS NOT NULL)))),
-    CONSTRAINT visual_recognition_attempts_error_code_check CHECK (((error_code IS NULL) OR (error_code ~ '^VISION-[A-Z0-9-]{1,120}$'::text))),
-    CONSTRAINT visual_recognition_attempts_input_tokens_check CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
-    CONSTRAINT visual_recognition_attempts_output_tokens_check CHECK (((output_tokens IS NULL) OR (output_tokens >= 0))),
-    CONSTRAINT visual_recognition_attempts_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text]))),
-    CONSTRAINT visual_recognition_attempts_visual_attempt_id_check CHECK ((uuid_extract_version(visual_attempt_id) = 7))
 );

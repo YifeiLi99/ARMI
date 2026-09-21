@@ -107,7 +107,6 @@ from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_memory.api import MemoryViolation
-from armi_perception.bootstrap import bootstrap_visual_recognition_attempts
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
@@ -299,6 +298,7 @@ async def _compose_live_vision_sources(
     opportunity: Any,
     subject_id: UUID,
     model_locator: Any,
+    diagnostic: Callable[[str, UUID, str | None], None],
     failure_notification: Callable[[UUID, str], Awaitable[None]],
 ) -> tuple[
     dict[VisualSourceKind, LiveVisionRuntimePort],
@@ -364,6 +364,7 @@ async def _compose_live_vision_sources(
                     )
                 ),
                 failure_notification=failure_notification,
+                diagnostic=diagnostic,
                 factory=factory,
                 storage=ContentAddressedArtifactStore(
                     prepared.data_root / "artifacts",
@@ -379,7 +380,6 @@ async def _compose_live_vision_sources(
                     locator=model_locator,
                     binding=recognition_binding.ark,
                 ),
-                attempts=bootstrap_visual_recognition_attempts(),
                 evidence=evidence,
                 opportunity=opportunity,
                 subject_id=subject_id,
@@ -1062,6 +1062,13 @@ async def _serve(
                         live_vision_services,
                         vision_sinks,
                     ) = await _compose_live_vision_sources(
+                        diagnostic=lambda event, observation_id, error: diagnostic.emit(
+                            "live_vision.recognition." + event,
+                            details={
+                                "observation_id": str(observation_id),
+                                "error_code": error,
+                            },
+                        ),
                         failure_notification=compose_visual_failure_notification(
                             prepared,
                             runtime_unit_of_work_factory,

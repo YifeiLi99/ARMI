@@ -69,7 +69,6 @@ from armi_mood.bootstrap import bootstrap_mood_data_rights, bootstrap_mood_recov
 from armi_perception.bootstrap import (
     bootstrap_perception_data_rights,
     bootstrap_perception_recovery,
-    bootstrap_visual_recognition_attempts,
 )
 from armi_prompt.api import PromptReadPort
 from armi_prompt.bootstrap import (
@@ -184,9 +183,7 @@ def compose_runtime_owner_roster(
         "interaction": bootstrap_interaction_recovery(),
         "perception": bootstrap_perception_recovery(compose_interaction_perception()),
         "live-voice": bootstrap_live_voice_recovery(),
-        "live-vision": bootstrap_live_vision_recovery(
-            bootstrap_visual_recognition_attempts()
-        ),
+        "live-vision": bootstrap_live_vision_recovery(),
         "evidence": bootstrap_evidence_recovery(),
         "opportunity": bootstrap_opportunity_recovery(),
         "experience": bootstrap_experience_recovery(),

@@ -64,9 +64,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "external_content_recognition_attempts": TableOwnership(
         "perception", maintenance_writable=False
     ),
-    "visual_recognition_attempts": TableOwnership(
-        "perception", maintenance_writable=False
-    ),
     "experience_evidence_links": TableOwnership("evidence", maintenance_writable=True),
     "external_evidence": TableOwnership("evidence", maintenance_writable=True),
     # Attention and context.

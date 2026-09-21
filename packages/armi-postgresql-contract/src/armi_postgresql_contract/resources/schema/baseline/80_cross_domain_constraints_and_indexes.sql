@@ -1450,19 +1450,7 @@ ALTER TABLE ONLY armi.subjects
 ALTER TABLE ONLY armi.subjects
     ADD CONSTRAINT subjects_singleton_key_key UNIQUE (singleton_key);
 
---
--- Name: visual_recognition_attempts visual_recognition_attempts_observation_id_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.visual_recognition_attempts
-    ADD CONSTRAINT visual_recognition_attempts_observation_id_attempt_no_key UNIQUE (observation_id, attempt_no);
-
---
--- Name: visual_recognition_attempts visual_recognition_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.visual_recognition_attempts
-    ADD CONSTRAINT visual_recognition_attempts_pkey PRIMARY KEY (visual_attempt_id);
 
 --
 -- Name: web_evidence_sources web_evidence_sources_evidence_id_canonical_url_digest_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -3848,26 +3836,8 @@ ALTER TABLE ONLY armi.subjects
 ALTER TABLE ONLY armi.subjects
     ADD CONSTRAINT subjects_current_generation_fk FOREIGN KEY (current_generation_id) REFERENCES armi.life_generations(life_generation_id) DEFERRABLE INITIALLY DEFERRED;
 
---
--- Name: visual_recognition_attempts visual_recognition_attempts_observation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.visual_recognition_attempts
-    ADD CONSTRAINT visual_recognition_attempts_observation_id_fkey FOREIGN KEY (observation_id) REFERENCES armi.live_vision_observations(observation_id);
 
---
--- Name: visual_recognition_attempts visual_recognition_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.visual_recognition_attempts
-    ADD CONSTRAINT visual_recognition_attempts_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: visual_recognition_attempts visual_recognition_attempts_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.visual_recognition_attempts
-    ADD CONSTRAINT visual_recognition_attempts_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: web_evidence_sources web_evidence_sources_evidence_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -4044,3 +4014,8 @@ ALTER TABLE ONLY armi.codex_verification_results
     ADD CONSTRAINT codex_verification_results_evidence_fk FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
 ALTER TABLE ONLY armi.codex_verification_results
     ADD CONSTRAINT codex_verification_results_opportunity_fk FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);

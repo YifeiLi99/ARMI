@@ -475,6 +475,8 @@ WASAPI 精确设备 → 16kHz mono PCM16 → streaming ASR → 正式 Creator in
 
 `live-vision` 同时拥有 camera 与 screen：摄像头以 DirectShow moniker、DevicePath 和 USB LocationPaths 精确绑定；屏幕以 QueryDisplayConfig 的 source device、monitor path、EDID 名称、尺寸和边界精确绑定，锁屏、安全/非交互桌面及身份变化时拒绝采集。两路各有 session、内存帧缓冲、变化检测、cooldown 和小时预算；所有观察先登记 `live.vision.capture`，事务外抓取新帧，再登记视觉识别。自动或无 scene 结果进入受限私有视觉认知；对话内 subject request 保留原 scene/relationship，并通过 follow-up cognition 回答 Creator。视觉结果先成为 Evidence/Opportunity，不能自行写成记忆。
 
+每条视觉观察最多执行一次识别；请求与原始返回 Artifact 引用、Provider 用量回执和识别结果统一归 `live_vision_observations`，不再另存调用流水表。准备、调用、完成和中断过程写诊断日志。中断后保留 unknown，不重新识别；已登记调用的迟到用量可以补记，不恢复观察执行。
+
 ## 12. Creator 与 Admin 接口
 
 `armi-app` 提供唯一 stdio MCP 服务，组合 `interaction_`、`admin_`、`setup_` 工具。Setup 请求解析与分派属于 Admin 应用层，CLI/MCP 直接共用；没有 `setup_admin` 权限转发。本地拥有者来自私有本机绑定及 ACL 核验，显式受限连接按各自范围展示和执行工具。服务保留连接与惰性 Admin pool，配置变化或准备完成后刷新绑定；数据库停止不阻止工具发现和设置操作，关闭 MCP 不停止环境。

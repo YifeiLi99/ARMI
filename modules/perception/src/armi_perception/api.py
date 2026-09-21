@@ -20,7 +20,6 @@ from armi_kernel.application import (
     ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
-    ProviderCallReceipt,
     WorkLease,
     WorkRecord,
     WorkType,
@@ -29,7 +28,6 @@ from armi_kernel.contracts import Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
-    PostgreSQLTransaction,
     StopSignal,
 )
 
@@ -277,63 +275,6 @@ class VisualRecognitionPort(Protocol):
 
 
 @runtime_checkable
-class VisualRecognitionAttemptPort(Protocol):
-    async def record_provider_call(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        attempt_id: UUID,
-        receipt: ProviderCallReceipt,
-    ) -> None: ...
-
-    async def prepared_attempt_for_observation(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        observation_id: UUID,
-    ) -> UUID | None: ...
-
-    async def settle_interrupted(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        observation_ids: tuple[UUID, ...],
-        error_code: str,
-    ) -> None: ...
-
-    async def begin(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        attempt_id: UUID,
-        observation_id: UUID,
-        request_artifact_id: UUID,
-        provider: str,
-        model_id: str,
-    ) -> None: ...
-
-    async def mark_dispatched(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        attempt_id: UUID,
-    ) -> None: ...
-
-    async def settle(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        attempt_id: UUID,
-        status: str,
-        response_artifact_id: UUID | None,
-        provider_request_id: str | None,
-        input_tokens: int | None,
-        output_tokens: int | None,
-        error_code: str | None,
-    ) -> None: ...
-
-
-@runtime_checkable
 class PerceptionArtifactCatalogPort(Protocol):
     async def get(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, artifact_id: ArtifactId
@@ -422,7 +363,6 @@ __all__ = (
     "PerceptionWakeupPort",
     "PerceptionWorkerPort",
     "VisualChangeClass",
-    "VisualRecognitionAttemptPort",
     "VisualRecognitionInput",
     "VisualRecognitionPort",
     "VisualRecognitionRequest",

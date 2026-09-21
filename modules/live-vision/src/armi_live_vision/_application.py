@@ -44,7 +44,6 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 from armi_perception.api import (
     ExternalContentRecognitionStatus,
-    VisualRecognitionAttemptPort,
     VisualRecognitionInput,
     VisualRecognitionPort,
     VisualRecognitionRequest,
@@ -73,7 +72,6 @@ class DurableVisualObservationCoordinator:
         catalog: ArtifactCatalogPort,
         work: DurableWorkPort,
         recognizer: VisualRecognitionPort,
-        attempts: VisualRecognitionAttemptPort,
         prices: PriceCatalog,
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
@@ -84,15 +82,16 @@ class DurableVisualObservationCoordinator:
         height: int,
         fps: float,
         retention: timedelta = timedelta(hours=24),
+        diagnostic: Callable[[str, UUID, str | None], None] | None = None,
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._diagnostic = diagnostic
         self._failure_notification = failure_notification
         self._storage = storage
         self._catalog = catalog
         self._work = work
         self._recognizer = recognizer
-        self._attempts = attempts
         self._prices = prices
         self._evidence = evidence
         self._opportunity = opportunity
@@ -160,12 +159,8 @@ class DurableVisualObservationCoordinator:
                     (error_code, self._session_id),
                 )
             ).fetchall()
-            if observation_rows:
-                await self._attempts.settle_interrupted(
-                    unit.transaction,
-                    observation_ids=tuple(row[0] for row in observation_rows),
-                    error_code=error_code,
-                )
+        for row in observation_rows:
+            self._log("interrupted", row[0], error_code)
 
     async def purge_expired_frames(self) -> int:
         async with self._factory.unit_of_work() as unit:
@@ -348,14 +343,7 @@ class DurableVisualObservationCoordinator:
                     (record.draft.owner.reference, record.draft.work_id.value),
                 )
             ).fetchone()
-            attempt_id = (
-                None
-                if row is None
-                else await self._attempts.prepared_attempt_for_observation(
-                    unit, observation_id=UUID(str(row[0]))
-                )
-            )
-            if row is None or attempt_id is None:
+            if row is None:
                 await unit.work.complete(
                     lease,
                     WorkResultRef(
@@ -375,12 +363,12 @@ class DurableVisualObservationCoordinator:
                 await self._catalog.get(unit, ArtifactId(item[0]))
                 for item in frame_rows
             ]
-            await self._attempts.mark_dispatched(unit, attempt_id=attempt_id)
             await unit.transaction.execute(
                 "UPDATE armi.live_vision_observations SET status='recognizing' "
                 "WHERE observation_id=%s AND status='registered'",
                 (row[0],),
             )
+        self._log("dispatched", row[0])
         frame_values: list[VisualFrame] = []
         for item, ref in zip(frame_rows, refs, strict=True):
             value = b""
@@ -391,12 +379,30 @@ class DurableVisualObservationCoordinator:
         try:
 
             async def save(receipt: ProviderCallReceipt) -> None:
+                # DESIGN.md: interrupted observations accept only receipts for existing calls.
                 async with self._factory.provider_usage_unit_of_work(
                     receipt=receipt
                 ) as unit:
-                    await self._attempts.record_provider_call(
-                        unit, attempt_id=attempt_id, receipt=receipt
+                    update = await unit.transaction.execute(
+                        """UPDATE armi.live_vision_observations
+                           SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+                           WHERE observation_id=%s
+                             AND ((%s AND status='recognizing' AND NOT (provider_calls ? %s))
+                                  OR (NOT %s AND provider_calls ? %s))""",
+                        (
+                            receipt.call_id,
+                            json.dumps(receipt.document()),
+                            row[0],
+                            receipt.registration,
+                            receipt.call_id,
+                            receipt.registration,
+                            receipt.call_id,
+                        ),
                     )
+                    if update.rowcount != 1:
+                        raise LiveVisionViolation(
+                            "VISION-USAGE-STALE", "视觉用量回执不属于当前调用"
+                        )
 
             with provider_meter_scope(
                 ProviderMeterScope(save, self._prices, "visual_observation")
@@ -419,7 +425,6 @@ class DurableVisualObservationCoordinator:
         except Exception:
             await self._settle_failure(
                 row[0],
-                attempt_id,
                 ObservationStatus.UNKNOWN,
                 "VISION-OUTCOME-UNKNOWN",
                 lease=lease,
@@ -433,7 +438,6 @@ class DurableVisualObservationCoordinator:
             )
             await self._settle_failure(
                 row[0],
-                attempt_id,
                 status,
                 result.error_code or "VISION-MODEL-FAILED",
                 lease=lease,
@@ -468,20 +472,11 @@ class DurableVisualObservationCoordinator:
                     visual_observation_id=row[0],
                 ),
             )
-            await self._attempts.settle(
-                unit,
-                attempt_id=attempt_id,
-                status="succeeded",
-                response_artifact_id=response_registration.ref.artifact_id.value,
-                provider_request_id=result.provider_request_id,
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-                error_code=None,
-            )
             await unit.transaction.execute(
                 """UPDATE armi.live_vision_observations SET status='completed',change_class=%s,scene_summary=%s,
                    visible_change=%s,uncertainty=%s,provider=%s,model_id=%s,input_tokens=%s,output_tokens=%s,
-                   evidence_id=%s,settled_at=statement_timestamp() WHERE observation_id=%s AND status='recognizing'""",
+                   evidence_id=%s,response_artifact_id=%s,provider_request_id=%s,
+                   settled_at=statement_timestamp() WHERE observation_id=%s AND status='recognizing'""",
                 (
                     result.change_class.value,
                     result.scene_summary,
@@ -492,6 +487,8 @@ class DurableVisualObservationCoordinator:
                     result.input_tokens,
                     result.output_tokens,
                     evidence_id.value,
+                    response_registration.ref.artifact_id.value,
+                    result.provider_request_id,
                     row[0],
                 ),
             )
@@ -520,6 +517,7 @@ class DurableVisualObservationCoordinator:
             await unit.work.complete(
                 lease, WorkResultRef("live_vision_observation", row[0])
             )
+        self._log("completed", row[0])
         self._previous_summary = result.scene_summary
         return True
 
@@ -602,6 +600,7 @@ class DurableVisualObservationCoordinator:
                     lease, WorkResultRef("live_vision_observation", observation_id)
                 )
 
+            self._log("failed", observation_id, code)
             await self._notify_failure(observation_id, code)
 
     async def _notify_failure(self, observation_id: UUID, code: str) -> None:
@@ -665,7 +664,7 @@ class DurableVisualObservationCoordinator:
             "live.vision.recognition-request",
             trace_id,
         )
-        work_id, attempt_id = uuid7(), uuid7()
+        work_id = uuid7()
         now = datetime.now(UTC)
         async with self._factory.unit_of_work() as unit:
             await unit.work.validate_lease(capture_lease)
@@ -718,17 +717,15 @@ class DurableVisualObservationCoordinator:
             request_registration = await self._catalog.register(
                 unit, ArtifactId(uuid7()), published_request
             )
-            await self._attempts.begin(
-                unit,
-                attempt_id=attempt_id,
-                observation_id=observation_id,
-                request_artifact_id=request_registration.ref.artifact_id.value,
-                provider="volcengine_ark",
-                model_id="doubao-seed-2-0-lite-260428",
+            await unit.transaction.execute(
+                """UPDATE armi.live_vision_observations
+                   SET request_artifact_id=%s WHERE observation_id=%s AND status='registered'""",
+                (request_registration.ref.artifact_id.value, observation_id),
             )
             await unit.work.complete(
                 capture_lease, WorkResultRef("live_vision_observation", observation_id)
             )
+        self._log("prepared", observation_id)
 
     async def run_worker(self) -> None:
         while not self._stop.is_set():
@@ -771,23 +768,12 @@ class DurableVisualObservationCoordinator:
     async def _settle_failure(
         self,
         observation_id: UUID,
-        attempt_id: UUID,
         status: ObservationStatus,
         code: str,
         *,
         lease: WorkLease,
     ) -> None:
         async with self._factory.unit_of_work() as unit:
-            await self._attempts.settle(
-                unit,
-                attempt_id=attempt_id,
-                status=status.value,
-                response_artifact_id=None,
-                provider_request_id=None,
-                input_tokens=None,
-                output_tokens=None,
-                error_code=code,
-            )
             await unit.transaction.execute(
                 """UPDATE armi.live_vision_observations SET status=%s,error_code=%s,settled_at=statement_timestamp()
                    WHERE observation_id=%s""",
@@ -798,7 +784,14 @@ class DurableVisualObservationCoordinator:
                 lease, WorkResultRef("live_vision_observation", observation_id)
             )
 
+        self._log(status.value, observation_id, code)
         await self._notify_failure(observation_id, code)
+
+    def _log(
+        self, event: str, observation_id: UUID, error_code: str | None = None
+    ) -> None:
+        if self._diagnostic is not None:
+            self._diagnostic(event, observation_id, error_code)
 
     async def _publish(
         self, value: bytes, media_type: str, logical_kind: str, trace_id: TraceId

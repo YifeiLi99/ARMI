@@ -49,7 +49,7 @@ relationships runtime_bundle_activations runtime_instances
 scene_participants
 scene_timeline_items sleep_decisions subject_commits mind_heads subject_component_heads
 mind_revisions subject_component_revisions subjective_memories subjective_memory_revisions
-subjects visual_recognition_attempts web_evidence_sources
+subjects web_evidence_sources
 web_observation_requests web_research_intents
 """
 
@@ -76,7 +76,7 @@ observation_attempts opportunities parties party_input_interactions
 runtime_instances
 scene_participants mind_heads subject_component_heads mind_revisions subject_component_revisions
 subjective_memories subjective_memory_revisions subjects
-visual_recognition_attempts web_observation_requests web_research_intents
+web_observation_requests web_research_intents
 """
 
 _ADMIN_INSERT = """

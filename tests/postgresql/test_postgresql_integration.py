@@ -1053,7 +1053,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
-    @pytest.mark.test_group("data-rights", "artifacts")
+    @pytest.mark.test_group("data-rights", "artifacts", "live-vision")
     def test_data_rights_artifact_fk_contract_matches_installed_catalog(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -2385,6 +2385,186 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    @pytest.mark.test_group("live-vision")
+    def test_visual_observation_owns_receipts_and_does_not_repeat_interrupted_call(
+        self,
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        from armi_kernel.application import provider_call
+        from armi_live_vision.api import (
+            CameraSourceIdentity,
+            ObservationOriginKind,
+            ObservationTrigger,
+            VisualFrame,
+            VisualSourceKind,
+        )
+        from armi_live_vision.bootstrap import compose_visual_observation_sink
+        from armi_perception.api import (
+            ExternalContentRecognitionStatus,
+            VisualChangeClass,
+            VisualRecognitionResult,
+        )
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+
+        async def exercise(root: Path) -> None:
+            factory = await self._new_uow_factory(fixture)
+            try:
+                born = await BirthTransaction(
+                    _publishing_artifact_store(root, factory),
+                    ArtifactCatalogRepository(),
+                    _birth_repository(),
+                    factory,
+                ).birth(
+                    BirthManifest(
+                        schema_version="armi.birth-manifest.v1",
+                        environment_id=fixture.environment_id,
+                        birth_request_id=_uuid7(),
+                        creator_party_id=_uuid7(),
+                        idempotency_key="visual-receipts",
+                        personality_anchor=PersonalityAnchor(
+                            schema_version="armi.personality-anchor.v1",
+                            voice_style="约 16 岁少女口吻",
+                            traits=("好奇",),
+                        ),
+                        birth_contract_digest=packaged_birth_digests()[
+                            "birth_contract_digest"
+                        ],
+                        request_digest=Digest.from_bytes(b"visual-receipts"),
+                    )
+                )
+
+                interrupted = False
+                events = []
+                calls = []
+
+                async def recognize(request):
+                    async with provider_call(
+                        provider="test-provider",
+                        model="test-model",
+                        service="generation",
+                    ) as call:
+                        calls.append(call)
+                        if interrupted:
+                            await sink.settle_interrupted_observations(
+                                error_code="VISION-TEST-INTERRUPTED"
+                            )
+                            raise asyncio.CancelledError()
+                        await call.capture(
+                            usage={"input_tokens": 10, "output_tokens": 4},
+                            provider_request_id="request-1",
+                        )
+                    return VisualRecognitionResult(
+                        ExternalContentRecognitionStatus.SUCCEEDED,
+                        "桌上有一个杯子",
+                        "出现一个杯子",
+                        VisualChangeClass.NOTABLE,
+                        (),
+                        "test-provider",
+                        "test-model",
+                        "test-model",
+                        "request-1",
+                        10,
+                        4,
+                        b'{"summary":"cup"}',
+                        None,
+                    )
+
+                sink = compose_visual_observation_sink(
+                    factory=factory,
+                    storage=_publishing_artifact_store(root, factory),
+                    catalog=ArtifactCatalogRepository(),
+                    work=PostgreSQLDurableWorkGateway(factory),
+                    recognizer=AsyncMock(recognize_visual=recognize),
+                    prices=PriceCatalog(()),
+                    evidence=bootstrap_evidence().write,
+                    opportunity=bootstrap_opportunity_admission(),
+                    subject_id=born.subject_id,
+                    source_kind=VisualSourceKind.CAMERA,
+                    source=CameraSourceIdentity("test camera", "test-path", "test-usb"),
+                    width=1280,
+                    height=720,
+                    fps=1,
+                    diagnostic=lambda *event: events.append(event),
+                )
+                sink.bind_capture(
+                    AsyncMock(
+                        return_value=(
+                            VisualFrame(datetime.now(UTC), b"test-jpeg", 1280, 720),
+                        )
+                    )
+                )
+                await sink.open_session()
+                observations = []
+                for interrupted in (False, True):
+                    observation = await sink.observe(
+                        trigger=ObservationTrigger.MANUAL,
+                        frames=(),
+                        change_score=None,
+                        origin_kind=ObservationOriginKind.CREATOR,
+                    )
+                    observations.append(observation.observation_id)
+                    assert await sink.process_capture_once()
+                    if interrupted:
+                        with pytest.raises(asyncio.CancelledError):
+                            await sink.process_once()
+                        # A late receipt may settle the already registered call, without reviving recognition.
+                        await calls[-1].capture(
+                            usage={"input_tokens": 12, "output_tokens": 2}
+                        )
+                    else:
+                        assert await sink.process_once()
+                    assert not await sink.process_once()
+                async with factory.unit_of_work(read_only=True) as unit:
+                    rows = await (
+                        await unit.transaction.execute(
+                            "SELECT status,request_artifact_id,response_artifact_id,provider_request_id FROM armi.live_vision_observations WHERE observation_id=ANY(%s) ORDER BY registered_at",
+                            (observations,),
+                        )
+                    ).fetchall()
+                    usage = await (
+                        await unit.transaction.execute(
+                            "SELECT owner,reference_id,business_result FROM armi.provider_usage_calls WHERE reference_kind='visual_observation' ORDER BY receipt->>'started_at'"
+                        )
+                    ).fetchall()
+                    assert await (
+                        await unit.transaction.execute(
+                            "SELECT to_regclass('armi.visual_recognition_attempts')"
+                        )
+                    ).fetchone() == (None,)
+                assert rows[0][0] == "completed"
+                assert rows[0][1] is not None and rows[0][2] is not None
+                assert rows[0][3] == "request-1"
+                assert rows[1][0] == "unknown" and rows[1][1] is not None
+                assert rows[1][2] is None
+                assert usage == [
+                    ("live-vision", observations[0], "completed"),
+                    ("live-vision", observations[1], "unknown"),
+                ]
+                assert len(calls) == 2
+                assert [event[0] for event in events] == [
+                    "prepared",
+                    "dispatched",
+                    "completed",
+                    "prepared",
+                    "dispatched",
+                    "interrupted",
+                ]
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory() as directory:
+            asyncio.run(
+                exercise(Path(directory)),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
 
     @pytest.mark.test_group("live-vision")
     def test_live_vision_allows_one_open_session_per_source(self) -> None:

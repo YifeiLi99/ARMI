@@ -85,7 +85,11 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract(
         "live-vision",
         ("media_recognition",),
-        (("live_vision_observation_frames", "artifact_id", "shared"),),
+        (
+            ("live_vision_observation_frames", "artifact_id", "shared"),
+            ("live_vision_observations", "request_artifact_id", "shared"),
+            ("live_vision_observations", "response_artifact_id", "shared"),
+        ),
     ),
     _contract("memory", ("memory",), ()),
     _contract("mood", ("mood",), ()),
@@ -96,8 +100,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         (
             ("external_content_recognition_attempts", "request_artifact_id", "party"),
             ("external_content_recognition_attempts", "response_artifact_id", "party"),
-            ("visual_recognition_attempts", "request_artifact_id", "shared"),
-            ("visual_recognition_attempts", "response_artifact_id", "shared"),
         ),
     ),
     _contract(

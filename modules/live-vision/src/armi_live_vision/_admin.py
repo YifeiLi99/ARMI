@@ -13,9 +13,11 @@ class PostgreSQLLiveVisionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         row = transaction.execute(
-            """SELECT count(*) FROM armi.live_vision_observation_frames
-               WHERE artifact_id=%s""",
-            (artifact_id,),
+            """SELECT (SELECT count(*) FROM armi.live_vision_observation_frames
+               WHERE artifact_id=%s) +
+               (SELECT count(*) FROM armi.live_vision_observations
+                WHERE request_artifact_id=%s OR response_artifact_id=%s)""",
+            (artifact_id, artifact_id, artifact_id),
         ).fetchone()
         return 0 if row is None else int(cast(int, row[0]))
 

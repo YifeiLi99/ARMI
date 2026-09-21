@@ -2,7 +2,6 @@
 
 from uuid import UUID
 
-from armi_perception.api import VisualRecognitionAttemptPort
 from armi_runtime_foundation import (
     OwnerReconciliationContext,
     PostgreSQLTransaction,
@@ -23,9 +22,6 @@ class LiveVisionRecoveryParticipant:
         ("live_vision_observation", "live.vision.observe"),
     )
 
-    def __init__(self, attempts: VisualRecognitionAttemptPort) -> None:
-        self._attempts = attempts
-
     async def _end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
@@ -44,11 +40,6 @@ class LiveVisionRecoveryParticipant:
             )
         ).fetchall()
         observation_ids: set[UUID] = {row[0] for row in rows}
-        await self._attempts.settle_interrupted(
-            transaction,
-            observation_ids=tuple(observation_ids),
-            error_code="VISION-RUNTIME-INTERRUPTED",
-        )
         reconciliation = OwnerReconciliationContext(
             transaction, self.owner_identity, work
         )

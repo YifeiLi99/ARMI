@@ -35,14 +35,13 @@ WITH parents AS (
         ORDER BY o.available_after, o.opportunity_id LIMIT 1
     ) origin ON true
     UNION ALL
-    SELECT 'perception', a.visual_attempt_id, o.root_opportunity_id, 'visual_observation',
-           a.observation_id, a.status, a.settled_at, a.provider_calls,
-           a.usage_contract_version, a.provider, a.model_id, 'generation',
-           'visual_observation', a.dispatched_at, a.provider_request_id, NULL::text,
-           a.input_tokens, a.output_tokens, NULL::integer, NULL::integer,
-           NULL::bigint, a.error_code
-    FROM armi.visual_recognition_attempts a
-    JOIN armi.live_vision_observations v USING (observation_id)
+    SELECT 'live-vision', v.observation_id, o.root_opportunity_id, 'visual_observation',
+           v.observation_id, v.status, v.settled_at, v.provider_calls,
+           1, v.provider, v.model_id, 'generation',
+           'visual_observation', v.registered_at, v.provider_request_id, NULL::text,
+           v.input_tokens, v.output_tokens, NULL::integer, NULL::integer,
+           NULL::bigint, v.error_code
+    FROM armi.live_vision_observations v
     LEFT JOIN armi.cognitive_episodes e ON e.cognitive_episode_id = v.origin_episode_id
     LEFT JOIN armi.opportunities o ON o.opportunity_id = e.opportunity_id
     UNION ALL
