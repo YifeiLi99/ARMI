@@ -3676,7 +3676,7 @@ def _component_failure(
     schema_owner = {
         "armi.self.v1": CandidateOwner.SELF,
         "armi.mind.v4": CandidateOwner.MIND,
-        "armi.mood.v4": CandidateOwner.MOOD,
+        "armi.mood.v5": CandidateOwner.MOOD,
         "armi.mood-appraisal.v3": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
@@ -3692,7 +3692,7 @@ def _component_failure(
         owner is CandidateOwner.MOOD
         and next_state.get("schema_version") == "armi.mood-appraisal.v3"
     ):
-        if current_schema != "armi.mood.v4":
+        if current_schema != "armi.mood.v5":
             return "CANDIDATE-COMPONENT-STATE"
     elif current_schema != next_state.get("schema_version"):
         return "CANDIDATE-COMPONENT-STATE"

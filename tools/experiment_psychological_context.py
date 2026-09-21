@@ -120,9 +120,9 @@ def prepare_case(
     )
     mood = rfc8785.dumps(
         {
-            "schema_version": "armi.mood.v4",
+            "schema_version": "armi.mood.v5",
             "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v3",
+            "derivation_version": "cpm-fuzzy.v4",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )

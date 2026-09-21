@@ -247,7 +247,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "subjects",
         ),
         revision="0000",
-        baseline_identity="armi.schema-baseline.v43",
+        baseline_identity="armi.schema-baseline.v44",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,
@@ -696,9 +696,9 @@ class AdminProtocolTests(unittest.TestCase):
                     "component_kind": "mood",
                     "expected_component_version": 1,
                     "replacement": {
-                        "schema_version": "armi.mood.v4",
+                        "schema_version": "armi.mood.v5",
                         "dynamics_version": "recency-reappraisal.v1",
-                        "derivation_version": "cpm-fuzzy.v3",
+                        "derivation_version": "cpm-fuzzy.v4",
                         "home_base": {
                             "valence": 10,
                             "arousal": 0,

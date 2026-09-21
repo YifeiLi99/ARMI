@@ -1423,15 +1423,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 mood_episode_id,transition,event_phase,gist,basis_ordinals,
                                 appraisal_payload,importance,derived_vad,derived_components,
                                 derivation_version,dynamics_version,privacy_scope,
-                                appraisal_mapping_version,derived_appraisal_payload,occurred_at)
+                                appraisal_mapping_version,derived_appraisal_payload,occurred_at,
+                                affect_intensity,affect_half_life_seconds)
                                SELECT %s,subject_id,current_revision_id,%s,'new','ongoing',
                                       '有件事还没弄明白',ARRAY[1]::smallint[],
                                       '{"schema_version":"armi.mood-appraisal.v3"}'::jsonb,
                                       60,'{"valence":0,"arousal":20,"dominance":0}'::jsonb,
-                                      %s::jsonb,'cpm-fuzzy.v3','recency-reappraisal.v1','private',
+                                      %s::jsonb,'cpm-fuzzy.v4','recency-reappraisal.v1','private',
                                       'semantic-anchors.v1',
                                       '{"schema_version":"armi.mood-derived-appraisal.v3"}'::jsonb,
-                                      statement_timestamp()-interval '2 minutes'
+                                      statement_timestamp()-interval '2 minutes',60,3600
                                FROM armi.mood_heads WHERE subject_id=%s""",
                             (
                                 uuid7(),
@@ -8079,6 +8080,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ).fetchone(),
                             (reply_decision_kind,),
                         )
+                    if concerns:
+                        mood_snapshot = await bootstrap_mood().read.snapshot(
+                            unit_of_work.transaction, subject_id=born.subject_id
+                        )
+                        self.assertEqual(mood_snapshot.version, 2)
+                        if neutral_mood:
+                            self.assertEqual(mood_snapshot.current.valence, 0)
+                        else:
+                            self.assertGreater(mood_snapshot.current.valence, 0)
+                            self.assertTrue(mood_snapshot.active_emotions)
                     if rollback:
                         raise RuntimeError("injected after subject and effect writes")
                 return result.status, result.subject_version or -1
@@ -8274,6 +8285,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(version, 1)
         if concerns:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
+                core = connection.execute(
+                    "SELECT affect_intensity,affect_half_life_seconds,derived_vad "
+                    "FROM armi.mood_appraisal_events"
+                ).fetchone()
+                self.assertIsNotNone(core)
+                assert core is not None
+                self.assertEqual(core[0], 0 if neutral_mood else 100)
+                self.assertGreaterEqual(core[1], 900)
+                self.assertLessEqual(core[1], 86400)
+                if not neutral_mood:
+                    self.assertGreater(core[2]["valence"], 0)
                 if neutral_mood:
                     self.assertEqual(
                         connection.execute(

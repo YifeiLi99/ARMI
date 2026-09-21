@@ -10,6 +10,7 @@ import rfc8785
 from armi_kernel.application import CandidateFactClass
 from armi_mood._domain import (
     StoredAffectiveEvent,
+    StoredCoreAffect,
     StoredEmotionComponent,
     clamp_home_base,
     consideration_signals,
@@ -229,6 +230,7 @@ def test_resolved_episode_leaves_context_while_residual_emotion_decays() -> None
         (StoredEmotionComponent(_component(intensity=80), 3600),),
         episode_id,
         gist="等待回应",
+        core=StoredCoreAffect(VAD(0, 20, 0), 80, 3600),
     )
     closed = StoredAffectiveEvent(
         now + timedelta(seconds=1),
@@ -237,6 +239,7 @@ def test_resolved_episode_leaves_context_while_residual_emotion_decays() -> None
         AppraisalTransition.RESOLVE,
         AppraisalEventPhase.REALIZED,
         "已经结束",
+        core=StoredCoreAffect(VAD(0, 0, 0), 0, 3600),
     )
     _, emotions, episodes, _ = derive_effective_snapshot(
         VAD(0, 0, 0), (opened, closed), as_of=now + timedelta(seconds=2)
@@ -283,9 +286,10 @@ def test_unknown_semantics_do_not_invent_affect() -> None:
     result = derive_semantic_appraisal(event)
     assert result.components == ()
     assert result.target.dominance == 0
+    assert result.core.intensity == 0
 
 
-def test_missing_coping_is_not_interpreted_as_helplessness() -> None:
+def test_missing_coping_allows_sadness_without_inventing_helplessness() -> None:
     event = _semantic_event(
         concerns=(
             AppraisalConcern(
@@ -298,7 +302,7 @@ def test_missing_coping_is_not_interpreted_as_helplessness() -> None:
         coping=None,
     )
     result = derive_semantic_appraisal(event)
-    assert EmotionFamily.SADNESS not in {
+    assert EmotionFamily.SADNESS in {
         item.component.family for item in result.components
     }
     assert result.target.dominance == 0
@@ -446,11 +450,12 @@ def test_semantic_certainty_distinguishes_fear_and_anxiety(
         ),
         phase=AppraisalEventPhase.ANTICIPATED,
     )
-    families = {
-        item.component.family for item in derive_semantic_appraisal(event).components
+    strengths = {
+        item.component.family: item.component.intensity
+        for item in derive_semantic_appraisal(event).components
     }
-    assert expected in families
-    assert excluded not in families
+    # Graded matching allows mixed fear/anxiety; certainty changes which leads.
+    assert strengths[expected] > strengths.get(excluded, 0)
 
 
 def test_semantic_agency_and_persistence_distinguish_anger_and_frustration() -> None:
@@ -545,6 +550,7 @@ def test_opposing_emotions_mix_then_decay_to_home_base() -> None:
                 900,
             ),
         ),
+        core=StoredCoreAffect(VAD(0, 0, 0), 60, 900),
     )
     current, active = derive_effective_state(VAD(0, 0, 0), (event,), as_of=now)
     assert current == VAD(0, 0, 0)
@@ -570,6 +576,7 @@ def test_same_family_merges_and_snapshot_exposes_episode_and_top_tendencies() ->
             ),
             episode_id,
             gist="结果可能很好",
+            core=StoredCoreAffect(VAD(0, 20, 0), 30, 3600),
         ),
         StoredAffectiveEvent(
             now + timedelta(minutes=1),
@@ -582,6 +589,7 @@ def test_same_family_merges_and_snapshot_exposes_episode_and_top_tendencies() ->
             AppraisalTransition.REINFORCE,
             AppraisalEventPhase.ANTICIPATED,
             "新的迹象强化了期待",
+            core=StoredCoreAffect(VAD(0, 20, 0), 80, 3600),
         ),
     )
     _, active, episodes, tendencies = derive_effective_snapshot(
@@ -619,6 +627,7 @@ def test_new_affect_can_attract_attention_without_ordering_expression(
         ),
         uuid7(),
         phase=AppraisalEventPhase.ONGOING,
+        core=StoredCoreAffect(VAD(0, 20, 0), 60, 3600),
     )
     event = replace(event, event_id=uuid7())
     signals = consideration_signals((event,), minimum_delay_seconds=60, as_of=now)
@@ -655,6 +664,7 @@ def test_resolved_or_reappraised_concern_does_not_reuse_old_action_tendency(
             ),
         ),
         episode,
+        core=StoredCoreAffect(VAD(0, 20, 0), 60, 3600),
     )
     later = StoredAffectiveEvent(
         now + timedelta(minutes=1),
@@ -662,6 +672,7 @@ def test_resolved_or_reappraised_concern_does_not_reuse_old_action_tendency(
         episode,
         transition,
         AppraisalEventPhase.AVERTED,
+        core=StoredCoreAffect(VAD(0, 0, 0), 0, 3600),
     )
     assert (
         consideration_signals(
@@ -674,7 +685,11 @@ def test_resolved_or_reappraised_concern_does_not_reuse_old_action_tendency(
 def test_same_as_of_is_independent_of_poll_slices() -> None:
     started = datetime(2026, 8, 18, tzinfo=UTC)
     events = (
-        StoredAffectiveEvent(started, (StoredEmotionComponent(_component(), 3600),)),
+        StoredAffectiveEvent(
+            started,
+            (StoredEmotionComponent(_component(), 3600),),
+            core=StoredCoreAffect(VAD(0, 20, 0), 60, 3600),
+        ),
     )
     target = started + timedelta(minutes=37)
     direct = derive_effective_state(VAD(0, 0, 0), events, as_of=target)
@@ -685,6 +700,135 @@ def test_same_as_of_is_independent_of_poll_slices() -> None:
     assert derive_effective_state(VAD(0, 0, 0), events, as_of=target) == direct
 
 
+def _event_snapshot(event: SemanticAppraisalEvent):
+    derived = derive_semantic_appraisal(event)
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    stored = StoredAffectiveEvent(now, derived.components, uuid7(), core=derived.core)
+    return (
+        derived,
+        stored,
+        derive_effective_snapshot(VAD(0, 0, 0), (stored,), as_of=now),
+    )
+
+
+@pytest.mark.parametrize(
+    "direction,quality,sign",
+    [
+        (AppraisalDirection.FULFILLED, AppraisalQuality.PLEASANT, 1),
+        (AppraisalDirection.SETBACK, AppraisalQuality.UNPLEASANT, -1),
+    ],
+)
+def test_small_events_have_weaker_but_nonzero_affect(direction, quality, sign):
+    strengths = []
+    for significance in (
+        AppraisalSignificance.PERIPHERAL,
+        AppraisalSignificance.DIRECT,
+        AppraisalSignificance.CORE,
+    ):
+        derived, _, snapshot = _event_snapshot(
+            _semantic_event(
+                concerns=(
+                    AppraisalConcern(
+                        AppraisalConcernTarget.SELF_GOAL, significance, direction
+                    ),
+                ),
+                quality=quality,
+            )
+        )
+        assert derived.components
+        assert sign * snapshot[0].valence > 0
+        strengths.append(derived.core.intensity)
+    assert 0 < strengths[0] < strengths[1] < strengths[2]
+
+
+def test_coping_changes_control_not_whether_loss_can_hurt():
+    values = []
+    for coping in (
+        AppraisalCoping(
+            AppraisalResponseAccess.NONE,
+            AppraisalPowerBalance.OVERMATCHED,
+            AppraisalAdjustment.DIFFICULT,
+        ),
+        AppraisalCoping(
+            AppraisalResponseAccess.DIRECT,
+            AppraisalPowerBalance.BALANCED,
+            AppraisalAdjustment.EASY,
+        ),
+    ):
+        derived, _, snapshot = _event_snapshot(
+            _semantic_event(
+                concerns=(
+                    AppraisalConcern(
+                        AppraisalConcernTarget.SELF_GOAL,
+                        AppraisalSignificance.CORE,
+                        AppraisalDirection.MAJOR_SETBACK,
+                    ),
+                ),
+                quality=AppraisalQuality.UNPLEASANT,
+                coping=coping,
+            )
+        )
+        assert EmotionFamily.SADNESS in {x.component.family for x in derived.components}
+        assert snapshot[0].valence < 0
+        values.append(snapshot[0])
+    assert values[0].valence == values[1].valence
+    assert values[0].dominance < 0 < values[1].dominance
+
+
+def test_event_affect_and_episode_do_not_depend_on_number_of_emotion_labels():
+    _, stored, snapshot = _event_snapshot(_semantic_event())
+    for components in ((), stored.components[:1], stored.components * 2):
+        changed = derive_effective_snapshot(
+            VAD(0, 0, 0),
+            (replace(stored, components=components),),
+            as_of=stored.occurred_at,
+        )
+        assert changed[0] == snapshot[0]
+        assert changed[2] == snapshot[2]
+
+
+def test_unclassified_experience_still_affects_mood_and_fades():
+    derived, stored, snapshot = _event_snapshot(
+        _semantic_event(
+            concerns=(
+                AppraisalConcern(
+                    AppraisalConcernTarget.SELF_GOAL,
+                    AppraisalSignificance.DIRECT,
+                    AppraisalDirection.UNCHANGED,
+                ),
+            ),
+            quality=AppraisalQuality.UNPLEASANT,
+        )
+    )
+    assert derived.components == ()
+    assert snapshot[0].valence < 0
+    later = derive_effective_snapshot(
+        VAD(0, 0, 0),
+        (stored,),
+        as_of=stored.occurred_at + timedelta(seconds=derived.core.half_life_seconds),
+    )
+    assert snapshot[0].valence < later[0].valence <= 0
+
+
+def test_quiet_neutral_wait_does_not_invent_core_affect():
+    derived, _, snapshot = _event_snapshot(
+        _semantic_event(
+            concerns=(
+                AppraisalConcern(
+                    AppraisalConcernTarget.SELF_GOAL,
+                    AppraisalSignificance.DIRECT,
+                    AppraisalDirection.UNCHANGED,
+                ),
+            ),
+            quality=AppraisalQuality.NEUTRAL,
+            phase=AppraisalEventPhase.ONGOING,
+        )
+    )
+    assert derived.core.intensity == 0
+    assert snapshot[0] == VAD(0, 0, 0)
+    assert snapshot[1:] == ((), (), ())
+
+
 def test_home_base_moves_at_most_two_points_per_axis() -> None:
     assert clamp_home_base(VAD(0, 0, 0), VAD(100, -100, 1)) == VAD(2, -2, 1)
 
@@ -692,13 +836,13 @@ def test_home_base_moves_at_most_two_points_per_axis() -> None:
 def test_state_contract_is_v3_and_rejects_extra_fields() -> None:
     state = parse_state(
         {
-            "schema_version": "armi.mood.v4",
+            "schema_version": "armi.mood.v5",
             "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v3",
+            "derivation_version": "cpm-fuzzy.v4",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )
-    assert state_to_wire(state)["schema_version"] == "armi.mood.v4"
+    assert state_to_wire(state)["schema_version"] == "armi.mood.v5"
     with pytest.raises(MoodViolation):
         parse_state({**state_to_wire(state), "mood": "平静"})
 

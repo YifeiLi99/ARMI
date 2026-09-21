@@ -305,7 +305,7 @@ class PostgreSQLMoodOwner:
         raw_appraisal = semantic_appraisal_to_wire(event)
         appraisal_mapping_version = "semantic-anchors.v1"
         derived_appraisal = semantic_features_to_wire(event.appraisal)
-        derivation_version = "cpm-fuzzy.v3"
+        derivation_version = "cpm-fuzzy.v4"
         components = [
             component_to_wire(item.component, half_life_seconds=item.half_life_seconds)
             for item in derived.components
@@ -316,9 +316,10 @@ class PostgreSQLMoodOwner:
                 previous_appraisal_event_id,transition,event_phase,gist,
                 basis_ordinals,appraisal_payload,appraisal_mapping_version,
                 derived_appraisal_payload,importance,derived_vad,derived_components,
-                derivation_version,dynamics_version,privacy_scope)
+                derivation_version,dynamics_version,privacy_scope,
+                affect_intensity,affect_half_life_seconds)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,
-                       %s::jsonb,%s::jsonb,%s,'recency-reappraisal.v1','private')""",
+                       %s::jsonb,%s::jsonb,%s,'recency-reappraisal.v1','private',%s,%s)""",
             (
                 uuid7(),
                 subject_id,
@@ -342,6 +343,8 @@ class PostgreSQLMoodOwner:
                 ).decode("utf-8"),
                 rfc8785.dumps(cast(Any, components)).decode("utf-8"),
                 derivation_version,
+                derived.core.intensity,
+                derived.core.half_life_seconds,
             ),
         )
 

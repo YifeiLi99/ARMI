@@ -6,7 +6,7 @@ import json
 import math
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
@@ -57,13 +57,20 @@ from .api import (
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 _DYNAMICS_VERSION = "recency-reappraisal.v1"
-_DERIVATION_VERSION = "cpm-fuzzy.v3"
+_DERIVATION_VERSION = "cpm-fuzzy.v4"
 _BASE_WEIGHT = 30.0
 
 
 @dataclass(frozen=True, slots=True)
 class StoredEmotionComponent:
     component: EmotionComponent
+    half_life_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class StoredCoreAffect:
+    vad: VAD
+    intensity: int
     half_life_seconds: int
 
 
@@ -77,6 +84,7 @@ class StoredAffectiveEvent:
     gist: str = ""
     source_commit_id: UUID | None = None
     event_id: UUID | None = None
+    core: StoredCoreAffect = field(kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +92,7 @@ class DerivedAppraisal:
     target: VAD
     importance: int
     components: tuple[StoredEmotionComponent, ...]
+    core: StoredCoreAffect
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +128,7 @@ def initial_state() -> MoodState:
 
 def state_to_wire(state: MoodState) -> dict[str, object]:
     return {
-        "schema_version": "armi.mood.v4",
+        "schema_version": "armi.mood.v5",
         "dynamics_version": state.dynamics_version,
         "derivation_version": state.derivation_version,
         "home_base": vad_to_wire(state.home_base),
@@ -137,7 +146,7 @@ def parse_state(value: object) -> MoodState:
     if (
         set(raw)
         != {"schema_version", "dynamics_version", "derivation_version", "home_base"}
-        or raw["schema_version"] != "armi.mood.v4"
+        or raw["schema_version"] != "armi.mood.v5"
         or raw["dynamics_version"] != _DYNAMICS_VERSION
         or raw["derivation_version"] != _DERIVATION_VERSION
     ):
@@ -768,7 +777,6 @@ def derive_semantic_appraisal(
     low_control = 0.0 if features.control is None else 1.0 - control
     low_power = 0.0 if features.power is None else 1.0 - power
     low_adjustment = 0.0 if features.adjustment is None else 1.0 - adjustment
-    low_capacity = max(low_control, low_power, low_adjustment)
     intentionality = features.intentionality or 0.0
     ego = features.ego or 0.0
     self_agent = _agency(features.agency, AppraisalAgency.SELF)
@@ -781,7 +789,7 @@ def derive_semantic_appraisal(
     registration_relevance = relevance
 
     def register(family: EmotionFamily, score: float, component_goal: float) -> None:
-        if score < 0.5:
+        if score <= 0.0:
             return
         score *= registration_weight
         current = scores.get(family)
@@ -868,7 +876,6 @@ def derive_semantic_appraisal(
                     negative,
                     realized,
                     certainty,
-                    low_capacity,
                 ),
                 concern_goal,
             )
@@ -1048,7 +1055,26 @@ def derive_semantic_appraisal(
     components.sort(
         key=lambda item: (-item.component.intensity, item.component.family.value)
     )
-    return DerivedAppraisal(target, importance, tuple(components[:3]))
+    # Event affect exists before labels; coping changes dominance, not whether
+    # a loss can hurt. See DESIGN.md, Mood: continuous event affect.
+    affect_intensity = round(
+        100
+        * relevance
+        * max(
+            impact,
+            novelty,
+            urgency,
+            effort,
+            0.5 if event.appraisal.engagement == "understimulated" else 0.0,
+        )
+    )
+    persistence = (
+        0.55 * ((importance - 5) / 95)
+        + 0.25 * (max(0, affect_intensity - 5) / 95)
+        + 0.20 * open_episode
+    )
+    core = StoredCoreAffect(target, affect_intensity, round(900 * (96**persistence)))
+    return DerivedAppraisal(target, importance, tuple(components[:3]), core)
 
 
 def half_life_seconds(*, importance: int, intensity: int) -> int:
@@ -1116,44 +1142,50 @@ def derive_effective_snapshot(
     tuple[ActiveAffectiveEpisode, ...],
     tuple[EffectiveActionTendency, ...],
 ]:
-    ordered = tuple(sorted(events, key=lambda item: item.occurred_at))
+    ordered = tuple(
+        sorted(
+            (event for event in events if event.occurred_at <= as_of),
+            key=lambda item: item.occurred_at,
+        )
+    )
     weighted: list[
         tuple[float, EmotionComponent, datetime, UUID | None, str, AppraisalEventPhase]
     ] = []
+    core_weights: list[tuple[float, StoredAffectiveEvent]] = []
     for index, event in enumerate(ordered):
         elapsed = max(0.0, (as_of - event.occurred_at).total_seconds())
-        for stored in event.components:
-            transition = next(
-                (
-                    later
-                    for later in ordered[index + 1 :]
-                    if event.episode_id is not None
-                    and later.episode_id == event.episode_id
-                    and later.occurred_at <= as_of
-                    and later.transition
-                    in {AppraisalTransition.REAPPRAISE, AppraisalTransition.RESOLVE}
-                ),
-                None,
+        transition = next(
+            (
+                later
+                for later in ordered[index + 1 :]
+                if event.episode_id is not None
+                and later.episode_id == event.episode_id
+                and later.occurred_at <= as_of
+                and later.transition
+                in {AppraisalTransition.REAPPRAISE, AppraisalTransition.RESOLVE}
+            ),
+            None,
+        )
+
+        decay_elapsed = elapsed
+        if transition is not None:
+            before = max(
+                0.0, (transition.occurred_at - event.occurred_at).total_seconds()
             )
-            if transition is None:
-                intensity = stored.component.intensity * math.pow(
-                    2.0, -elapsed / stored.half_life_seconds
-                )
-            else:
-                before = max(
-                    0.0, (transition.occurred_at - event.occurred_at).total_seconds()
-                )
-                after = max(0.0, (as_of - transition.occurred_at).total_seconds())
-                factor = (
-                    0.25
-                    if transition.transition is AppraisalTransition.RESOLVE
-                    else 0.5
-                )
-                intensity = (
-                    stored.component.intensity
-                    * math.pow(2.0, -before / stored.half_life_seconds)
-                    * math.pow(2.0, -after / (stored.half_life_seconds * factor))
-                )
+            after = max(0.0, (as_of - transition.occurred_at).total_seconds())
+            factor = (
+                0.25 if transition.transition is AppraisalTransition.RESOLVE else 0.5
+            )
+            decay_elapsed = before + after / factor
+        core_intensity = event.core.intensity * math.pow(
+            2.0, -decay_elapsed / event.core.half_life_seconds
+        )
+        if core_intensity >= 1.0:
+            core_weights.append((core_intensity, event))
+        for stored in event.components:
+            intensity = stored.component.intensity * math.pow(
+                2.0, -decay_elapsed / stored.half_life_seconds
+            )
             if intensity >= 1.0:
                 weighted.append(
                     (
@@ -1170,8 +1202,8 @@ def derive_effective_snapshot(
         base = cast(int, getattr(home_base, name))
         numerator = _BASE_WEIGHT * base
         denominator = _BASE_WEIGHT
-        for weight, component, _occurred_at, _episode, _gist, _phase in weighted:
-            numerator += weight * cast(int, getattr(component.vad, name))
+        for weight, event in core_weights:
+            numerator += weight * cast(int, getattr(event.core.vad, name))
             denominator += weight
         return max(-100, min(100, round(numerator / denominator)))
 
@@ -1203,9 +1235,11 @@ def derive_effective_snapshot(
     episode_strengths: dict[
         UUID, list[tuple[float, datetime, str, AppraisalEventPhase]]
     ] = defaultdict(list)
-    for intensity, _component, occurred_at, episode_id, gist, phase in weighted:
-        if episode_id is not None:
-            episode_strengths[episode_id].append((intensity, occurred_at, gist, phase))
+    for intensity, event in core_weights:
+        if event.episode_id is not None:
+            episode_strengths[event.episode_id].append(
+                (intensity, event.occurred_at, event.gist, event.phase)
+            )
     episodes: list[ActiveAffectiveEpisode] = []
     resolved = {
         event.episode_id
