@@ -98,7 +98,8 @@
           "resume",
           "complete",
           "abandon",
-          "system_fail"
+          "system_fail",
+          "system_pause"
         ],
         "type": "string"
       },

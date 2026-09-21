@@ -19,7 +19,7 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("experience")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "accepted_experiences",

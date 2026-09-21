@@ -225,7 +225,7 @@ class PostgreSQLSubjectStateOwner:
             next_payload = json.loads(draft.canonical_next_state)
             revision_id = uuid7()
             await transaction.execute(
-                """INSERT INTO armi.subject_component_revisions (component_revision_id, subject_id, component_kind, component_version, previous_revision_id, origin_kind, origin_ref, subject_commit_id, proposal_ref, semantic_payload, privacy_scope) VALUES (%s,%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb,'private')""",
+                """INSERT INTO armi.subject_component_revisions (component_revision_id, subject_id, component_kind, component_version, previous_revision_id, origin_kind, origin_ref, subject_commit_id, proposal_ref, semantic_payload) VALUES (%s,%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb)""",
                 (
                     revision_id,
                     subject_id,
@@ -294,7 +294,7 @@ class PostgreSQLSubjectStateOwner:
         payload["active_activities"] = [] if activity_id is None else [str(activity_id)]
         revision_id = uuid7()
         await transaction.execute(
-            """INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,origin_kind,origin_ref,subject_commit_id,proposal_ref,semantic_payload,privacy_scope) VALUES (%s,%s,'life_mode',%s,%s,'subject_commit',%s,%s,%s,%s::jsonb,'private')""",
+            """INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,origin_kind,origin_ref,subject_commit_id,proposal_ref,semantic_payload) VALUES (%s,%s,'life_mode',%s,%s,'subject_commit',%s,%s,%s,%s::jsonb)""",
             (
                 revision_id,
                 subject_id,
@@ -335,7 +335,7 @@ class PostgreSQLSubjectStateOwner:
         for kind in SubjectStateKind:
             revision_id = uuid7()
             await transaction.execute(
-                """INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,%s,1,'bootstrap',%s,%s::jsonb,'private')""",
+                """INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload) VALUES (%s,%s,%s,1,'bootstrap',%s,%s::jsonb)""",
                 (
                     revision_id,
                     subject_id,

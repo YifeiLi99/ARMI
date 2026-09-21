@@ -21,7 +21,6 @@ CREATE TABLE armi.accepted_experiences (
     accepted_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     source_perspective text NOT NULL,
     uncertainty text,
-    privacy_scope text NOT NULL,
     data_rights_order_id uuid,
     data_rights_hidden_at timestamp(6) with time zone,
     CONSTRAINT accepted_experiences_experience_id_check CHECK ((uuid_extract_version(experience_id) = 7)),
@@ -30,7 +29,6 @@ CREATE TABLE armi.accepted_experiences (
     CONSTRAINT accepted_experiences_fact_class_check CHECK ((fact_class = ANY (ARRAY['objective_fact'::text, 'external_claim'::text, 'subjective_understanding'::text, 'inference'::text, 'unknown'::text]))),
     CONSTRAINT accepted_experiences_first_person_gist_check CHECK ((((data_rights_hidden_at IS NULL) AND (length(first_person_gist) BETWEEN 1 AND 1024)) OR ((data_rights_hidden_at IS NOT NULL) AND (first_person_gist IS NULL)))),
     CONSTRAINT accepted_experiences_data_rights_check CHECK (((data_rights_order_id IS NULL) = (data_rights_hidden_at IS NULL))),
-    CONSTRAINT accepted_experiences_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT accepted_experiences_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
     CONSTRAINT accepted_experiences_source_pair_check CHECK ((((experience_kind = 'creator_input'::text) AND (source_perspective = 'creator_claim'::text) AND (scene_id IS NOT NULL)) OR ((experience_kind = 'codex_observation'::text) AND (source_perspective = 'codex_observation'::text) AND (scene_id IS NOT NULL)) OR ((experience_kind = 'other_human_input'::text) AND (source_perspective = 'other_human_claim'::text) AND (scene_id IS NOT NULL)) OR ((experience_kind = 'visual_observation'::text) AND (source_perspective = 'visual_model_observation'::text) AND (scene_id IS NULL) AND (fact_class = ANY (ARRAY['external_claim'::text, 'inference'::text, 'unknown'::text]))))),
     CONSTRAINT accepted_experiences_source_perspective_check CHECK ((source_perspective = ANY (ARRAY['creator_claim'::text, 'codex_observation'::text, 'other_human_claim'::text, 'visual_model_observation'::text]))),
@@ -52,7 +50,6 @@ CREATE TABLE armi.cognitive_attempts (
     profile text NOT NULL,
     request_schema_version text NOT NULL,
     candidate_schema_version text NOT NULL,
-    pricing_snapshot_id text,
     credential_identity text NOT NULL,
     request_artifact_id uuid,
     dispatch_status text NOT NULL,
@@ -68,7 +65,6 @@ CREATE TABLE armi.cognitive_attempts (
     prepared_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     dispatched_at timestamp(6) with time zone,
     settled_at timestamp(6) with time zone,
-    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version = 1),
     provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
     CONSTRAINT cognitive_attempts_attempt_no_check CHECK ((attempt_no >= 1)),
     CONSTRAINT cognitive_attempts_cached_input_tokens_check CHECK (((cached_input_tokens IS NULL) OR (cached_input_tokens >= 0))),
@@ -82,7 +78,6 @@ CREATE TABLE armi.cognitive_attempts (
     CONSTRAINT cognitive_attempts_model_attempt_id_check CHECK ((uuid_extract_version(model_attempt_id) = 7)),
     CONSTRAINT cognitive_attempts_model_id_check CHECK (model_id ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
     CONSTRAINT cognitive_attempts_output_tokens_check CHECK (((output_tokens IS NULL) OR (output_tokens >= 0))),
-    CONSTRAINT cognitive_attempts_pricing_snapshot_id_check CHECK (pricing_snapshot_id IS NULL OR length(pricing_snapshot_id) > 0),
     CONSTRAINT cognitive_attempts_profile_check CHECK ((profile = ANY (ARRAY['creator_input_cognition'::text, 'creator_cognitive_act'::text, 'creator_voice_act'::text, 'creator_outreach'::text, 'other_human_dialogue'::text, 'autonomous_activity'::text, 'activity_attention'::text, 'activity_internal_work'::text, 'sleep_decision'::text, 'memory_maintenance'::text, 'subject_self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text, 'codex_task'::text, 'codex_result'::text, 'visual_observation'::text]))),
     CONSTRAINT cognitive_attempts_provider_check CHECK (provider IN ('volcengine_ark', 'qwen', 'deepseek')),
     CONSTRAINT cognitive_attempts_provider_model_id_check CHECK (provider_model_id IS NULL OR provider_model_id ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
@@ -414,7 +409,6 @@ CREATE TABLE armi.external_evidence (
     context_party_id uuid,
     artifact_id uuid NOT NULL,
     source_kind text NOT NULL,
-    trust_status text NOT NULL,
     privacy_scope text NOT NULL,
     acceptance_status text NOT NULL,
     received_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
@@ -428,8 +422,7 @@ CREATE TABLE armi.external_evidence (
     CONSTRAINT external_evidence_evidence_id_check CHECK ((uuid_extract_version(evidence_id) = 7)),
     CONSTRAINT external_evidence_privacy_scope_check CHECK ((privacy_scope = ANY (ARRAY['creator_visible'::text, 'private'::text]))),
     CONSTRAINT external_evidence_source_identity_check CHECK ((((source_kind = ANY (ARRAY['creator_input'::text, 'other_human_input'::text])) AND (interaction_id IS NOT NULL) AND (codex_task_source_id IS NULL) AND (codex_verification_id IS NULL) AND (visual_observation_id IS NULL)) OR ((source_kind = 'codex_task_source'::text) AND (interaction_id IS NULL) AND (codex_task_source_id IS NOT NULL) AND (codex_verification_id IS NULL) AND (visual_observation_id IS NULL)) OR ((source_kind = 'codex_result'::text) AND (interaction_id IS NULL) AND (codex_task_source_id IS NULL) AND (codex_verification_id IS NOT NULL) AND (visual_observation_id IS NULL)) OR ((source_kind = 'visual_observation'::text) AND (interaction_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (codex_task_source_id IS NULL) AND (codex_verification_id IS NULL) AND (visual_observation_id IS NOT NULL) AND (privacy_scope = 'private'::text)))),
-    CONSTRAINT external_evidence_source_kind_check CHECK ((source_kind = ANY (ARRAY['creator_input'::text, 'codex_task_source'::text, 'codex_result'::text, 'other_human_input'::text, 'visual_observation'::text]))),
-    CONSTRAINT external_evidence_trust_status_check CHECK ((trust_status = 'external_claim'::text))
+    CONSTRAINT external_evidence_source_kind_check CHECK ((source_kind = ANY (ARRAY['creator_input'::text, 'codex_task_source'::text, 'codex_result'::text, 'other_human_input'::text, 'visual_observation'::text])))
 );
 
 --
@@ -447,7 +440,6 @@ CREATE TABLE armi.mood_revisions (
     subject_commit_id uuid,
     proposal_ref text,
     semantic_payload jsonb NOT NULL,
-    privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     admin_change_id uuid,
     mood_appraisal_event_id uuid,
@@ -491,7 +483,6 @@ CREATE TABLE armi.mood_revisions (
     CONSTRAINT mood_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text]))),
     CONSTRAINT mood_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
     CONSTRAINT mood_revisions_payload_check CHECK ((((semantic_payload ->> 'schema_version'::text) = 'armi.mood.v5'::text AND (semantic_payload ?& ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) AND (semantic_payload - ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) = '{}'::jsonb AND (semantic_payload ->> 'dynamics_version'::text) = 'recency-reappraisal.v1'::text AND (semantic_payload ->> 'derivation_version'::text) = 'cpm-fuzzy.v4'::text AND jsonb_typeof(semantic_payload -> 'home_base'::text) = 'object'::text AND (semantic_payload -> 'home_base'::text) ?& ARRAY['valence'::text, 'arousal'::text, 'dominance'::text] AND ((semantic_payload -> 'home_base'::text) - ARRAY['valence'::text, 'arousal'::text, 'dominance'::text]) = '{}'::jsonb AND (((semantic_payload -> 'home_base'::text) ->> 'valence'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'arousal'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'dominance'::text)::integer BETWEEN -100 AND 100)))),
-    CONSTRAINT mood_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT mood_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
     CONSTRAINT mood_revisions_semantic_payload_check CHECK ((jsonb_typeof(semantic_payload) = 'object'::text))
 );
@@ -507,7 +498,6 @@ CREATE TABLE armi.opportunities (
     scene_id uuid,
     context_party_id uuid,
     purpose text NOT NULL,
-    eligibility_status text NOT NULL,
     current_disposition text NOT NULL,
     available_after timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     expires_at timestamp(6) with time zone,
@@ -529,7 +519,6 @@ CREATE TABLE armi.opportunities (
     AND consideration_signals ? 'frozen_at'
 )),
     CONSTRAINT opportunities_current_disposition_check CHECK ((current_disposition = ANY (ARRAY['open'::text, 'selected'::text, 'resolved'::text, 'superseded'::text, 'cancelled'::text]))),
-    CONSTRAINT opportunities_eligibility_status_check CHECK ((eligibility_status = 'eligible'::text)),
     CONSTRAINT opportunities_expiry_check CHECK (((expires_at IS NULL) OR (expires_at > available_after))),
     CONSTRAINT opportunities_lineage_check CHECK ((((reconsideration_no = 0) AND (root_opportunity_id = opportunity_id) AND (predecessor_opportunity_id IS NULL)) OR ((reconsideration_no > 0) AND (root_opportunity_id <> opportunity_id) AND (predecessor_opportunity_id IS NOT NULL)))),
     CONSTRAINT opportunities_opportunity_id_check CHECK ((uuid_extract_version(opportunity_id) = 7)),

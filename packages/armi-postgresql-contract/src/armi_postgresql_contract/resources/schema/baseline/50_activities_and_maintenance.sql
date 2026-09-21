@@ -6,18 +6,14 @@
 
 CREATE TABLE armi.activity_revisions (
     subject_id uuid NOT NULL,
-    activity_kind text DEFAULT 'self_directed' NOT NULL,
     origin_opportunity_id uuid,
     origin_admin_change_id uuid,
     activity_created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    privacy_scope text DEFAULT 'private' NOT NULL,
     is_current boolean DEFAULT true NOT NULL,
     root_activity_id uuid GENERATED ALWAYS AS (CASE WHEN revision_no=1 THEN activity_id END) STORED UNIQUE,
     CONSTRAINT activity_revisions_root_subject_key UNIQUE (root_activity_id, subject_id),
     CONSTRAINT activity_revisions_stable_identity_key UNIQUE (activity_id, activity_revision_id, subject_id, activity_created_at),
     CONSTRAINT activity_revisions_identity_check CHECK (uuid_extract_version(activity_id)=7),
-    CONSTRAINT activity_revisions_activity_kind_check CHECK (activity_kind='self_directed'),
-    CONSTRAINT activity_revisions_privacy_scope_check CHECK (privacy_scope='private'),
     CONSTRAINT activity_revisions_origin_check CHECK ((origin_opportunity_id IS NULL) <> (origin_admin_change_id IS NULL)),
     activity_revision_id uuid NOT NULL,
     opportunity_id uuid UNIQUE,

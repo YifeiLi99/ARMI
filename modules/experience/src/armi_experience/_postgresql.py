@@ -33,10 +33,10 @@ class PostgreSQLExperienceOwner:
                 experience_id, subject_id, subject_commit_id, cognitive_episode_id,
                 proposal_ref, experience_kind, fact_class, first_person_gist,
                 scene_id, occurred_at, learned_at, source_perspective,
-                uncertainty, privacy_scope, evidence_links
+                uncertainty, evidence_links
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, 'private', %s::jsonb
+                %s, %s, %s, %s, %s, %s::jsonb
             ) RETURNING acceptance_ordinal
             """,
                 (

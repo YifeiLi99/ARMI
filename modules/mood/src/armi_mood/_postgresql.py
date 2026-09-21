@@ -225,8 +225,8 @@ class PostgreSQLMoodOwner:
             """INSERT INTO armi.mood_revisions
                (mood_revision_id,subject_id,mood_version,previous_revision_id,
                 origin_kind,origin_ref,subject_commit_id,proposal_ref,
-                semantic_payload,privacy_scope)
-               VALUES (%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb,'private')""",
+                semantic_payload)
+               VALUES (%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb)""",
             (
                 revision_id,
                 subject_id,
@@ -441,8 +441,8 @@ class PostgreSQLMoodOwner:
         await transaction.execute(
             """INSERT INTO armi.mood_revisions
                (mood_revision_id,subject_id,mood_version,origin_kind,origin_ref,
-                semantic_payload,privacy_scope)
-               VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb,'private')""",
+                semantic_payload)
+               VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb)""",
             (revision_id, subject_id, subject_id, _INITIAL.decode("utf-8")),
         )
         await transaction.execute(

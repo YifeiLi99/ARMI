@@ -21,7 +21,7 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("mind")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "mind_revisions",
@@ -106,12 +106,12 @@ class PostgreSQLMindDataRightsParticipant:
                      INSERT INTO armi.mind_revisions (
                        mind_revision_id,subject_id,mind_version,
                        previous_revision_id,origin_kind,origin_ref,semantic_payload,
-                       privacy_scope,is_current
+                       is_current
                      ) SELECT uuidv7(),head.subject_id,
                               head.mind_version+1,head.mind_revision_id,
                               'data_rights',%s,
                               safe.semantic_payload,
-                              'private',true
+                              true
                        FROM retired AS head
                        JOIN safe ON safe.subject_id=head.subject_id""",
                 (list(revision_ids), request.order_id),

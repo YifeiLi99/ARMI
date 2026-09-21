@@ -95,9 +95,9 @@ class PostgreSQLSubjectStateAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> tuple[SubjectStateAdminComponent, ...]:
         statement = (
-            """SELECT head.component_kind,head.component_version,head.privacy_scope,head.semantic_payload FROM armi.subject_component_revisions AS head WHERE head.is_current  ORDER BY head.component_kind"""
+            """SELECT head.component_kind,head.component_version,'private'::text AS privacy_scope,head.semantic_payload FROM armi.subject_component_revisions AS head WHERE head.is_current  ORDER BY head.component_kind"""
             if private
-            else """SELECT head.component_kind,head.component_version,head.privacy_scope FROM armi.subject_component_revisions AS head WHERE head.is_current  ORDER BY head.component_kind"""
+            else """SELECT head.component_kind,head.component_version,'private'::text AS privacy_scope FROM armi.subject_component_revisions AS head WHERE head.is_current  ORDER BY head.component_kind"""
         )
         rows = transaction.execute(statement).fetchall()
         return tuple(
@@ -166,8 +166,8 @@ class PostgreSQLSubjectStateAdmin:
         transaction.execute(
             "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,"
             "component_kind,component_version,previous_revision_id,origin_kind,origin_ref,"
-            "subject_commit_id,proposal_ref,semantic_payload,privacy_scope) VALUES "
-            "(%s,%s,%s,%s,%s,'admin_correction',%s,NULL,NULL,%s::jsonb,'private')",
+            "subject_commit_id,proposal_ref,semantic_payload) VALUES "
+            "(%s,%s,%s,%s,%s,'admin_correction',%s,NULL,NULL,%s::jsonb)",
             (
                 revision_id,
                 subject_id,

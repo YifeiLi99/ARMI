@@ -84,8 +84,6 @@ class PostgreSQLArtifactCatalog:
     ) -> ArtifactPublication:
         transaction = unit_of_work.transaction
         digest = staged.content_digest.value
-        digest_hex = digest.removeprefix("sha256:")
-        locator = f"objects/sha256/{digest_hex[:2]}/{digest_hex[2:4]}/{digest_hex}"
         await transaction.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
             (f"artifact-object:{digest}",),
@@ -101,10 +99,10 @@ class PostgreSQLArtifactCatalog:
             object_id, generation = uuid7(), 1
             await transaction.execute(
                 """INSERT INTO armi.artifact_objects
-                   (artifact_object_id,content_digest,byte_size,storage_locator,
+                   (artifact_object_id,content_digest,byte_size,
                     generation,object_status,integrity_status)
-                   VALUES (%s,%s,%s,%s,%s,'publishing','verified')""",
-                (object_id, digest, staged.byte_size, locator, generation),
+                   VALUES (%s,%s,%s,%s,'publishing','verified')""",
+                (object_id, digest, staged.byte_size, generation),
             )
         else:
             object_id, generation = row[0], int(row[2])

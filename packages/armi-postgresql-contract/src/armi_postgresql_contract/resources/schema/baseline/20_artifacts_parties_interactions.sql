@@ -8,7 +8,6 @@ CREATE TABLE armi.artifact_objects (
     artifact_object_id uuid NOT NULL,
     content_digest text NOT NULL,
     byte_size bigint NOT NULL,
-    storage_locator text NOT NULL,
     generation bigint DEFAULT 1 NOT NULL,
     object_status text DEFAULT 'available'::text NOT NULL,
     integrity_status text DEFAULT 'verified'::text NOT NULL,
@@ -19,8 +18,7 @@ CREATE TABLE armi.artifact_objects (
     CONSTRAINT artifact_objects_content_digest_check CHECK ((content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT artifact_objects_generation_check CHECK ((generation >= 1)),
     CONSTRAINT artifact_objects_integrity_status_check CHECK ((integrity_status = ANY (ARRAY['verified'::text, 'missing'::text, 'corrupt'::text]))),
-    CONSTRAINT artifact_objects_object_status_check CHECK ((object_status = ANY (ARRAY['publishing'::text, 'available'::text, 'retiring'::text, 'absent'::text, 'corrupt'::text]))),
-    CONSTRAINT artifact_objects_storage_locator_check CHECK ((storage_locator = ((((('objects/sha256/'::text || SUBSTRING(content_digest FROM 8 FOR 2)) || '/'::text) || SUBSTRING(content_digest FROM 10 FOR 2)) || '/'::text) || SUBSTRING(content_digest FROM 8))))
+    CONSTRAINT artifact_objects_object_status_check CHECK ((object_status = ANY (ARRAY['publishing'::text, 'available'::text, 'retiring'::text, 'absent'::text, 'corrupt'::text])))
 );
 
 --
@@ -401,7 +399,6 @@ CREATE TABLE armi.scene_timeline_items (
     source_event_no bigint NOT NULL,
     result_status text NOT NULL,
     occurred_at timestamp(6) with time zone NOT NULL,
-    recorded_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     CONSTRAINT scene_timeline_items_result_status_check CHECK ((result_status = ANY (ARRAY['accepted'::text, 'applied'::text, 'waiting'::text, 'rejected'::text, 'unavailable'::text, 'failed'::text, 'unknown'::text, 'completed'::text]))),
     CONSTRAINT scene_timeline_items_source_event_no_check CHECK ((source_event_no > 0)),
     CONSTRAINT scene_timeline_items_source_kind_check CHECK ((source_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),

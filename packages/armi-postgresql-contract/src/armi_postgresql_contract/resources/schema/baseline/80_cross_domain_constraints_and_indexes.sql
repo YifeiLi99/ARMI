@@ -90,8 +90,6 @@ ALTER TABLE ONLY armi.artifact_objects
 -- Name: artifact_objects artifact_objects_locator_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.artifact_objects
-    ADD CONSTRAINT artifact_objects_locator_key UNIQUE (storage_locator);
 
 --
 -- Name: artifact_objects artifact_objects_generation_key; Type: CONSTRAINT; Schema: armi; Owner: -

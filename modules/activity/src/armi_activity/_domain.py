@@ -38,6 +38,7 @@ class ActivityTransition(StrEnum):
     COMPLETE = "complete"
     ABANDON = "abandon"
     SYSTEM_FAIL = "system_fail"
+    SYSTEM_PAUSE = "system_pause"
 
 
 class ActivityWaitingKind(StrEnum):

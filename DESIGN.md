@@ -30,6 +30,8 @@ Context 的来源与版本只保存于 cognitive_context_items；不再重复保
 
 记忆、生活资料和活动各自只保留一张历史表，同时承载稳定身份与当前标记。首条历史的生成标识为外部引用提供稳定目标；修改、删除及投影锁先锁首条历史，再读取当前内容，防止切换当前记录时漏掉并发修改。当前修订号承担并发校验，原始创建时间不随修改推进；隐私删除继续清理全部相关历史，资料的更新时间保留实际消费者语义。
 
+固定的私有范围由各内容 Owner 合同保证，不在主体组件、Mind、Mood、经历、记忆、关系及活动记录重复保存；活动固定为 self_directed，外部证据按 external_claim 处理，机会接纳后即为 eligible，均沿用代码合同。Artifact 物理路径由 content_digest 按唯一存储布局计算，数据库只保留摘要。未启用的价格快照占位、恒定用量合同号及没有消费者的维护更新时间、时间线登记时间不持久化；真实用量、事件发生时间、算法来源和并发版本继续保留。
+
 ## 1. 目标与边界
 
 ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回答”，而是同一主体在时间中形成、读取和改变自己的生活事实；对话、模型、网页、Codex、QQ、语音和视觉只是她接触世界的不同机制。
@@ -553,7 +555,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v68` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v69` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

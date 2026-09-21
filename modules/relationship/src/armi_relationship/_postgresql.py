@@ -182,7 +182,7 @@ class PostgreSQLRelationshipOwner:
                            commitment_event, issue_resolution, relationship_status,
                            created_at
                     FROM armi.relationship_revisions
-                    WHERE relationship_id = %s AND privacy_scope = 'private'
+                    WHERE relationship_id = %s
                       AND revision_no<=%s
                       AND (%s::bigint IS NULL OR revision_no<%s)
                     ORDER BY revision_no DESC LIMIT %s
@@ -629,14 +629,14 @@ async def _commit_one(
             previous_revision_id, subject_commit_id, candidate_validation_id,
             proposal_ref, facts, interpretation, boundaries, commitments,
             open_issues, commitment_event, issue_resolution,
-            relationship_status, mechanism_identity, privacy_scope,
+            relationship_status, mechanism_identity,
             source_experience_id, source_link_kind
         ) VALUES (%s, %s, %s, %s,
                   COALESCE((SELECT relationship_created_at
                             FROM armi.relationship_revisions
                             WHERE relationship_revision_id = %s), statement_timestamp()),
                   %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                  %s, %s, %s, %s, 'private', %s, %s)
+                  %s, %s, %s, %s, %s, %s)
         """,
         (
             subject_id,

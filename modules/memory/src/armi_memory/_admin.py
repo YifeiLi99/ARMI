@@ -66,9 +66,9 @@ class PostgreSQLMemoryAdmin:
             "INSERT INTO armi.subjective_memory_revisions "
             "(memory_revision_id,memory_id,subject_id,memory_created_at,revision_no,previous_revision_id,admin_change_id,"
             "source_kind,source_fact_class,summary,uncertainty,revision_kind,accessibility,"
-            "mechanism_identity,mechanism_config_identity,privacy_scope) "
+            "mechanism_identity,mechanism_config_identity) "
             "VALUES (%s,%s,%s,COALESCE(%s,statement_timestamp()),%s,%s,%s,'administrator','external_claim',%s,%s,%s,%s,"
-            "'armi.memory.admin-v1','admin-v1','private')",
+            "'armi.memory.admin-v1','admin-v1')",
             (
                 revision,
                 command.object_id,

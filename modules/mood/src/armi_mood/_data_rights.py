@@ -21,7 +21,7 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("mood")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "mood_revisions",

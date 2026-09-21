@@ -21,7 +21,7 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("subject-state")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "subject_component_revisions",
@@ -110,7 +110,7 @@ class PostgreSQLSubjectStateDataRightsParticipant:
                      INSERT INTO armi.subject_component_revisions (
                        component_revision_id,subject_id,component_kind,component_version,
                        previous_revision_id,origin_kind,origin_ref,semantic_payload,
-                       privacy_scope,is_current
+                       is_current
                      ) SELECT uuidv7(),head.subject_id,head.component_kind,
                               head.component_version+1,head.component_revision_id,
                               'data_rights',%s,
@@ -127,7 +127,7 @@ class PostgreSQLSubjectStateDataRightsParticipant:
                                   ),'[]'::jsonb)
                                 )
                               ELSE safe.semantic_payload END,
-                              'private',true
+                              true
                        FROM retired AS head
                        JOIN safe ON safe.subject_id=head.subject_id
                                 AND safe.component_kind=head.component_kind""",

@@ -86,9 +86,9 @@ class PostgreSQLAutonomyOwner:
         opportunity_id = uuid7()
         await transaction.execute(
             """INSERT INTO armi.opportunities
-               (opportunity_id,subject_id,purpose,eligibility_status,current_disposition,
+               (opportunity_id,subject_id,purpose,current_disposition,
                 root_opportunity_id,source_kind,source_ref,source_version,scene_id,context_party_id,activity_id,consideration_signals)
-               VALUES (%s,%s,'consider_autonomy_check','eligible','open',%s,
+               VALUES (%s,%s,'consider_autonomy_check','open',%s,
                        'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb)""",
             (
                 opportunity_id,
@@ -186,10 +186,10 @@ class PostgreSQLAutonomyOwner:
         if successor is not None:
             await transaction.execute(
                 """INSERT INTO armi.opportunities
-                   (opportunity_id,subject_id,purpose,eligibility_status,current_disposition,
+                   (opportunity_id,subject_id,purpose,current_disposition,
                     root_opportunity_id,predecessor_opportunity_id,source_kind,source_ref,
                     source_version,scene_id,context_party_id,activity_id,consideration_signals,reconsideration_no)
-                   VALUES (%s,%s,'consider_autonomous_life','eligible','open',%s,%s,
+                   VALUES (%s,%s,'consider_autonomous_life','open',%s,%s,
                            'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb,1)""",
                 (
                     successor,

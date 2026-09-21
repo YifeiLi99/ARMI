@@ -215,8 +215,8 @@ class PostgreSQLMindOwner:
             revision_id = uuid7()
             await transaction.execute(
                 "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,"
-                "origin_kind,origin_ref,subject_commit_id,proposal_ref,semantic_payload,privacy_scope) "
-                "VALUES (%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb,'private')",
+                "origin_kind,origin_ref,subject_commit_id,proposal_ref,semantic_payload) "
+                "VALUES (%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb)",
                 (
                     revision_id,
                     subject_id,
@@ -260,8 +260,8 @@ class PostgreSQLMindOwner:
     ) -> None:
         revision_id = uuid7()
         await transaction.execute(
-            "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,origin_kind,origin_ref,semantic_payload,privacy_scope) "
-            "VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb,'private')",
+            "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,origin_kind,origin_ref,semantic_payload) "
+            "VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb)",
             (revision_id, subject_id, subject_id, initial_mind_state().decode()),
         )
         await transaction.execute(

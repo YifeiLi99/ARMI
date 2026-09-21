@@ -86,9 +86,9 @@ class PostgreSQLMindAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MindAdminState:
         row = transaction.execute(
-            """SELECT h.mind_version,h.privacy_scope,h.semantic_payload FROM armi.mind_revisions AS h WHERE h.is_current """
+            """SELECT h.mind_version,'private'::text AS privacy_scope,h.semantic_payload FROM armi.mind_revisions AS h WHERE h.is_current """
             if private
-            else """SELECT h.mind_version,h.privacy_scope FROM armi.mind_revisions AS h WHERE h.is_current """
+            else """SELECT h.mind_version,'private'::text AS privacy_scope FROM armi.mind_revisions AS h WHERE h.is_current """
         ).fetchone()
         if row is None:
             raise MindViolation("MIND-MISSING")
@@ -163,8 +163,8 @@ class PostgreSQLMindAdmin:
             raise MindViolation("MIND-MOTIVATION-REPLACEMENT")
         value["motivation_states"] = motivations
         transaction.execute(
-            "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,origin_kind,origin_ref,semantic_payload,privacy_scope) "
-            "VALUES (%s,%s,%s,%s,'admin_correction',%s,%s::jsonb,'private')",
+            "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,origin_kind,origin_ref,semantic_payload) "
+            "VALUES (%s,%s,%s,%s,'admin_correction',%s,%s::jsonb)",
             (
                 revision_id,
                 subject_id,

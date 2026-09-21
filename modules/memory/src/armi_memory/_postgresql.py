@@ -517,10 +517,10 @@ class PostgreSQLMemoryOwner:
                         subject_commit_id,candidate_validation_id,proposal_ref,
                         source_experience_id,source_kind,source_fact_class,summary,
                         uncertainty,revision_kind,accessibility,mechanism_identity,
-                        mechanism_config_identity,privacy_scope)
+                        mechanism_config_identity)
                        VALUES (%s,%s,%s,statement_timestamp(),1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
                                'formed','available',%s,
-                               'formation-v1','private')""",
+                               'formation-v1')""",
                     (
                         revision_id,
                         memory_id,
@@ -580,8 +580,8 @@ class PostgreSQLMemoryOwner:
                     subject_commit_id,candidate_validation_id,proposal_ref,
                     source_experience_id,source_kind,source_fact_class,summary,
                     uncertainty,revision_kind,accessibility,mechanism_identity,
-                    mechanism_config_identity,privacy_scope,related_memory_id,relation_kind)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'private',%s,%s)""",
+                    mechanism_config_identity,related_memory_id,relation_kind)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     revision_id,
                     value.memory_id,

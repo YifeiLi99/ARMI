@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v68'::text
+        baseline_identity = 'armi.schema-baseline.v69'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v68');
+VALUES ('armi.schema-baseline.v69');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -153,7 +153,6 @@ CREATE TABLE armi.subject_component_revisions (
     origin_ref uuid NOT NULL,
     subject_commit_id uuid,
     semantic_payload jsonb NOT NULL,
-    privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     proposal_ref text,
     data_rights_redacted_at timestamp(6) with time zone,
@@ -165,7 +164,6 @@ CREATE TABLE armi.subject_component_revisions (
     CONSTRAINT subject_component_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (component_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'data_rights'::text])) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
     CONSTRAINT subject_component_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text,  'data_rights'::text]))),
     CONSTRAINT subject_component_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
-    CONSTRAINT subject_component_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT subject_component_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
     CONSTRAINT subject_component_revisions_semantic_payload_check CHECK ((jsonb_typeof(semantic_payload) = 'object'::text))
 );
@@ -189,7 +187,6 @@ CREATE TABLE armi.subjects (
     status text DEFAULT 'active'::text NOT NULL,
     maintenance_latest_accepted_ordinal bigint DEFAULT 0 NOT NULL,
     maintenance_processed_through_ordinal bigint DEFAULT 0 NOT NULL,
-    maintenance_updated_at timestamp(6) with time zone,
     CONSTRAINT subjects_maintenance_coverage_check CHECK (
         maintenance_processed_through_ordinal >= 0 AND
         maintenance_latest_accepted_ordinal >= maintenance_processed_through_ordinal),
@@ -216,7 +213,6 @@ CREATE TABLE armi.mind_revisions (
     origin_ref uuid NOT NULL,
     subject_commit_id uuid,
     semantic_payload jsonb NOT NULL,
-    privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     proposal_ref text,
     data_rights_redacted_at timestamp(6) with time zone,
@@ -227,7 +223,6 @@ CREATE TABLE armi.mind_revisions (
     CONSTRAINT mind_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (mind_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (mind_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'data_rights'::text])) AND (mind_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
     CONSTRAINT mind_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text,  'data_rights'::text]))),
     CONSTRAINT mind_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
-    CONSTRAINT mind_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT mind_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
     CONSTRAINT mind_revisions_semantic_payload_check CHECK ((jsonb_typeof(semantic_payload) = 'object'::text))
 );

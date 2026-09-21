@@ -31,8 +31,7 @@ class PostgreSQLSubjectMaintenance:
         row = await (
             await transaction.execute(
                 """UPDATE armi.subjects
-                   SET maintenance_latest_accepted_ordinal=GREATEST(maintenance_latest_accepted_ordinal,%s),
-                       maintenance_updated_at=statement_timestamp()
+                   SET maintenance_latest_accepted_ordinal=GREATEST(maintenance_latest_accepted_ordinal,%s)
                    WHERE subject_id=%s RETURNING subject_id""",
                 (acceptance_ordinal, subject_id),
             )
@@ -51,8 +50,7 @@ class PostgreSQLSubjectMaintenance:
         row = await (
             await transaction.execute(
                 """UPDATE armi.subjects
-                   SET maintenance_processed_through_ordinal=%s,
-                       maintenance_updated_at=statement_timestamp()
+                   SET maintenance_processed_through_ordinal=%s
                    WHERE subject_id=%s AND maintenance_processed_through_ordinal=%s
                      AND maintenance_latest_accepted_ordinal >= %s
                    RETURNING subject_id""",

@@ -240,6 +240,7 @@ type ActivityTransitionValue = Literal[
     "complete",
     "abandon",
     "system_fail",
+    "system_pause",
 ]
 type ActivityTimelineKind = (
     ActivityTransitionValue | Literal["no_action", "defer", "need_information"]

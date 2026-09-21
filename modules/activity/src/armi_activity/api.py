@@ -35,6 +35,7 @@ type ActivityTimelineKind = Literal[
     "complete",
     "abandon",
     "system_fail",
+    "system_pause",
     "no_action",
     "defer",
     "need_information",

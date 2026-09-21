@@ -999,7 +999,8 @@ export interface components {
       | "resume"
       | "complete"
       | "abandon"
-      | "system_fail";
+      | "system_fail"
+      | "system_pause";
     /** AutonomyHistory */
     AutonomyHistory: {
       /** Items */

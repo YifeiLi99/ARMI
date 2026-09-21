@@ -36,10 +36,10 @@ class PostgreSQLEvidenceWriter:
             """
             INSERT INTO armi.external_evidence (
                 evidence_id, interaction_id, subject_id, scene_id,
-                context_party_id, artifact_id, source_kind, trust_status,
+                context_party_id, artifact_id, source_kind,
                 privacy_scope, acceptance_status, codex_task_source_id,
                 codex_verification_id, visual_observation_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'external_claim',%s,'accepted',
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'accepted',
                     %s,%s,%s)
             """,
             (

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -136,7 +136,7 @@ class PostgreSQLActivityRead:
                 rows = await (
                     await connection.execute(
                         """
-                        SELECT activity.activity_id, activity.activity_kind,
+                        SELECT activity.activity_id,
                                revision.status, revision.goal,
                                revision.progress_summary,
                                revision.waiting_condition_kind,
@@ -544,20 +544,20 @@ class PostgreSQLActivityRead:
     def _activity(row: tuple[Any, ...], focused: frozenset[str]) -> CreatorActivityItem:
         return CreatorActivityItem(
             activity_id=row[0],
-            activity_kind=cast(Literal["self_directed"], str(row[1])),
-            status=ActivityStatus(str(row[2])),
-            goal=str(row[3]),
-            progress_summary=None if row[4] is None else str(row[4]),
-            waiting_kind=(None if row[5] is None else ActivityWaitingKind(str(row[5]))),
-            waiting_summary=None if row[6] is None else str(row[6]),
-            resume_not_before=row[7],
-            terminal_reason=None if row[8] is None else str(row[8]),
-            revision_no=int(row[9]),
-            head_version=int(row[10]),
-            transition_kind=ActivityTransition(str(row[11])),
+            activity_kind="self_directed",
+            status=ActivityStatus(str(row[1])),
+            goal=str(row[2]),
+            progress_summary=None if row[3] is None else str(row[3]),
+            waiting_kind=(None if row[4] is None else ActivityWaitingKind(str(row[4]))),
+            waiting_summary=None if row[5] is None else str(row[5]),
+            resume_not_before=row[6],
+            terminal_reason=None if row[7] is None else str(row[7]),
+            revision_no=int(row[8]),
+            head_version=int(row[9]),
+            transition_kind=ActivityTransition(str(row[10])),
             is_focused=str(row[0]) in focused,
-            created_at=row[12],
-            updated_at=row[13],
+            created_at=row[11],
+            updated_at=row[12],
         )
 
     async def pause_failed_internal_work(
@@ -590,16 +590,16 @@ class PostgreSQLActivityRead:
                      progress_summary,waiting_condition,resumption_cue,
                      next_safe_step,status,terminal_reason,related_scene_id,
                      transition_kind,waiting_condition_kind,resume_not_before,
-                     subject_id,activity_kind,origin_opportunity_id,
-                     origin_admin_change_id,activity_created_at,privacy_scope)
+                     subject_id,origin_opportunity_id,
+                     origin_admin_change_id,activity_created_at)
                    SELECT %s,activity_id,revision_no+1,
                      activity_revision_id,NULL,NULL,NULL,goal,progress_summary,
                      '内部工作连续失败;等待定时复查',
                      '定时复查后重新判断是否继续',next_safe_step,
                      'paused',NULL,related_scene_id,'system_pause',
                      'scheduled_review',statement_timestamp()+interval '60 seconds',
-                     subject_id,activity_kind,origin_opportunity_id,
-                     origin_admin_change_id,activity_created_at,privacy_scope
+                     subject_id,origin_opportunity_id,
+                     origin_admin_change_id,activity_created_at
                    FROM retired RETURNING activity_revision_id""",
                 (subject_id, activity_id, expected_revision_id, revision_id),
             )

@@ -21,7 +21,7 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("activity")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "activity_revisions",
@@ -95,12 +95,12 @@ class PostgreSQLActivityDataRightsParticipant:
                      activity_revision_id,activity_id,revision_no,
                      previous_revision_id,goal,status,terminal_reason,
                      transition_kind,data_rights_redacted_at,
-                     subject_id,activity_kind,origin_opportunity_id,
-                     origin_admin_change_id,activity_created_at,privacy_scope
+                     subject_id,origin_opportunity_id,
+                     origin_admin_change_id,activity_created_at
                    ) SELECT uuidv7(),activity_id,revision_no+1,activity_revision_id,
                             NULL,'abandoned',NULL,'data_rights',statement_timestamp(),
-                            subject_id,activity_kind,origin_opportunity_id,
-                            origin_admin_change_id,activity_created_at,privacy_scope
+                            subject_id,origin_opportunity_id,
+                            origin_admin_change_id,activity_created_at
                      FROM retired""",
                 (list(activity_ids),),
             )

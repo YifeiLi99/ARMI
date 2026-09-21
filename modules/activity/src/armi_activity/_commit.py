@@ -102,11 +102,11 @@ class PostgreSQLActivityCommit:
                     proposal_ref, goal, progress_summary, waiting_condition,
                     resumption_cue, next_safe_step, status, terminal_reason,
                     related_scene_id, transition_kind, waiting_condition_kind,
-                    resume_not_before,subject_id,activity_kind,origin_opportunity_id,
-                    privacy_scope,activity_created_at) VALUES (
+                    resume_not_before,subject_id,origin_opportunity_id,
+                    activity_created_at) VALUES (
                     %s, %s, 1, NULL, %s, %s, %s, %s,
                     NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL,
-                    %s,%s,%s,%s,statement_timestamp())
+                    %s,%s,statement_timestamp())
                 """,
                 (
                     revision_id,
@@ -119,9 +119,7 @@ class PostgreSQLActivityCommit:
                     activity.status.value,
                     context.scene_id,
                     context.subject_id,
-                    activity.activity_kind,
                     context.opportunity_id,
-                    activity.privacy_scope,
                 ),
             )
         if not decisions:
@@ -243,9 +241,9 @@ class PostgreSQLActivityCommit:
                 SELECT revision.activity_revision_id, revision.revision_no,
                        revision.revision_no, revision.goal, revision.progress_summary,
                        revision.next_safe_step, revision.status,
-                       revision.subject_id,revision.activity_kind,
+                       revision.subject_id,
                        revision.origin_opportunity_id,revision.origin_admin_change_id,
-                       revision.activity_created_at,revision.privacy_scope
+                       revision.activity_created_at
                 FROM armi.activity_revisions AS revision
                 WHERE revision.activity_id = %s AND revision.subject_id = %s
                   AND revision.is_current
@@ -309,11 +307,11 @@ class PostgreSQLActivityCommit:
                 proposal_ref, goal, progress_summary, waiting_condition,
                 resumption_cue, next_safe_step, status, terminal_reason,
                 related_scene_id, transition_kind, waiting_condition_kind,
-                resume_not_before,subject_id,activity_kind,origin_opportunity_id,
-                origin_admin_change_id,activity_created_at,privacy_scope) VALUES (
+                resume_not_before,subject_id,origin_opportunity_id,
+                origin_admin_change_id,activity_created_at) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, NULL, %s, %s, %s,
-                %s,%s,%s,%s,%s,%s)
+                %s,%s,%s,%s)
             """,
             (
                 revision_id,
@@ -339,7 +337,7 @@ class PostgreSQLActivityCommit:
                 kind,
                 None if decision.waiting_kind is None else decision.waiting_kind.value,
                 resume_at,
-                *row[7:13],
+                *row[7:11],
             ),
         )
         return revision_id

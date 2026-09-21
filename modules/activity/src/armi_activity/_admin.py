@@ -32,8 +32,8 @@ class PostgreSQLActivityAdmin:
             tuple[Any, ...] | None,
             tx.execute(
                 "SELECT r.activity_revision_id,r.revision_no,r.status,r.goal,r.progress_summary,"
-                "r.activity_kind,r.origin_opportunity_id,r.origin_admin_change_id,"
-                "r.activity_created_at,r.privacy_scope "
+                "r.origin_opportunity_id,r.origin_admin_change_id,"
+                "r.activity_created_at "
                 "FROM armi.activity_revisions r WHERE r.activity_id=%s "
                 "AND r.subject_id=%s AND r.is_current",
                 (command.object_id, context.subject_id),
@@ -89,8 +89,8 @@ class PostgreSQLActivityAdmin:
         tx.execute(
             "INSERT INTO armi.activity_revisions (activity_revision_id,activity_id,revision_no,"
             "previous_revision_id,admin_change_id,goal,progress_summary,next_safe_step,status,terminal_reason,transition_kind,"
-            "subject_id,activity_kind,origin_opportunity_id,origin_admin_change_id,activity_created_at,privacy_scope) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,statement_timestamp()),%s)",
+            "subject_id,origin_opportunity_id,origin_admin_change_id,activity_created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,statement_timestamp()))",
             (
                 revision,
                 command.object_id,
@@ -108,11 +108,9 @@ class PostgreSQLActivityAdmin:
                 if row is None
                 else "admin_update",
                 context.subject_id,
-                "self_directed" if row is None else row[5],
-                None if row is None else row[6],
-                context.change_id if row is None else row[7],
-                None if row is None else row[8],
-                "private" if row is None else row[9],
+                None if row is None else row[5],
+                context.change_id if row is None else row[6],
+                None if row is None else row[7],
             ),
         )
         return {

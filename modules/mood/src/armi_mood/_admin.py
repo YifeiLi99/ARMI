@@ -104,9 +104,9 @@ class PostgreSQLMoodAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MoodAdminComponent | None:
         statement = (
-            """SELECT head.mood_version,head.privacy_scope,head.semantic_payload FROM armi.mood_revisions AS head WHERE head.is_current """
+            """SELECT head.mood_version,'private'::text AS privacy_scope,head.semantic_payload FROM armi.mood_revisions AS head WHERE head.is_current """
             if private
-            else """SELECT head.mood_version,head.privacy_scope FROM armi.mood_revisions AS head WHERE head.is_current """
+            else """SELECT head.mood_version,'private'::text AS privacy_scope FROM armi.mood_revisions AS head WHERE head.is_current """
         )
         row = transaction.execute(statement).fetchone()
         if row is None:
@@ -172,8 +172,8 @@ class PostgreSQLMoodAdmin:
         transaction.execute(
             "INSERT INTO armi.mood_revisions (mood_revision_id,subject_id,mood_version,"
             "previous_revision_id,origin_kind,origin_ref,subject_commit_id,proposal_ref,"
-            "semantic_payload,privacy_scope) VALUES (%s,%s,%s,%s,'admin_correction',"
-            "%s,NULL,NULL,%s::jsonb,'private')",
+            "semantic_payload) VALUES (%s,%s,%s,%s,'admin_correction',"
+            "%s,NULL,NULL,%s::jsonb)",
             (
                 revision_id,
                 subject_id,

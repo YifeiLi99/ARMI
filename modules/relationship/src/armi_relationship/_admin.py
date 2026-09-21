@@ -135,8 +135,8 @@ class PostgreSQLRelationshipAdmin:
         tx.execute(
             "INSERT INTO armi.relationship_revisions (subject_id,subject_party_id,other_party_id,scope,relationship_created_at,relationship_revision_id,relationship_id,"
             "revision_no,previous_revision_id,admin_change_id,facts,interpretation,boundaries,"
-            "commitments,open_issues,relationship_status,mechanism_identity,privacy_scope) "
-            "VALUES (%s,%s,%s,%s,COALESCE(%s,statement_timestamp()),%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,'armi.relationship.admin-v1','private')",
+            "commitments,open_issues,relationship_status,mechanism_identity) "
+            "VALUES (%s,%s,%s,%s,COALESCE(%s,statement_timestamp()),%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,'armi.relationship.admin-v1')",
             (
                 context.subject_id,
                 context.subject_party_id if row is None else row[9],

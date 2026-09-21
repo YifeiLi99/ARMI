@@ -263,13 +263,12 @@ class PostgreSQLCognitiveModelRepository:
                 profile,
                 request_schema_version,
                 candidate_schema_version,
-                pricing_snapshot_id,
                 credential_identity,
                 request_artifact_id,
                 dispatch_status)
             VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, 'prepared')
+                %s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id.value,
@@ -283,7 +282,6 @@ class PostgreSQLCognitiveModelRepository:
                 binding.profile,
                 binding.request_contract_version,
                 binding.response_contract_version,
-                None,
                 binding.credential_identity,
                 request_artifact.artifact_id.value if request_artifact else None,
             ),

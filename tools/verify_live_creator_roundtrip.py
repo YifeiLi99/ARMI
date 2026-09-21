@@ -32,7 +32,6 @@ class _RoundTripState:
     effect_status: str | None
     verification_status: str | None
     delivery_status: str | None
-    storage_locator: str | None
     content_digest: str | None
     byte_size: int | None
     media_type: str | None
@@ -47,7 +46,6 @@ SELECT episode.cognitive_episode_id,
        effect.status,
        effect.verification_status,
        effect.dispatch_status,
-       artifact_object.storage_locator,
        artifact_object.content_digest,
        artifact_object.byte_size,
        artifact.media_type,
@@ -99,25 +97,31 @@ def _read_state(
         effect_status=None if row[4] is None else str(row[4]),
         verification_status=None if row[5] is None else str(row[5]),
         delivery_status=None if row[6] is None else str(row[6]),
-        storage_locator=None if row[7] is None else str(row[7]),
-        content_digest=None if row[8] is None else str(row[8]),
-        byte_size=None if row[9] is None else int(row[9]),
-        media_type=None if row[10] is None else str(row[10]),
-        integrity_status=None if row[11] is None else str(row[11]),
+        content_digest=None if row[7] is None else str(row[7]),
+        byte_size=None if row[8] is None else int(row[8]),
+        media_type=None if row[9] is None else str(row[9]),
+        integrity_status=None if row[10] is None else str(row[10]),
     )
 
 
 def _verified_reply(environment_root: Path, state: _RoundTripState) -> str:
     if (
-        state.storage_locator is None
-        or state.content_digest is None
+        state.content_digest is None
         or state.byte_size is None
         or state.media_type != "text/plain"
         or state.integrity_status != "verified"
     ):
         raise RuntimeError("LIVE-CREATOR-REPLY-ARTIFACT")
     artifact_root = (environment_root / "data" / "artifacts").resolve(strict=True)
-    artifact_path = (artifact_root / state.storage_locator).resolve(strict=True)
+    digest_hex = state.content_digest.removeprefix("sha256:")
+    artifact_path = (
+        artifact_root
+        / "objects"
+        / "sha256"
+        / digest_hex[:2]
+        / digest_hex[2:4]
+        / digest_hex
+    ).resolve(strict=True)
     if not artifact_path.is_relative_to(artifact_root) or artifact_path.is_symlink():
         raise RuntimeError("LIVE-CREATOR-REPLY-ARTIFACT-PATH")
     content = artifact_path.read_bytes()

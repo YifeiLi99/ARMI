@@ -126,7 +126,6 @@ def test_model_attempt_reclaim_ends_unfinished_attempt(
         profile="default",
         request_contract_version="request.v1",
         response_contract_version="response.v1",
-        pricing_snapshot_id="pricing",
         credential_identity="credential",
     )
     request_artifact = SimpleNamespace(artifact_id=SimpleNamespace(value=uuid7()))

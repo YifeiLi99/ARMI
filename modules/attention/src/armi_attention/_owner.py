@@ -89,7 +89,7 @@ class PostgreSQLOpportunityOwner:
                 """SELECT EXISTS(SELECT 1 FROM armi.opportunities WHERE subject_id=%s
                AND purpose IN ('consider_creator_input','consider_creator_voice_input',
                                'consider_other_human_input','consider_codex_task')
-               AND current_disposition IN ('open','selected') AND eligibility_status='eligible'
+               AND current_disposition IN ('open','selected')
                AND available_after<=statement_timestamp())""",
                 (subject_id,),
             )
@@ -181,10 +181,10 @@ class PostgreSQLOpportunityOwner:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id,evidence_id,subject_id,scene_id,context_party_id,
-                    purpose,eligibility_status,current_disposition,root_opportunity_id,
+                    purpose,current_disposition,root_opportunity_id,
                     predecessor_opportunity_id,reconsideration_no,available_after,
                     expires_at,source_kind,source_ref,source_version,activity_id)
-                VALUES (%s,NULL,%s,NULL,NULL,%s,'eligible','open',%s,%s,%s,%s,%s,%s,%s,%s,NULL)
+                VALUES (%s,NULL,%s,NULL,NULL,%s,'open',%s,%s,%s,%s,%s,%s,%s,%s,NULL)
                 ON CONFLICT (subject_id,source_kind,source_ref,source_version,purpose,reconsideration_no)
                 DO NOTHING RETURNING opportunity_id
                 """,
@@ -266,7 +266,7 @@ class PostgreSQLOpportunityOwner:
                     ) THEN 0 ELSE 1 END AS selection_priority
                     FROM armi.opportunities
                 ) AS candidates
-                WHERE subject_id=%s AND eligibility_status='eligible'
+                WHERE subject_id=%s
                   AND current_disposition='open'
                   AND available_after <= transaction_timestamp()
                   AND (expires_at IS NULL OR expires_at > transaction_timestamp())
@@ -503,7 +503,6 @@ class PostgreSQLOpportunityOwner:
                   ))
                   AND root.purpose IN ('consider_creator_input','consider_codex_task',
                                        'consider_codex_result','consider_autonomous_life','consider_autonomy_check')
-                  AND current.eligibility_status='eligible'
                   AND current.expires_at IS NULL
                 """,
                 (root_opportunity_id, context_party_id),
@@ -656,12 +655,12 @@ class PostgreSQLOpportunityOwner:
                     """
                     INSERT INTO armi.opportunities (
                         opportunity_id, evidence_id, subject_id, scene_id,
-                        context_party_id, purpose, eligibility_status,
+                        context_party_id, purpose,
                         current_disposition, root_opportunity_id,
                         predecessor_opportunity_id, reconsideration_no,
                         source_kind, source_ref, source_version, activity_id
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, 'eligible', 'open',
+                        %s, %s, %s, %s, %s, %s, 'open',
                         %s, %s, 1, %s, %s, %s, %s
                     )
                     ON CONFLICT (predecessor_opportunity_id) DO NOTHING
@@ -708,11 +707,11 @@ class PostgreSQLOpportunityOwner:
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
                     creator_party_id, purpose, source_kind, source_ref,
-                    source_version, eligibility_status,
+                    source_version,
                     current_disposition, root_opportunity_id,
                     predecessor_opportunity_id, reconsideration_no)
                 SELECT %s, NULL, %s, %s, %s, 'consider_life_query_result',
-                       'life_query_result', %s, 1, 'eligible', 'open',
+                       'life_query_result', %s, 1, 'open',
                        source.root_opportunity_id, %s,
                        source.reconsideration_no + 1
                 FROM armi.opportunities AS source
@@ -746,12 +745,12 @@ class PostgreSQLOpportunityOwner:
                 """
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
-                    context_party_id, purpose, eligibility_status,
+                    context_party_id, purpose,
                     current_disposition, available_after, expires_at,
                     root_opportunity_id, predecessor_opportunity_id,
                     reconsideration_no, source_kind, source_ref, source_version,
                     activity_id)
-                SELECT %s, NULL, subject_id, NULL, NULL, purpose, 'eligible',
+                SELECT %s, NULL, subject_id, NULL, NULL, purpose,
                        'open', statement_timestamp() + make_interval(secs => 3600),
                        expires_at, root_opportunity_id, opportunity_id, 1,
                        source_kind, source_ref, source_version, NULL
@@ -779,10 +778,10 @@ class PostgreSQLOpportunityOwner:
                 INSERT INTO armi.opportunities (
                     opportunity_id, evidence_id, subject_id, scene_id,
                     context_party_id, purpose, source_kind, source_ref,
-                    source_version, eligibility_status, current_disposition,
+                    source_version, current_disposition,
                     root_opportunity_id, reconsideration_no, expires_at)
                 VALUES (%s,%s,%s,%s,%s,%s,'external_evidence',%s,1,
-                        'eligible','open',%s,0,
+                        'open',%s,0,
                         CASE WHEN %s='consider_visual_observation'
                              THEN statement_timestamp()+interval '5 minutes' END)
                 ON CONFLICT (
