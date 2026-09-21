@@ -467,15 +467,6 @@ class PostgreSQLRuntimeRecovery:
                     if finding.reason_code == "REC-ARTIFACT-MISSING"
                     else ArtifactIntegrityStatus.CORRUPT,
                 )
-            for metric in metrics:
-                await transaction.execute(
-                    """
-                    INSERT INTO armi.runtime_recovery_metrics
-                        (recovery_run_id, metric_kind, metric_value)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (run_id, metric.kind, metric.value),
-                )
             result = await transaction.execute(
                 """
                 UPDATE armi.runtime_recovery_runs

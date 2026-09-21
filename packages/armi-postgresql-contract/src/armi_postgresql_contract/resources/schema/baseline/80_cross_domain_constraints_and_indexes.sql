@@ -1415,13 +1415,6 @@ ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_pkey PRIMARY KEY (runtime_instance_id);
 
 --
--- Name: runtime_recovery_metrics runtime_recovery_metrics_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_metrics
-    ADD CONSTRAINT runtime_recovery_metrics_pkey PRIMARY KEY (recovery_run_id, metric_kind);
-
---
 -- Name: runtime_recovery_runs runtime_recovery_runs_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3933,13 +3926,6 @@ ALTER TABLE ONLY armi.runtime_instances
 
 ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: runtime_recovery_metrics runtime_recovery_metrics_run_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_metrics
-    ADD CONSTRAINT runtime_recovery_metrics_run_fkey FOREIGN KEY (recovery_run_id) REFERENCES armi.runtime_recovery_runs(recovery_run_id) ON DELETE CASCADE;
 
 --
 -- Name: runtime_recovery_runs runtime_recovery_runs_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

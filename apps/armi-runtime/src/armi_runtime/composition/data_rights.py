@@ -54,10 +54,6 @@ _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.runtime_instances AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "runtime_recovery_metrics",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.runtime_recovery_metrics AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "runtime_recovery_runs",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.runtime_recovery_runs AS source ORDER BY to_jsonb(source)::text""",
     ),

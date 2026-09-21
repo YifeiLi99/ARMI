@@ -288,6 +288,7 @@ class StructuredDiagnosticLog:
         result_code: str | None = None,
         duration_ms: int | None = None,
         reason_codes: tuple[str, ...] = (),
+        metrics: dict[str, int] | None = None,
     ) -> None:
         if _EVENT.fullmatch(event) is None:
             raise RuntimeViolation("LOG-EVENT", "diagnostic event name is invalid")
@@ -312,6 +313,8 @@ class StructuredDiagnosticLog:
             payload["duration_ms"] = duration_ms
         if reason_codes:
             payload["reason_codes"] = list(reason_codes)
+        if metrics is not None:
+            payload["metrics"] = metrics
         self._logger.log(level, payload)
 
     def close(self) -> None:

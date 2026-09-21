@@ -24,7 +24,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "life_generations": TableOwnership("runtime", maintenance_writable=False),
     "runtime_bundle_activations": TableOwnership("runtime", maintenance_writable=False),
     "runtime_instances": TableOwnership("runtime", maintenance_writable=False),
-    "runtime_recovery_metrics": TableOwnership("runtime", maintenance_writable=True),
     "runtime_recovery_runs": TableOwnership("runtime", maintenance_writable=True),
     "schema_baseline_identity": TableOwnership("runtime", maintenance_writable=False),
     "subject_commits": TableOwnership("runtime", maintenance_writable=False),

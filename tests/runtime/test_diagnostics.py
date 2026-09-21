@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -21,6 +22,28 @@ class _WriteFailure(io.StringIO):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_recovery_counts_are_written_to_diagnostic_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root,
+                environment_id=_ENVIRONMENT,
+                instance_id="instance",
+            )
+            counts = {"live_voice.ended_session_count": 2}
+            diagnostic.emit(
+                "runtime.recovery.safe", result_code="REC_SAFE", metrics=counts
+            )
+            diagnostic.close()
+            records = [
+                json.loads(line)
+                for path in (root / "logs").rglob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["event"], "runtime.recovery.safe")
+            self.assertEqual(records[0]["metrics"], counts)
+
     def test_initial_file_failure_uses_stderr_without_path_or_error(self) -> None:
         fallback = io.StringIO()
         with tempfile.TemporaryDirectory() as temporary:

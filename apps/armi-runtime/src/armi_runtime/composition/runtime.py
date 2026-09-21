@@ -715,6 +715,7 @@ async def _serve(
             )
             await recovery_port.open()
             recovery = await recovery_port.recover()
+            # Counts are diagnostic-only; see DESIGN.md startup recovery contract.
             if recovery.status is RecoveryStatus.BLOCKED:
                 recovery_reasons = tuple(
                     dict.fromkeys(
@@ -733,12 +734,14 @@ async def _serve(
                     level=logging.ERROR,
                     result_code="REC_BLOCKED",
                     reason_codes=recovery_reasons,
+                    metrics={item.kind: item.value for item in recovery.metrics},
                 )
                 raise RecoveryViolation("REC-BLOCKED")
             else:
                 diagnostic.emit(
                     "runtime.recovery.safe",
                     result_code="REC_SAFE",
+                    metrics={item.kind: item.value for item in recovery.metrics},
                 )
             try:
                 observation_port = compose_runtime_observation(

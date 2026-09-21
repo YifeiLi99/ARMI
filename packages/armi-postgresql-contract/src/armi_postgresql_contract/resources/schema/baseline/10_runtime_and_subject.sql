@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v31'::text
+        baseline_identity = 'armi.schema-baseline.v32'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v31');
+VALUES ('armi.schema-baseline.v32');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -163,18 +163,6 @@ CREATE TABLE armi.runtime_instances (
     CONSTRAINT runtime_instances_process_identity_check CHECK (((status <> 'active'::text) OR ((process_pid IS NOT NULL) AND (process_pid > 0) AND (process_created_at_microseconds IS NOT NULL) AND (process_created_at_microseconds > 0) AND (process_executable_identity IS NOT NULL) AND (process_executable_identity <> ''::text) AND (process_command_identity IS NOT NULL) AND (process_command_identity ~ '^sha256:[0-9a-f]{64}$'::text) AND (environment_id IS NOT NULL) AND (uuid_extract_version(environment_id) = 7) AND (process_incarnation IS NOT NULL) AND (process_incarnation > 0)))),
     CONSTRAINT runtime_instances_runtime_instance_id_check CHECK ((uuid_extract_version(runtime_instance_id) = 7)),
     CONSTRAINT runtime_instances_status_check CHECK ((status = ANY (ARRAY['active'::text, 'fenced'::text, 'stopped'::text])))
-);
-
---
--- Name: runtime_recovery_metrics; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.runtime_recovery_metrics (
-    recovery_run_id uuid NOT NULL,
-    metric_kind text NOT NULL,
-    metric_value integer NOT NULL,
-    CONSTRAINT runtime_recovery_metrics_kind_check CHECK ((metric_kind ~ '^[a-z][a-z0-9._-]{0,127}$'::text)),
-    CONSTRAINT runtime_recovery_metrics_value_check CHECK ((metric_value >= 0))
 );
 
 --
