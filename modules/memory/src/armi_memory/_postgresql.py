@@ -95,17 +95,16 @@ class PostgreSQLMemoryOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT memory.memory_id, memory.current_revision_id,
-                       memory.head_version, revision.source_fact_class,
+                SELECT revision.memory_id, revision.memory_revision_id,
+                       revision.revision_no, revision.source_fact_class,
                        revision.source_kind, revision.summary,
                        revision.uncertainty, revision.accessibility
-                FROM armi.subjective_memories AS memory
-                JOIN armi.subjective_memory_revisions AS revision
-                  ON revision.memory_revision_id=memory.current_revision_id
-                WHERE memory.subject_id=%s
+                FROM armi.subjective_memory_revisions AS revision
+                WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.subject_id=%s
                   AND revision.accessibility IN ('available','faded')
                 ORDER BY CASE revision.accessibility WHEN 'available' THEN 1 ELSE 2 END,
-                         revision.created_at DESC, memory.memory_id
+                         revision.created_at DESC, revision.memory_id
                 LIMIT %s
                 """,
                 (subject_id, limit * 4),
@@ -132,15 +131,14 @@ class PostgreSQLMemoryOwner:
             row = await (
                 await transaction.execute(
                     """
-                SELECT memory.memory_id, memory.current_revision_id,
-                       memory.head_version, revision.source_fact_class,
+                SELECT revision.memory_id, revision.memory_revision_id,
+                       revision.revision_no, revision.source_fact_class,
                        revision.source_kind, revision.summary,
                        revision.uncertainty, revision.accessibility
-                FROM armi.subjective_memories AS memory
-                JOIN armi.subjective_memory_revisions AS revision
-                  ON revision.memory_revision_id=memory.current_revision_id
-                WHERE memory.memory_id=%s AND memory.subject_id=%s
-                  AND memory.head_version=%s
+                FROM armi.subjective_memory_revisions AS revision
+                WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.memory_id=%s AND revision.subject_id=%s
+                  AND revision.revision_no=%s
                 """,
                     (source.memory_id, subject_id, source.head_version),
                 )
@@ -182,17 +180,16 @@ class PostgreSQLMemoryOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT memory.memory_id, revision.summary, revision.source_kind,
+                SELECT revision.memory_id, revision.summary, revision.source_kind,
                        revision.created_at, revision.accessibility <> 'forgotten'
-                FROM armi.subjective_memories AS memory
-                JOIN armi.subjective_memory_revisions AS revision
-                  ON revision.memory_revision_id=memory.current_revision_id
-                WHERE memory.subject_id=%s
+                FROM armi.subjective_memory_revisions AS revision
+                WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.subject_id=%s
                   AND (%s::text IS NULL OR revision.summary ILIKE '%%' || %s::text || '%%')
                   AND (%s::timestamptz IS NULL OR
-                       (revision.created_at, 'memory'::text, memory.memory_id)
+                       (revision.created_at, 'memory'::text, revision.memory_id)
                            < (%s::timestamptz,%s::text,%s::uuid))
-                ORDER BY revision.created_at DESC, memory.memory_id DESC LIMIT %s
+                ORDER BY revision.created_at DESC, revision.memory_id DESC LIMIT %s
                 """,
                 (
                     subject_id,
@@ -266,9 +263,9 @@ class PostgreSQLMemoryOwner:
                     SELECT memory.memory_id, revision.summary, revision.uncertainty,
                            revision.source_kind, revision.source_fact_class,
                            revision.accessibility, revision.revision_kind,
-                           revision.revision_no, memory.head_version,
-                           memory.created_at, revision.created_at
-                    FROM armi.subjective_memories AS memory
+                           revision.revision_no, memory.revision_no,
+                           memory.memory_created_at, revision.created_at
+                    FROM armi.subjective_memory_revisions AS memory
                     JOIN LATERAL (
                       SELECT candidate.*
                       FROM armi.subjective_memory_revisions AS candidate
@@ -276,8 +273,9 @@ class PostgreSQLMemoryOwner:
                         AND candidate.created_at<=%s
                       ORDER BY candidate.revision_no DESC LIMIT 1
                     ) AS revision ON TRUE
-                    WHERE memory.subject_id=%s
-                      AND memory.created_at<=%s
+                    WHERE memory.is_current AND memory.tombstoned_at IS NULL
+                      AND memory.subject_id=%s
+                      AND memory.memory_created_at<=%s
                       AND (%s::text IS NULL OR revision.summary ILIKE '%%'||%s||'%%')
                       AND (%s::timestamptz IS NULL OR
                            (revision.created_at,memory.memory_id)<(%s,%s))
@@ -379,8 +377,9 @@ class PostgreSQLMemoryOwner:
             subject_id = self._creator_subject()
             exists = await (
                 await connection.execute(
-                    """SELECT 1 FROM armi.subjective_memories AS memory
-                       WHERE memory.memory_id=%s AND memory.subject_id=%s""",
+                    """SELECT 1 FROM armi.subjective_memory_revisions AS revision
+                       WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.memory_id=%s AND revision.subject_id=%s""",
                     (memory_id, subject_id),
                 )
             ).fetchone()
@@ -471,11 +470,12 @@ class PostgreSQLMemoryOwner:
             if type(item) is CandidateMemoryRevisionDraft
         )
         for memory_id in sorted({item.memory_id for item in revisions}, key=str):
+            await self._lock_memory(transaction, memory_id)
             row = await (
                 await transaction.execute(
-                    """SELECT current_revision_id,head_version
-                       FROM armi.subjective_memories
-                       WHERE memory_id=%s AND subject_id=%s FOR UPDATE""",
+                    """SELECT memory_revision_id,revision_no
+                       FROM armi.subjective_memory_revisions
+                       WHERE memory_id=%s AND subject_id=%s AND is_current AND tombstoned_at IS NULL""",
                     (memory_id, subject_id),
                 )
             ).fetchone()
@@ -512,24 +512,19 @@ class PostgreSQLMemoryOwner:
                     raise MemoryViolation("MEMORY-SOURCE")
                 memory_id, revision_id = uuid7(), uuid7()
                 await transaction.execute(
-                    """INSERT INTO armi.subjective_memories
-                       (memory_id,subject_id,current_revision_id,head_version)
-                       VALUES (%s,%s,%s,1)""",
-                    (memory_id, subject_id, revision_id),
-                )
-                await transaction.execute(
                     """INSERT INTO armi.subjective_memory_revisions
-                       (memory_revision_id,memory_id,revision_no,previous_revision_id,
+                       (memory_revision_id,memory_id,subject_id,memory_created_at,revision_no,previous_revision_id,
                         subject_commit_id,candidate_validation_id,proposal_ref,
                         source_experience_id,source_kind,source_fact_class,summary,
                         uncertainty,revision_kind,accessibility,mechanism_identity,
                         mechanism_config_identity,privacy_scope)
-                       VALUES (%s,%s,1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
+                       VALUES (%s,%s,%s,statement_timestamp(),1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
                                'formed','available',%s,
                                'formation-v1','private')""",
                     (
                         revision_id,
                         memory_id,
+                        subject_id,
                         commit_id,
                         validation_id,
                         value.proposal_ref,
@@ -543,16 +538,16 @@ class PostgreSQLMemoryOwner:
                 )
                 affected.append(memory_id)
                 continue
+            await self._lock_memory(transaction, value.memory_id)
             row = await (
                 await transaction.execute(
-                    """SELECT memory.current_revision_id,memory.head_version,
+                    """SELECT revision.memory_revision_id,revision.revision_no,
                               revision.revision_no,revision.source_experience_id,
                               revision.source_kind,revision.source_fact_class,
-                              revision.accessibility
-                       FROM armi.subjective_memories AS memory
-                       JOIN armi.subjective_memory_revisions AS revision
-                         ON revision.memory_revision_id=memory.current_revision_id
-                       WHERE memory.memory_id=%s AND memory.subject_id=%s FOR UPDATE OF memory""",
+                              revision.accessibility,revision.memory_created_at
+                       FROM armi.subjective_memory_revisions AS revision
+                       WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.memory_id=%s AND revision.subject_id=%s""",
                     (value.memory_id, subject_id),
                 )
             ).fetchone()
@@ -566,8 +561,8 @@ class PostgreSQLMemoryOwner:
             if value.related_memory_id is not None:
                 related = await (
                     await transaction.execute(
-                        """SELECT 1 FROM armi.subjective_memories
-                           WHERE memory_id=%s AND subject_id=%s""",
+                        """SELECT 1 FROM armi.subjective_memory_revisions
+                           WHERE memory_id=%s AND subject_id=%s AND is_current AND tombstoned_at IS NULL""",
                         (value.related_memory_id, subject_id),
                     )
                 ).fetchone()
@@ -575,16 +570,23 @@ class PostgreSQLMemoryOwner:
                     raise MemoryViolation("MEMORY-RELATION")
             revision_id = uuid7()
             await transaction.execute(
+                """UPDATE armi.subjective_memory_revisions SET is_current=false
+                   WHERE memory_revision_id=%s""",
+                (value.current_revision_id,),
+            )
+            await transaction.execute(
                 """INSERT INTO armi.subjective_memory_revisions
-                   (memory_revision_id,memory_id,revision_no,previous_revision_id,
+                   (memory_revision_id,memory_id,subject_id,memory_created_at,revision_no,previous_revision_id,
                     subject_commit_id,candidate_validation_id,proposal_ref,
                     source_experience_id,source_kind,source_fact_class,summary,
                     uncertainty,revision_kind,accessibility,mechanism_identity,
                     mechanism_config_identity,privacy_scope,related_memory_id,relation_kind)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'private',%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'private',%s,%s)""",
                 (
                     revision_id,
                     value.memory_id,
+                    subject_id,
+                    row[7],
                     int(row[2]) + 1,
                     value.current_revision_id,
                     commit_id,
@@ -603,24 +605,23 @@ class PostgreSQLMemoryOwner:
                     None if value.relation_kind is None else value.relation_kind.value,
                 ),
             )
-            updated = await (
-                await transaction.execute(
-                    """UPDATE armi.subjective_memories SET current_revision_id=%s,
-                              head_version=head_version+1
-                       WHERE memory_id=%s AND current_revision_id=%s AND head_version=%s
-                       RETURNING memory_id""",
-                    (
-                        revision_id,
-                        value.memory_id,
-                        value.current_revision_id,
-                        value.expected_head_version,
-                    ),
-                )
-            ).fetchone()
-            if updated is None:
-                raise MemoryViolation("MEMORY-HEAD-STALE")
             affected.append(value.memory_id)
         return tuple(affected)
+
+    @staticmethod
+    async def _lock_memory(
+        transaction: PostgreSQLTransaction, memory_id: UUID, *, shared: bool = False
+    ) -> None:
+        # Lock the permanent first row before resolving the current revision.
+        # See DESIGN.md: merged content records retain a stable identity.
+        await transaction.execute(
+            """SELECT memory_revision_id FROM armi.subjective_memory_revisions
+               WHERE memory_id=%s AND revision_no=1 FOR SHARE"""
+            if shared
+            else """SELECT memory_revision_id FROM armi.subjective_memory_revisions
+                    WHERE memory_id=%s AND revision_no=1 FOR UPDATE""",
+            (memory_id,),
+        )
 
     async def affected_memory_ids(
         self, transaction: PostgreSQLTransaction, validation_id: UUID
@@ -643,13 +644,12 @@ class PostgreSQLMemoryOwner:
     ) -> tuple[MemoryProjectionHead, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT memory.subject_id,memory.memory_id,memory.head_version
-                   FROM armi.subjective_memories AS memory
-                   JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE revision.accessibility IN ('available','faded')
-                     AND (%s::uuid IS NULL OR memory.memory_id>%s)
-                   ORDER BY memory.memory_id LIMIT %s""",
+                """SELECT revision.subject_id,revision.memory_id,revision.revision_no
+                   FROM armi.subjective_memory_revisions AS revision
+                   WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.accessibility IN ('available','faded')
+                     AND (%s::uuid IS NULL OR revision.memory_id>%s)
+                   ORDER BY revision.memory_id LIMIT %s""",
                 (after_memory_id, after_memory_id, limit),
             )
         ).fetchall()
@@ -673,12 +673,11 @@ class PostgreSQLMemoryOwner:
                    )
                    SELECT requested.memory_id,requested.head_version
                    FROM requested
-                   JOIN armi.subjective_memories AS memory
-                     ON memory.memory_id=requested.memory_id
-                    AND memory.head_version=requested.head_version
                    JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE memory.subject_id=%s
+                     ON revision.memory_id=requested.memory_id
+                    AND revision.revision_no=requested.head_version
+                   WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.subject_id=%s
                      AND revision.accessibility IN ('available','faded')
                    ORDER BY requested.ordinal""",
                 (
@@ -697,16 +696,15 @@ class PostgreSQLMemoryOwner:
         subject_id: UUID,
         source: MemoryCandidateSourceRef,
     ) -> bool:
+        await self._lock_memory(transaction, source.memory_id, shared=True)
         row = await (
             await transaction.execute(
-                """SELECT memory.memory_id
-                   FROM armi.subjective_memories AS memory
-                   JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE memory.memory_id=%s AND memory.head_version=%s
-                     AND memory.subject_id=%s
-                     AND revision.accessibility IN ('available','faded')
-                   FOR SHARE OF memory""",
+                """SELECT revision.memory_id
+                   FROM armi.subjective_memory_revisions AS revision
+                   WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.memory_id=%s AND revision.revision_no=%s
+                     AND revision.subject_id=%s
+                     AND revision.accessibility IN ('available','faded')""",
                 (
                     source.memory_id,
                     source.head_version,
@@ -724,14 +722,13 @@ class PostgreSQLMemoryOwner:
     ) -> tuple[MemoryProjectionSource, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT memory.subject_id,memory.memory_id,
-                          memory.head_version,revision.summary
-                   FROM armi.subjective_memories AS memory
-                   JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE revision.accessibility IN ('available','faded')
-                     AND (%s::uuid IS NULL OR memory.subject_id=%s)
-                   ORDER BY memory.memory_id""",
+                """SELECT revision.subject_id,revision.memory_id,
+                          revision.revision_no,revision.summary
+                   FROM armi.subjective_memory_revisions AS revision
+                   WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.accessibility IN ('available','faded')
+                     AND (%s::uuid IS NULL OR revision.subject_id=%s)
+                   ORDER BY revision.memory_id""",
                 (subject_id, subject_id),
             )
         ).fetchall()
@@ -745,12 +742,11 @@ class PostgreSQLMemoryOwner:
     ) -> MemoryProjectionSource | None:
         row = await (
             await transaction.execute(
-                """SELECT memory.subject_id,memory.memory_id,
-                          memory.head_version,revision.summary
-                   FROM armi.subjective_memories AS memory
-                   JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE memory.memory_id=%s AND revision.accessibility IN ('available','faded')
+                """SELECT revision.subject_id,revision.memory_id,
+                          revision.revision_no,revision.summary
+                   FROM armi.subjective_memory_revisions AS revision
+                   WHERE revision.is_current AND revision.tombstoned_at IS NULL
+                     AND revision.memory_id=%s AND revision.accessibility IN ('available','faded')
                      """,
                 (memory_id,),
             )

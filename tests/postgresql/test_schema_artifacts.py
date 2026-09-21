@@ -83,11 +83,11 @@ def test_baseline_contains_authoritative_schema() -> None:
     assert set(re.findall(r"'([^']+)'::text", work_constraint)) == {
         kind.value for kind in WorkType
     }
-    assert "CREATE TABLE armi.activities" in sql
+    assert "CREATE TABLE armi.activity_revisions" in sql
     assert "CREATE TABLE armi.maintenance_sessions" in sql
-    assert "CREATE TABLE armi.subjective_memories" in sql
+    assert "CREATE TABLE armi.subjective_memory_revisions" in sql
     assert "CREATE TABLE armi.relationship_revisions" in sql
-    assert "CREATE TABLE armi.life_materials" in sql
+    assert "CREATE TABLE armi.life_material_revisions" in sql
     assert "CREATE TABLE armi.dialogue_decisions" not in sql
     assert "CREATE TABLE armi.creator_exports" in sql
     assert "CREATE TABLE armi.data_rights_orders" in sql
@@ -129,7 +129,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v67" in (
+    assert "armi.schema-baseline.v68" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

@@ -70,18 +70,7 @@ class _MaterialConnection:
         if "SELECT life_material_id" in query:
             material_id = cast(UUID, params[0])
             return _Result((material_id,) if material_id in self.materials else None)
-        if "INSERT INTO armi.life_materials" in query:
-            material_id = cast(UUID, params[0])
-            self.materials[material_id] = {
-                "subject_id": params[1],
-                "kind": params[2],
-                "owner": params[3],
-                "current_revision_id": params[4],
-                "head_version": 1,
-                "deleted_at": None,
-            }
-            return _Result()
-        if "SELECT material.current_revision_id" in query:
+        if "SELECT material.life_material_revision_id" in query:
             material = self.materials.get(cast(UUID, params[0]))
             if material is None or material["subject_id"] != params[1]:
                 return _Result()
@@ -108,24 +97,39 @@ class _MaterialConnection:
                     json.loads(cast(str, revision[9])),
                     revision[12],
                     revision[11],
+                    material["created_at"],
                 )
+            )
+        if "SELECT life_material_revision_id" in query:
+            material = self.materials.get(cast(UUID, params[0]))
+            return _Result(
+                None if material is None else (material["current_revision_id"],)
             )
         if "INSERT INTO armi.life_material_revisions" in query:
             self.revisions.append(params)
+            material_id = cast(UUID, params[1])
+            self.materials[material_id] = {
+                "subject_id": params[14],
+                "kind": params[15],
+                "owner": params[16],
+                "current_revision_id": params[0],
+                "head_version": params[2],
+                "created_at": params[17] or "created",
+                "deleted_at": "deleted" if params[18] == "deleted" else None,
+            }
             return _Result()
-        if "UPDATE armi.life_materials" in query:
-            material = self.materials.get(cast(UUID, params[2]))
-            if (
-                material is None
-                or material["current_revision_id"] != params[3]
-                or material["head_version"] != params[4]
-            ):
+        if "UPDATE armi.life_material_revisions" in query:
+            material = next(
+                (
+                    item
+                    for item in self.materials.values()
+                    if item["current_revision_id"] == params[0]
+                ),
+                None,
+            )
+            if material is None or material["head_version"] != params[1]:
                 return _Result()
-            material["current_revision_id"] = params[0]
-            material["head_version"] = int(material["head_version"]) + 1
-            if params[1] == "deleted":
-                material["deleted_at"] = "deleted"
-            return _Result((params[2],))
+            return _Result((params[0],))
         if "DELETE FROM armi.context_embedding_projections" in query:
             return _Result()
         raise AssertionError(f"unexpected SQL: {query}")

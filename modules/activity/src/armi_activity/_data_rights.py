@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("activity")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "activities",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.activities AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "activity_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -85,26 +80,28 @@ class PostgreSQLActivityDataRightsParticipant:
         )
         if request.order_kind == "delete_related" and activity_ids:
             await transaction.execute(
-                """WITH current AS (
-                     SELECT activity.activity_id,activity.current_revision_id,
-                            activity.head_version,revision.revision_no
-                     FROM armi.activities AS activity
-                     JOIN armi.activity_revisions AS revision
-                       ON revision.activity_revision_id=activity.current_revision_id
-                     WHERE activity.activity_id=ANY(%s::uuid[])
-                   ), inserted AS (
-                     INSERT INTO armi.activity_revisions (
-                       activity_revision_id,activity_id,revision_no,
-                       previous_revision_id,goal,status,terminal_reason,
-                       transition_kind,data_rights_redacted_at
-                     ) SELECT uuidv7(),activity_id,revision_no+1,current_revision_id,
-                              NULL,'abandoned',NULL,'data_rights',statement_timestamp()
-                       FROM current
-                     RETURNING activity_id,activity_revision_id
-                   ) UPDATE armi.activities AS activity
-                     SET current_revision_id=inserted.activity_revision_id,
-                         head_version=activity.head_version+1
-                     FROM inserted WHERE activity.activity_id=inserted.activity_id""",
+                """SELECT activity_revision_id FROM armi.activity_revisions
+                   WHERE activity_id=ANY(%s::uuid[]) AND revision_no=1
+                   ORDER BY activity_id FOR UPDATE""",
+                (list(activity_ids),),
+            )
+            await transaction.execute(
+                """WITH retired AS (
+                     UPDATE armi.activity_revisions SET is_current=false
+                     WHERE activity_id=ANY(%s::uuid[]) AND is_current
+                     RETURNING *
+                   )
+                   INSERT INTO armi.activity_revisions (
+                     activity_revision_id,activity_id,revision_no,
+                     previous_revision_id,goal,status,terminal_reason,
+                     transition_kind,data_rights_redacted_at,
+                     subject_id,activity_kind,origin_opportunity_id,
+                     origin_admin_change_id,activity_created_at,privacy_scope
+                   ) SELECT uuidv7(),activity_id,revision_no+1,activity_revision_id,
+                            NULL,'abandoned',NULL,'data_rights',statement_timestamp(),
+                            subject_id,activity_kind,origin_opportunity_id,
+                            origin_admin_change_id,activity_created_at,privacy_scope
+                     FROM retired""",
                 (list(activity_ids),),
             )
             await transaction.execute(

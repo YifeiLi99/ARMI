@@ -34,10 +34,15 @@ class PostgreSQLMemoryAdmin:
             or (command.action == "create" and values["accessibility"] != "available")
         ):
             raise MemoryViolation("MEMORY-ADMIN-PAYLOAD")
+        tx.execute(
+            "SELECT memory_revision_id FROM armi.subjective_memory_revisions "
+            "WHERE memory_id=%s AND revision_no=1 FOR UPDATE",
+            (command.object_id,),
+        )
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT m.current_revision_id,m.head_version,r.accessibility,m.tombstoned_at FROM armi.subjective_memories m JOIN armi.subjective_memory_revisions r ON r.memory_revision_id=m.current_revision_id WHERE m.memory_id=%s AND m.subject_id=%s FOR UPDATE OF m",
+                "SELECT memory_revision_id,revision_no,accessibility,tombstoned_at,memory_created_at FROM armi.subjective_memory_revisions WHERE memory_id=%s AND subject_id=%s AND is_current",
                 (command.object_id, context.subject_id),
             ).fetchone(),
         )
@@ -50,26 +55,25 @@ class PostgreSQLMemoryAdmin:
             raise MemoryViolation("MEMORY-TRANSITION")
         revision = uuid7()
         version = command.expected_version + 1
-        if command.action == "create":
+        if row is not None:
             tx.execute(
-                "INSERT INTO armi.subjective_memories (memory_id,subject_id,current_revision_id,head_version) VALUES (%s,%s,%s,1)",
-                (
-                    command.object_id,
-                    context.subject_id,
-                    revision,
-                ),
+                "UPDATE armi.subjective_memory_revisions SET is_current=false "
+                "WHERE memory_revision_id=%s",
+                (row[0],),
             )
         deleted = command.action == "delete"
         tx.execute(
             "INSERT INTO armi.subjective_memory_revisions "
-            "(memory_revision_id,memory_id,revision_no,previous_revision_id,admin_change_id,"
+            "(memory_revision_id,memory_id,subject_id,memory_created_at,revision_no,previous_revision_id,admin_change_id,"
             "source_kind,source_fact_class,summary,uncertainty,revision_kind,accessibility,"
             "mechanism_identity,mechanism_config_identity,privacy_scope) "
-            "VALUES (%s,%s,%s,%s,%s,'administrator','external_claim',%s,%s,%s,%s,"
+            "VALUES (%s,%s,%s,COALESCE(%s,statement_timestamp()),%s,%s,%s,'administrator','external_claim',%s,%s,%s,%s,"
             "'armi.memory.admin-v1','admin-v1','private')",
             (
                 revision,
                 command.object_id,
+                context.subject_id,
+                None if row is None else row[4],
                 version,
                 None if row is None else row[0],
                 context.change_id,
@@ -83,20 +87,6 @@ class PostgreSQLMemoryAdmin:
                 "forgotten" if deleted else values["accessibility"],
             ),
         )
-        if row is not None:
-            updated = tx.execute(
-                "UPDATE armi.subjective_memories SET current_revision_id=%s,head_version=%s "
-                "WHERE memory_id=%s AND current_revision_id=%s AND head_version=%s",
-                (
-                    revision,
-                    version,
-                    command.object_id,
-                    row[0],
-                    command.expected_version,
-                ),
-            )
-            if updated.rowcount != 1:
-                raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
         return {
             "object_id": str(command.object_id),
             "revision_id": str(revision),

@@ -5,6 +5,18 @@
 --
 
 CREATE TABLE armi.life_material_revisions (
+    subject_id uuid NOT NULL,
+    material_kind text NOT NULL,
+    owner_party_id uuid NOT NULL,
+    material_created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    deleted_at timestamp(6) with time zone,
+    is_current boolean DEFAULT true NOT NULL,
+    root_material_id uuid GENERATED ALWAYS AS (CASE WHEN revision_no=1 THEN life_material_id END) STORED UNIQUE,
+    CONSTRAINT life_material_revisions_root_subject_key UNIQUE (root_material_id, subject_id),
+    CONSTRAINT life_material_revisions_stable_identity_key UNIQUE (life_material_id, life_material_revision_id, subject_id, owner_party_id, material_kind, material_created_at),
+    CONSTRAINT life_material_revisions_identity_check CHECK (uuid_extract_version(life_material_id)=7),
+    CONSTRAINT life_material_revisions_material_kind_check CHECK (material_kind IN ('diary','work','collection','draft')),
     life_material_revision_id uuid NOT NULL,
     life_material_id uuid NOT NULL,
     revision_no bigint NOT NULL,
@@ -34,26 +46,6 @@ CREATE TABLE armi.life_material_revisions (
     CONSTRAINT life_material_revisions_source_kind_check CHECK ((source_kind IN ('subject_cognition','administrator'))),
     CONSTRAINT life_material_revisions_title_check CHECK (((data_rights_redacted_at IS NOT NULL) OR ((length(title) >= 1) AND (length(title) <= 256)))),
     CONSTRAINT life_material_revisions_admin_provenance CHECK (((admin_change_id IS NOT NULL AND subject_commit_id IS NULL AND candidate_validation_id IS NULL AND proposal_ref IS NULL) OR (admin_change_id IS NULL AND subject_commit_id IS NOT NULL AND candidate_validation_id IS NOT NULL AND proposal_ref IS NOT NULL)))
-);
-
---
--- Name: life_materials; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.life_materials (
-    life_material_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    material_kind text NOT NULL,
-    owner_party_id uuid NOT NULL,
-    current_revision_id uuid NOT NULL,
-    head_version bigint NOT NULL,
-    deleted_at timestamp(6) with time zone,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT life_materials_current_revision_id_check CHECK ((uuid_extract_version(current_revision_id) = 7)),
-    CONSTRAINT life_materials_head_version_check CHECK ((head_version > 0)),
-    CONSTRAINT life_materials_life_material_id_check CHECK ((uuid_extract_version(life_material_id) = 7)),
-    CONSTRAINT life_materials_material_kind_check CHECK ((material_kind = ANY (ARRAY['diary'::text, 'work'::text, 'collection'::text, 'draft'::text])))
 );
 
 --
@@ -125,28 +117,20 @@ CREATE TABLE armi.relationship_revisions (
 );
 
 --
--- Name: subjective_memories; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.subjective_memories (
-    memory_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    current_revision_id uuid NOT NULL,
-    head_version bigint NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    tombstone_order_id uuid,
-    tombstoned_at timestamp(6) with time zone,
-    CONSTRAINT subjective_memories_current_revision_id_check CHECK ((uuid_extract_version(current_revision_id) = 7)),
-    CONSTRAINT subjective_memories_head_version_check CHECK ((head_version > 0)),
-    CONSTRAINT subjective_memories_memory_id_check CHECK ((uuid_extract_version(memory_id) = 7)),
-    CONSTRAINT subjective_memories_tombstone_check CHECK (((tombstone_order_id IS NULL) = (tombstoned_at IS NULL)))
-);
-
---
 -- Name: subjective_memory_revisions; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.subjective_memory_revisions (
+    subject_id uuid NOT NULL,
+    memory_created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    is_current boolean DEFAULT true NOT NULL,
+    tombstone_order_id uuid,
+    tombstoned_at timestamp(6) with time zone,
+    root_memory_id uuid GENERATED ALWAYS AS (CASE WHEN revision_no=1 THEN memory_id END) STORED UNIQUE,
+    CONSTRAINT subjective_memory_revisions_root_subject_key UNIQUE (root_memory_id, subject_id),
+    CONSTRAINT subjective_memory_revisions_stable_identity_key UNIQUE (memory_id, memory_revision_id, subject_id, memory_created_at),
+    CONSTRAINT subjective_memory_revisions_memory_identity_check CHECK (uuid_extract_version(memory_id)=7),
+    CONSTRAINT subjective_memory_revisions_tombstone_check CHECK ((tombstone_order_id IS NULL) = (tombstoned_at IS NULL)),
     related_memory_id uuid,
     relation_kind text,
     CONSTRAINT subjective_memory_revisions_relation_check CHECK (

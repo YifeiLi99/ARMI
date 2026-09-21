@@ -48,15 +48,13 @@ class PostgreSQLMaterialAdminRead:
         self, transaction: PostgreSQLAdminTransaction, subject_id: UUID
     ) -> list[tuple[object, ...]]:
         return transaction.execute(
-            "SELECT material.life_material_id, material.current_revision_id, "
-            "material.material_kind, material.head_version, material.created_at, "
-            "material.updated_at, material.deleted_at, revision.revision_no, "
-            "revision.title, revision.metadata, revision.material_status, "
-            "revision.privacy_status, revision.artifact_id "
-            "FROM armi.life_materials AS material "
-            "JOIN armi.life_material_revisions AS revision "
-            "ON revision.life_material_revision_id = material.current_revision_id "
-            "WHERE material.subject_id = %s "
+            "SELECT material.life_material_id, material.life_material_revision_id, "
+            "material.material_kind, material.revision_no, material.material_created_at, "
+            "material.updated_at, material.deleted_at, material.revision_no, "
+            "material.title, material.metadata, material.material_status, "
+            "material.privacy_status, material.artifact_id "
+            "FROM armi.life_material_revisions AS material "
+            "WHERE material.is_current AND material.subject_id = %s "
             "ORDER BY material.updated_at DESC, material.life_material_id "
             "LIMIT 101",
             (subject_id,),

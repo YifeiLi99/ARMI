@@ -33,10 +33,15 @@ class PostgreSQLMaterialCommit:
         values = self._drafts(drafts)
         for material_id in sorted({item.material_id for item in values}, key=str):
             value = next(item for item in values if item.material_id == material_id)
+            await transaction.execute(
+                """SELECT life_material_revision_id FROM armi.life_material_revisions
+                   WHERE life_material_id=%s AND revision_no=1 FOR UPDATE""",
+                (material_id,),
+            )
             row = await (
                 await transaction.execute(
-                    """SELECT current_revision_id,head_version,subject_id,owner_party_id,material_kind,deleted_at
-                       FROM armi.life_materials WHERE life_material_id=%s FOR UPDATE""",
+                    """SELECT life_material_revision_id,revision_no,subject_id,owner_party_id,material_kind,deleted_at
+                       FROM armi.life_material_revisions WHERE life_material_id=%s AND is_current""",
                     (material_id,),
                 )
             ).fetchone()
@@ -79,11 +84,18 @@ class PostgreSQLMaterialCommit:
         affected: list[UUID] = []
         for material in materials:
             revision_id = uuid7()
+            # The first revision remains stable when the current row changes.
+            await transaction.execute(
+                """SELECT life_material_revision_id FROM armi.life_material_revisions
+                   WHERE life_material_id=%s AND revision_no=1 FOR UPDATE""",
+                (material.material_id,),
+            )
+            material_created_at = None
             reused_artifact_id: ArtifactId | None = None
             if material.current_revision_id is None:
                 existing = await (
                     await transaction.execute(
-                        "SELECT life_material_id FROM armi.life_materials WHERE life_material_id=%s FOR UPDATE",
+                        "SELECT life_material_id FROM armi.life_material_revisions WHERE life_material_id=%s AND is_current",
                         (material.material_id,),
                     )
                 ).fetchone()
@@ -91,30 +103,15 @@ class PostgreSQLMaterialCommit:
                     raise MaterialViolation("MATERIAL-HEAD-STALE")
                 revision_no = 1
                 previous_revision_id = None
-                await transaction.execute(
-                    """INSERT INTO armi.life_materials
-                       (life_material_id,subject_id,material_kind,
-                        owner_party_id,current_revision_id,head_version)
-                       VALUES (%s,%s,%s,%s,%s,1)""",
-                    (
-                        material.material_id,
-                        subject_id,
-                        material.material_kind.value,
-                        material.owner_party_id,
-                        revision_id,
-                    ),
-                )
             else:
                 current = await (
                     await transaction.execute(
-                        """SELECT material.current_revision_id,material.head_version,
+                        """SELECT material.life_material_revision_id,material.revision_no,
                                   material.owner_party_id,material.material_kind,material.deleted_at,
-                                  revision.revision_no,revision.artifact_id,revision.title,
-                                  revision.metadata,revision.material_status,revision.privacy_status
-                           FROM armi.life_materials AS material
-                           JOIN armi.life_material_revisions AS revision
-                             ON revision.life_material_revision_id=material.current_revision_id
-                           WHERE material.life_material_id=%s AND material.subject_id=%s FOR UPDATE OF material""",
+                                  material.revision_no,material.artifact_id,material.title,
+                                  material.metadata,material.material_status,material.privacy_status,material.material_created_at
+                           FROM armi.life_material_revisions AS material
+                           WHERE material.life_material_id=%s AND material.subject_id=%s AND material.is_current""",
                         (material.material_id, subject_id),
                     )
                 ).fetchone()
@@ -144,6 +141,7 @@ class PostgreSQLMaterialCommit:
                     raise MaterialViolation("MATERIAL-HEAD-STALE")
                 revision_no = int(current[5]) + 1
                 previous_revision_id = material.current_revision_id
+                material_created_at = current[11]
 
             artifact = artifacts.get(material.proposal_ref)
             artifact_id = reused_artifact_id or (
@@ -151,12 +149,26 @@ class PostgreSQLMaterialCommit:
             )
             if artifact_id is None:
                 raise MaterialViolation("MATERIAL-ARTIFACT")
+            if previous_revision_id is not None:
+                updated = await (
+                    await transaction.execute(
+                        """UPDATE armi.life_material_revisions SET is_current=false
+                           WHERE life_material_revision_id=%s AND is_current AND revision_no=%s
+                           RETURNING life_material_id""",
+                        (previous_revision_id, material.expected_head_version),
+                    )
+                ).fetchone()
+                if updated is None:
+                    raise MaterialViolation("MATERIAL-HEAD-STALE")
             await transaction.execute(
                 """INSERT INTO armi.life_material_revisions
                    (life_material_revision_id,life_material_id,revision_no,previous_revision_id,
                     subject_commit_id,candidate_validation_id,proposal_ref,artifact_id,title,
-                    metadata,revision_kind,privacy_status,material_status,source_kind)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    metadata,revision_kind,privacy_status,material_status,source_kind,
+                    subject_id,material_kind,owner_party_id,material_created_at,deleted_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                           %s,%s,%s,COALESCE(%s,statement_timestamp()),
+                           CASE WHEN %s='deleted' THEN statement_timestamp() END)""",
                 (
                     revision_id,
                     material.material_id,
@@ -172,28 +184,13 @@ class PostgreSQLMaterialCommit:
                     material.privacy_status,
                     material.material_status.value,
                     material.source_kind,
+                    subject_id,
+                    material.material_kind.value,
+                    material.owner_party_id,
+                    material_created_at,
+                    material.revision_kind.value,
                 ),
             )
-            if previous_revision_id is not None:
-                updated = await (
-                    await transaction.execute(
-                        """UPDATE armi.life_materials SET current_revision_id=%s,
-                                  head_version=head_version+1,
-                                  deleted_at=CASE WHEN %s='deleted' THEN statement_timestamp() ELSE deleted_at END,
-                                  updated_at=statement_timestamp()
-                           WHERE life_material_id=%s AND current_revision_id=%s AND head_version=%s
-                           RETURNING life_material_id""",
-                        (
-                            revision_id,
-                            material.revision_kind.value,
-                            material.material_id,
-                            previous_revision_id,
-                            material.expected_head_version,
-                        ),
-                    )
-                ).fetchone()
-                if updated is None:
-                    raise MaterialViolation("MATERIAL-HEAD-STALE")
             affected.append(material.material_id)
         return tuple(affected)
 

@@ -2402,6 +2402,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     finally:
                         await factory.close()
 
+                privacy_order_id = uuid7()
                 for owner, data in cases.items():
                     with self.subTest(owner=owner):
                         identity = str(uuid7())
@@ -2454,8 +2455,155 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         self.assertTrue(removed.result["change"]["history_retained"])
                         self.assertEqual(removed.result["change"]["new_version"], 3)
+                        if owner in {"memory", "material", "activity"}:
+                            # These administrator-authored records have no experience or
+                            # candidate provenance; exercise each owner's apply boundary
+                            # with the concrete object targeted by the rights order.
+                            table, key_column, created_column = {
+                                "memory": (
+                                    "subjective_memory_revisions",
+                                    "memory_id",
+                                    "memory_created_at",
+                                ),
+                                "material": (
+                                    "life_material_revisions",
+                                    "life_material_id",
+                                    "material_created_at",
+                                ),
+                                "activity": (
+                                    "activity_revisions",
+                                    "activity_id",
+                                    "activity_created_at",
+                                ),
+                            }[owner]
+                            order_id = privacy_order_id
+                            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                                rows = connection.execute(
+                                    sql.SQL(
+                                        "SELECT revision_no,is_current,{} FROM armi.{} WHERE {}=%s ORDER BY revision_no"
+                                    ).format(
+                                        sql.Identifier(created_column),
+                                        sql.Identifier(table),
+                                        sql.Identifier(key_column),
+                                    ),
+                                    (identity,),
+                                ).fetchall()
+                                self.assertEqual(
+                                    [(row[0], row[1]) for row in rows],
+                                    [(1, False), (2, False), (3, True)],
+                                )
+                                self.assertEqual(len({row[2] for row in rows}), 1)
+                                connection.execute(
+                                    "INSERT INTO armi.data_rights_orders "
+                                    "(deletion_order_id,requester_party_id,requester_kind,"
+                                    "order_kind,scope_kind,scope_party_id,reason_code,status,"
+                                    "execution_status,idempotency_key,request_digest,trace_id,completed_at) "
+                                    "VALUES (%s,%s,'creator','delete_related','party_local_data',"
+                                    "%s,'requester_exercised_local_right','effective','completed',"
+                                    "%s,%s,%s,statement_timestamp()) ON CONFLICT (deletion_order_id) DO NOTHING",
+                                    (
+                                        order_id,
+                                        manifest.creator_party_id,
+                                        manifest.creator_party_id,
+                                        owner + "-erase",
+                                        Digest.from_bytes(
+                                            (owner + "-erase").encode()
+                                        ).value,
+                                        uuid7().hex,
+                                    ),
+                                )
+
+                            async def erase_content(
+                                owner: str, identity: UUID, order_id: UUID
+                            ) -> None:
+                                from armi_data_rights.api import (
+                                    DataRightsApplyRequest,
+                                    DataRightsRelatedRef,
+                                    DataRightsTargetRef,
+                                )
+
+                                roster = compose_runtime_owner_roster(
+                                    data_rights=bootstrap_data_rights_core().participant,
+                                    mood_read=bootstrap_mood().read,
+                                    prompt_read=bootstrap_prompt().read,
+                                    subject_state_read=bootstrap_subject_state().read,
+                                    mind_read=bootstrap_mind().read,
+                                )
+                                participant = next(
+                                    item
+                                    for item in roster.data_rights
+                                    if item.owner_identity.value == owner
+                                )
+                                factory = await self._new_uow_factory(fixture)
+                                try:
+                                    async with factory.unit_of_work() as unit:
+                                        await participant.apply(
+                                            unit.transaction,
+                                            DataRightsApplyRequest(
+                                                order_id,
+                                                manifest.creator_party_id,
+                                                "delete_related",
+                                                (
+                                                    DataRightsRelatedRef(
+                                                        owner, identity
+                                                    ),
+                                                ),
+                                                (
+                                                    DataRightsTargetRef(
+                                                        owner,
+                                                        identity,
+                                                        "tombstone"
+                                                        if owner == "memory"
+                                                        else "redact",
+                                                        responsible_owner=owner,
+                                                    ),
+                                                ),
+                                                (),
+                                            ),
+                                        )
+                                finally:
+                                    await factory.close()
+
+                            asyncio.run(
+                                erase_content(owner, UUID(identity), order_id),
+                                loop_factory=lambda: asyncio.SelectorEventLoop(
+                                    selectors.SelectSelector()
+                                ),
+                            )
+                            redacted_conditions: dict[str, LiteralString] = {
+                                "memory": "summary IS NULL AND uncertainty IS NULL AND tombstoned_at IS NOT NULL",
+                                "material": "title IS NULL AND artifact_id IS NULL AND metadata IS NULL AND data_rights_redacted_at IS NOT NULL",
+                                "activity": "goal IS NULL AND progress_summary IS NULL AND next_safe_step IS NULL AND data_rights_redacted_at IS NOT NULL",
+                            }
+                            redacted_condition = redacted_conditions[owner]
+                            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                                count = connection.execute(
+                                    sql.SQL(
+                                        "SELECT count(*),count(*) FILTER (WHERE is_current) FROM armi.{} WHERE {}=%s AND "
+                                    ).format(
+                                        sql.Identifier(table),
+                                        sql.Identifier(key_column),
+                                    )
+                                    + sql.SQL(redacted_condition),
+                                    (identity,),
+                                ).fetchone()
+                                self.assertEqual(
+                                    count, (4 if owner == "activity" else 3, 1)
+                                )
+                            blocked = composition.service.database(
+                                "content_write",
+                                request(
+                                    owner,
+                                    "update",
+                                    identity,
+                                    3,
+                                    revised,
+                                    owner + "-after-erasure",
+                                ),
+                            )
+                            self.assertIn(blocked.status, {"conflict", "rejected"})
                         if owner == "relationship":
-                            order_id = uuid7()
+                            order_id = privacy_order_id
                             with psycopg.connect(fixture.provisioner_dsn) as connection:
                                 rows = connection.execute(
                                     "SELECT revision_no,is_current,relationship_created_at "
@@ -2475,7 +2623,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     "execution_status,idempotency_key,request_digest,trace_id,completed_at) "
                                     "VALUES (%s,%s,'creator','delete_related','party_local_data',"
                                     "%s,'requester_exercised_local_right','effective','completed',"
-                                    "'relationship-erase',%s,%s,statement_timestamp())",
+                                    "'relationship-erase',%s,%s,statement_timestamp()) ON CONFLICT (deletion_order_id) DO NOTHING",
                                     (
                                         order_id,
                                         manifest.creator_party_id,
@@ -6070,14 +6218,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     source_experience_id, source_kind, source_fact_class,
                     summary, revision_kind, accessibility,
                     mechanism_identity, mechanism_config_identity,
-                    privacy_scope
+                    privacy_scope, subject_id, is_current
                 )
                 SELECT historical_revision_id, memory_id, 1, NULL,
                        uuidv7(), uuidv7(), 'proposal:1', source_experience_id,
                        'reported', 'external_claim',
                        'ordinary historical memory', 'formed', 'available',
                        'armi.memory-formation.contextual-v1', 'formation-v1',
-                       'private'
+                       'private', %s, false
                 FROM memory_plan_fixture
                 UNION ALL
                 SELECT current_revision_id, memory_id, 2,
@@ -6089,19 +6237,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ELSE 'ordinary current memory' END,
                        'recalled', 'available',
                        'armi.memory-revision.contextual-v1',
-                       'natural-dialogue-v1', 'private'
-                FROM memory_plan_fixture
-                """
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.subjective_memories (
-                    memory_id, subject_id, current_revision_id, head_version
-                )
-                SELECT memory_id, %s, current_revision_id, 2
+                       'natural-dialogue-v1', 'private', %s, true
                 FROM memory_plan_fixture
                 """,
-                (subject_id,),
+                (subject_id, subject_id),
             )
             connection.execute(
                 """
@@ -6117,7 +6256,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     life_material_revision_id, life_material_id, revision_no,
                     subject_commit_id, candidate_validation_id, proposal_ref,
                     artifact_id, title, metadata, revision_kind,
-                    privacy_status, material_status, source_kind
+                    privacy_status, material_status, source_kind, subject_id, material_kind, owner_party_id
                 )
                 SELECT revision_id, material_id, 1, uuidv7(), uuidv7(),
                        'proposal:1', uuidv7(),
@@ -6125,18 +6264,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             THEN 'rare comet material marker'
                             ELSE 'ordinary life material' END,
                        '{}'::jsonb, 'created', 'creator_visible', 'active',
-                       'subject_cognition'
-                FROM material_plan_fixture
-                """
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.life_materials (
-                    life_material_id, subject_id, material_kind, owner_party_id, current_revision_id,
-                    head_version
-                )
-                SELECT material_id, %s, 'diary', uuidv7(),
-                       revision_id, 1
+                       'subject_cognition', %s, 'diary', uuidv7()
                 FROM material_plan_fixture
                 """,
                 (subject_id,),
@@ -8641,7 +8769,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         current = await (
                             await tx.execute(
-                                "SELECT current_revision_id FROM armi.subjective_memories WHERE memory_id=%s",
+                                "SELECT memory_revision_id FROM armi.subjective_memory_revisions WHERE memory_id=%s AND is_current",
                                 (memories[0],),
                             )
                         ).fetchone()
@@ -8997,7 +9125,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if concerns:
                     self.assertEqual(
                         connection.execute(
-                            "SELECT (SELECT count(*) FROM armi.activities), (SELECT count(*) FROM armi.mood_revisions)"
+                            "SELECT (SELECT count(*) FROM armi.activity_revisions WHERE is_current), (SELECT count(*) FROM armi.mood_revisions)"
                         ).fetchone(),
                         (0, 1),
                     )
@@ -9188,7 +9316,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                 self.assertEqual(
                     connection.execute(
-                        "SELECT (SELECT count(*) FROM armi.activities), (SELECT count(*) FROM armi.mood_revisions)"
+                        "SELECT (SELECT count(*) FROM armi.activity_revisions WHERE is_current), (SELECT count(*) FROM armi.mood_revisions)"
                     ).fetchone(),
                     (1, 2),
                 )
@@ -9216,6 +9344,131 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute("SELECT count(*) FROM armi.effects").fetchone(),
                     (1,),
                 )
+
+            async def verify_activity_pause() -> None:
+                from armi_activity.api import (
+                    ActivityAttentionDecisionKind,
+                    ActivityCommitContext,
+                    CandidateActivityDecisionDraft,
+                )
+
+                factory = await self._new_uow_factory(fixture)
+                module = bootstrap_activity(
+                    factory,
+                    subject_id=born.subject_id,
+                    creator_party_id=manifest.creator_party_id,
+                    environment_id=fixture.environment_id,
+                    cursor_key=hashlib.sha256(b"activity-pause-check").digest(),
+                    focus=bootstrap_subject_state().read,
+                )
+                try:
+                    async with factory.unit_of_work() as unit:
+                        row = await (
+                            await unit.transaction.execute(
+                                "SELECT activity_id,activity_revision_id,candidate_validation_id,"
+                                "subject_commit_id,origin_opportunity_id FROM armi.activity_revisions "
+                                "WHERE is_current AND subject_id=%s",
+                                (born.subject_id,),
+                            )
+                        ).fetchone()
+                        assert row is not None
+                        (
+                            activity_id,
+                            initial_revision,
+                            validation,
+                            commit,
+                            opportunity,
+                        ) = row
+                        context = ActivityCommitContext(
+                            validation,
+                            ids["episode"],
+                            opportunity,
+                            opportunity,
+                            0,
+                            born.subject_id,
+                            None,
+                            "consider_activity_attention",
+                            initial_revision,
+                            1,
+                            activity_id,
+                        )
+                        # Reuse the fixture's validated provenance to test the
+                        # owner transition without another model invocation.
+                        decision = CandidateActivityDecisionDraft(
+                            "proposal:99",
+                            "group:2",
+                            (1,),
+                            activity_id,
+                            initial_revision,
+                            1,
+                            ActivityAttentionDecisionKind.ENGAGE,
+                        )
+                        self.assertTrue(
+                            await module.commit.heads_match(
+                                unit.transaction, context=context, drafts=(decision,)
+                            )
+                        )
+                        engaged = await module.commit.commit(
+                            unit.transaction,
+                            context=context,
+                            commit_id=commit,
+                            drafts=(decision,),
+                        )
+                        assert engaged.result_revision_id is not None
+                        active_revision = engaged.result_revision_id
+                    with self.assertRaisesRegex(RuntimeError, "pause rollback"):
+                        async with factory.unit_of_work() as unit:
+                            paused = await module.read.pause_failed_internal_work(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                activity_id=activity_id,
+                                expected_revision_id=active_revision,
+                            )
+                            self.assertIsNotNone(paused)
+                            raise RuntimeError("pause rollback")
+                    async with factory.unit_of_work() as unit:
+                        paused = await module.read.pause_failed_internal_work(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            activity_id=activity_id,
+                            expected_revision_id=active_revision,
+                        )
+                        self.assertIsNotNone(paused)
+                    async with factory.unit_of_work() as unit:
+                        self.assertIsNone(
+                            await module.read.pause_failed_internal_work(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                activity_id=activity_id,
+                                expected_revision_id=active_revision,
+                            )
+                        )
+                        history = await (
+                            await unit.transaction.execute(
+                                "SELECT revision_no,is_current,status,activity_created_at "
+                                "FROM armi.activity_revisions WHERE activity_id=%s "
+                                "ORDER BY revision_no",
+                                (activity_id,),
+                            )
+                        ).fetchall()
+                        self.assertEqual(
+                            [row[:3] for row in history],
+                            [
+                                (1, False, "ready"),
+                                (2, False, "in_progress"),
+                                (3, True, "paused"),
+                            ],
+                        )
+                        self.assertEqual(len({row[3] for row in history}), 1)
+                finally:
+                    await factory.close()
+
+            asyncio.run(
+                verify_activity_pause(),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
 
             async def govern_mind():
                 from armi_data_rights.api import (

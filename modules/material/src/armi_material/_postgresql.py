@@ -92,14 +92,12 @@ class PostgreSQLMaterialOwner:
         for source in sources:
             row = await (
                 await transaction.execute(
-                    """SELECT material.life_material_id,material.current_revision_id,
-                          material.head_version,material.owner_party_id,material.material_kind,
-                          revision.title,revision.metadata,revision.material_status,
-                          revision.privacy_status,revision.artifact_id
-                   FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.life_material_id=%s AND material.subject_id=%s AND material.head_version=%s
+                    """SELECT material.life_material_id,material.life_material_revision_id,
+                          material.revision_no,material.owner_party_id,material.material_kind,
+                          material.title,material.metadata,material.material_status,
+                          material.privacy_status,material.artifact_id
+                   FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.life_material_id=%s AND material.subject_id=%s AND material.revision_no=%s
                      AND material.deleted_at IS NULL""",
                     (
                         source.material_id,
@@ -143,16 +141,14 @@ class PostgreSQLMaterialOwner:
     ) -> tuple[MaterialLifeRecordItem, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT material.life_material_id,revision.title,revision.created_at
-                   FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.subject_id=%s AND material.deleted_at IS NULL
-                     AND (%s::text IS NULL OR revision.title ILIKE '%%'||%s::text||'%%')
-                     AND (%s::boolean IS FALSE OR revision.privacy_status='creator_visible')
+                """SELECT material.life_material_id,material.title,material.created_at
+                   FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.subject_id=%s AND material.deleted_at IS NULL
+                     AND (%s::text IS NULL OR material.title ILIKE '%%'||%s::text||'%%')
+                     AND (%s::boolean IS FALSE OR material.privacy_status='creator_visible')
                      AND (%s::timestamptz IS NULL OR
-                          (revision.created_at,'material'::text,material.life_material_id)<(%s::timestamptz,%s::text,%s::uuid))
-                   ORDER BY revision.created_at DESC,material.life_material_id DESC LIMIT %s""",
+                          (material.created_at,'material'::text,material.life_material_id)<(%s::timestamptz,%s::text,%s::uuid))
+                   ORDER BY material.created_at DESC,material.life_material_id DESC LIMIT %s""",
                 (
                     subject_id,
                     query_text,
@@ -178,12 +174,10 @@ class PostgreSQLMaterialOwner:
     ) -> MaterialOpportunitySource | None:
         row = await (
             await transaction.execute(
-                """SELECT material.life_material_id,revision.life_material_revision_id,material.head_version
-                   FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.subject_id=%s
-                     AND material.deleted_at IS NULL AND revision.material_status='active'
+                """SELECT material.life_material_id,material.life_material_revision_id,material.revision_no
+                   FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.subject_id=%s
+                     AND material.deleted_at IS NULL AND material.material_status='active'
                    ORDER BY material.updated_at,material.life_material_id LIMIT 1""",
                 (subject_id,),
             )
@@ -202,17 +196,15 @@ class PostgreSQLMaterialOwner:
                 connection = unit_of_work.transaction
                 row = await (
                     await connection.execute(
-                        """SELECT material.life_material_id,material.current_revision_id,
-                                  material.material_kind,material.head_version,material.created_at,
-                                  material.updated_at,revision.revision_no,revision.title,
-                                  revision.metadata,revision.material_status,revision.privacy_status,
-                                  revision.artifact_id
-                           FROM armi.life_materials AS material
-                           JOIN armi.life_material_revisions AS revision
-                             ON revision.life_material_revision_id=material.current_revision_id
-                           WHERE material.life_material_id=%s AND material.subject_id=%s
+                        """SELECT material.life_material_id,material.life_material_revision_id,
+                                  material.material_kind,material.revision_no,material.material_created_at,
+                                  material.updated_at,material.revision_no,material.title,
+                                  material.metadata,material.material_status,material.privacy_status,
+                                  material.artifact_id
+                           FROM armi.life_material_revisions AS material
+                           WHERE material.is_current AND material.life_material_id=%s AND material.subject_id=%s
                              AND material.deleted_at IS NULL
-                             AND revision.privacy_status = 'creator_visible'""",
+                             AND material.privacy_status = 'creator_visible'""",
                         (material_id, self._subject_id),
                     )
                 ).fetchone()
@@ -268,12 +260,10 @@ class PostgreSQLMaterialOwner:
     ) -> tuple[MaterialProjectionHead, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT material.subject_id,material.life_material_id,material.head_version
-                   FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.deleted_at IS NULL
-                     AND revision.revision_kind<>'deleted'
+                """SELECT material.subject_id,material.life_material_id,material.revision_no
+                   FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.deleted_at IS NULL
+                     AND material.revision_kind<>'deleted'
                      AND (%s::uuid IS NULL OR material.life_material_id>%s)
                    ORDER BY material.life_material_id LIMIT %s""",
                 (after_material_id, after_material_id, limit),
@@ -301,14 +291,12 @@ class PostgreSQLMaterialOwner:
                    )
                    SELECT requested.material_id,requested.head_version
                    FROM requested
-                   JOIN armi.life_materials AS material
+                   JOIN armi.life_material_revisions AS material
                      ON material.life_material_id=requested.material_id
-                    AND material.head_version=requested.head_version
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.subject_id=%s
+                    AND material.revision_no=requested.head_version
+                   WHERE material.is_current AND material.subject_id=%s
                      AND material.deleted_at IS NULL
-                     AND revision.revision_kind<>'deleted'
+                     AND material.revision_kind<>'deleted'
                    ORDER BY requested.ordinal""",
                 (
                     [source.material_id for source in sources],
@@ -326,17 +314,19 @@ class PostgreSQLMaterialOwner:
         subject_id: UUID,
         source: MaterialCandidateSourceRef,
     ) -> bool:
+        await transaction.execute(
+            """SELECT life_material_revision_id FROM armi.life_material_revisions
+               WHERE life_material_id=%s AND revision_no=1 FOR SHARE""",
+            (source.material_id,),
+        )
         row = await (
             await transaction.execute(
                 """SELECT material.life_material_id
-                   FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.life_material_id=%s AND material.head_version=%s
+                   FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.life_material_id=%s AND material.revision_no=%s
                      AND material.subject_id=%s
                      AND material.deleted_at IS NULL
-                     AND revision.revision_kind<>'deleted'
-                   FOR SHARE OF material""",
+                     AND material.revision_kind<>'deleted'""",
                 (
                     source.material_id,
                     source.head_version,
@@ -354,10 +344,8 @@ class PostgreSQLMaterialOwner:
     ) -> tuple[MaterialProjectionSource, ...]:
         rows = await (
             await transaction.execute(
-                """SELECT material.life_material_id FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.deleted_at IS NULL AND revision.revision_kind<>'deleted'
+                """SELECT material.life_material_id FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.deleted_at IS NULL AND material.revision_kind<>'deleted'
                      AND (%s::uuid IS NULL OR material.subject_id=%s)
                    ORDER BY material.life_material_id""",
                 (subject_id, subject_id),
@@ -376,14 +364,12 @@ class PostgreSQLMaterialOwner:
         row = await (
             await transaction.execute(
                 """SELECT material.subject_id,material.life_material_id,
-                          material.current_revision_id,material.head_version,material.owner_party_id,
-                          material.material_kind,revision.title,revision.metadata,revision.material_status,
-                          revision.privacy_status,revision.artifact_id
-                   FROM armi.life_materials AS material
-                   JOIN armi.life_material_revisions AS revision
-                     ON revision.life_material_revision_id=material.current_revision_id
-                   WHERE material.life_material_id=%s AND material.deleted_at IS NULL
-                     AND revision.revision_kind<>'deleted'""",
+                          material.life_material_revision_id,material.revision_no,material.owner_party_id,
+                          material.material_kind,material.title,material.metadata,material.material_status,
+                          material.privacy_status,material.artifact_id
+                   FROM armi.life_material_revisions AS material
+                   WHERE material.is_current AND material.life_material_id=%s AND material.deleted_at IS NULL
+                     AND material.revision_kind<>'deleted'""",
                 (material_id,),
             )
         ).fetchone()

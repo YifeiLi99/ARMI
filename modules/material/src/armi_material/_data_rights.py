@@ -23,17 +23,12 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("material")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "life_material_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.life_material_revisions AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "life_materials",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.life_materials AS source ORDER BY to_jsonb(source)::text""",
     ),
 )
 
@@ -101,19 +96,20 @@ class PostgreSQLMaterialDataRightsParticipant:
             item.ref for item in request.related_refs if item.kind == "material"
         )
         if request.order_kind == "delete_related" and material_ids:
+            for material_id in sorted(set(material_ids), key=str):
+                await transaction.execute(
+                    """SELECT life_material_revision_id FROM armi.life_material_revisions
+                       WHERE life_material_id=%s AND revision_no=1 FOR UPDATE""",
+                    (material_id,),
+                )
             await transaction.execute(
                 """UPDATE armi.life_material_revisions
                    SET artifact_id=NULL,title=NULL,metadata=NULL,
+                       deleted_at=COALESCE(deleted_at,statement_timestamp()),
+                       updated_at=statement_timestamp(),
                        data_rights_redacted_at=statement_timestamp()
                    WHERE life_material_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",
-                (list(material_ids),),
-            )
-            await transaction.execute(
-                """UPDATE armi.life_materials
-                   SET deleted_at=COALESCE(deleted_at,statement_timestamp()),
-                       updated_at=statement_timestamp()
-                   WHERE life_material_id=ANY(%s::uuid[])""",
                 (list(material_ids),),
             )
         return DataRightsApplyContribution(

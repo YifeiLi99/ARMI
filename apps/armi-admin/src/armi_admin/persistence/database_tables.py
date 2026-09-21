@@ -56,9 +56,9 @@ class DatabaseTable:
     def describe(self) -> dict[str, Any]:
         policy = TABLE_OWNERSHIP.get(self.name)
         online = {
-            "subjective_memories": (
+            "subjective_memory_revisions": (
                 "memory",
-                "head_version",
+                "revision_no",
                 ("create", "update", "delete"),
             ),
             "relationship_revisions": (
@@ -66,12 +66,16 @@ class DatabaseTable:
                 "revision_no",
                 ("create", "update", "delete"),
             ),
-            "life_materials": (
+            "life_material_revisions": (
                 "material",
-                "head_version",
+                "revision_no",
                 ("create", "update", "delete"),
             ),
-            "activities": ("activity", "head_version", ("create", "update", "delete")),
+            "activity_revisions": (
+                "activity",
+                "revision_no",
+                ("create", "update", "delete"),
+            ),
             "prompt_revisions": (
                 "prompt",
                 "revision_no; 0 before first creation",

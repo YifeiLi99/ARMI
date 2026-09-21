@@ -70,7 +70,7 @@ class _Connection:
             return _Cursor((1,))
         if "FROM armi.subjects" in statement:
             return _Cursor((self.subject_id,))
-        if "FROM armi.life_materials AS material" in statement:
+        if "FROM armi.life_material_revisions AS material" in statement:
             self.material_sql = statement
             assert self.material_row is not None
             assert parameters == (self.material_row[0], self.subject_id)
@@ -192,7 +192,8 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
     assert item.body == body
     assert item.metadata == (("mood", "quiet"),)
     assert "material.deleted_at IS NULL" in connection.material_sql
-    assert "revision.privacy_status = 'creator_visible'" in connection.material_sql
+    assert "material.privacy_status = 'creator_visible'" in connection.material_sql
+    assert "material.is_current" in connection.material_sql
 
     path = next((data_root / "artifacts" / "objects").rglob(content_digest[7:]))
     path.write_bytes(b"corrupt")

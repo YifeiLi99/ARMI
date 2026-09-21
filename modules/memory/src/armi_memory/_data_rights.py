@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("memory")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "subjective_memories",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.subjective_memories AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "subjective_memory_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -77,16 +72,19 @@ class PostgreSQLMemoryDataRightsParticipant:
             item.ref for item in request.related_refs if item.kind == "memory"
         )
         if request.order_kind == "delete_related" and memory_ids:
+            # Serialize against owner/Admin updates on the permanent first row.
             await transaction.execute(
-                """UPDATE armi.subjective_memory_revisions
-                   SET summary=NULL,uncertainty=NULL
-                   WHERE memory_id=ANY(%s::uuid[])""",
-                (list(memory_ids),),
+                """SELECT memory_revision_id FROM armi.subjective_memory_revisions
+                   WHERE memory_id=ANY(%s::uuid[]) AND revision_no=1
+                   ORDER BY memory_id FOR UPDATE""",
+                (sorted(set(memory_ids), key=str),),
             )
             await transaction.execute(
-                """UPDATE armi.subjective_memories
-                   SET tombstone_order_id=%s,tombstoned_at=statement_timestamp()
-                   WHERE memory_id=ANY(%s::uuid[]) AND tombstoned_at IS NULL""",
+                """UPDATE armi.subjective_memory_revisions
+                   SET summary=NULL,uncertainty=NULL,
+                       tombstone_order_id=COALESCE(tombstone_order_id,%s),
+                       tombstoned_at=COALESCE(tombstoned_at,statement_timestamp())
+                   WHERE memory_id=ANY(%s::uuid[])""",
                 (request.order_id, list(memory_ids)),
             )
         return DataRightsApplyContribution(

@@ -45,13 +45,17 @@ class PostgreSQLActivityCommit:
         ):
             raise ActivityViolation("ACTIVITY-COMMIT-SHAPE")
         for value in sorted(values, key=lambda item: str(item.activity_id)):
+            await transaction.execute(
+                """SELECT activity_revision_id FROM armi.activity_revisions
+                   WHERE activity_id=%s AND revision_no=1 FOR UPDATE""",
+                (value.activity_id,),
+            )
             row = await (
                 await transaction.execute(
                     """
-                    SELECT current_revision_id, head_version, subject_id
-                    FROM armi.activities
-                    WHERE activity_id = %s
-                    FOR UPDATE
+                    SELECT activity_revision_id, revision_no, subject_id
+                    FROM armi.activity_revisions
+                    WHERE activity_id = %s AND is_current
                     """,
                     (value.activity_id,),
                 )
@@ -89,21 +93,6 @@ class PostgreSQLActivityCommit:
             else:
                 decisions.append(item)
         for activity in creates:
-            await transaction.execute(
-                """
-                INSERT INTO armi.activities (
-                    activity_id, subject_id, activity_kind, origin_opportunity_id,
-                    current_revision_id, head_version, privacy_scope)
-                VALUES (%s, %s, %s, %s, NULL, 0, %s)
-                """,
-                (
-                    activity.activity_id,
-                    context.subject_id,
-                    activity.activity_kind,
-                    context.opportunity_id,
-                    activity.privacy_scope,
-                ),
-            )
             revision_id = uuid7()
             await transaction.execute(
                 """
@@ -113,9 +102,11 @@ class PostgreSQLActivityCommit:
                     proposal_ref, goal, progress_summary, waiting_condition,
                     resumption_cue, next_safe_step, status, terminal_reason,
                     related_scene_id, transition_kind, waiting_condition_kind,
-                    resume_not_before) VALUES (
+                    resume_not_before,subject_id,activity_kind,origin_opportunity_id,
+                    privacy_scope,activity_created_at) VALUES (
                     %s, %s, 1, NULL, %s, %s, %s, %s,
-                    NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL)
+                    NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL,
+                    %s,%s,%s,%s,statement_timestamp())
                 """,
                 (
                     revision_id,
@@ -127,20 +118,12 @@ class PostgreSQLActivityCommit:
                     activity.next_safe_step,
                     activity.status.value,
                     context.scene_id,
+                    context.subject_id,
+                    activity.activity_kind,
+                    context.opportunity_id,
+                    activity.privacy_scope,
                 ),
             )
-            updated = await (
-                await transaction.execute(
-                    """
-                    UPDATE armi.activities SET current_revision_id = %s, head_version = 1
-                    WHERE activity_id = %s AND current_revision_id IS NULL AND head_version = 0
-                    RETURNING activity_id
-                    """,
-                    (revision_id, activity.activity_id),
-                )
-            ).fetchone()
-            if updated is None:
-                raise ActivityViolation("ACTIVITY-HEAD-STALE")
         if not decisions:
             return ActivityCommitResult(None, None, None, False)
         if len(decisions) != 1:
@@ -249,17 +232,23 @@ class PostgreSQLActivityCommit:
         commit_id: UUID,
         decision: CandidateActivityDecisionDraft,
     ) -> UUID:
+        await transaction.execute(
+            """SELECT activity_revision_id FROM armi.activity_revisions
+               WHERE activity_id=%s AND revision_no=1 FOR UPDATE""",
+            (decision.activity_id,),
+        )
         row = await (
             await transaction.execute(
                 """
-                SELECT activity.current_revision_id, activity.head_version,
+                SELECT revision.activity_revision_id, revision.revision_no,
                        revision.revision_no, revision.goal, revision.progress_summary,
-                       revision.next_safe_step, revision.status
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.activity_id = %s AND activity.subject_id = %s
-                FOR UPDATE OF activity
+                       revision.next_safe_step, revision.status,
+                       revision.subject_id,revision.activity_kind,
+                       revision.origin_opportunity_id,revision.origin_admin_change_id,
+                       revision.activity_created_at,revision.privacy_scope
+                FROM armi.activity_revisions AS revision
+                WHERE revision.activity_id = %s AND revision.subject_id = %s
+                  AND revision.is_current
                 """,
                 (decision.activity_id, context.subject_id),
             )
@@ -308,6 +297,11 @@ class PostgreSQLActivityCommit:
             else datetime.now(UTC) + timedelta(seconds=decision.delay_seconds)
         )
         await transaction.execute(
+            "UPDATE armi.activity_revisions SET is_current=false "
+            "WHERE activity_revision_id=%s",
+            (decision.current_revision_id,),
+        )
+        await transaction.execute(
             """
             INSERT INTO armi.activity_revisions (
                 activity_revision_id, activity_id, revision_no,
@@ -315,9 +309,11 @@ class PostgreSQLActivityCommit:
                 proposal_ref, goal, progress_summary, waiting_condition,
                 resumption_cue, next_safe_step, status, terminal_reason,
                 related_scene_id, transition_kind, waiting_condition_kind,
-                resume_not_before) VALUES (
+                resume_not_before,subject_id,activity_kind,origin_opportunity_id,
+                origin_admin_change_id,activity_created_at,privacy_scope) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, NULL, %s, %s, %s)
+                %s, %s, %s, %s, NULL, %s, %s, %s,
+                %s,%s,%s,%s,%s,%s)
             """,
             (
                 revision_id,
@@ -343,26 +339,9 @@ class PostgreSQLActivityCommit:
                 kind,
                 None if decision.waiting_kind is None else decision.waiting_kind.value,
                 resume_at,
+                *row[7:13],
             ),
         )
-        updated = await (
-            await transaction.execute(
-                """
-                UPDATE armi.activities
-                SET current_revision_id = %s, head_version = head_version + 1
-                WHERE activity_id = %s AND current_revision_id = %s AND head_version = %s
-                RETURNING activity_id
-                """,
-                (
-                    revision_id,
-                    decision.activity_id,
-                    decision.current_revision_id,
-                    decision.expected_head_version,
-                ),
-            )
-        ).fetchone()
-        if updated is None:
-            raise ActivityViolation("ACTIVITY-HEAD-STALE")
         return revision_id
 
 

@@ -143,18 +143,18 @@ class PostgreSQLActivityRead:
                                revision.waiting_condition,
                                revision.resume_not_before,
                                revision.terminal_reason,
-                               revision.revision_no, activity.head_version,
-                               revision.transition_kind, activity.created_at,
+                               revision.revision_no, activity.revision_no,
+                               revision.transition_kind, activity.activity_created_at,
                                revision.created_at
-                        FROM armi.activities AS activity
+                        FROM armi.activity_revisions AS activity
                         JOIN LATERAL (
                           SELECT candidate.* FROM armi.activity_revisions AS candidate
                           WHERE candidate.activity_id=activity.activity_id
                             AND candidate.created_at<=%s
                           ORDER BY candidate.revision_no DESC LIMIT 1
                         ) AS revision ON TRUE
-                        WHERE activity.subject_id = %s
-                          AND activity.created_at<=%s
+                        WHERE activity.subject_id = %s AND activity.is_current
+                          AND activity.activity_created_at<=%s
                           AND (%s::timestamptz IS NULL OR
                                (revision.created_at,activity.activity_id)<(%s,%s))
                         ORDER BY revision.created_at DESC, activity.activity_id DESC
@@ -225,8 +225,8 @@ class PostgreSQLActivityRead:
                 visible = await (
                     await connection.execute(
                         """
-                        SELECT 1 FROM armi.activities
-                        WHERE activity_id = %s AND subject_id = %s
+                        SELECT 1 FROM armi.activity_revisions
+                        WHERE activity_id = %s AND subject_id = %s AND is_current
                         """,
                         (activity_id, subject_id),
                     )
@@ -313,13 +313,11 @@ class PostgreSQLActivityRead:
         row = await (
             await transaction.execute(
                 """
-                SELECT activity.activity_id, activity.current_revision_id,
-                       activity.head_version, revision.status
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.activity_id = %s
-                  AND activity.current_revision_id = %s
+                SELECT revision.activity_id, revision.activity_revision_id,
+                       revision.revision_no, revision.status
+                FROM armi.activity_revisions AS revision
+                WHERE revision.is_current AND revision.activity_id = %s
+                  AND revision.activity_revision_id = %s
                   AND revision.revision_no = %s
                 """,
                 (activity_id, expected_revision_id, expected_revision_no),
@@ -343,16 +341,14 @@ class PostgreSQLActivityRead:
             rows = await (
                 await transaction.execute(
                     """
-                    SELECT activity.activity_id, activity.head_version,
+                    SELECT revision.activity_id, revision.revision_no,
                            revision.revision_no, revision.status,
                            revision.goal, revision.next_safe_step,
                            revision.progress_summary, revision.waiting_condition,
                            revision.resumption_cue
-                    FROM armi.activities AS activity
-                    JOIN armi.activity_revisions AS revision
-                      ON revision.activity_revision_id = activity.current_revision_id
-                    WHERE activity.subject_id = %s
-                    ORDER BY activity.activity_id
+                    FROM armi.activity_revisions AS revision
+                    WHERE revision.is_current AND revision.subject_id = %s
+                    ORDER BY revision.activity_id
                     """,
                     (subject_id,),
                 )
@@ -387,15 +383,13 @@ class PostgreSQLActivityRead:
         row = await (
             await transaction.execute(
                 """
-                SELECT activity.activity_id, revision.activity_revision_id,
-                       activity.head_version, revision.status, revision.revision_no,
+                SELECT revision.activity_id, revision.activity_revision_id,
+                       revision.revision_no, revision.status, revision.revision_no,
                        revision.goal, revision.next_safe_step,
                        revision.progress_summary, revision.waiting_condition,
                        revision.resumption_cue
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id=activity.current_revision_id
-                WHERE activity.subject_id=%s AND activity.activity_id=%s
+                FROM armi.activity_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id=%s AND revision.activity_id=%s
                 """,
                 (subject_id, activity_id),
             )
@@ -433,15 +427,13 @@ class PostgreSQLActivityRead:
         rows = await (
             await transaction.execute(
                 """
-                SELECT activity.activity_id, revision.activity_revision_id,
+                SELECT revision.activity_id, revision.activity_revision_id,
                        revision.revision_no, revision.status, revision.created_at,
                        revision.waiting_condition_kind,
                        revision.resume_not_before
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.subject_id = %s
-                ORDER BY revision.created_at, activity.activity_id
+                FROM armi.activity_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id = %s
+                ORDER BY revision.created_at, revision.activity_id
                 """,
                 (subject_id,),
             )
@@ -471,12 +463,10 @@ class PostgreSQLActivityRead:
         row = await (
             await transaction.execute(
                 """
-                SELECT activity.activity_id, revision.activity_revision_id,
+                SELECT revision.activity_id, revision.activity_revision_id,
                        revision.revision_no
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.subject_id = %s AND activity.activity_id = %s
+                FROM armi.activity_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id = %s AND revision.activity_id = %s
                   AND revision.status = 'in_progress'
                 """,
                 (subject_id, activity_id),
@@ -494,12 +484,10 @@ class PostgreSQLActivityRead:
         row = await (
             await transaction.execute(
                 """
-                SELECT revision.activity_revision_id, activity.head_version,
-                       activity.activity_id, revision.created_at
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.subject_id = %s
+                SELECT revision.activity_revision_id, revision.revision_no,
+                       revision.activity_id, revision.created_at
+                FROM armi.activity_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id = %s
                   AND revision.status = 'completed'
                   AND revision.created_at > %s
                 ORDER BY revision.created_at DESC, revision.activity_revision_id DESC
@@ -526,16 +514,14 @@ class PostgreSQLActivityRead:
         rows = await (
             await transaction.execute(
                 """
-                SELECT activity.activity_id,
+                SELECT revision.activity_id,
                        left(revision.goal || CASE WHEN revision.progress_summary IS NULL THEN '' ELSE ' — ' || revision.progress_summary END, 4096),
                        revision.created_at
-                FROM armi.activities AS activity
-                JOIN armi.activity_revisions AS revision
-                  ON revision.activity_revision_id = activity.current_revision_id
-                WHERE activity.subject_id = %s
+                FROM armi.activity_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id = %s
                   AND (%s::text IS NULL OR left(revision.goal || CASE WHEN revision.progress_summary IS NULL THEN '' ELSE ' — ' || revision.progress_summary END, 4096) ILIKE '%%' || %s::text || '%%')
-                  AND (%s::timestamptz IS NULL OR (revision.created_at, 'activity'::text, activity.activity_id) < (%s::timestamptz, %s::text, %s::uuid))
-                ORDER BY revision.created_at DESC, activity.activity_id DESC
+                  AND (%s::timestamptz IS NULL OR (revision.created_at, 'activity'::text, revision.activity_id) < (%s::timestamptz, %s::text, %s::uuid))
+                ORDER BY revision.created_at DESC, revision.activity_id DESC
                 LIMIT %s
                 """,
                 (
@@ -582,45 +568,40 @@ class PostgreSQLActivityRead:
         activity_id: UUID,
         expected_revision_id: UUID,
     ) -> UUID | None:
+        await transaction.execute(
+            """SELECT activity_revision_id FROM armi.activity_revisions
+               WHERE activity_id=%s AND revision_no=1 FOR UPDATE""",
+            (activity_id,),
+        )
         revision_id = uuid7()
         row = await (
             await transaction.execute(
-                """WITH current AS (
-                     SELECT activity.head_version, revision.*
-                     FROM armi.activities AS activity
-                     JOIN armi.activity_revisions AS revision
-                       ON revision.activity_revision_id=activity.current_revision_id
-                     WHERE activity.subject_id=%s AND activity.activity_id=%s
-                       AND activity.current_revision_id=%s
-                       AND revision.status='in_progress'
-                     FOR UPDATE OF activity
-                   ), inserted AS (
-                     INSERT INTO armi.activity_revisions (
-                       activity_revision_id,activity_id,revision_no,
-                       previous_revision_id,subject_commit_id,
-                       candidate_validation_id,proposal_ref,goal,
-                       progress_summary,waiting_condition,resumption_cue,
-                       next_safe_step,status,terminal_reason,related_scene_id,
-                       transition_kind,waiting_condition_kind,resume_not_before)
-                     SELECT %s,activity_id,revision_no+1,
-                       activity_revision_id,NULL,NULL,NULL,goal,progress_summary,
-                       '内部工作连续失败;等待定时复查',
-                       '定时复查后重新判断是否继续',next_safe_step,
-                       'paused',NULL,related_scene_id,'system_pause',
-                       'scheduled_review',statement_timestamp()+interval '60 seconds'
-                     FROM current RETURNING activity_id
+                """WITH retired AS (
+                     UPDATE armi.activity_revisions SET is_current=false
+                     WHERE subject_id=%s AND activity_id=%s
+                       AND activity_revision_id=%s AND is_current
+                       AND status='in_progress'
+                     RETURNING *
                    )
-                   UPDATE armi.activities AS activity
-                   SET current_revision_id=%s,head_version=head_version+1
-                   FROM inserted WHERE activity.activity_id=inserted.activity_id
-                   RETURNING activity.current_revision_id""",
-                (
-                    subject_id,
-                    activity_id,
-                    expected_revision_id,
-                    revision_id,
-                    revision_id,
-                ),
+                   INSERT INTO armi.activity_revisions (
+                     activity_revision_id,activity_id,revision_no,
+                     previous_revision_id,subject_commit_id,
+                     candidate_validation_id,proposal_ref,goal,
+                     progress_summary,waiting_condition,resumption_cue,
+                     next_safe_step,status,terminal_reason,related_scene_id,
+                     transition_kind,waiting_condition_kind,resume_not_before,
+                     subject_id,activity_kind,origin_opportunity_id,
+                     origin_admin_change_id,activity_created_at,privacy_scope)
+                   SELECT %s,activity_id,revision_no+1,
+                     activity_revision_id,NULL,NULL,NULL,goal,progress_summary,
+                     '内部工作连续失败;等待定时复查',
+                     '定时复查后重新判断是否继续',next_safe_step,
+                     'paused',NULL,related_scene_id,'system_pause',
+                     'scheduled_review',statement_timestamp()+interval '60 seconds',
+                     subject_id,activity_kind,origin_opportunity_id,
+                     origin_admin_change_id,activity_created_at,privacy_scope
+                   FROM retired RETURNING activity_revision_id""",
+                (subject_id, activity_id, expected_revision_id, revision_id),
             )
         ).fetchone()
         return None if row is None else row[0]

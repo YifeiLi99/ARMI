@@ -18,7 +18,7 @@ def _capabilities(
 
 _RUNTIME_INSERT = """
 autonomy_plans
-accepted_experiences activities
+accepted_experiences
 activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts audit_events
 codex_task_sources
@@ -34,7 +34,7 @@ durable_work effect_attempts effect_observations
 
 external_channel_bindings
 external_evidence external_message_parts interaction_scenes
-life_material_revisions life_materials
+life_material_revisions
 live_vision_observations
 
 live_voice_turns
@@ -46,7 +46,7 @@ prompt_revisions  relationship_revisions
  runtime_instances
 
 scene_timeline_items
-mind_revisions subject_component_revisions subjective_memories subjective_memory_revisions
+mind_revisions subject_component_revisions  subjective_memory_revisions
 subjects
 
 """
@@ -56,7 +56,7 @@ mood_revisions
 codex_task_sources
 
 autonomy_plans
-accepted_experiences activities
+accepted_experiences
 activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts
 
@@ -68,7 +68,7 @@ data_rights_order_items data_rights_orders durable_work effect_attempts
  effects
 external_channel_bindings
 external_evidence external_message_parts
-interaction_scenes life_material_revisions life_materials
+interaction_scenes life_material_revisions
 live_vision_observations
 
 live_voice_turns maintenance_sessions
@@ -76,7 +76,7 @@ opportunities parties party_input_interactions
   prompt_revisions relationship_revisions
 runtime_instances
  mind_revisions subject_component_revisions
-subjective_memories subjective_memory_revisions subjects
+ subjective_memory_revisions subjects
 
 """
 

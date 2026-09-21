@@ -22,13 +22,20 @@ class PostgreSQLActivityAdmin:
         context: AdminContentContext,
         command: AdminContentCommand,
     ) -> dict[str, Any]:
+        # Lock the permanent first revision before reading a replaceable current row.
+        tx.execute(
+            "SELECT activity_revision_id FROM armi.activity_revisions "
+            "WHERE activity_id=%s AND revision_no=1 FOR UPDATE",
+            (command.object_id,),
+        )
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT h.current_revision_id,h.head_version,r.status,r.goal,r.progress_summary "
-                "FROM armi.activities h LEFT JOIN armi.activity_revisions r "
-                "ON r.activity_revision_id=h.current_revision_id WHERE h.activity_id=%s "
-                "AND h.subject_id=%s FOR UPDATE OF h",
+                "SELECT r.activity_revision_id,r.revision_no,r.status,r.goal,r.progress_summary,"
+                "r.activity_kind,r.origin_opportunity_id,r.origin_admin_change_id,"
+                "r.activity_created_at,r.privacy_scope "
+                "FROM armi.activity_revisions r WHERE r.activity_id=%s "
+                "AND r.subject_id=%s AND r.is_current",
                 (command.object_id, context.subject_id),
             ).fetchone(),
         )
@@ -73,16 +80,17 @@ class PostgreSQLActivityAdmin:
                 raise ActivityViolation("ACTIVITY-ADMIN-PAYLOAD")
         revision = uuid7()
         version = command.expected_version + 1
-        if row is None:
+        if row is not None:
             tx.execute(
-                "INSERT INTO armi.activities (activity_id,subject_id,activity_kind,"
-                "privacy_scope,admin_change_id) VALUES (%s,%s,'self_directed','private',%s)",
-                (command.object_id, context.subject_id, context.change_id),
+                "UPDATE armi.activity_revisions SET is_current=false "
+                "WHERE activity_revision_id=%s",
+                (row[0],),
             )
         tx.execute(
             "INSERT INTO armi.activity_revisions (activity_revision_id,activity_id,revision_no,"
-            "previous_revision_id,admin_change_id,goal,progress_summary,next_safe_step,status,terminal_reason,transition_kind) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "previous_revision_id,admin_change_id,goal,progress_summary,next_safe_step,status,terminal_reason,transition_kind,"
+            "subject_id,activity_kind,origin_opportunity_id,origin_admin_change_id,activity_created_at,privacy_scope) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,statement_timestamp()),%s)",
             (
                 revision,
                 command.object_id,
@@ -99,21 +107,14 @@ class PostgreSQLActivityAdmin:
                 else "created"
                 if row is None
                 else "admin_update",
+                context.subject_id,
+                "self_directed" if row is None else row[5],
+                None if row is None else row[6],
+                context.change_id if row is None else row[7],
+                None if row is None else row[8],
+                "private" if row is None else row[9],
             ),
         )
-        result = tx.execute(
-            "UPDATE armi.activities SET current_revision_id=%s,head_version=%s "
-            "WHERE activity_id=%s AND current_revision_id IS NOT DISTINCT FROM %s AND head_version=%s",
-            (
-                revision,
-                version,
-                command.object_id,
-                None if row is None else row[0],
-                command.expected_version,
-            ),
-        )
-        if result.rowcount != 1:
-            raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
         return {
             "object_id": str(command.object_id),
             "revision_id": str(revision),

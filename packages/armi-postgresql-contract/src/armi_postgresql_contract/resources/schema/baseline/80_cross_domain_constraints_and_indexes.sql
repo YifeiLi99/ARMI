@@ -43,26 +43,11 @@ ALTER TABLE ONLY armi.effects
 
 
 
---
--- Name: activities activities_activity_id_subject_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activities
-    ADD CONSTRAINT activities_activity_id_subject_id_key UNIQUE (activity_id, subject_id);
 
---
--- Name: activities activities_origin_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activities
-    ADD CONSTRAINT activities_origin_opportunity_id_key UNIQUE (origin_opportunity_id);
 
---
--- Name: activities activities_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activities
-    ADD CONSTRAINT activities_pkey PRIMARY KEY (activity_id);
 
 
 
@@ -584,12 +569,7 @@ ALTER TABLE ONLY armi.life_material_revisions
 ALTER TABLE ONLY armi.life_material_revisions
     ADD CONSTRAINT life_material_revisions_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
 
---
--- Name: life_materials life_materials_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.life_materials
-    ADD CONSTRAINT life_materials_pkey PRIMARY KEY (life_material_id);
 
 --
 --
@@ -947,12 +927,7 @@ ALTER TABLE ONLY armi.subject_component_revisions
 ALTER TABLE ONLY armi.subject_component_revisions
     ADD CONSTRAINT subject_component_revisions_subject_id_component_kind_compo_key UNIQUE (subject_id, component_kind, component_version);
 
---
--- Name: subjective_memories subjective_memories_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.subjective_memories
-    ADD CONSTRAINT subjective_memories_pkey PRIMARY KEY (memory_id);
 
 --
 -- Name: subjective_memory_revisions subjective_memory_revisions_memory_id_memory_revision_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1206,11 +1181,7 @@ CREATE INDEX life_material_revisions_material_idx ON armi.life_material_revision
 
 CREATE INDEX life_material_revisions_title_trgm_idx ON armi.life_material_revisions USING gin (title armi_extensions.gin_trgm_ops);
 
---
--- Name: life_materials_subject_current_idx; Type: INDEX; Schema: armi; Owner: -
---
 
-CREATE INDEX life_materials_subject_current_idx ON armi.life_materials USING btree (subject_id, updated_at DESC, life_material_id) WHERE (deleted_at IS NULL);
 
 --
 -- Name: live_vision_one_open_session; Type: INDEX; Schema: armi; Owner: -
@@ -1326,11 +1297,7 @@ CREATE INDEX scene_timeline_items_page_idx ON armi.scene_timeline_items USING bt
 
 CREATE INDEX subject_component_revisions_payload_trgm_idx ON armi.subject_component_revisions USING gin (((semantic_payload)::text) armi_extensions.gin_trgm_ops);
 
---
--- Name: subjective_memories_subject_idx; Type: INDEX; Schema: armi; Owner: -
---
 
-CREATE INDEX subjective_memories_subject_idx ON armi.subjective_memories USING btree (subject_id, created_at DESC, memory_id);
 
 --
 -- Name: subjective_memory_revisions_memory_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1426,26 +1393,11 @@ ALTER TABLE ONLY armi.effects
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_intent_scene_owner_fkey FOREIGN KEY (scene_id, subject_id) REFERENCES armi.interaction_scenes(scene_id, subject_id);
 
---
--- Name: activities activities_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activities
-    ADD CONSTRAINT activities_current_revision_fk FOREIGN KEY (current_revision_id, activity_id) REFERENCES armi.activity_revisions(activity_revision_id, activity_id);
 
---
--- Name: activities activities_origin_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activities
-    ADD CONSTRAINT activities_origin_opportunity_id_fkey FOREIGN KEY (origin_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
---
--- Name: activities activities_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.activities
-    ADD CONSTRAINT activities_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 
 
@@ -1460,7 +1412,7 @@ ALTER TABLE ONLY armi.activities
 --
 
 ALTER TABLE ONLY armi.activity_revisions
-    ADD CONSTRAINT activity_revisions_activity_id_fkey FOREIGN KEY (activity_id) REFERENCES armi.activities(activity_id);
+    ADD CONSTRAINT activity_revisions_activity_id_fkey FOREIGN KEY (activity_id) REFERENCES armi.activity_revisions(root_activity_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: activity_revisions activity_revisions_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -1474,7 +1426,7 @@ ALTER TABLE ONLY armi.activity_revisions
 --
 
 ALTER TABLE ONLY armi.activity_revisions
-    ADD CONSTRAINT activity_revisions_previous_revision_id_activity_id_fkey FOREIGN KEY (previous_revision_id, activity_id) REFERENCES armi.activity_revisions(activity_revision_id, activity_id);
+    ADD CONSTRAINT activity_revisions_previous_revision_id_activity_id_fkey FOREIGN KEY (activity_id, previous_revision_id, subject_id, activity_created_at) REFERENCES armi.activity_revisions(activity_id, activity_revision_id, subject_id, activity_created_at) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: activity_revisions activity_revisions_related_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2021,14 +1973,14 @@ ALTER TABLE ONLY armi.life_material_revisions
 --
 
 ALTER TABLE ONLY armi.life_material_revisions
-    ADD CONSTRAINT life_material_revisions_life_material_id_fkey FOREIGN KEY (life_material_id) REFERENCES armi.life_materials(life_material_id);
+    ADD CONSTRAINT life_material_revisions_life_material_id_fkey FOREIGN KEY (life_material_id) REFERENCES armi.life_material_revisions(root_material_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: life_material_revisions life_material_revisions_previous_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.life_material_revisions
-    ADD CONSTRAINT life_material_revisions_previous_fk FOREIGN KEY (life_material_id, previous_revision_id) REFERENCES armi.life_material_revisions(life_material_id, life_material_revision_id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT life_material_revisions_previous_fk FOREIGN KEY (life_material_id, previous_revision_id, subject_id, owner_party_id, material_kind, material_created_at) REFERENCES armi.life_material_revisions(life_material_id, life_material_revision_id, subject_id, owner_party_id, material_kind, material_created_at) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: life_material_revisions life_material_revisions_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2037,27 +1989,12 @@ ALTER TABLE ONLY armi.life_material_revisions
 ALTER TABLE ONLY armi.life_material_revisions
     ADD CONSTRAINT life_material_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
---
--- Name: life_materials life_materials_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.life_materials
-    ADD CONSTRAINT life_materials_current_revision_fk FOREIGN KEY (life_material_id, current_revision_id) REFERENCES armi.life_material_revisions(life_material_id, life_material_revision_id) DEFERRABLE INITIALLY DEFERRED;
 
 
---
--- Name: life_materials life_materials_owner_party_id_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.life_materials
-    ADD CONSTRAINT life_materials_owner_party_id_subject_id_fkey FOREIGN KEY (owner_party_id, subject_id) REFERENCES armi.parties(party_id, represented_subject_id);
 
---
--- Name: life_materials life_materials_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.life_materials
-    ADD CONSTRAINT life_materials_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
 
 --
 -- Name: live_vision_observations live_vision_observation_evidence_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2228,7 +2165,7 @@ ALTER TABLE ONLY armi.mood_revisions
 --
 
 ALTER TABLE ONLY armi.opportunities
-    ADD CONSTRAINT opportunities_activity_owner_fkey FOREIGN KEY (activity_id, subject_id) REFERENCES armi.activities(activity_id, subject_id);
+    ADD CONSTRAINT opportunities_activity_owner_fkey FOREIGN KEY (activity_id, subject_id) REFERENCES armi.activity_revisions(root_activity_id, subject_id);
 
 --
 -- Name: opportunities opportunities_context_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2469,20 +2406,10 @@ ALTER TABLE ONLY armi.subject_component_revisions
 ALTER TABLE ONLY armi.subject_component_revisions
     ADD CONSTRAINT subject_component_revisions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: subjective_memories subjective_memories_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subjective_memories
-    ADD CONSTRAINT subjective_memories_current_revision_fk FOREIGN KEY (memory_id, current_revision_id) REFERENCES armi.subjective_memory_revisions(memory_id, memory_revision_id) DEFERRABLE INITIALLY DEFERRED;
 
 
---
--- Name: subjective_memories subjective_memories_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.subjective_memories
-    ADD CONSTRAINT subjective_memories_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
 
 --
 -- Name: subjective_memory_revisions subjective_memory_revisions_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2496,14 +2423,14 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 --
 
 ALTER TABLE ONLY armi.subjective_memory_revisions
-    ADD CONSTRAINT subjective_memory_revisions_memory_id_fkey FOREIGN KEY (memory_id) REFERENCES armi.subjective_memories(memory_id);
+    ADD CONSTRAINT subjective_memory_revisions_memory_id_fkey FOREIGN KEY (memory_id) REFERENCES armi.subjective_memory_revisions(root_memory_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: subjective_memory_revisions subjective_memory_revisions_previous_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.subjective_memory_revisions
-    ADD CONSTRAINT subjective_memory_revisions_previous_fk FOREIGN KEY (memory_id, previous_revision_id) REFERENCES armi.subjective_memory_revisions(memory_id, memory_revision_id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT subjective_memory_revisions_previous_fk FOREIGN KEY (memory_id, previous_revision_id, subject_id, memory_created_at) REFERENCES armi.subjective_memory_revisions(memory_id, memory_revision_id, subject_id, memory_created_at) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: subjective_memory_revisions subjective_memory_revisions_source_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2555,7 +2482,6 @@ ALTER TABLE armi.life_material_revisions ADD CONSTRAINT life_material_revisions_
 ALTER TABLE armi.subject_component_revisions ADD CONSTRAINT subject_component_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE armi.mood_revisions ADD CONSTRAINT mood_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
-ALTER TABLE armi.activities ADD CONSTRAINT activities_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 
 
@@ -2607,7 +2533,7 @@ ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_cogni
 
 ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
-ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_output_material_id_fkey FOREIGN KEY (output_material_id) REFERENCES armi.life_materials(life_material_id);
+ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_output_material_id_fkey FOREIGN KEY (output_material_id) REFERENCES armi.life_material_revisions(root_material_id);
 
 ALTER TABLE ONLY armi.subjects ADD CONSTRAINT subjects_birth_creator_fkey FOREIGN KEY (birth_creator_party_id) REFERENCES armi.parties(party_id) DEFERRABLE INITIALLY DEFERRED;
 
@@ -2665,7 +2591,7 @@ ALTER TABLE ONLY armi.relationship_revisions
     FOREIGN KEY (source_experience_id) REFERENCES armi.accepted_experiences(experience_id);
 ALTER TABLE ONLY armi.subjective_memory_revisions
     ADD CONSTRAINT subjective_memory_revisions_related_memory_fkey
-    FOREIGN KEY (related_memory_id) REFERENCES armi.subjective_memories(memory_id);
+    FOREIGN KEY (related_memory_id) REFERENCES armi.subjective_memory_revisions(root_memory_id);
 CREATE INDEX subjective_memory_revisions_related_memory_idx
     ON armi.subjective_memory_revisions (related_memory_id, created_at DESC)
     WHERE related_memory_id IS NOT NULL;
@@ -2686,7 +2612,7 @@ ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_scene_fk FOREI
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_maintenance_session_fk FOREIGN KEY (maintenance_session_id) REFERENCES armi.maintenance_sessions(maintenance_session_id);
 ALTER TABLE ONLY armi.cognitive_episodes
-    ADD CONSTRAINT cognitive_episodes_maintenance_memory_fk FOREIGN KEY (maintenance_memory_id) REFERENCES armi.subjective_memories(memory_id);
+    ADD CONSTRAINT cognitive_episodes_maintenance_memory_fk FOREIGN KEY (maintenance_memory_id) REFERENCES armi.subjective_memory_revisions(root_memory_id);
 CREATE UNIQUE INDEX cognitive_episodes_maintenance_phase_unique ON armi.cognitive_episodes (maintenance_session_id, maintenance_head_version) WHERE maintenance_session_id IS NOT NULL;
 
 CREATE UNIQUE INDEX prompt_revisions_current_kind ON armi.prompt_revisions (subject_id,prompt_kind) WHERE is_current;
@@ -2750,3 +2676,21 @@ ALTER TABLE ONLY armi.relationship_revisions
     ADD CONSTRAINT relationship_revisions_subject_party_fk FOREIGN KEY (subject_party_id) REFERENCES armi.parties(party_id),
     ADD CONSTRAINT relationship_revisions_other_party_fk FOREIGN KEY (other_party_id) REFERENCES armi.parties(party_id),
     ADD CONSTRAINT relationship_revisions_tombstone_fk FOREIGN KEY (tombstone_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
+
+CREATE UNIQUE INDEX subjective_memory_revisions_current_idx ON armi.subjective_memory_revisions (memory_id) WHERE is_current;
+CREATE INDEX subjective_memory_revisions_subject_current_idx ON armi.subjective_memory_revisions (subject_id, memory_created_at DESC, memory_id) WHERE is_current;
+ALTER TABLE armi.subjective_memory_revisions ADD CONSTRAINT subjective_memory_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+CREATE UNIQUE INDEX life_material_revisions_current_idx ON armi.life_material_revisions (life_material_id) WHERE is_current;
+CREATE INDEX life_material_revisions_subject_current_idx ON armi.life_material_revisions (subject_id, material_created_at DESC, life_material_id) WHERE is_current;
+ALTER TABLE armi.life_material_revisions ADD CONSTRAINT life_material_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+CREATE UNIQUE INDEX activity_revisions_current_idx ON armi.activity_revisions (activity_id) WHERE is_current;
+CREATE INDEX activity_revisions_subject_current_idx ON armi.activity_revisions (subject_id, activity_created_at DESC, activity_id) WHERE is_current;
+ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+ALTER TABLE armi.life_material_revisions ADD CONSTRAINT life_material_revisions_owner_fkey FOREIGN KEY (owner_party_id, subject_id) REFERENCES armi.parties(party_id, represented_subject_id);
+ALTER TABLE armi.subjective_memory_revisions ADD CONSTRAINT subjective_memory_revisions_tombstone_order_fkey FOREIGN KEY (tombstone_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
+ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_origin_opportunity_fkey FOREIGN KEY (origin_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
+ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_origin_admin_fkey FOREIGN KEY (origin_admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+CREATE UNIQUE INDEX activity_revisions_origin_opportunity_idx ON armi.activity_revisions (origin_opportunity_id) WHERE revision_no=1;
