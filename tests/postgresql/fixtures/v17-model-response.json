@@ -1,8 +1,0 @@
-{
-  "schema_version": "armi.model-response-artifact.v2",
-  "candidate": {
-    "schema_version": "armi.creator-cognitive-act-candidate.v3",
-    "kind": "no_change"
-  },
-  "output_text": "historical provider output"
-}

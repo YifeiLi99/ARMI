@@ -53,12 +53,10 @@ class SetupRequest(BaseModel):
         "update",
         "uninstall",
         "napcat",
-        "database_upgrade",
     ]
     enabled: bool | None = None
     delete_data: bool = False
     update: SetupUpdateRequest | None = None
-    upgrade_action: Literal["check", "apply", "status"] | None = None
     napcat: SetupNapcatRequest | None = None
     credential: SetupCredentialRequest | None = None
     personality_anchor: SetupAnchor | None = None
@@ -110,15 +108,6 @@ def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, 
             if request.update is None:
                 raise SetupError("UPDATE-REQUEST-REQUIRED")
             return application.update(request.update.action, request.update.enabled)
-        if request.action == "database_upgrade":
-            from .database_upgrade import database_upgrade
-
-            if request.upgrade_action is None:
-                raise SetupError("SETUP-UPGRADE-ACTION-REQUIRED")
-            result = database_upgrade(application.paths, request.upgrade_action)
-            if request.upgrade_action == "apply":
-                application.close()
-            return result
         if request.action == "uninstall":
             return application.uninstall(delete_data=request.delete_data)
         if request.action == "napcat":

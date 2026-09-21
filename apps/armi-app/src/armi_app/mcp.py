@@ -39,7 +39,6 @@ _SETUP_FIELDS = {
     "credential": ("credential",),
     "login_startup": ("enabled",),
     "update": ("update",),
-    "database_upgrade": ("upgrade_action",),
     "uninstall": ("delete_data",),
     "napcat": ("napcat",),
 }

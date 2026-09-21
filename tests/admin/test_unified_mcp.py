@@ -48,6 +48,11 @@ async def test_real_stdio_discovers_all_groups_before_environment_preparation(
             "setup_prepare",
         } <= names
         assert "setup_admin" not in names
+        assert "setup_database_upgrade" not in names
+        removed = await client.call_tool(
+            "setup_database_upgrade", {"upgrade_action": "apply"}
+        )
+        assert removed.is_error
         first = await client.call_tool("setup_status", {})
         second = await client.call_tool("setup_status", {})
         assert (

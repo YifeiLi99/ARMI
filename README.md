@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v31`，支持精确 v21–v30 → v31 保留数据升级 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v31`，只维护最新数据库 |
 | 物理 schema | 当前 baseline 105 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -66,7 +66,7 @@ Qwen/DeepSeek 文本返回仅在 JSON 或候选结构不合格时，使用完全
 
 自主生活采用两段认知：空闲且人类回复结束后安静满 60 秒，先运行只返回 `{"engage":bool}` 的轻量判断，连续不行动按 1→2→5 分钟退避。只有值得进一步思考时才运行完整自主认知，推进活动、使用工具或选择 1–3 条主动消息；完整认知也可沉默。取消每日额度及模型设置全局下次时间，具体活动仍保留自身等待条件。新输入优先并取消未提交的自主认知，技术失败只记日志，不发聊天错误消息。
 
-`autonomy` 配置只保留 `enabled` 与 `outlet`。CLI/MCP 自主状态、分页历史和 Creator 活动页共用阶段、下次检查、退避档位、最近判断、关联执行及两段 Provider 实测调用量、tokens 和耗时。精确合同、保数据升级和验证边界见 [DESIGN](DESIGN.md#轻量自主判断与完整认知)。
+`autonomy` 配置只保留 `enabled` 与 `outlet`。CLI/MCP 自主状态、分页历史和 Creator 活动页共用阶段、下次检查、退避档位、最近判断、关联执行及两段 Provider 实测调用量、tokens 和耗时。精确合同和验证边界见 [DESIGN](DESIGN.md#轻量自主判断与完整认知)。
 
 ## 仓库结构
 
@@ -86,7 +86,7 @@ tests/                          架构、合同、Runtime、PostgreSQL 与系统
 docs/                           私有设计和外部研究，Git 忽略
 ```
 
-Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；已有数据库只接受包内声明的精确前向升级路径，当前支持 v21–v30 → v31，不通过重装替代升级。
+Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；只维护最新数据库，不提供旧库升级。已有库合同不匹配时明确拒绝；清空重建须另获针对目标数据的明确授权。
 
 ## 日常启动
 
@@ -129,7 +129,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 该命令重新构建网页、wheels 和完整 payload，自动选择高于已安装版本与本地构建记录的四段版本，再签名并调用 Windows 安装。它仅使用 `YifeiLi99.ARMI.Acceptance` 身份和独立验收数据，软件显示名统一为 `ARMI`；已有环境先检查数据库合同，再通过 Admin 正常停机，停机失败则不请求更新。部署后核对 Windows 实际版本，关闭验收版的 GitHub 自动更新，保持环境停止，随后从开始菜单打开“ARMI”即可测试。构建默认使用已准备的离线依赖缓存；缺少依赖时失败，不自动联网补齐。
 
-默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。当前源码提供 v21–v30 → v31 精确前向升级；v27 将 Codex 持久化简化为委托与结果，保留历史制品和其他主体数据。源码变更不会自动更新安装版。此前独立签名测试包验证了 v16 到 v17 的升级、身份与凭据保留及中断状态；2026-09-15 经用户授权原位安装验收包 `2026.9.15.3` 并升级到 v19，数据库为 current、Runtime 与 QQ 为 ready，启动后新的自主认知完成。该历史记录不代表当前源码经过真实收费调用或 QQ 消息验收。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同相同才允许原位更新；合同不同时在部署前拒绝，不自动清库或重复出生。若决定丢弃旧数据，须另行明确授权清空并重建目标数据库。源码变更不会自动更新安装版。
 
 版本格式为 `年.月.日.当日序号`，例如 `2026.9.15.1`，日期取构建电脑的本地日期。同日序号高于发布配置、已安装版本及本地构建记录，换日从 1 开始。日期早于已知最高版本或同日序号达到 65535 时明确失败；旧 `0.1.0.x` 可直接升级到日期版本。本地生成的 release tag 同步为 `v<完整版本>`，不上传 GitHub。发布配置中的 `.0` 是未发布基准，正式发布需填写实际日期及序号并同步 tag。
 
@@ -238,7 +238,7 @@ interaction_config: C:/path/to/client.yaml
 - `admin_database_batch` 接受 `idempotency_key`、`reason` 和 `changes`。每项选择 `insert/update/delete`；更新和删除必须给出完整 `key` 及查询返回的 `expected_version`。所有项同事务提交，失败全部回滚。执行前正常停止业务进程，保留 PostgreSQL 并持有环境控制锁；完成后保持停止。
 - 身份、权限、审计、管理回执及其他受保护记录不能通过表管理修改。事务内的 `admin_data_changes` 回执不伪装成认知；中断后通过 `admin_invocation_reconcile` 核对，不盲目重放。
 
-本地安装脚本支持签名资源声明的精确数据库前向路径：部署新包后显式执行升级。也可使用 CLI setup 请求 `{"action":"database_upgrade","upgrade_action":"status"}`，或 MCP `setup_database_upgrade` 参数 `{"upgrade_action":"status"}`；支持 `check/apply/status`。正常启动不升级。数据库升级失败时保留数据，分别报告程序已部署与数据库未确认，不自动降级程序。
+只提供当前数据库的空库安装与校验，不提供数据库升级 CLI/MCP。程序更新不自动删除数据；旧库不兼容时停止并报告。
 
 日常内容使用 `admin_content_write`：指定 `change.owner`（`memory/relationship/material/subject_state/mood/prompt/activity`）、`action`、`object_id`、`expected_version`、内容及 `expected_generation_id`。从 `admin_database_catalog` 的 `online_management` 和 `admin_database_query` 读取对象及当前版本；对象版本与表维护返回的行版本标记不是同一字段。新增实体版本为 0；主体组件和心情只允许修改，`object_id` 使用主体 ID；人格锚点不可修改。活动可调整为 ready 或 paused，不能伪造已完成的现实效果。
 

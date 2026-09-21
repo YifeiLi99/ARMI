@@ -359,8 +359,6 @@ def synchronize_environment_incarnation(config: AdminConfig, incarnation: int) -
 
 def load_admin_config(
     environ: dict[str, str] | None = None,
-    *,
-    allow_supported_database_upgrade: bool = False,
 ) -> tuple[AdminConfig, Path]:
     """Load exactly one private YAML file named by ``ARMI_ADMIN_CONFIG``."""
 
@@ -408,16 +406,9 @@ def load_admin_config(
 
             bound = environment_binding(config.environment_root)
             bundle = ProgramBundle.read(identity.program_root)
-            from armi_postgresql_contract.upgrades import supported_upgrade
-
-            if bound.package_family != identity.family or (
-                bound.database != bundle.database
-                and not (
-                    allow_supported_database_upgrade
-                    and supported_upgrade(
-                        bound.database.model_dump(), bundle.database.model_dump()
-                    )
-                )
+            if (
+                bound.package_family != identity.family
+                or bound.database != bundle.database
             ):
                 raise AdminConfigError("ADMIN-CONFIG-PACKAGED-DATABASE-INCOMPATIBLE")
             config = config.model_copy(

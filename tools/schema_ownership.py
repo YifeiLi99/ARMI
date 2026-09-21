@@ -202,11 +202,10 @@ def scan_repository_dml_accesses(root: Path) -> tuple[DatabaseDmlAccess, ...]:
     for area in ("apps", "modules", "packages"):
         for path in (root / area).glob("*/src/**/*.py"):
             relative = path.relative_to(root)
-            # Installation and signed forward upgrades execute as armi_owner,
+            # Installation executes as armi_owner,
             # never as Runtime or the ordinary Admin data role.
             if relative.as_posix() in {
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/alembic_support.py",
-                "packages/armi-postgresql-contract/src/armi_postgresql_contract/upgrades.py",
             }:
                 continue
             role = execution_role_for_path(relative)
