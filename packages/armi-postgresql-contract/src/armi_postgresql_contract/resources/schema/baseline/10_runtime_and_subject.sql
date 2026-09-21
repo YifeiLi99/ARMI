@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v50'::text
+        baseline_identity = 'armi.schema-baseline.v51'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v50');
+VALUES ('armi.schema-baseline.v51');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -114,27 +114,6 @@ CREATE TABLE armi.prompt_revisions (
     CONSTRAINT prompt_revisions_admin_provenance CHECK (((admin_change_id IS NULL AND author_party_id IS NOT NULL) OR (admin_change_id IS NOT NULL AND author_party_id IS NULL AND subject_commit_id IS NULL)))
 );
 
---
--- Name: runtime_bundle_activations; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.runtime_bundle_activations (
-    bundle_activation_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    bundle_version text NOT NULL,
-    fixed_policy_digest text NOT NULL,
-    model_binding text,
-    status text NOT NULL,
-    activated_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    deactivated_at timestamp(6) with time zone,
-    activated_by_party_id uuid NOT NULL,
-    CONSTRAINT runtime_bundle_activations_bundle_activation_id_check CHECK ((uuid_extract_version(bundle_activation_id) = 7)),
-    CONSTRAINT runtime_bundle_activations_bundle_version_check CHECK ((bundle_version = '0.0.0'::text)),
-    CONSTRAINT runtime_bundle_activations_check CHECK ((((status = 'current'::text) AND (deactivated_at IS NULL)) OR ((status = 'superseded'::text) AND (deactivated_at IS NOT NULL)))),
-    CONSTRAINT runtime_bundle_activations_fixed_policy_digest_check CHECK ((fixed_policy_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT runtime_bundle_activations_model_binding_check CHECK ((model_binding IS NULL)),
-    CONSTRAINT runtime_bundle_activations_status_check CHECK ((status = ANY (ARRAY['current'::text, 'superseded'::text])))
-);
 
 --
 -- Name: runtime_instances; Type: TABLE; Schema: armi; Owner: -
@@ -261,7 +240,10 @@ CREATE TABLE armi.subjects (
     birth_idempotency_key text NOT NULL,
     birth_manifest_digest text NOT NULL,
     current_generation_id uuid NOT NULL,
-    current_bundle_activation_id uuid NOT NULL,
+    current_bundle_activation_id uuid NOT NULL UNIQUE,
+    birth_contract_digest text NOT NULL,
+    birth_creator_party_id uuid NOT NULL,
+    CONSTRAINT subjects_birth_contract_digest_check CHECK (birth_contract_digest ~ '^sha256:[0-9a-f]{64}$'),
     subject_version bigint DEFAULT 0 NOT NULL,
     state_epoch bigint DEFAULT 0 NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,

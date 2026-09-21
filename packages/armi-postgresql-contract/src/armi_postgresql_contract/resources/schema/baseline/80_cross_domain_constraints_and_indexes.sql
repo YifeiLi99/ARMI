@@ -1094,12 +1094,6 @@ ALTER TABLE ONLY armi.relationships
 ALTER TABLE ONLY armi.relationships
     ADD CONSTRAINT relationships_subject_id_other_party_id_scope_key UNIQUE (subject_id, other_party_id, scope);
 
---
--- Name: runtime_bundle_activations runtime_bundle_activations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_bundle_activations
-    ADD CONSTRAINT runtime_bundle_activations_pkey PRIMARY KEY (bundle_activation_id);
 
 --
 -- Name: runtime_instances runtime_instances_life_generation_id_fence_token_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1629,11 +1623,6 @@ CREATE INDEX relationships_active_other_party_idx ON armi.relationships USING bt
 
 CREATE INDEX relationships_subject_idx ON armi.relationships USING btree (subject_id, created_at DESC, relationship_id);
 
---
--- Name: runtime_bundle_one_current_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE UNIQUE INDEX runtime_bundle_one_current_idx ON armi.runtime_bundle_activations USING btree (subject_id) WHERE (status = 'current'::text);
 
 --
 -- Name: runtime_instances_one_active_generation_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2027,7 +2016,7 @@ ALTER TABLE ONLY armi.cognitive_context_items
 --
 
 ALTER TABLE ONLY armi.cognitive_episodes
-    ADD CONSTRAINT cognitive_episodes_bundle_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.runtime_bundle_activations(bundle_activation_id);
+    ADD CONSTRAINT cognitive_episodes_bundle_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.subjects(current_bundle_activation_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_compiled_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3118,26 +3107,14 @@ ALTER TABLE ONLY armi.relationships
 ALTER TABLE ONLY armi.relationships
     ADD CONSTRAINT relationships_tombstone_order_id_fkey FOREIGN KEY (tombstone_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
---
--- Name: runtime_bundle_activations runtime_bundle_activations_activated_by_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.runtime_bundle_activations
-    ADD CONSTRAINT runtime_bundle_activations_activated_by_party_id_fkey FOREIGN KEY (activated_by_party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: runtime_bundle_activations runtime_bundle_activations_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_bundle_activations
-    ADD CONSTRAINT runtime_bundle_activations_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: runtime_instances runtime_instances_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.runtime_instances
-    ADD CONSTRAINT runtime_instances_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.runtime_bundle_activations(bundle_activation_id);
+    ADD CONSTRAINT runtime_instances_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.subjects(current_bundle_activation_id);
 
 --
 -- Name: runtime_instances runtime_instances_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3221,7 +3198,7 @@ ALTER TABLE ONLY armi.sleep_decisions
 --
 
 ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.runtime_bundle_activations(bundle_activation_id);
+    ADD CONSTRAINT subject_commits_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.subjects(current_bundle_activation_id);
 
 --
 -- Name: subject_commits subject_commits_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3349,12 +3326,6 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 ALTER TABLE ONLY armi.subjective_memory_revisions
     ADD CONSTRAINT subjective_memory_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
---
--- Name: subjects subjects_current_activation_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subjects
-    ADD CONSTRAINT subjects_current_activation_fk FOREIGN KEY (current_bundle_activation_id) REFERENCES armi.runtime_bundle_activations(bundle_activation_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: subjects subjects_current_generation_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3469,3 +3440,5 @@ ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_cogni
 ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
 ALTER TABLE ONLY armi.activity_revisions ADD CONSTRAINT activity_revisions_output_material_id_fkey FOREIGN KEY (output_material_id) REFERENCES armi.life_materials(life_material_id);
+
+ALTER TABLE ONLY armi.subjects ADD CONSTRAINT subjects_birth_creator_fkey FOREIGN KEY (birth_creator_party_id) REFERENCES armi.parties(party_id) DEFERRABLE INITIALLY DEFERRED;

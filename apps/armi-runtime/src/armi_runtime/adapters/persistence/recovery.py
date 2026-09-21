@@ -286,10 +286,6 @@ class PostgreSQLRuntimeRecovery:
                   ON generation.life_generation_id = subject.current_generation_id
                  AND generation.subject_id = subject.subject_id
                  AND generation.status = 'active'
-                JOIN armi.runtime_bundle_activations AS activation
-                  ON activation.bundle_activation_id
-                   = subject.current_bundle_activation_id
-                 AND activation.status = 'current'
                 WHERE subject.singleton_key = 1
                   AND subject.status = 'active'
                   AND subject.subject_id = %s

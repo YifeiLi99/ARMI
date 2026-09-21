@@ -24,6 +24,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _RUNTIME_OWNER = DataRightsOwnerIdentity("runtime")
 _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
 _VERSION = DataRightsContributionVersion(1)
+_RUNTIME_VERSION = DataRightsContributionVersion(2)
 _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "admin_data_changes",
@@ -44,10 +45,6 @@ _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "life_generations",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.life_generations AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "runtime_bundle_activations",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.runtime_bundle_activations AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "runtime_instances",
@@ -75,7 +72,7 @@ class RuntimeDataRightsParticipant:
 
     @property
     def schema_version(self) -> DataRightsContributionVersion:
-        return _VERSION
+        return _RUNTIME_VERSION
 
     async def discover(
         self, transaction: PostgreSQLTransaction, request: DataRightsDiscoveryRequest
@@ -110,7 +107,7 @@ class RuntimeDataRightsParticipant:
             result.append(
                 DataRightsExportSegment(
                     _RUNTIME_OWNER,
-                    _VERSION,
+                    _RUNTIME_VERSION,
                     name,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(records),

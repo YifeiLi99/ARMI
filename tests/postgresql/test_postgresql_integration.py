@@ -476,8 +476,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("deployment_environments", "template_digest"),
     ("deployment_environments", "data_root_identity_digest"),
     ("deployment_environments", "database_identity_digest"),
-    ("runtime_bundle_activations", "fixed_prompt_set_digest"),
-    ("runtime_bundle_activations", "creator_asset_digest"),
     ("subject_commits", "change_set_digest"),
     ("subject_commits", "commit_digest"),
     ("subject_component_revisions", "semantic_digest"),
@@ -6433,7 +6431,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 SELECT
                     (SELECT count(*) FROM armi.subjects),
                     (SELECT count(*) FROM armi.life_generations),
-                    (SELECT count(*) FROM armi.runtime_bundle_activations),
                     (SELECT count(*) FROM armi.parties),
                     (SELECT count(*) FROM armi.prompt_documents),
                     (SELECT count(*) FROM armi.prompt_revisions),
@@ -6446,7 +6443,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.audit_events)
                 """
             ).fetchone()
-            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 2, 2, 1, 1, 1, 1, 2))
+            self.assertEqual(counts, (1, 1, 2, 3, 1, 2, 2, 1, 1, 1, 1, 2))
+            birth_identity = connection.execute(
+                """
+                SELECT current_bundle_activation_id, birth_contract_digest,
+                       birth_creator_party_id
+                FROM armi.subjects WHERE subject_id = %s
+                """,
+                (first.subject_id,),
+            ).fetchone()
+            self.assertEqual(
+                birth_identity,
+                (
+                    first.bundle_activation_id,
+                    packaged["birth_contract_digest"].value,
+                    manifest.creator_party_id,
+                ),
+            )
             self_payload = connection.execute(
                 """
                 SELECT semantic_payload
@@ -6463,18 +6476,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute("DELETE FROM armi.subjects")
             connection.rollback()
 
-        self.assertEqual(
-            probe_continuity(
-                fixture.runtime_dsn,
-                birth_contract_digest=packaged["birth_contract_digest"],
-                interaction=bootstrap_interaction_birth(),
-                subject_state=bootstrap_subject_state().birth,
-                mind=bootstrap_mind().birth,
-                mood=bootstrap_mood().birth,
-                prompts=bootstrap_prompt().birth,
-            ),
-            ContinuityState.BORN,
-        )
+        for contract_digest, expected_state in (
+            (packaged["birth_contract_digest"], ContinuityState.BORN),
+            (Digest.from_bytes(b"unknown-birth-contract"), ContinuityState.INVALID),
+        ):
+            self.assertEqual(
+                probe_continuity(
+                    fixture.runtime_dsn,
+                    birth_contract_digest=contract_digest,
+                    interaction=bootstrap_interaction_birth(),
+                    subject_state=bootstrap_subject_state().birth,
+                    mind=bootstrap_mind().birth,
+                    mood=bootstrap_mood().birth,
+                    prompts=bootstrap_prompt().birth,
+                ),
+                expected_state,
+            )
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             scene = connection.execute(
                 """

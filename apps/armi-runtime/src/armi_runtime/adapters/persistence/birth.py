@@ -49,7 +49,7 @@ def probe_continuity(
                 """
                 SELECT
                     subject.subject_id,
-                    activation.fixed_policy_digest,
+                    subject.birth_contract_digest,
                     (
                         SELECT count(*) FROM armi.life_generations
                         WHERE subject_id = subject.subject_id
@@ -61,9 +61,6 @@ def probe_continuity(
                     0::bigint,
                     0::bigint
                 FROM armi.subjects AS subject
-                JOIN armi.runtime_bundle_activations AS activation
-                  ON activation.bundle_activation_id =
-                     subject.current_bundle_activation_id
                 ORDER BY subject.singleton_key
                 """
             ).fetchall()
@@ -72,8 +69,6 @@ def probe_continuity(
                     """
                     SELECT
                         (SELECT count(*) FROM armi.life_generations)
-                      + (SELECT count(*) FROM armi.runtime_bundle_activations)
-                      + 0
                     """
                 ).fetchone()
                 interaction_counts = interaction.continuity(
@@ -253,8 +248,9 @@ class BirthRepository:
             INSERT INTO armi.subjects (
                 subject_id, singleton_key, birth_request_id,
                 birth_idempotency_key, birth_manifest_digest,
-                current_generation_id, current_bundle_activation_id
-            ) VALUES (%s, 1, %s, %s, %s, %s, %s)
+                current_generation_id, current_bundle_activation_id,
+                birth_contract_digest, birth_creator_party_id
+            ) VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 subject_id,
@@ -263,6 +259,8 @@ class BirthRepository:
                 manifest.request_digest.value,
                 generation_id,
                 activation_id,
+                manifest.birth_contract_digest.value,
+                manifest.creator_party_id,
             ),
         )
         await connection.execute(
@@ -278,23 +276,6 @@ class BirthRepository:
             unit_of_work.transaction,
             subject_id=subject_id,
             creator_party_id=manifest.creator_party_id,
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.runtime_bundle_activations (
-                bundle_activation_id, subject_id, bundle_version,
-                fixed_policy_digest,
-                status, activated_by_party_id
-            ) VALUES (
-                %s, %s, '0.0.0', %s, 'current', %s
-            )
-            """,
-            (
-                activation_id,
-                subject_id,
-                manifest.birth_contract_digest.value,
-                manifest.creator_party_id,
-            ),
         )
         await self._prompts.initialize(
             unit_of_work.transaction,

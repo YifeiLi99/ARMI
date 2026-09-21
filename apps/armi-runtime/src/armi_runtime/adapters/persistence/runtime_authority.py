@@ -496,18 +496,13 @@ class PostgreSQLRuntimeAuthority:
                 SELECT
                     subject.subject_id,
                     generation.life_generation_id,
-                    activation.bundle_activation_id
+                    subject.current_bundle_activation_id
                 FROM armi.subjects AS subject
                 JOIN armi.life_generations AS generation
                   ON generation.life_generation_id
                     = subject.current_generation_id
                  AND generation.subject_id = subject.subject_id
                  AND generation.status = 'active'
-                JOIN armi.runtime_bundle_activations AS activation
-                  ON activation.bundle_activation_id
-                    = subject.current_bundle_activation_id
-                 AND activation.subject_id = subject.subject_id
-                 AND activation.status = 'current'
                 WHERE subject.singleton_key = 1
                   AND subject.status = 'active'
                 """
