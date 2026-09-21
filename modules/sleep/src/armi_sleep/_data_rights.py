@@ -19,13 +19,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("sleep")
-_VERSION = DataRightsContributionVersion(4)
+_VERSION = DataRightsContributionVersion(5)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "maintenance_session_revisions",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.maintenance_session_revisions AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "maintenance_sessions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

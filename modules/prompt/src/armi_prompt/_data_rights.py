@@ -26,11 +26,6 @@ _OWNER = DataRightsOwnerIdentity("prompt")
 _VERSION = DataRightsContributionVersion(1)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
-        "prompt_documents",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.prompt_documents AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "prompt_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.prompt_revisions AS source ORDER BY to_jsonb(source)::text""",
@@ -57,22 +52,20 @@ class PostgreSQLPromptDataRightsParticipant:
         )
         rows = await (
             await transaction.execute(
-                """SELECT DISTINCT document.prompt_document_id
-                   FROM armi.prompt_documents AS document
-                   JOIN armi.prompt_revisions AS revision
-                     ON revision.prompt_document_id=document.prompt_document_id
-                   WHERE document.prompt_kind<>'personality_anchor'
+                """SELECT DISTINCT revision.prompt_document_id
+                   FROM armi.prompt_revisions AS revision
+                   WHERE revision.prompt_kind<>'personality_anchor'
                      AND (revision.author_party_id=%s
                           OR revision.subject_commit_id=ANY(%s::uuid[]))
-                   ORDER BY document.prompt_document_id""",
+                   ORDER BY revision.prompt_document_id""",
                 (request.party_id, list(commit_ids)),
             )
         ).fetchall()
         prompt_ids = tuple(row[0] for row in rows)
         anchor_rows = await (
             await transaction.execute(
-                """SELECT prompt_document_id FROM armi.prompt_documents
-                   WHERE prompt_kind='personality_anchor' AND status='active'
+                """SELECT prompt_document_id FROM armi.prompt_revisions
+                   WHERE prompt_kind='personality_anchor' AND status='active' AND is_current
                    ORDER BY prompt_document_id"""
             )
         ).fetchall()
@@ -114,11 +107,24 @@ class PostgreSQLPromptDataRightsParticipant:
             item.ref for item in request.related_refs if item.kind == "prompt"
         )
         if request.order_kind == "delete_related" and prompt_ids:
+            scopes = await (
+                await transaction.execute(
+                    "SELECT DISTINCT subject_id,prompt_kind FROM armi.prompt_revisions "
+                    "WHERE prompt_document_id=ANY(%s::uuid[]) "
+                    "AND prompt_kind<>'personality_anchor' ORDER BY subject_id,prompt_kind",
+                    (list(prompt_ids),),
+                )
+            ).fetchall()
+            for subject_id, prompt_kind in scopes:
+                await transaction.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                    (f"prompt:{subject_id}:{prompt_kind}",),
+                )
             await transaction.execute(
-                """UPDATE armi.prompt_documents
+                """UPDATE armi.prompt_revisions
                    SET status='inactive'
                    WHERE prompt_document_id=ANY(%s::uuid[])
-                     AND prompt_kind<>'personality_anchor'""",
+                     AND prompt_kind<>'personality_anchor' AND is_current""",
                 (list(prompt_ids),),
             )
         return DataRightsApplyContribution(

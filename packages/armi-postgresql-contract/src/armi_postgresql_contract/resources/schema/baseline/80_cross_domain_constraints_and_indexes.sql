@@ -639,43 +639,18 @@ ALTER TABLE ONLY armi.live_voice_turns
 
 
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_candidate_application_id_key UNIQUE (candidate_application_id);
-
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_candidate_validation_id_key UNIQUE (candidate_validation_id);
-
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
 
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_opportunity_id_key UNIQUE (opportunity_id);
 
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_subject_commit_id_key UNIQUE (subject_commit_id);
 
---
--- Name: maintenance_session_revisions maintenance_session_revisions_maintenance_revision_id_maint_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_session_revisions_maintenance_revision_id_maint_key UNIQUE (maintenance_revision_id, maintenance_session_id);
 
---
--- Name: maintenance_session_revisions maintenance_session_revisions_maintenance_session_id_revisi_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_session_revisions_maintenance_session_id_revisi_key UNIQUE (maintenance_session_id, revision_no);
 
---
--- Name: maintenance_session_revisions maintenance_session_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_session_revisions_pkey PRIMARY KEY (maintenance_revision_id);
+
+
 
 --
 -- Name: maintenance_sessions maintenance_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -846,20 +821,6 @@ ALTER TABLE ONLY armi.party_input_interactions
 
 
 --
--- Name: prompt_documents prompt_documents_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_documents
-    ADD CONSTRAINT prompt_documents_pkey PRIMARY KEY (prompt_document_id);
-
---
--- Name: prompt_documents prompt_documents_subject_id_prompt_kind_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_documents
-    ADD CONSTRAINT prompt_documents_subject_id_prompt_kind_key UNIQUE (subject_id, prompt_kind);
-
---
 -- Name: prompt_revisions prompt_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -872,13 +833,6 @@ ALTER TABLE ONLY armi.prompt_revisions
 
 ALTER TABLE ONLY armi.prompt_revisions
     ADD CONSTRAINT prompt_revisions_prompt_document_id_revision_no_key UNIQUE (prompt_document_id, revision_no);
-
---
--- Name: prompt_revisions prompt_revisions_prompt_revision_id_prompt_document_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_revisions
-    ADD CONSTRAINT prompt_revisions_prompt_revision_id_prompt_document_id_key UNIQUE (prompt_revision_id, prompt_document_id);
 
 --
 --
@@ -945,19 +899,7 @@ ALTER TABLE ONLY armi.runtime_instances
 ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_pkey PRIMARY KEY (runtime_instance_id);
 
---
--- Name: scene_participants scene_participants_identity_unique; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.scene_participants
-    ADD CONSTRAINT scene_participants_identity_unique UNIQUE (scene_id, subject_id, party_id);
-
---
--- Name: scene_participants scene_participants_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.scene_participants
-    ADD CONSTRAINT scene_participants_pkey PRIMARY KEY (scene_id, party_id);
 
 --
 -- Name: scene_timeline_items scene_timeline_items_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1506,11 +1448,11 @@ ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_intent_root_fkey FOREIGN KEY (root_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 --
--- Name: effects effects_intent_scene_participant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: effects effects_intent_scene_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_intent_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, context_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
+    ADD CONSTRAINT effects_intent_scene_owner_fkey FOREIGN KEY (scene_id, subject_id) REFERENCES armi.interaction_scenes(scene_id, subject_id);
 
 --
 -- Name: activities activities_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -1771,11 +1713,11 @@ ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_opportunity_owner_fkey FOREIGN KEY (opportunity_id, subject_id) REFERENCES armi.opportunities(opportunity_id, subject_id);
 
 --
--- Name: cognitive_episodes cognitive_episodes_scene_participant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: cognitive_episodes cognitive_episodes_scene_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognitive_episodes
-    ADD CONSTRAINT cognitive_episodes_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, context_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
+    ADD CONSTRAINT cognitive_episodes_scene_owner_fkey FOREIGN KEY (scene_id, subject_id) REFERENCES armi.interaction_scenes(scene_id, subject_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_subject_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2222,46 +2164,19 @@ ALTER TABLE ONLY armi.live_voice_turns
 
 
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
-
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
-
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_memory_id_fkey FOREIGN KEY (memory_id) REFERENCES armi.subjective_memories(memory_id);
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
---
--- Name: maintenance_session_revisions maintenance_session_revisions_maintenance_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_session_revisions_maintenance_session_id_fkey FOREIGN KEY (maintenance_session_id) REFERENCES armi.maintenance_sessions(maintenance_session_id);
 
---
--- Name: maintenance_session_revisions maintenance_session_revisions_previous_revision_id_mainten_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_session_revisions_previous_revision_id_mainten_fkey FOREIGN KEY (previous_revision_id, maintenance_session_id) REFERENCES armi.maintenance_session_revisions(maintenance_revision_id, maintenance_session_id);
 
---
--- Name: maintenance_sessions maintenance_sessions_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_sessions
-    ADD CONSTRAINT maintenance_sessions_current_revision_fk FOREIGN KEY (current_revision_id, maintenance_session_id) REFERENCES armi.maintenance_session_revisions(maintenance_revision_id, maintenance_session_id) DEFERRABLE INITIALLY DEFERRED;
+
+
 
 
 --
@@ -2390,11 +2305,11 @@ ALTER TABLE ONLY armi.opportunities
     ADD CONSTRAINT opportunities_root_fkey FOREIGN KEY (root_opportunity_id) REFERENCES armi.opportunities(opportunity_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
--- Name: opportunities opportunities_scene_participant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: opportunities opportunities_scene_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.opportunities
-    ADD CONSTRAINT opportunities_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, context_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
+    ADD CONSTRAINT opportunities_scene_owner_fkey FOREIGN KEY (scene_id, subject_id) REFERENCES armi.interaction_scenes(scene_id, subject_id);
 
 --
 -- Name: opportunities opportunities_subject_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2425,11 +2340,11 @@ ALTER TABLE ONLY armi.party_input_interactions
     ADD CONSTRAINT party_input_interactions_party_fkey FOREIGN KEY (source_party_id) REFERENCES armi.parties(party_id);
 
 --
--- Name: party_input_interactions party_input_interactions_scene_participant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: party_input_interactions party_input_interactions_scene_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.party_input_interactions
-    ADD CONSTRAINT party_input_interactions_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, source_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
+    ADD CONSTRAINT party_input_interactions_scene_owner_fkey FOREIGN KEY (scene_id, subject_id) REFERENCES armi.interaction_scenes(scene_id, subject_id);
 
 --
 --
@@ -2470,20 +2385,6 @@ ALTER TABLE ONLY armi.party_input_interactions
 --
 
 
-
---
--- Name: prompt_documents prompt_documents_current_revision_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_documents
-    ADD CONSTRAINT prompt_documents_current_revision_owner_fkey FOREIGN KEY (current_revision_id, prompt_document_id) REFERENCES armi.prompt_revisions(prompt_revision_id, prompt_document_id) DEFERRABLE INITIALLY DEFERRED;
-
---
--- Name: prompt_documents prompt_documents_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_documents
-    ADD CONSTRAINT prompt_documents_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: prompt_revisions prompt_revisions_author_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2498,20 +2399,6 @@ ALTER TABLE ONLY armi.prompt_revisions
 
 ALTER TABLE ONLY armi.prompt_revisions
     ADD CONSTRAINT prompt_revisions_content_artifact_id_fkey FOREIGN KEY (content_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: prompt_revisions prompt_revisions_previous_revision_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_revisions
-    ADD CONSTRAINT prompt_revisions_previous_revision_owner_fkey FOREIGN KEY (previous_revision_id, prompt_document_id) REFERENCES armi.prompt_revisions(prompt_revision_id, prompt_document_id);
-
---
--- Name: prompt_revisions prompt_revisions_prompt_document_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.prompt_revisions
-    ADD CONSTRAINT prompt_revisions_prompt_document_id_fkey FOREIGN KEY (prompt_document_id) REFERENCES armi.prompt_documents(prompt_document_id);
 
 --
 -- Name: prompt_revisions prompt_revisions_subject_commit_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2609,19 +2496,7 @@ ALTER TABLE ONLY armi.runtime_instances
 ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: scene_participants scene_participants_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.scene_participants
-    ADD CONSTRAINT scene_participants_party_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: scene_participants scene_participants_scene_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.scene_participants
-    ADD CONSTRAINT scene_participants_scene_fkey FOREIGN KEY (scene_id, subject_id) REFERENCES armi.interaction_scenes(scene_id, subject_id);
 
 --
 -- Name: scene_timeline_items scene_timeline_items_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2895,3 +2770,65 @@ CREATE INDEX accepted_experiences_evidence_links_idx ON armi.accepted_experience
 ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_creator_party_fk FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
 ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_scene_fk FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_maintenance_session_fk FOREIGN KEY (maintenance_session_id) REFERENCES armi.maintenance_sessions(maintenance_session_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_maintenance_memory_fk FOREIGN KEY (maintenance_memory_id) REFERENCES armi.subjective_memories(memory_id);
+CREATE UNIQUE INDEX cognitive_episodes_maintenance_phase_unique ON armi.cognitive_episodes (maintenance_session_id, maintenance_head_version) WHERE maintenance_session_id IS NOT NULL;
+
+CREATE UNIQUE INDEX prompt_revisions_current_kind ON armi.prompt_revisions (subject_id,prompt_kind) WHERE is_current;
+ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_subject_kind_version_key UNIQUE (subject_id,prompt_kind,revision_no);
+ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_identity_key UNIQUE (prompt_revision_id,prompt_document_id,subject_id,prompt_kind);
+ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_previous_identity_fk FOREIGN KEY (previous_revision_id,prompt_document_id,subject_id,prompt_kind) REFERENCES armi.prompt_revisions(prompt_revision_id,prompt_document_id,subject_id,prompt_kind);
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_context_party_fkey FOREIGN KEY (context_party_id) REFERENCES armi.parties(party_id);
+
+-- Scene identity is checked against its owner and actual input facts, without a
+-- separately maintained participant list (DESIGN.md).
+CREATE FUNCTION armi.check_scene_party() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+DECLARE
+    party_ref uuid := (to_jsonb(NEW)->>TG_ARGV[0])::uuid;
+    primary_ref uuid;
+    kind text;
+BEGIN
+    IF NEW.scene_id IS NULL OR party_ref IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT primary_party_id, scene_kind INTO primary_ref, kind
+    FROM armi.interaction_scenes
+    WHERE scene_id=NEW.scene_id AND subject_id=NEW.subject_id;
+    IF primary_ref=party_ref THEN
+        RETURN NEW;
+    END IF;
+    IF kind='group_dialogue' AND (
+        (TG_TABLE_NAME='party_input_interactions' AND EXISTS (
+            SELECT 1 FROM armi.parties
+            WHERE party_id=party_ref AND party_kind IN ('creator','other_human')
+        )) OR EXISTS (
+            SELECT 1 FROM armi.party_input_interactions
+            WHERE scene_id=NEW.scene_id AND source_party_id=party_ref
+        )
+    ) THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'scene party does not match scene or accepted input'
+        USING ERRCODE='23503';
+END;
+$$;
+
+CREATE TRIGGER party_input_scene_party_check
+    BEFORE INSERT OR UPDATE OF scene_id, subject_id, source_party_id ON armi.party_input_interactions
+    FOR EACH ROW EXECUTE FUNCTION armi.check_scene_party('source_party_id');
+CREATE TRIGGER opportunity_scene_party_check
+    BEFORE INSERT OR UPDATE OF scene_id, subject_id, context_party_id ON armi.opportunities
+    FOR EACH ROW EXECUTE FUNCTION armi.check_scene_party('context_party_id');
+CREATE TRIGGER cognition_scene_party_check
+    BEFORE INSERT OR UPDATE OF scene_id, subject_id, context_party_id ON armi.cognitive_episodes
+    FOR EACH ROW EXECUTE FUNCTION armi.check_scene_party('context_party_id');
+CREATE TRIGGER effect_scene_party_check
+    BEFORE INSERT OR UPDATE OF scene_id, subject_id, context_party_id ON armi.effects
+    FOR EACH ROW EXECUTE FUNCTION armi.check_scene_party('context_party_id');

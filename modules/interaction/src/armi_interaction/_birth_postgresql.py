@@ -73,14 +73,6 @@ class PostgreSQLInteractionBirth:
             """,
             (default_scene_id, subject_id, creator_party_id),
         )
-        await transaction.execute(
-            """
-            INSERT INTO armi.scene_participants (
-                scene_id, subject_id, party_id, participant_role)
-            VALUES (%s, %s, %s, 'primary')
-            """,
-            (default_scene_id, subject_id, creator_party_id),
-        )
 
 
 __all__ = ("PostgreSQLInteractionBirth",)

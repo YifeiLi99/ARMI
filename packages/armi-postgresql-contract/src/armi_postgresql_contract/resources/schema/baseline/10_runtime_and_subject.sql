@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v65'::text
+        baseline_identity = 'armi.schema-baseline.v66'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v65');
+VALUES ('armi.schema-baseline.v66');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -52,31 +52,22 @@ CREATE TABLE armi.deployment_environments (
 
 
 --
--- Name: prompt_documents; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.prompt_documents (
-    prompt_document_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    prompt_kind text NOT NULL,
-    write_authority text NOT NULL,
-    current_revision_id uuid,
-    status text DEFAULT 'active'::text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    CONSTRAINT prompt_documents_check CHECK ((((prompt_kind = 'personality_anchor'::text) AND (write_authority = 'fixed'::text)) OR ((prompt_kind = 'creator_guidance'::text) AND (write_authority = 'creator'::text)) OR ((prompt_kind = 'subject_guidance'::text) AND (write_authority = 'subject'::text)))),
-    CONSTRAINT prompt_documents_check1 CHECK ((((prompt_kind = 'personality_anchor'::text) AND (status = 'active'::text) AND (current_revision_id IS NOT NULL)) OR (prompt_kind <> 'personality_anchor'::text))),
-    CONSTRAINT prompt_documents_check2 CHECK (((status = 'active'::text) OR (current_revision_id IS NOT NULL))),
-    CONSTRAINT prompt_documents_prompt_document_id_check CHECK ((uuid_extract_version(prompt_document_id) = 7)),
-    CONSTRAINT prompt_documents_prompt_kind_check CHECK ((prompt_kind = ANY (ARRAY['personality_anchor'::text, 'creator_guidance'::text, 'subject_guidance'::text]))),
-    CONSTRAINT prompt_documents_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text]))),
-    CONSTRAINT prompt_documents_write_authority_check CHECK ((write_authority = ANY (ARRAY['fixed'::text, 'creator'::text, 'subject'::text])))
-);
-
---
 -- Name: prompt_revisions; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.prompt_revisions (
+    subject_id uuid NOT NULL,
+    prompt_kind text NOT NULL,
+    status text DEFAULT 'active' NOT NULL,
+    is_current boolean DEFAULT true NOT NULL,
+    CONSTRAINT prompt_revisions_kind_check CHECK (prompt_kind IN ('personality_anchor','creator_guidance','subject_guidance')),
+    CONSTRAINT prompt_revisions_status_check CHECK (status IN ('active','inactive')),
+    CONSTRAINT prompt_revisions_anchor_check CHECK (prompt_kind <> 'personality_anchor' OR (status='active' AND change_reason='birth' AND revision_no=1 AND admin_change_id IS NULL)),
+    CONSTRAINT prompt_revisions_kind_reason_check CHECK (
+        (change_reason='birth' AND prompt_kind='personality_anchor') OR
+        (change_reason IN ('subject_created','subject_revised') AND prompt_kind='subject_guidance') OR
+        (change_reason IN ('created','revised','deactivated') AND (prompt_kind='creator_guidance' OR admin_change_id IS NOT NULL))),
+    CONSTRAINT prompt_revisions_document_id_check CHECK (uuid_extract_version(prompt_document_id)=7),
     prompt_revision_id uuid NOT NULL,
     prompt_document_id uuid NOT NULL,
     revision_no bigint NOT NULL,

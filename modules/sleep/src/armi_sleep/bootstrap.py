@@ -67,6 +67,7 @@ def bootstrap_sleep(
         creator_party_id=creator_party_id,
         environment_id=environment_id,
         cursor_key=cursor_key,
+        decisions=decisions,
     )
     return SleepModule(
         query,

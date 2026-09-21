@@ -92,3 +92,30 @@ def test_creator_prompt_view_carries_trusted_content_without_digest() -> None:
     )
 
     assert view.content == "真实内容"
+
+
+def test_unset_creator_prompt_has_no_document_identity() -> None:
+    view = CreatorPromptView(
+        prompt_document_id=None,
+        prompt_kind=PromptKind.CREATOR_GUIDANCE,
+        status=PromptDocumentStatus.ACTIVE,
+        current_revision_id=None,
+        revision_no=None,
+        previous_revision_id=None,
+        revision_kind=None,
+        content=None,
+        activated_at=None,
+    )
+    assert view.prompt_document_id is None
+    with pytest.raises(CreatorPromptViolation, match="CON-PROMPT-VIEW"):
+        CreatorPromptView(
+            prompt_document_id=uuid7(),
+            prompt_kind=view.prompt_kind,
+            status=view.status,
+            current_revision_id=None,
+            revision_no=None,
+            previous_revision_id=None,
+            revision_kind=None,
+            content=None,
+            activated_at=None,
+        )

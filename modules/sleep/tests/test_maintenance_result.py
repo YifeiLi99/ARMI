@@ -20,7 +20,10 @@ from armi_sleep.api import (
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("target_exists", [True, False])
-async def test_phase_result_requires_an_unfinished_target(target_exists: bool) -> None:
+@pytest.mark.parametrize("result_saved", [True, False])
+async def test_phase_result_requires_an_unfinished_target(
+    target_exists: bool, result_saved: bool
+) -> None:
     revision_id = uuid7()
     context = SleepCommitContext(
         uuid7(),
@@ -52,7 +55,12 @@ async def test_phase_result_requires_an_unfinished_target(target_exists: bool) -
     transaction.execute.return_value.fetchone.return_value = (
         (revision_id,) if target_exists else None
     )
-    commit = PostgreSQLSleepCommit(SleepApplication(), AsyncMock())
+    decisions = AsyncMock()
+    if not result_saved:
+        decisions.record_maintenance_result.side_effect = SleepViolation(
+            "SLEEP-MAINTENANCE-COMMIT"
+        )
+    commit = PostgreSQLSleepCommit(SleepApplication(), decisions)
     pending = commit.commit(
         cast(PostgreSQLTransaction, transaction),
         context=context,
@@ -61,8 +69,11 @@ async def test_phase_result_requires_an_unfinished_target(target_exists: bool) -
         resulting_subject_version=1,
         drafts=(decision,),
     )
-    if target_exists:
+    if target_exists and result_saved:
         await pending
     else:
         with pytest.raises(SleepViolation, match="SLEEP-MAINTENANCE-COMMIT"):
             await pending
+    decisions.record_maintenance_result.assert_awaited_once()
+    if not result_saved:
+        transaction.execute.assert_not_awaited()

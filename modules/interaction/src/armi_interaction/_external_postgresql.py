@@ -125,16 +125,6 @@ class ExternalMessageInputRepository:
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-CREATOR-SCENE")
         await connection.execute(
             """
-            INSERT INTO armi.scene_participants (
-                scene_id, subject_id, party_id, participant_role
-            ) VALUES (%s, %s, %s, 'primary')
-            ON CONFLICT (scene_id, party_id)
-            DO UPDATE SET last_observed_at = statement_timestamp()
-            """,
-            (scene[0], subject_id, creator[0]),
-        )
-        await connection.execute(
-            """
             INSERT INTO armi.external_channel_bindings (
                 external_binding_id, channel_kind, account_key,
                 external_kind, external_key, identity_match_token,
@@ -544,16 +534,6 @@ class ExternalMessageInputRepository:
             scene_id = scene[0]
         else:
             scene_id = person[3]
-        await execute(
-            """
-            INSERT INTO armi.scene_participants (
-                scene_id, subject_id, party_id, participant_role
-            ) VALUES (%s, %s, %s, 'primary')
-            ON CONFLICT (scene_id, party_id)
-            DO UPDATE SET last_observed_at = statement_timestamp()
-            """,
-            (scene_id, subject_id, person[1]),
-        )
         if person[2] == "creator":
             return ExternalMessageInputContext(
                 person[0],
@@ -626,16 +606,6 @@ class ExternalMessageInputRepository:
         ).fetchone()
         if scene is None:
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-SCENE")
-        await execute(
-            """
-            INSERT INTO armi.scene_participants (
-                scene_id, subject_id, party_id, participant_role
-            ) VALUES (%s,%s,%s,'primary'),(%s,%s,%s,'member')
-            ON CONFLICT (scene_id, party_id)
-            DO UPDATE SET last_observed_at = statement_timestamp()
-            """,
-            (scene[0], scene[1], group_party[0], scene[0], scene[1], person[1]),
-        )
         await execute(
             """
             INSERT INTO armi.external_channel_bindings (

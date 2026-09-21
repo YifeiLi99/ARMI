@@ -103,20 +103,18 @@ class PostgreSQLSleepCommit:
         )
         rows = await (
             await transaction.execute(
-                """
-                SELECT session.maintenance_session_id
-                FROM armi.maintenance_sessions AS session
-                WHERE session.sleep_episode_id = %s
-                UNION
-                SELECT maintenance_session_id
-                FROM armi.maintenance_session_revisions
-                WHERE candidate_validation_id = %s
-                ORDER BY maintenance_session_id
-                """,
-                (episode_id, validation_id),
+                """SELECT maintenance_session_id FROM armi.maintenance_sessions
+                   WHERE sleep_episode_id=%s""",
+                (episode_id,),
             )
         ).fetchall()
-        return tuple(UUID(str(row[0])) for row in rows)
+        result_session = await self._decisions.maintenance_session_for_validation(
+            transaction, validation_id
+        )
+        sessions = {UUID(str(row[0])) for row in rows}
+        if result_session is not None:
+            sessions.add(result_session)
+        return tuple(sorted(sessions))
 
     def _decode(
         self,
@@ -197,16 +195,14 @@ class PostgreSQLSleepCommit:
                 """
                 SELECT 1
                 FROM armi.maintenance_sessions AS session
-                JOIN armi.maintenance_session_revisions AS revision
-                  ON revision.maintenance_revision_id = session.current_revision_id
-                 AND revision.maintenance_session_id = session.maintenance_session_id
                 WHERE session.maintenance_session_id = %s
                   AND session.subject_id = %s
                   AND session.current_revision_id = %s
                   AND session.head_version = %s
                   AND session.finished_at IS NULL
-                  AND revision.phase = %s
-                  AND revision.result_status = 'running'
+                  AND session.phase = %s
+                  AND session.result_status = 'running'
+                  AND session.phase_completed_at IS NULL
                 """,
                 (
                     decision.maintenance_session_id,
@@ -271,18 +267,9 @@ class PostgreSQLSleepCommit:
                 revision_id,
             ),
         )
-        await transaction.execute(
-            """
-            INSERT INTO armi.maintenance_session_revisions (
-                maintenance_revision_id, maintenance_session_id, revision_no,
-                previous_revision_id, phase, result_status, transition_kind)
-            VALUES (%s, %s, 1, NULL, 'preparing', 'running', 'started')
-            """,
-            (revision_id, session_id),
-        )
 
-    @staticmethod
     async def _record_maintenance_result(
+        self,
         transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
@@ -298,32 +285,25 @@ class PostgreSQLSleepCommit:
             if len(committed_memory_ids) != 1:
                 raise SleepViolation("SLEEP-MAINTENANCE-MEMORY")
             memory_id = committed_memory_ids[0]
+        await self._decisions.record_maintenance_result(
+            transaction,
+            context=context,
+            application_id=application_id,
+            commit_id=commit_id,
+            decision=decision,
+            memory_id=memory_id,
+        )
         updated = await transaction.execute(
-            """
-            UPDATE armi.maintenance_session_revisions
-            SET opportunity_id=%s, cognitive_episode_id=%s,
-                candidate_validation_id=%s, candidate_application_id=%s,
-                subject_commit_id=%s, expected_head_version=%s,
-                outcome=%s, result_summary=%s, creator_visible_problem=%s,
-                memory_id=%s, issue_target=%s, completed_at=statement_timestamp()
-            WHERE maintenance_session_id=%s AND maintenance_revision_id=%s
-              AND phase=%s AND outcome IS NULL
-            RETURNING maintenance_revision_id
-            """,
+            """UPDATE armi.maintenance_sessions
+               SET phase_completed_at=statement_timestamp(), updated_at=statement_timestamp()
+               WHERE maintenance_session_id=%s AND current_revision_id=%s
+                 AND head_version=%s AND phase=%s AND result_status='running'
+                 AND finished_at IS NULL AND phase_completed_at IS NULL
+               RETURNING maintenance_session_id""",
             (
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                application_id,
-                commit_id,
-                decision.expected_head_version,
-                decision.outcome.value,
-                decision.result_summary,
-                decision.creator_visible_problem,
-                memory_id,
-                decision.issue_target,
                 decision.maintenance_session_id,
                 decision.current_revision_id,
+                decision.expected_head_version,
                 decision.phase.value,
             ),
         )

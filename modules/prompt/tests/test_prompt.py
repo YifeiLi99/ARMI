@@ -83,16 +83,27 @@ class _PromptTransaction:
         self.revision_no = 0
 
     async def execute(self, query: str, params: tuple[object, ...] = ()) -> _Result:
-        if "FOR UPDATE OF document" in query:
-            return _Result((self.current_revision_id, self.revision_no))
+        if "pg_advisory_xact_lock" in query:
+            return _Result()
+        if "FOR UPDATE" in query:
+            return _Result(
+                None
+                if self.current_revision_id is None
+                else (
+                    self.current_revision_id,
+                    self.revision_no,
+                    self.document_id,
+                    "active",
+                )
+            )
         if "FROM armi.parties" in query:
             return _Result((self.subject_party_id,))
         if "INSERT INTO armi.prompt_revisions" in query:
-            return _Result()
-        if "UPDATE armi.prompt_documents" in query:
             self.current_revision_id = cast(UUID, params[0])
             self.revision_no += 1
-            return _Result((self.document_id,))
+            return _Result()
+        if "UPDATE armi.prompt_revisions SET is_current=false" in query:
+            return _Result()
         raise AssertionError(query)
 
 

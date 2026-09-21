@@ -1168,7 +1168,7 @@ class CreatorPromptDeactivateRequest(_StrictWireModel):
 class CreatorPromptResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     projection_version: Literal["creator-prompt.v1"]
-    prompt_document_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    prompt_document_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
     prompt_kind: Literal["creator_guidance"]
     status: Literal["active", "inactive"]
     current_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None

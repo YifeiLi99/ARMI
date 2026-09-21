@@ -43,7 +43,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "party_input_interactions": TableOwnership(
         "interaction", maintenance_writable=True
     ),
-    "scene_participants": TableOwnership("interaction", maintenance_writable=False),
     "scene_timeline_items": TableOwnership("interaction", maintenance_writable=True),
     # Local real-time voice custody.
     "live_voice_turns": TableOwnership("live-voice", maintenance_writable=True),
@@ -71,7 +70,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "subject_component_revisions": TableOwnership(
         "subject-state", maintenance_writable=True
     ),
-    "prompt_documents": TableOwnership("prompt", maintenance_writable=True),
     "prompt_revisions": TableOwnership("prompt", maintenance_writable=True),
     "mind_revisions": TableOwnership("mind", maintenance_writable=True),
     "mood_revisions": TableOwnership("mood", maintenance_writable=True),
@@ -85,7 +83,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "life_materials": TableOwnership("material", maintenance_writable=True),
     "activities": TableOwnership("activity", maintenance_writable=True),
     "activity_revisions": TableOwnership("activity", maintenance_writable=True),
-    "maintenance_session_revisions": TableOwnership("sleep", maintenance_writable=True),
     "maintenance_sessions": TableOwnership("sleep", maintenance_writable=True),
     # Expression, capability, and effect lifecycle.
     "effect_attempts": TableOwnership("effect", maintenance_writable=False),

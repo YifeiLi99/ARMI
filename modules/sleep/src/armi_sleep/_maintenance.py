@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
@@ -30,6 +31,8 @@ from .api import (
     SleepRuntimeFactsPort,
     SleepViolation,
 )
+
+_LOG = logging.getLogger(__name__)
 
 
 class PostgreSQLMaintenanceRepository:
@@ -108,16 +111,7 @@ class PostgreSQLMaintenanceRepository:
                 )
             ).fetchone()
             if inserted is not None:
-                await connection.execute(
-                    """
-                    INSERT INTO armi.maintenance_session_revisions (
-                        maintenance_revision_id, maintenance_session_id,
-                        revision_no, previous_revision_id, phase,
-                        result_status, transition_kind) VALUES (
-                        %s, %s, 1, NULL, 'preparing', 'running', 'started')
-                    """,
-                    (revision_id, session_id),
-                )
+                _LOG.info("maintenance started session=%s phase=preparing", session_id)
             await self._opportunities.cancel_sleep_source(
                 connection,
                 subject_id=fence.subject_id,
@@ -174,11 +168,9 @@ class PostgreSQLMaintenanceRepository:
                 """
                 SELECT session.maintenance_session_id, session.head_version,
                        session.wake_request_id, session.quiet_until,
-                       revision.maintenance_revision_id, revision.revision_no,
-                       revision.phase, revision.result_status
+                       session.current_revision_id, session.head_version,
+                       session.phase, session.result_status
                 FROM armi.maintenance_sessions AS session
-                JOIN armi.maintenance_session_revisions AS revision
-                  ON revision.maintenance_revision_id = session.current_revision_id
                 WHERE session.subject_id = %s
                   AND session.finished_at IS NULL
                 FOR UPDATE OF session
@@ -232,11 +224,11 @@ class PostgreSQLMaintenanceRepository:
                 await connection.execute(
                     """
                     SELECT 1
-                    FROM armi.maintenance_session_revisions
+                    FROM armi.maintenance_sessions
                     WHERE maintenance_session_id = %s
-                      AND maintenance_revision_id = %s
-                      AND expected_head_version = %s
-                      AND outcome IS NOT NULL
+                      AND current_revision_id = %s
+                      AND head_version = %s
+                      AND phase_completed_at IS NOT NULL
                     """,
                     (session_id, revision_id, head_version),
                 )
@@ -252,29 +244,13 @@ class PostgreSQLMaintenanceRepository:
                 )
                 if opportunity_id is None:
                     failed_revision_id = uuid7()
-                    await connection.execute(
-                        """
-                        INSERT INTO armi.maintenance_session_revisions (
-                            maintenance_revision_id, maintenance_session_id,
-                            revision_no, previous_revision_id, phase,
-                            result_status, transition_kind) VALUES (
-                            %s, %s, %s, %s, %s,
-                            'failed', 'system_failed')
-                        """,
-                        (
-                            failed_revision_id,
-                            session_id,
-                            revision_no + 1,
-                            revision_id,
-                            phase.value,
-                        ),
-                    )
                     failed_update = await connection.execute(
                         """
                         UPDATE armi.maintenance_sessions
                         SET current_revision_id = %s,
                             head_version = head_version + 1,
-                            finished_at = statement_timestamp()
+                            finished_at = statement_timestamp(),
+                            updated_at = statement_timestamp(), result_status = 'failed'
                         WHERE maintenance_session_id = %s
                           AND current_revision_id = %s
                           AND head_version = %s
@@ -289,19 +265,11 @@ class PostgreSQLMaintenanceRepository:
                     )
                     if failed_update.rowcount != 1:
                         raise SleepViolation("SLEEP-MAINTENANCE-STALE")
-                    await unit_of_work.audit.append(
-                        AuditDraft(
-                            AuditEventId(uuid7()),
-                            AuditReference("runtime", unit_of_work.environment_id),
-                            Purpose("life.maintenance.work"),
-                            "life.maintenance.work.failed",
-                            AuditReference("maintenance_session", session_id),
-                            AuditResultStatus.FAILED,
-                            TraceId(failed_revision_id.hex),
-                            AuditSensitivity.PRIVATE,
-                            subject_id=SubjectId(fence.subject_id),
-                            request=AuditReference("maintenance_revision", revision_id),
-                        )
+                    _LOG.warning(
+                        "maintenance work failed session=%s phase=%s head=%s",
+                        session_id,
+                        phase.value,
+                        head_version + 1,
                     )
                     return MaintenanceProgress(
                         session_id,
@@ -311,19 +279,11 @@ class PostgreSQLMaintenanceRepository:
                         "LIFE-MAINTENANCE-WORK-FAILED",
                     )
                 if admitted:
-                    await unit_of_work.audit.append(
-                        AuditDraft(
-                            AuditEventId(uuid7()),
-                            AuditReference("runtime", unit_of_work.environment_id),
-                            Purpose("life.maintenance.work"),
-                            "life.maintenance.work.admitted",
-                            AuditReference("opportunity", opportunity_id),
-                            AuditResultStatus.ACCEPTED,
-                            TraceId(opportunity_id.hex),
-                            AuditSensitivity.PRIVATE,
-                            subject_id=SubjectId(fence.subject_id),
-                            request=AuditReference("maintenance_revision", revision_id),
-                        )
+                    _LOG.info(
+                        "maintenance work admitted session=%s phase=%s opportunity=%s",
+                        session_id,
+                        phase.value,
+                        opportunity_id,
                     )
                 return MaintenanceProgress(
                     session_id,
@@ -358,29 +318,14 @@ class PostgreSQLMaintenanceRepository:
             next_quiet_until = now + timedelta(seconds=quiet_seconds)
 
         next_revision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.maintenance_session_revisions (
-                maintenance_revision_id, maintenance_session_id,
-                revision_no, previous_revision_id, phase,
-                result_status, transition_kind) VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                next_revision_id,
-                session_id,
-                revision_no + 1,
-                revision_id,
-                following_phase.value,
-                following_result.value,
-                plan.transition_kind,
-            ),
-        )
         updated = (
             await connection.execute(
                 """
                 UPDATE armi.maintenance_sessions
                 SET current_revision_id = %s,
                     head_version = head_version + 1,
+                    phase = %s, result_status = %s,
+                    phase_completed_at = NULL, updated_at = statement_timestamp(),
                     quiet_until = %s,
                     finished_at = CASE WHEN %s THEN statement_timestamp()
                                        ELSE NULL END
@@ -391,6 +336,8 @@ class PostgreSQLMaintenanceRepository:
                 """,
                 (
                     next_revision_id,
+                    following_phase.value,
+                    following_result.value,
                     next_quiet_until,
                     plan.terminal,
                     session_id,
@@ -401,19 +348,12 @@ class PostgreSQLMaintenanceRepository:
         ).rowcount
         if updated != 1:
             raise SleepViolation("SLEEP-MAINTENANCE-STALE")
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("life.maintenance"),
-                "life.maintenance.checkpoint",
-                AuditReference("maintenance_session", session_id),
-                AuditResultStatus.APPLIED,
-                TraceId(next_revision_id.hex),
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(fence.subject_id),
-                request=AuditReference("maintenance_revision", revision_id),
-            )
+        _LOG.info(
+            "maintenance checkpoint session=%s phase=%s result=%s head=%s",
+            session_id,
+            following_phase.value,
+            following_result.value,
+            head_version + 1,
         )
         return MaintenanceProgress(
             session_id,

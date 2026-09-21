@@ -19,7 +19,12 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import PostgreSQLTransaction
 from armi_sleep.api import (
+    CandidateMaintenanceDecisionDraft,
     CandidateSleepDecisionDraft,
+    CreatorMaintenanceTimelineItem,
+    MaintenancePhase,
+    MaintenanceResultStatus,
+    MaintenanceWorkOutcome,
     SleepCommitContext,
     SleepViolation,
 )
@@ -135,6 +140,97 @@ class PostgreSQLCognitionSubjectCommit:
         ).fetchone()
         if row is None:
             raise SleepViolation("SLEEP-DECISION-STALE")
+
+    async def record_maintenance_result(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        context: SleepCommitContext,
+        application_id: UUID,
+        commit_id: UUID,
+        decision: CandidateMaintenanceDecisionDraft,
+        memory_id: UUID | None,
+    ) -> None:
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes
+                   SET maintenance_session_id=%s, maintenance_phase_id=%s,
+                       maintenance_head_version=%s, maintenance_phase=%s,
+                       maintenance_outcome=%s, maintenance_result_summary=%s,
+                       maintenance_creator_visible_problem=%s, maintenance_memory_id=%s,
+                       maintenance_issue_target=%s, maintenance_completed_at=statement_timestamp()
+                   WHERE cognitive_episode_id=%s AND subject_id=%s
+                     AND candidate_validation_id=%s AND candidate_application_id=%s
+                     AND subject_commit_id=%s AND maintenance_session_id IS NULL
+                   RETURNING cognitive_episode_id""",
+                (
+                    decision.maintenance_session_id,
+                    decision.current_revision_id,
+                    decision.expected_head_version,
+                    decision.phase.value,
+                    decision.outcome.value,
+                    decision.result_summary,
+                    decision.creator_visible_problem,
+                    memory_id,
+                    decision.issue_target,
+                    context.episode_id,
+                    context.subject_id,
+                    context.validation_id,
+                    application_id,
+                    commit_id,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise SleepViolation("SLEEP-MAINTENANCE-COMMIT")
+
+    async def maintenance_session_for_validation(
+        self, transaction: PostgreSQLTransaction, validation_id: UUID
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                """SELECT maintenance_session_id FROM armi.cognitive_episodes
+                   WHERE candidate_validation_id=%s""",
+                (validation_id,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
+    async def maintenance_results(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        session_id: UUID,
+        ceiling: int | None,
+        before: int | None,
+        limit: int,
+    ) -> tuple[CreatorMaintenanceTimelineItem, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT maintenance_phase_id, maintenance_head_version,
+                          maintenance_phase, maintenance_completed_at,
+                          maintenance_outcome, maintenance_creator_visible_problem
+                   FROM armi.cognitive_episodes
+                   WHERE maintenance_session_id=%s
+                     AND (%s::bigint IS NULL OR maintenance_head_version<=%s)
+                     AND (%s::bigint IS NULL OR maintenance_head_version<%s)
+                   ORDER BY maintenance_head_version DESC LIMIT %s""",
+                (session_id, ceiling, ceiling, before, before, limit),
+            )
+        ).fetchall()
+        return tuple(
+            CreatorMaintenanceTimelineItem(
+                revision_id=row[0],
+                revision_no=int(row[1]),
+                phase=MaintenancePhase(row[2]),
+                result_status=MaintenanceResultStatus.COMPLETED,
+                transition_kind="completed",
+                occurred_at=row[3],
+                work_outcome=MaintenanceWorkOutcome(row[4]),
+                problem_summary=row[5],
+            )
+            for row in rows
+        )
 
     async def sleep_episode_for_validation(
         self, transaction: PostgreSQLTransaction, validation_id: UUID

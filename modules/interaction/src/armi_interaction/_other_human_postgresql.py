@@ -330,19 +330,6 @@ class OtherHumanInputRepository:
         ).fetchone()
         if row is None:
             raise OtherHumanInputViolation("DB-OTHER-HUMAN-SCENE")
-        await connection.execute(
-            """
-            INSERT INTO armi.scene_participants (
-                scene_id, subject_id, party_id, participant_role
-            )
-            SELECT scene.scene_id, scene.subject_id, scene.primary_party_id, 'primary'
-            FROM armi.interaction_scenes AS scene
-            WHERE scene.scene_id = %s
-            ON CONFLICT (scene_id, party_id)
-            DO UPDATE SET last_observed_at = statement_timestamp()
-            """,
-            (row[0],),
-        )
         return OtherHumanSceneView(row[0], row[1], scene_key, SceneStatus(row[2]))
 
     async def context(

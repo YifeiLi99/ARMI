@@ -406,7 +406,9 @@ class CreatorPromptService(CreatorPromptPort):
             operation=(
                 f"creator.prompt.{cast(PromptRevisionKind, changed.revision_kind).value}"
             ),
-            target=AuditReference("prompt_document", changed.prompt_document_id),
+            target=AuditReference(
+                "prompt_document", cast(UUID, changed.prompt_document_id)
+            ),
             result_status=AuditResultStatus.APPLIED,
             trace_id=trace_id,
             sensitivity=AuditSensitivity.RESTRICTED,

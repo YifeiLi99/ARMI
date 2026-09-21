@@ -286,10 +286,14 @@ from armi_runtime.composition.postgresql_test import (
 from armi_runtime.composition.subject_commit_pipeline import SubjectCommitPipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import (
+    CandidateMaintenanceDecisionDraft,
     CandidateSleepDecisionDraft,
     CreatorMaintenanceViolation,
+    MaintenancePhase,
+    MaintenanceWorkOutcome,
     SleepCommitContext,
     SleepDecisionKind,
+    SleepViolation,
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -2404,15 +2408,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 for owner, data in cases.items():
                     with self.subTest(owner=owner):
                         identity = str(uuid7())
-                        if owner == "prompt":
-                            with psycopg.connect(fixture.provisioner_dsn) as connection:
-                                identity = str(
-                                    one(
-                                        connection,
-                                        "SELECT prompt_document_id FROM armi.prompt_documents WHERE subject_id=%s AND prompt_kind='creator_guidance'",
-                                        (born.subject_id,),
-                                    )[0]
-                                )
                         created = request(
                             owner, "create", identity, 0, data, owner + "-create"
                         )
@@ -3930,8 +3925,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        interaction.external_binding_id,
                        interaction.external_message_key,
                        interaction.addressed_to_subject,
-                       (SELECT count(*) FROM armi.scene_participants
-                        WHERE scene_id = scene.scene_id),
+                       interaction.source_party_id,
                        (SELECT count(*) FROM armi.external_channel_bindings
                         WHERE channel_kind = 'qq' AND account_key = '10001')
                 FROM armi.interaction_scenes AS scene
@@ -4037,7 +4031,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 first.conversation_binding_id,
                 "30003",
                 True,
-                3,
+                first.sender_party_id,
                 3,
             ),
         )
@@ -4712,18 +4706,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         revision_id,
                     ),
                 )
-                connection.execute(
-                    """
-                    INSERT INTO armi.maintenance_session_revisions (
-                        maintenance_revision_id, maintenance_session_id,
-                        revision_no, previous_revision_id, phase,
-                        result_status, transition_kind
-                    ) VALUES (
-                        %s, %s, 1, NULL, 'preparing', 'running', 'started'
-                    )
-                    """,
-                    (revision_id, session_id),
-                )
 
             authority = PostgreSQLRuntimeAuthority(
                 fixture.runtime_dsn,
@@ -4815,9 +4797,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(status.session.phase.value, "memory_maintenance")
                 self.assertEqual(status.waiting_input_count, 0)
                 timeline = await sleep_module.read.timeline(session_id, limit=50)
-                self.assertEqual(len(timeline.items), 2)
-                self.assertEqual(timeline.items[0].transition_kind, "advanced")
-                self.assertEqual(timeline.items[1].transition_kind, "started")
+                self.assertEqual(timeline.items, ())
+                self.assertIsNone(timeline.next_cursor)
                 with self.assertRaisesRegex(
                     CreatorMaintenanceViolation,
                     "MAINTENANCE-QUERY-NOT-FOUND",
@@ -5412,67 +5393,44 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
 
                 prompt_head = connection.execute(
-                    """
-                    SELECT prompt_document_id, current_revision_id, subject_id
-                    FROM armi.prompt_documents
-                    WHERE current_revision_id IS NOT NULL
-                    ORDER BY prompt_kind
-                    LIMIT 1
-                    """
+                    """SELECT prompt_document_id,prompt_revision_id,subject_id
+                       FROM armi.prompt_revisions
+                       WHERE prompt_kind='personality_anchor' AND is_current"""
                 ).fetchone()
                 assert prompt_head is not None
-                foreign_document = connection.execute(
-                    """
-                    SELECT prompt_document_id
-                    FROM armi.prompt_documents
-                    WHERE current_revision_id IS NULL
-                    ORDER BY prompt_kind
-                    LIMIT 1
-                    """
-                ).fetchone()
-                assert foreign_document is not None
-                foreign_document_id = foreign_document[0]
-                foreign_revision_id = _uuid7()
+                foreign_document_id, foreign_revision_id = _uuid7(), _uuid7()
                 connection.execute(
-                    """
-                    INSERT INTO armi.prompt_revisions (
-                        prompt_revision_id, prompt_document_id, revision_no,
-                        previous_revision_id, content_artifact_id, content_digest,
-                        author_party_id, subject_commit_id, change_reason
-                    )
-                    SELECT %s, %s, 1, NULL, content_artifact_id, content_digest,
-                           author_party_id, NULL, 'created'
-                    FROM armi.prompt_revisions
-                    WHERE prompt_revision_id = %s
-                    """,
+                    """INSERT INTO armi.prompt_revisions (
+                           prompt_revision_id,prompt_document_id,subject_id,prompt_kind,
+                           revision_no,content_artifact_id,content_digest,
+                           author_party_id,change_reason)
+                       SELECT %s,%s,subject_id,'creator_guidance',1,
+                              content_artifact_id,content_digest,author_party_id,'created'
+                       FROM armi.prompt_revisions WHERE prompt_revision_id=%s""",
                     (foreign_revision_id, foreign_document_id, prompt_head[1]),
                 )
-                connection.execute(
-                    "UPDATE armi.prompt_documents SET current_revision_id = %s "
-                    "WHERE prompt_document_id = %s",
-                    (foreign_revision_id, foreign_document_id),
-                )
                 connection.commit()
-                with self.assertRaises(psycopg.errors.ForeignKeyViolation):
-                    connection.execute(
-                        """
-                        UPDATE armi.prompt_documents
-                        SET current_revision_id = %s
-                        WHERE prompt_document_id = %s
-                        """,
-                        (prompt_head[1], foreign_document_id),
-                    )
-                    connection.commit()
-                connection.rollback()
+                # History must not cross prompt kind or logical document.
                 with self.assertRaises(psycopg.errors.IntegrityError):
                     connection.execute(
-                        """
-                        UPDATE armi.prompt_revisions
-                        SET revision_no = 2, previous_revision_id = %s,
-                            change_reason = 'revised'
-                        WHERE prompt_revision_id = %s
-                        """,
-                        (foreign_revision_id, prompt_head[1]),
+                        """UPDATE armi.prompt_revisions
+                           SET revision_no=2,previous_revision_id=%s,change_reason='revised'
+                           WHERE prompt_revision_id=%s""",
+                        (prompt_head[1], foreign_revision_id),
+                    )
+                connection.rollback()
+                # A second current row cannot silently replace the existing prompt.
+                with self.assertRaises(psycopg.errors.IntegrityError):
+                    connection.execute(
+                        """INSERT INTO armi.prompt_revisions (
+                               prompt_revision_id,prompt_document_id,subject_id,prompt_kind,
+                               revision_no,previous_revision_id,content_artifact_id,
+                               content_digest,author_party_id,change_reason)
+                           SELECT %s,prompt_document_id,subject_id,prompt_kind,
+                                  2,prompt_revision_id,content_artifact_id,
+                                  content_digest,author_party_id,'revised'
+                           FROM armi.prompt_revisions WHERE prompt_revision_id=%s""",
+                        (_uuid7(), foreign_revision_id),
                     )
                 connection.rollback()
             config = AdminConfig.model_validate(
@@ -6816,7 +6774,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 SELECT
                     (SELECT count(*) FROM armi.subjects),
                     (SELECT count(*) FROM armi.parties),
-                    (SELECT count(*) FROM armi.prompt_documents),
+                    (SELECT count(DISTINCT prompt_document_id) FROM armi.prompt_revisions),
                     (SELECT count(*) FROM armi.prompt_revisions),
                     (SELECT count(*) FROM armi.subject_component_revisions WHERE is_current ),
                     (SELECT count(*) FROM armi.subject_component_revisions),
@@ -6827,7 +6785,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.audit_events)
                 """
             ).fetchone()
-            self.assertEqual(counts, (1, 2, 3, 1, 2, 2, 1, 1, 1, 1, 2))
+            self.assertEqual(counts, (1, 2, 1, 1, 2, 2, 1, 1, 1, 1, 2))
             birth_identity = connection.execute(
                 """
                 SELECT current_bundle_activation_id, birth_contract_digest,
@@ -9686,6 +9644,120 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     )
                                 ).fetchone()
                                 self.assertEqual(origin, (ids["episode"],))
+                                # Actual outcomes and the progress marker commit together.
+                                phase_id = uuid7()
+                                await unit.transaction.execute(
+                                    """UPDATE armi.maintenance_sessions
+                                       SET phase='self_check',head_version=3,current_revision_id=%s
+                                       WHERE maintenance_session_id=%s""",
+                                    (phase_id, sessions[0]),
+                                )
+                                committed = await (
+                                    await unit.transaction.execute(
+                                        """UPDATE armi.cognitive_episodes
+                                           SET purpose='perform_subject_self_check',sleep_decision_kind=NULL,
+                                               sleep_cycle_anchor_ref=NULL,sleep_review_not_before=NULL
+                                           WHERE cognitive_episode_id=%s RETURNING subject_commit_id""",
+                                        (ids["episode"],),
+                                    )
+                                ).fetchone()
+                                assert committed is not None
+                                maintenance_context = replace(
+                                    context,
+                                    opportunity_purpose="perform_subject_self_check",
+                                    source_kind="maintenance_phase_revision",
+                                    source_ref=phase_id,
+                                    source_version=3,
+                                )
+                                decision = CandidateMaintenanceDecisionDraft(
+                                    "proposal:2",
+                                    "group:1",
+                                    (1,),
+                                    sessions[0],
+                                    phase_id,
+                                    3,
+                                    MaintenancePhase.SELF_CHECK,
+                                    MaintenanceWorkOutcome.NO_ISSUE,
+                                    "No issue found",
+                                )
+                                await unit.transaction.execute(
+                                    "SAVEPOINT maintenance_result"
+                                )
+                                with self.assertRaises(SleepViolation):
+                                    await sleep.commit.commit(
+                                        unit.transaction,
+                                        context=maintenance_context,
+                                        application_id=row[1],
+                                        commit_id=committed[0],
+                                        resulting_subject_version=1,
+                                        drafts=(
+                                            replace(
+                                                decision, current_revision_id=uuid7()
+                                            ),
+                                        ),
+                                    )
+                                await unit.transaction.execute(
+                                    "ROLLBACK TO SAVEPOINT maintenance_result"
+                                )
+                                unchanged = await (
+                                    await unit.transaction.execute(
+                                        """SELECT maintenance_session_id,
+                                                  (SELECT phase_completed_at FROM armi.maintenance_sessions
+                                                   WHERE maintenance_session_id=%s)
+                                           FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s""",
+                                        (sessions[0], ids["episode"]),
+                                    )
+                                ).fetchone()
+                                self.assertEqual(unchanged, (None, None))
+                                self.assertTrue(
+                                    await sleep.commit.heads_match(
+                                        unit.transaction,
+                                        context=maintenance_context,
+                                        drafts=(decision,),
+                                    )
+                                )
+                                await sleep.commit.commit(
+                                    unit.transaction,
+                                    context=maintenance_context,
+                                    application_id=row[1],
+                                    commit_id=committed[0],
+                                    resulting_subject_version=1,
+                                    drafts=(decision,),
+                                )
+                                self.assertFalse(
+                                    await sleep.commit.heads_match(
+                                        unit.transaction,
+                                        context=maintenance_context,
+                                        drafts=(decision,),
+                                    )
+                                )
+                                stored_result = await (
+                                    await unit.transaction.execute(
+                                        """SELECT episode.maintenance_outcome,
+                                                  session.phase_completed_at IS NOT NULL
+                                           FROM armi.cognitive_episodes episode
+                                           JOIN armi.maintenance_sessions session
+                                             ON session.maintenance_session_id=episode.maintenance_session_id
+                                           WHERE episode.cognitive_episode_id=%s""",
+                                        (ids["episode"],),
+                                    )
+                                ).fetchone()
+                                self.assertEqual(stored_result, ("no_issue", True))
+                                results = await bootstrap_sleep_decision_record().maintenance_results(
+                                    unit.transaction,
+                                    session_id=sessions[0],
+                                    ceiling=None,
+                                    before=None,
+                                    limit=50,
+                                )
+                                self.assertEqual(len(results), 1)
+                                self.assertEqual(
+                                    results[0].work_outcome,
+                                    MaintenanceWorkOutcome.NO_ISSUE,
+                                )
+                                self.assertEqual(
+                                    results[0].result_status.value, "completed"
+                                )
                             await unit.transaction.execute(
                                 "ROLLBACK TO SAVEPOINT sleep_choice"
                             )

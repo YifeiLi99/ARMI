@@ -32,17 +32,13 @@ class PostgreSQLPromptOwner:
     ) -> PromptContinuityCounts:
         if subject_id is None:
             row = transaction.execute(
-                "SELECT (SELECT count(*) FROM armi.prompt_documents),"
-                "(SELECT count(*) FROM armi.prompt_revisions)"
+                "SELECT count(DISTINCT prompt_document_id),count(*) FROM armi.prompt_revisions"
             ).fetchone()
         else:
             row = transaction.execute(
-                "SELECT (SELECT count(*) FROM armi.prompt_documents "
-                "WHERE subject_id=%s),(SELECT count(*) FROM armi.prompt_revisions "
-                "AS revision JOIN armi.prompt_documents AS document ON "
-                "document.prompt_document_id=revision.prompt_document_id "
-                "WHERE document.subject_id=%s)",
-                (subject_id, subject_id),
+                "SELECT count(DISTINCT prompt_document_id),count(*) FROM armi.prompt_revisions "
+                "WHERE subject_id=%s",
+                (subject_id,),
             ).fetchone()
         if row is None:
             raise PromptViolation("PROMPT-CONTINUITY-INTEGRITY")
@@ -65,38 +61,29 @@ class PostgreSQLPromptOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT document.prompt_kind, document.status,
+                SELECT revision.prompt_kind, revision.status,
                        revision.prompt_revision_id, revision.revision_no,
                        revision.content_artifact_id
-                FROM armi.prompt_documents AS document
-                LEFT JOIN armi.prompt_revisions AS revision
-                  ON revision.prompt_revision_id = document.current_revision_id
-                 AND revision.prompt_document_id = document.prompt_document_id
-                WHERE document.subject_id = %s
-                ORDER BY document.prompt_kind
+                FROM armi.prompt_revisions AS revision
+                WHERE revision.subject_id = %s AND revision.is_current
+                ORDER BY revision.prompt_kind
                 """,
                 (subject_id,),
             )
         ).fetchall()
         by_kind = {str(row[0]): row for row in rows}
-        if set(by_kind) != {
-            "personality_anchor",
-            "creator_guidance",
-            "subject_guidance",
-        }:
+        if "personality_anchor" not in by_kind:
             raise PromptViolation("PROMPT-CONTEXT-MISSING")
         fixed = by_kind["personality_anchor"]
         if fixed[1] != "active" or any(value is None for value in fixed[2:]):
             raise PromptViolation("PROMPT-CONTEXT-MISSING")
 
         def optional(kind: str) -> PromptContextSource | None:
-            row = by_kind[kind]
-            if kind == "creator_guidance" and row[1] == "inactive":
+            row = by_kind.get(kind)
+            if row is None or row[1] == "inactive":
                 return None
             if row[1] != "active":
                 raise PromptViolation("PROMPT-CONTEXT-INTEGRITY")
-            if all(value is None for value in row[2:]):
-                return None
             if any(value is None for value in row[2:]):
                 raise PromptViolation("PROMPT-CONTEXT-INTEGRITY")
             return PromptContextSource(row[2], int(row[3]), row[4])
@@ -118,29 +105,23 @@ class PostgreSQLPromptOwner:
         row = await (
             await transaction.execute(
                 """
-                SELECT document.prompt_document_id,
-                       document.current_revision_id,
-                       COALESCE(revision.revision_no, 0)
-                FROM armi.prompt_documents AS document
-                LEFT JOIN armi.prompt_revisions AS revision
-                  ON revision.prompt_revision_id = document.current_revision_id
-                 AND revision.prompt_document_id = document.prompt_document_id
-                WHERE document.subject_id = %s
-                  AND document.prompt_kind = 'subject_guidance'
-                  AND document.write_authority = 'subject'
-                  AND document.status = 'active'
+                SELECT prompt_document_id, prompt_revision_id, revision_no, status
+                FROM armi.prompt_revisions
+                WHERE subject_id = %s AND prompt_kind = 'subject_guidance'
+                  AND is_current
                 """,
                 (subject_id,),
             )
         ).fetchone()
         if row is None:
+            if expected_revision_id is not None or expected_revision_no is not None:
+                raise PromptViolation("PROMPT-CANDIDATE-CONTEXT")
+            return SubjectPromptHead(uuid7(), None, 0)
+        if row[3] != "active":
             raise PromptViolation("PROMPT-CANDIDATE-CONTEXT")
         current_id = row[1]
         current_no = int(row[2])
-        if current_id is None:
-            if expected_revision_id is not None or expected_revision_no is not None:
-                raise PromptViolation("PROMPT-CANDIDATE-CONTEXT")
-        elif current_id != expected_revision_id or current_no != expected_revision_no:
+        if current_id != expected_revision_id or current_no != expected_revision_no:
             raise PromptViolation("PROMPT-CANDIDATE-CONTEXT")
         return SubjectPromptHead(row[0], current_id, current_no)
 
@@ -150,43 +131,35 @@ class PostgreSQLPromptOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT document.prompt_kind,document.status,
-                       document.write_authority,document.current_revision_id,
+                SELECT revision.prompt_kind,revision.status,
+                       revision.prompt_revision_id,
                        revision.content_artifact_id,
                        (SELECT count(*) FROM armi.prompt_revisions AS history
-                        WHERE history.prompt_document_id=document.prompt_document_id)
-                FROM armi.prompt_documents AS document
-                LEFT JOIN armi.prompt_revisions AS revision
-                  ON revision.prompt_revision_id=document.current_revision_id
-                 AND revision.prompt_document_id=document.prompt_document_id
-                WHERE document.subject_id=%s
-                ORDER BY document.prompt_kind
+                        WHERE history.prompt_document_id=revision.prompt_document_id)
+                FROM armi.prompt_revisions AS revision
+                WHERE revision.subject_id=%s AND revision.is_current
+                ORDER BY revision.prompt_kind
                 """,
                 (subject_id,),
             )
         ).fetchall()
-        if len(rows) != 3 or {str(row[0]) for row in rows} != {
-            "personality_anchor",
-            "creator_guidance",
-            "subject_guidance",
-        }:
+        if not any(row[0] == "personality_anchor" for row in rows):
             raise PromptViolation("PROMPT-RECOVERY-MISSING")
         fixed = next(row for row in rows if row[0] == "personality_anchor")
-        if fixed[1] != "active" or fixed[2] != "fixed" or fixed[4] is None:
+        if fixed[1] != "active" or fixed[3] is None:
             raise PromptViolation("PROMPT-RECOVERY-MISSING")
         active_artifacts: list[UUID] = []
         for row in rows:
             if row[1] == "active":
-                if row[3] is not None and row[4] is None:
+                if row[3] is None:
                     raise PromptViolation("PROMPT-RECOVERY-MISSING")
-                if row[4] is not None:
-                    active_artifacts.append(row[4])
+                active_artifacts.append(row[3])
             elif row[1] != "inactive":
                 raise PromptViolation("PROMPT-RECOVERY-MISSING")
         return PromptRecoveryState(
             tuple(active_artifacts),
             len(rows),
-            int(fixed[5]),
+            int(fixed[4]),
         )
 
     async def heads_match(
@@ -202,28 +175,33 @@ class PostgreSQLPromptOwner:
         if not selected:
             return True
         draft = selected[0]
+        # Also serialize the first revision, when no current row exists yet.
+        await transaction.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+            (f"prompt:{subject_id}:subject_guidance",),
+        )
         row = await (
             await transaction.execute(
                 """
-                SELECT document.current_revision_id,
-                       COALESCE(revision.revision_no, 0)
-                FROM armi.prompt_documents AS document
-                LEFT JOIN armi.prompt_revisions AS revision
-                  ON revision.prompt_revision_id = document.current_revision_id
-                 AND revision.prompt_document_id = document.prompt_document_id
-                WHERE document.prompt_document_id = %s
-                  AND document.subject_id = %s
-                  AND document.prompt_kind = 'subject_guidance'
-                  AND document.write_authority = 'subject'
-                  AND document.status = 'active'
-                FOR UPDATE OF document
+                SELECT prompt_revision_id,revision_no,prompt_document_id,status
+                FROM armi.prompt_revisions
+                WHERE subject_id = %s AND prompt_kind = 'subject_guidance'
+                  AND is_current
+                FOR UPDATE
                 """,
-                (draft.prompt_document_id, subject_id),
+                (subject_id,),
             )
         ).fetchone()
-        return row is not None and (row[0], int(row[1])) == (
-            draft.current_revision_id,
-            draft.expected_revision_no,
+        if row is None:
+            return draft.current_revision_id is None and draft.expected_revision_no == 0
+        return (
+            row[2] == draft.prompt_document_id
+            and row[3] == "active"
+            and (row[0], int(row[1]))
+            == (
+                draft.current_revision_id,
+                draft.expected_revision_no,
+            )
         )
 
     async def commit(
@@ -251,14 +229,24 @@ class PostgreSQLPromptOwner:
             or artifact.privacy_scope.value != "private"
         ):
             raise PromptViolation("PROMPT-ARTIFACT")
+        if not await self.heads_match(
+            transaction, subject_id=subject_id, drafts=selected
+        ):
+            raise PromptViolation("PROMPT-HEAD-STALE")
+        await transaction.execute(
+            "UPDATE armi.prompt_revisions SET is_current=false "
+            "WHERE prompt_revision_id=%s AND is_current",
+            (draft.current_revision_id,),
+        )
         revision_id = uuid7()
         await transaction.execute(
             """
             INSERT INTO armi.prompt_revisions (
                 prompt_revision_id, prompt_document_id, revision_no,
                 previous_revision_id, content_artifact_id, content_digest,
-                author_party_id, subject_commit_id, change_reason
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                author_party_id, subject_commit_id, change_reason,
+                subject_id, prompt_kind, is_current
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'subject_guidance', true)
             """,
             (
                 revision_id,
@@ -272,27 +260,9 @@ class PostgreSQLPromptOwner:
                 "subject_created"
                 if draft.current_revision_id is None
                 else "subject_revised",
+                subject_id,
             ),
         )
-        updated = await (
-            await transaction.execute(
-                """
-                UPDATE armi.prompt_documents SET current_revision_id = %s
-                WHERE prompt_document_id = %s AND subject_id = %s
-                  AND current_revision_id IS NOT DISTINCT FROM %s
-                  AND status = 'active'
-                RETURNING prompt_document_id
-                """,
-                (
-                    revision_id,
-                    draft.prompt_document_id,
-                    subject_id,
-                    draft.current_revision_id,
-                ),
-            )
-        ).fetchone()
-        if updated is None:
-            raise PromptViolation("PROMPT-HEAD-STALE")
         return (draft.prompt_document_id,)
 
     async def initialize(
@@ -305,35 +275,14 @@ class PostgreSQLPromptOwner:
         anchor_content_digest: Digest,
     ) -> None:
         anchor_document_id = uuid7()
-        creator_document_id = uuid7()
-        subject_document_id = uuid7()
         anchor_revision_id = uuid7()
-        await transaction.execute(
-            """
-            INSERT INTO armi.prompt_documents (
-                prompt_document_id, subject_id, prompt_kind,
-                write_authority, current_revision_id
-            ) VALUES
-                (%s, %s, 'personality_anchor', 'fixed', %s),
-                (%s, %s, 'creator_guidance', 'creator', NULL),
-                (%s, %s, 'subject_guidance', 'subject', NULL)
-            """,
-            (
-                anchor_document_id,
-                subject_id,
-                anchor_revision_id,
-                creator_document_id,
-                subject_id,
-                subject_document_id,
-                subject_id,
-            ),
-        )
         await transaction.execute(
             """
             INSERT INTO armi.prompt_revisions (
                 prompt_revision_id, prompt_document_id, revision_no,
-                content_artifact_id, content_digest, author_party_id, change_reason
-            ) VALUES (%s, %s, 1, %s, %s, %s, 'birth')
+                content_artifact_id, content_digest, author_party_id, change_reason,
+                subject_id, prompt_kind, is_current
+            ) VALUES (%s, %s, 1, %s, %s, %s, 'birth', %s, 'personality_anchor', true)
             """,
             (
                 anchor_revision_id,
@@ -341,6 +290,7 @@ class PostgreSQLPromptOwner:
                 anchor_artifact_id,
                 anchor_content_digest.value,
                 creator_party_id,
+                subject_id,
             ),
         )
 

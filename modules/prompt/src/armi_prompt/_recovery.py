@@ -42,7 +42,7 @@ class PromptRecoveryParticipant:
                     ),
                 ),
             )
-        valid = state.document_count == 3 and state.fixed_revision_count == 1
+        valid = 1 <= state.document_count <= 3 and state.fixed_revision_count == 1
         return RecoveryContribution(
             self.owner_identity,
             findings=()

@@ -96,7 +96,7 @@ def probe_continuity(
         return ContinuityState.INVALID
     if (
         interaction_counts.party_count != 2
-        or prompt_counts.document_count != 3
+        or prompt_counts.document_count != 1
         or prompt_counts.revision_count < 1
         or subject_counts.head_count != 2
         or subject_counts.revision_count < 2

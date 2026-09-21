@@ -388,20 +388,6 @@ CREATE TABLE armi.party_input_interactions (
     CONSTRAINT party_input_interactions_trace_id_check CHECK ((trace_id ~ '^[0-9a-f]{32}$'::text))
 );
 
---
--- Name: scene_participants; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.scene_participants (
-    scene_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    party_id uuid NOT NULL,
-    participant_role text NOT NULL,
-    first_observed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    last_observed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT scene_participants_role_check CHECK ((participant_role = ANY (ARRAY['primary'::text, 'member'::text]))),
-    CONSTRAINT scene_participants_time_check CHECK ((last_observed_at >= first_observed_at))
-);
 
 --
 -- Name: scene_timeline_items; Type: TABLE; Schema: armi; Owner: -

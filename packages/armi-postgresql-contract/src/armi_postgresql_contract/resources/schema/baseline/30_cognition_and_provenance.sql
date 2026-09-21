@@ -227,6 +227,29 @@ CREATE TABLE armi.cognitive_episodes (
             AND ((dialogue_decision_kind <> 'end_conversation' AND dialogue_proposal_ref IS NOT NULL AND dialogue_effect_id IS NOT NULL)
                 OR (dialogue_decision_kind <> 'reply' AND dialogue_effect_id IS NULL)))
     ),
+    maintenance_session_id uuid,
+    maintenance_phase_id uuid,
+    maintenance_head_version bigint,
+    maintenance_phase text,
+    maintenance_outcome text,
+    maintenance_result_summary text,
+    maintenance_creator_visible_problem text,
+    maintenance_memory_id uuid,
+    maintenance_issue_target text,
+    maintenance_completed_at timestamp(6) with time zone,
+    CONSTRAINT cognitive_episodes_maintenance_result_shape CHECK (
+        (maintenance_session_id IS NULL AND maintenance_phase_id IS NULL AND maintenance_head_version IS NULL AND maintenance_phase IS NULL AND maintenance_outcome IS NULL AND maintenance_result_summary IS NULL AND maintenance_creator_visible_problem IS NULL AND maintenance_memory_id IS NULL AND maintenance_issue_target IS NULL AND maintenance_completed_at IS NULL)
+        OR (maintenance_session_id IS NOT NULL AND maintenance_phase_id IS NOT NULL AND maintenance_head_version IS NOT NULL AND maintenance_head_version > 0 AND maintenance_phase IS NOT NULL AND maintenance_outcome IS NOT NULL AND maintenance_result_summary IS NOT NULL AND maintenance_completed_at IS NOT NULL AND candidate_application_id IS NOT NULL AND subject_commit_id IS NOT NULL)),
+    CONSTRAINT cognitive_episodes_maintenance_result CHECK (maintenance_outcome IS NULL OR (
+        ((maintenance_phase='memory_maintenance' AND maintenance_outcome IN ('memory_changed','memory_unchanged'))
+        OR (maintenance_phase='self_check' AND maintenance_outcome IN ('issue_found','no_issue'))
+        OR (maintenance_phase IN ('reflect_self','reflect_mind','reflect_mood','reflect_prompt') AND maintenance_outcome IN ('reflection_changed','reflection_unchanged')))
+        AND ((maintenance_outcome='memory_changed')=(maintenance_memory_id IS NOT NULL))
+        AND ((maintenance_outcome='issue_found')=(maintenance_creator_visible_problem IS NOT NULL))
+        AND ((maintenance_outcome='issue_found')=(maintenance_issue_target IS NOT NULL))
+        AND (maintenance_issue_target IS NULL OR maintenance_issue_target IN ('self','mind','prompt'))
+        AND length(maintenance_result_summary) BETWEEN 1 AND 512
+        AND (maintenance_creator_visible_problem IS NULL OR length(maintenance_creator_visible_problem) BETWEEN 1 AND 512))),
     sleep_decision_kind text,
     sleep_cycle_anchor_ref uuid,
     sleep_review_not_before timestamp(6) with time zone,

@@ -14,7 +14,11 @@
 
 能力目录由 Capability 模块的代码定义，不保存数据库表或安装时预置记录。Codex、摄像头、屏幕观察和生命记录查询共用目录；是否开启、是否可用及原因均读取当前 Runtime 状态。Context 保留稳定能力引用与版本，能力目录读取不需要数据库事务。
 
-睡眠整理的阶段与结果统一保存在 maintenance_session_revisions；结果提交时一次性补齐该阶段的结果、摘要和提交关联，流程推进与历史查询共用这条记录。未完成阶段不能因记录存在而判为完成。
+睡眠整理的当前阶段、完成标记和唤醒状态保存在 maintenance_sessions；实际整理成果保存在对应 cognitive_episodes，与阶段完成标记同事务提交。阶段切换过程写日志，Creator 整理记录仅展示已提交成果，不再保留完整步骤时间线。阶段令牌和 head_version 继续拒绝过期提交。
+
+提示词的类别、启停状态、当前标记及内容历史统一保存在 prompt_revisions；未设置的 Creator/主体指导语没有占位记录。固定人格锚点不可改写，修改权限由类别决定；首次创建和后续修改共用按主体与类别的事务锁。
+
+场景对象保存在 interaction_scenes，发言者保存在 party_input_interactions，不另存参与者名单。群聊中群本身与实际发言人分别保留，输入边界负责校验场景及发言者身份；数据库直接以场景主要对象及已接纳输入校验私聊/群聊作用域，避免删除名单后放松身份约束。
 
 Context 的来源与版本只保存于 cognitive_context_items；不再重复保存依赖表。候选读取冻结来源，提交仍由各 owner 校验当前版本。
 
@@ -126,7 +130,7 @@ Windows 安装版按当前用户部署，不注册系统服务。私有 Python�
 
 记忆修订直接保存关联记忆与关联类型；关系修订直接保存来源经历与依据类型，维持每次修订最多一个关联、来源外键和重新建立关系时的经历防复用检查。主体记录保存经历整理游标，由 Runtime 端口在同一提交事务中推进；只有最终反思提交成功才推进已处理范围，中断不跳过未整理经历。
 
-Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 52 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
+Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 49 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
 
 ## 5. 主体与连续性
 
@@ -543,7 +547,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v65` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v66` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

@@ -1854,7 +1854,7 @@ export interface components {
        */
       projection_version: "creator-prompt.v1";
       /** Prompt Document Id */
-      prompt_document_id: string;
+      prompt_document_id: string | null;
       /**
        * Prompt Kind
        * @constant

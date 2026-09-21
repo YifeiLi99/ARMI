@@ -660,7 +660,7 @@ class _CreatorPrompt:
     def __init__(self) -> None:
         self.document_id = uuid7()
         self.current = CreatorPromptView(
-            prompt_document_id=self.document_id,
+            prompt_document_id=None,
             prompt_kind=PromptKind.CREATOR_GUIDANCE,
             status=PromptDocumentStatus.ACTIVE,
             current_revision_id=None,

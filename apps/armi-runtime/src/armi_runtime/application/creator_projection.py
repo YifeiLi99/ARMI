@@ -263,7 +263,9 @@ def _creator_prompt_response(view: CreatorPromptView) -> CreatorPromptResponse:
     return CreatorPromptResponse(
         contract_version="1.0",
         projection_version="creator-prompt.v1",
-        prompt_document_id=str(view.prompt_document_id),
+        prompt_document_id=None
+        if view.prompt_document_id is None
+        else str(view.prompt_document_id),
         prompt_kind="creator_guidance",
         status=view.status.value,
         current_revision_id=None

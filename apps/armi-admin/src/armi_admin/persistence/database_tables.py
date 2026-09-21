@@ -72,9 +72,9 @@ class DatabaseTable:
                 ("create", "update", "delete"),
             ),
             "activities": ("activity", "head_version", ("create", "update", "delete")),
-            "prompt_documents": (
+            "prompt_revisions": (
                 "prompt",
-                "revision_no in prompt_revisions; 0 for an empty document",
+                "revision_no; 0 before first creation",
                 ("create", "update", "delete"),
             ),
             "mind_revisions": ("mind", "mind_version", ("update",)),

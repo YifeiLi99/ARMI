@@ -51,12 +51,18 @@ class PostgreSQLPromptAdminContent:
         command: AdminContentCommand,
     ) -> dict[str, Any]:
         values = cast(dict[str, Any], command.values)
+        # Share the owner lock with Creator writes and cognition, including first creation.
+        for kind_to_lock in ("creator_guidance", "subject_guidance"):
+            tx.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"prompt:{context.subject_id}:{kind_to_lock}",),
+            )
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT h.current_revision_id,COALESCE(r.revision_no,0),r.content_artifact_id,r.content_digest,h.prompt_kind "
-                "FROM armi.prompt_documents h LEFT JOIN armi.prompt_revisions r ON r.prompt_revision_id=h.current_revision_id "
-                "WHERE h.prompt_document_id=%s AND h.subject_id=%s FOR UPDATE OF h",
+                "SELECT r.prompt_revision_id,r.revision_no,r.content_artifact_id,r.content_digest,r.prompt_kind "
+                "FROM armi.prompt_revisions r "
+                "WHERE r.prompt_document_id=%s AND r.subject_id=%s AND r.is_current FOR UPDATE",
                 (command.object_id, context.subject_id),
             ).fetchone(),
         )
@@ -85,19 +91,22 @@ class PostgreSQLPromptAdminContent:
                 raise PromptViolation("PROMPT-ARTIFACT")
             artifact, digest = prepared.artifact_id.value, prepared.content_digest.value
         if row is None:
+            existing = tx.execute(
+                "SELECT 1 FROM armi.prompt_revisions WHERE subject_id=%s AND prompt_kind=%s AND is_current",
+                (context.subject_id, kind),
+            ).fetchone()
+            if existing is not None:
+                raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
+        else:
             tx.execute(
-                "INSERT INTO armi.prompt_documents (prompt_document_id,subject_id,prompt_kind,write_authority) VALUES (%s,%s,%s,%s)",
-                (
-                    command.object_id,
-                    context.subject_id,
-                    kind,
-                    "creator" if kind == "creator_guidance" else "subject",
-                ),
+                "UPDATE armi.prompt_revisions SET is_current=false WHERE prompt_revision_id=%s",
+                (row[0],),
             )
         revision = uuid7()
         tx.execute(
             "INSERT INTO armi.prompt_revisions (prompt_revision_id,prompt_document_id,revision_no,previous_revision_id,"
-            "content_artifact_id,content_digest,admin_change_id,change_reason) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            "content_artifact_id,content_digest,admin_change_id,change_reason,subject_id,prompt_kind,status,is_current) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true)",
             (
                 revision,
                 command.object_id,
@@ -107,20 +116,11 @@ class PostgreSQLPromptAdminContent:
                 digest,
                 context.change_id,
                 "deactivated" if deleted else "created" if version == 0 else "revised",
-            ),
-        )
-        result = tx.execute(
-            "UPDATE armi.prompt_documents SET current_revision_id=%s,status=%s WHERE prompt_document_id=%s "
-            "AND current_revision_id IS NOT DISTINCT FROM %s",
-            (
-                revision,
+                context.subject_id,
+                kind,
                 "inactive" if deleted else "active",
-                command.object_id,
-                None if row is None else row[0],
             ),
         )
-        if result.rowcount != 1:
-            raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
         return {
             "object_id": str(command.object_id),
             "revision_id": str(revision),

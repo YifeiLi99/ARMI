@@ -177,7 +177,7 @@ class CreatorPromptDeactivateCommand:
 
 @dataclass(frozen=True, slots=True)
 class CreatorPromptView:
-    prompt_document_id: UUID
+    prompt_document_id: UUID | None
     prompt_kind: PromptKind
     status: PromptDocumentStatus
     current_revision_id: UUID | None

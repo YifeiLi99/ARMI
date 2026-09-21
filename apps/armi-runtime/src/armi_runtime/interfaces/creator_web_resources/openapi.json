@@ -2524,9 +2524,16 @@
             "type": "string"
           },
           "prompt_document_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Prompt Document Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Document Id"
           },
           "prompt_kind": {
             "const": "creator_guidance",

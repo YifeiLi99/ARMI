@@ -24,6 +24,10 @@ const PHASE_LABELS: Record<string, string> = {
   preparing: "技术准备",
   memory_maintenance: "记忆维护",
   self_check: "状态检查",
+  reflect_self: "自我反思",
+  reflect_mind: "心智反思",
+  reflect_mood: "心情反思",
+  reflect_prompt: "指导语反思",
   life_quiet: "安静阶段",
   resume_check: "恢复检查",
   completed: "维护完成",
@@ -36,19 +40,13 @@ const RESULT_LABELS: Record<string, string> = {
   failed: "技术故障",
 };
 
-const TRANSITION_LABELS: Record<string, string> = {
-  started: "建立维护会话",
-  advanced: "进入下一阶段",
-  completed: "维护完成",
-  interrupted: "紧急唤醒后安全中断",
-  system_failed: "维护发生技术故障",
-};
-
 const WORK_OUTCOME_LABELS: Record<string, string> = {
   memory_changed: "记忆发生维护变化",
   memory_unchanged: "记忆无需变化",
   issue_found: "自检发现问题",
   no_issue: "自检未发现问题",
+  reflection_changed: "反思后作出调整",
+  reflection_unchanged: "反思后无需调整",
 };
 
 export function MaintenancePanel({
@@ -209,13 +207,13 @@ export function MaintenancePanel({
           ) : null}
 
           <div className="maintenance-timeline">
-            <h3>阶段记录</h3>
-            {timeline.isPending ? <p role="status">正在读取阶段记录</p> : null}
+            <h3>整理成果</h3>
+            {timeline.isPending ? <p role="status">正在读取整理成果</p> : null}
             {timeline.isError ? (
-              <p role="status">当前无法读取阶段记录。</p>
+              <p role="status">当前无法读取整理成果。</p>
             ) : null}
             {timeline.data !== undefined && timelineItems.length === 0 ? (
-              <p role="status">尚无阶段变化记录。</p>
+              <p role="status">尚无已完成的整理成果。</p>
             ) : null}
             {timelineItems.length > 0 ? (
               <ol>
@@ -225,10 +223,6 @@ export function MaintenancePanel({
                       {PHASE_LABELS[item.phase] ?? item.phase} ·{" "}
                       {RESULT_LABELS[item.result_status] ?? item.result_status}
                     </strong>
-                    <span>
-                      {TRANSITION_LABELS[item.transition_kind] ??
-                        item.transition_kind}
-                    </span>
                     {item.work_outcome === null ? null : (
                       <span>
                         {WORK_OUTCOME_LABELS[item.work_outcome] ??

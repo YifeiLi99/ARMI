@@ -377,6 +377,31 @@ class SleepDecisionRecordPort(Protocol):
         review_not_before: datetime | None,
     ) -> None: ...
 
+    async def record_maintenance_result(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        context: SleepCommitContext,
+        application_id: UUID,
+        commit_id: UUID,
+        decision: CandidateMaintenanceDecisionDraft,
+        memory_id: UUID | None,
+    ) -> None: ...
+
+    async def maintenance_session_for_validation(
+        self, transaction: PostgreSQLTransaction, validation_id: UUID
+    ) -> UUID | None: ...
+
+    async def maintenance_results(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        session_id: UUID,
+        ceiling: int | None,
+        before: int | None,
+        limit: int,
+    ) -> tuple[CreatorMaintenanceTimelineItem, ...]: ...
+
     async def sleep_episode_for_validation(
         self, transaction: PostgreSQLTransaction, validation_id: UUID
     ) -> UUID | None: ...

@@ -103,8 +103,14 @@ def validate_creator_view(value: CreatorPromptView) -> None:
     )
     has_revision = value.current_revision_id is not None
     if (
-        type(value.prompt_document_id) is not UUID
-        or value.prompt_document_id.version != 7
+        (has_revision != (value.prompt_document_id is not None))
+        or (
+            value.prompt_document_id is not None
+            and (
+                type(value.prompt_document_id) is not UUID
+                or value.prompt_document_id.version != 7
+            )
+        )
         or value.prompt_kind is not PromptKind.CREATOR_GUIDANCE
         or type(value.status) is not PromptDocumentStatus
         or has_revision != all(item is not None for item in revision_values)

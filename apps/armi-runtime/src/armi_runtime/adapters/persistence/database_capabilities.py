@@ -38,13 +38,13 @@ life_material_revisions life_materials
 live_vision_observations
 
 live_voice_turns
-maintenance_session_revisions maintenance_sessions
+ maintenance_sessions
 mood_appraisal_events mood_revisions
 opportunities parties
-party_input_interactions prompt_documents
+party_input_interactions
 prompt_revisions  relationship_revisions
 relationships runtime_instances
-scene_participants
+
 scene_timeline_items
 mind_revisions subject_component_revisions subjective_memories subjective_memory_revisions
 subjects
@@ -54,7 +54,7 @@ subjects
 _RUNTIME_UPDATE = """
 mood_revisions
 codex_task_sources
-maintenance_session_revisions
+
 autonomy_plans
 accepted_experiences activities
 activity_revisions
@@ -73,9 +73,9 @@ live_vision_observations
 
 live_voice_turns maintenance_sessions mood_appraisal_events
 opportunities parties party_input_interactions
-  prompt_documents relationship_revisions relationships
+  prompt_revisions relationship_revisions relationships
 runtime_instances
-scene_participants mind_revisions subject_component_revisions
+ mind_revisions subject_component_revisions
 subjective_memories subjective_memory_revisions subjects
 
 """
