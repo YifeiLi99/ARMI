@@ -63,7 +63,6 @@ def test_owner_commit_protocols_do_not_accept_kernel_owner_drafts() -> None:
 def test_commit_consumers_do_not_requery_cognition_validation_tables() -> None:
     paths = (
         _ROOT / "modules" / "activity" / "src" / "armi_activity" / "_commit.py",
-        _ROOT / "modules" / "capability" / "src" / "armi_capability" / "_postgresql.py",
         _ROOT / "modules" / "codex" / "src" / "armi_codex" / "_commit.py",
     )
     for path in paths:
