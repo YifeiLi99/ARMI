@@ -17,8 +17,8 @@ class PostgreSQLCodexAdmin:
     ) -> tuple[UUID, str, Digest] | None:
         row = transaction.execute(
             "SELECT codex_verification_id,execution_status,final_result_artifact_id "
-            "FROM armi.codex_verification_results "
-            "WHERE effect_id=%s ORDER BY completed_at DESC LIMIT 1",
+            "FROM armi.codex_task_sources "
+            "WHERE effect_id=%s",
             (effect_id,),
         ).fetchone()
         if row is None or row[2] is None:
@@ -32,7 +32,7 @@ class PostgreSQLCodexAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         row = transaction.execute(
-            "SELECT count(*) FROM armi.codex_verification_results WHERE "
+            "SELECT count(*) FROM armi.codex_task_sources WHERE "
             "final_result_artifact_id=%s",
             (artifact_id,),
         ).fetchone()

@@ -70,18 +70,12 @@ class PostgreSQLCodexReadOwner:
         row = await (
             await transaction.execute(
                 """
-                SELECT source.codex_task_source_id,
-                       verification.codex_verification_id,
-                       verification.execution_status,
-                       verification.opportunity_id
-                FROM armi.codex_task_sources AS source
-                LEFT JOIN armi.codex_verification_results AS verification
-                  ON verification.effect_id=%s
-                WHERE source.codex_task_source_id=%s
-                ORDER BY verification.completed_at DESC NULLS LAST
-                LIMIT 1
+                SELECT codex_task_source_id, codex_verification_id,
+                       execution_status, opportunity_id
+                FROM armi.codex_task_sources
+                WHERE codex_task_source_id=%s AND (effect_id IS NULL OR effect_id=%s)
                 """,
-                (effect_id, task_source_id),
+                (task_source_id, effect_id),
             )
         ).fetchone()
         if row is None:
@@ -104,7 +98,7 @@ class PostgreSQLCodexReadOwner:
     ) -> UUID:
         row = await (
             await transaction.execute(
-                "SELECT effect_id FROM armi.codex_verification_results "
+                "SELECT effect_id FROM armi.codex_task_sources "
                 "WHERE codex_verification_id=%s",
                 (verification_id,),
             )
@@ -123,7 +117,7 @@ class PostgreSQLCodexReadOwner:
         if kind == "final_result":
             row = await (
                 await transaction.execute(
-                    "SELECT final_result_artifact_id FROM armi.codex_verification_results WHERE effect_id=%s",
+                    "SELECT final_result_artifact_id FROM armi.codex_task_sources WHERE effect_id=%s",
                     (effect_id,),
                 )
             ).fetchone()

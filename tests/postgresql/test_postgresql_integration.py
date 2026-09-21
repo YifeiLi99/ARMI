@@ -514,7 +514,7 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("audit_events", "details_digest"),
     ("audit_events", "bundle_digest"),
     ("codex_task_sources", "path_scope_digest"),
-    ("codex_verification_results", "validation_digest"),
+    ("codex_task_sources", "validation_digest"),
     ("creator_exports", "manifest_digest"),
     ("data_rights_order_items", "execution_digest"),
 }
@@ -1036,6 +1036,134 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(completed[:2], (turns[1], "你好"))
                 self.assertIsNone(interrupted)
                 self.assertEqual(len(events), 10)
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            asyncio.run(
+                exercise(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+
+    @pytest.mark.test_group("data-rights")
+    def test_export_file_state_and_party_links_share_export_record(self) -> None:
+        from armi_data_rights._creator_export import CreatorExportService
+        from armi_data_rights._data_rights_participant import (
+            PostgreSQLDataRightsParticipant,
+        )
+        from armi_data_rights.api import CreatorExportStatus, DataRightsDiscoveryRequest
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        creator_id = uuid7()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                """INSERT INTO armi.parties(party_id,party_kind,creator_role)
+                   VALUES (%s,'creator','unique_primary_creator')""",
+                (creator_id,),
+            )
+
+        async def exercise(root: Path) -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await factory.open()
+            try:
+                service = CreatorExportService(
+                    creator_party_id=creator_id,
+                    data_root=root,
+                    unit_of_work_factory=factory,
+                    participants=(),
+                    custody=cast(Any, None),
+                    storage=cast(Any, None),
+                    party_roster=cast(Any, None),
+                )
+                participant = PostgreSQLDataRightsParticipant()
+                for status in (
+                    CreatorExportStatus.COMPLETED,
+                    CreatorExportStatus.PARTIAL,
+                    CreatorExportStatus.FAILED,
+                ):
+                    export_id = uuid7()
+                    async with factory.unit_of_work() as unit:
+                        await unit.transaction.execute(
+                            """INSERT INTO armi.creator_exports(
+                               creator_export_id,creator_party_id,directory_name,idempotency_key,
+                               request_digest,status,destination_path)
+                               VALUES (%s,%s,%s,%s,%s,'building',%s)""",
+                            (
+                                export_id,
+                                creator_id,
+                                str(export_id),
+                                str(export_id),
+                                Digest.from_bytes(b"export").value,
+                                str(root / str(export_id)),
+                            ),
+                        )
+                    await service._settle(
+                        export_id=export_id,
+                        trace_id=TraceId(uuid7().hex),
+                        status=status,
+                        segment_count=0,
+                        record_count=0,
+                        artifact_count=0,
+                        missing_count=1 if status is CreatorExportStatus.PARTIAL else 0,
+                        error_code="CREATOR-EXPORT-FAILED"
+                        if status is CreatorExportStatus.FAILED
+                        else None,
+                        party_scopes=((creator_id, 1, 1),),
+                    )
+                    async with factory.unit_of_work() as unit:
+                        row = await (
+                            await unit.transaction.execute(
+                                """SELECT snapshot_status,snapshot_contract_version,snapshot_removed_at
+                               FROM armi.creator_exports WHERE creator_export_id=%s""",
+                                (export_id,),
+                            )
+                        ).fetchone()
+                        assert row is not None
+                        discovery = await participant.discover(
+                            unit.transaction,
+                            DataRightsDiscoveryRequest(uuid7(), creator_id, ()),
+                        )
+                        refs = {item.ref for item in discovery.related_refs}
+                        if status is CreatorExportStatus.FAILED:
+                            self.assertEqual(row, (None, None, None))
+                            self.assertNotIn(export_id, refs)
+                        else:
+                            self.assertEqual(row[0], "active")
+                            self.assertIsNotNone(row[1])
+                            self.assertIn(export_id, refs)
+                            await unit.transaction.execute(
+                                """UPDATE armi.creator_exports
+                                   SET snapshot_status='removed',snapshot_removed_at=statement_timestamp()
+                                   WHERE creator_export_id=%s""",
+                                (export_id,),
+                            )
+                            discovery = await participant.discover(
+                                unit.transaction,
+                                DataRightsDiscoveryRequest(uuid7(), creator_id, ()),
+                            )
+                            self.assertNotIn(
+                                export_id, {item.ref for item in discovery.related_refs}
+                            )
+                            settled = await (
+                                await unit.transaction.execute(
+                                    "SELECT status FROM armi.creator_exports WHERE creator_export_id=%s",
+                                    (export_id,),
+                                )
+                            ).fetchone()
+                            self.assertEqual(settled, (status.value,))
             finally:
                 await factory.close()
 
@@ -9118,7 +9246,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     original.context_manifest_digest, original.compiled_context_digest,
                                     original.trace_id, statement_timestamp()
                                 FROM armi.cognitive_episodes AS original
-                                CROSS JOIN armi.codex_verification_results AS result
+                                CROSS JOIN armi.codex_task_sources AS result
                                 WHERE original.cognitive_episode_id=%s
                             """,
                                 (result_episode, ids["episode"]),
@@ -9239,14 +9367,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if stage in {"result_saved", "result_cognition"}:
                 self.assertEqual(
                     connection.execute(
-                        "SELECT execution_status FROM armi.codex_verification_results"
+                        "SELECT execution_status FROM armi.codex_task_sources WHERE codex_verification_id IS NOT NULL"
                     ).fetchall(),
                     [("verified",)],
                 )
                 self.assertEqual(
                     connection.execute("""
                     SELECT opportunity.current_disposition
-                    FROM armi.codex_verification_results AS result
+                    FROM armi.codex_task_sources AS result
                     JOIN armi.opportunities AS opportunity
                       ON opportunity.opportunity_id=result.opportunity_id
                 """).fetchall(),

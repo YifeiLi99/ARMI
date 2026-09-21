@@ -21,13 +21,13 @@ autonomy_plans
 accepted_experiences activities
 activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts audit_events
-codex_task_sources codex_verification_results
+codex_task_sources
 cognition_maintenance_batch_sources cognition_maintenance_batches
 cognition_maintenance_cursors cognitive_attempts
 cognitive_context_items cognitive_episodes
 context_embedding_coverage
 context_embedding_projections context_embedding_source_sets creator_exports managed_data_snapshot_parties
-managed_data_snapshots data_rights_order_items
+data_rights_order_items
 data_rights_identity_keys data_rights_party_fences data_rights_order_retry_attempts data_rights_orders
 durable_work effect_attempts effect_observations
  effects exact_life_query_intents
@@ -52,6 +52,7 @@ subjects
 """
 
 _RUNTIME_UPDATE = """
+codex_task_sources
 maintenance_session_revisions
 autonomy_plans
 accepted_experiences activities
@@ -61,7 +62,7 @@ artifact_object_deletions artifact_objects artifact_publications artifacts
 cognition_maintenance_batches cognition_maintenance_cursors cognitive_attempts
 cognitive_episodes
 context_embedding_coverage context_embedding_source_sets creator_exports
-managed_data_snapshots
+
 data_rights_party_fences data_rights_order_items data_rights_orders durable_work effect_attempts
  effects exact_life_query_intents
 external_channel_bindings

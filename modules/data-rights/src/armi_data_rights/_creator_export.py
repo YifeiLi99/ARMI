@@ -662,11 +662,10 @@ class CreatorExportService(CreatorExportPort):
                     ),
                 )
                 await unit.transaction.execute(
-                    """INSERT INTO armi.managed_data_snapshots (
-                           managed_snapshot_id,contract_version,
-                           managed_path) VALUES (%s,%s,%s)
-                       ON CONFLICT (managed_snapshot_id) DO NOTHING""",
-                    (export_id, _EXPORT_FORMAT, str(destination)),
+                    """UPDATE armi.creator_exports
+                       SET snapshot_contract_version=%s,snapshot_status='active'
+                       WHERE creator_export_id=%s AND snapshot_status IS NULL""",
+                    (_EXPORT_FORMAT, export_id),
                 )
                 for party_id, contact, use in party_scopes:
                     await unit.transaction.execute(
@@ -739,13 +738,11 @@ class CreatorExportService(CreatorExportPort):
                     CreatorExportStatus.COMPLETED,
                     CreatorExportStatus.PARTIAL,
                 }:
+                    # DESIGN.md: file removal and export completion are separate facts.
                     await connection.execute(
-                        """INSERT INTO armi.managed_data_snapshots (
-                               managed_snapshot_id,contract_version,
-                               managed_path)
-                           SELECT creator_export_id,%s,destination_path
-                           FROM armi.creator_exports WHERE creator_export_id=%s
-                           ON CONFLICT (managed_snapshot_id) DO NOTHING""",
+                        """UPDATE armi.creator_exports
+                           SET snapshot_contract_version=%s,snapshot_status='active'
+                           WHERE creator_export_id=%s AND snapshot_status IS NULL""",
                         (_EXPORT_FORMAT, export_id),
                     )
                     for party_id, contact, use in party_scopes:

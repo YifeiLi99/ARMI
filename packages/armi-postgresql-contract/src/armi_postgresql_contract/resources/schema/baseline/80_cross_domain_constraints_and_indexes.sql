@@ -213,25 +213,25 @@ ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_sources_task_manifest_digest_key UNIQUE (task_manifest_digest);
 
 --
--- Name: codex_verification_results codex_verification_results_effect_attempt_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: codex_task_sources codex_task_result_effect_attempt_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_effect_attempt_id_key UNIQUE (effect_attempt_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_effect_attempt_id_key UNIQUE (effect_attempt_id);
 
 --
--- Name: codex_verification_results codex_verification_results_effect_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: codex_task_sources codex_task_result_effect_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_effect_id_key UNIQUE (effect_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_effect_id_key UNIQUE (effect_id);
 
 --
--- Name: codex_verification_results codex_verification_results_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: codex_task_sources codex_task_result_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_pkey PRIMARY KEY (codex_verification_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_id_key UNIQUE (codex_verification_id);
 
 --
 -- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_so_maintenance_batch_id_ordinal_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1776,25 +1776,25 @@ ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_sources_task_manifest_artifact_id_fkey FOREIGN KEY (task_manifest_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
--- Name: codex_verification_results codex_verification_results_effect_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: codex_task_sources codex_task_result_effect_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_effect_attempt_id_fkey FOREIGN KEY (effect_attempt_id) REFERENCES armi.effect_attempts(effect_attempt_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_effect_attempt_id_fkey FOREIGN KEY (effect_attempt_id) REFERENCES armi.effect_attempts(effect_attempt_id);
 
 --
--- Name: codex_verification_results codex_verification_results_effect_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: codex_task_sources codex_task_result_effect_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
 --
--- Name: codex_verification_results codex_verification_results_final_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: codex_task_sources codex_task_result_final_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_final_result_artifact_id_fkey FOREIGN KEY (final_result_artifact_id) REFERENCES armi.artifacts(artifact_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_final_result_artifact_id_fkey FOREIGN KEY (final_result_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2222,7 +2222,7 @@ ALTER TABLE ONLY armi.external_evidence
 --
 
 ALTER TABLE ONLY armi.external_evidence
-    ADD CONSTRAINT external_evidence_codex_verification_fkey FOREIGN KEY (codex_verification_id) REFERENCES armi.codex_verification_results(codex_verification_id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT external_evidence_codex_verification_fkey FOREIGN KEY (codex_verification_id) REFERENCES armi.codex_task_sources(codex_verification_id) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: external_evidence external_evidence_interaction_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3053,14 +3053,12 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 ALTER TABLE ONLY armi.data_rights_party_fences
     ADD CONSTRAINT data_rights_party_fences_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
 
-ALTER TABLE ONLY armi.managed_data_snapshots
-    ADD CONSTRAINT managed_data_snapshots_pkey PRIMARY KEY (managed_snapshot_id);
 
 ALTER TABLE ONLY armi.managed_data_snapshot_parties
     ADD CONSTRAINT managed_data_snapshot_parties_pkey PRIMARY KEY (managed_snapshot_id,party_id);
 
 ALTER TABLE ONLY armi.managed_data_snapshot_parties
-    ADD CONSTRAINT managed_data_snapshot_parties_snapshot_id_fkey FOREIGN KEY (managed_snapshot_id) REFERENCES armi.managed_data_snapshots(managed_snapshot_id);
+    ADD CONSTRAINT managed_data_snapshot_parties_snapshot_id_fkey FOREIGN KEY (managed_snapshot_id) REFERENCES armi.creator_exports(creator_export_id);
 
 ALTER TABLE ONLY armi.managed_data_snapshot_parties
     ADD CONSTRAINT managed_data_snapshot_parties_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
@@ -3096,14 +3094,14 @@ CREATE INDEX mind_revisions_payload_trgm_idx ON armi.mind_revisions USING gin ((
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_action_intent_key UNIQUE (action_intent_id);
 
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_evidence_key UNIQUE (evidence_id);
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_opportunity_key UNIQUE (opportunity_id);
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_evidence_fk FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
-ALTER TABLE ONLY armi.codex_verification_results
-    ADD CONSTRAINT codex_verification_results_opportunity_fk FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_evidence_key UNIQUE (evidence_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_opportunity_key UNIQUE (opportunity_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_evidence_fk FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_result_opportunity_fk FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);

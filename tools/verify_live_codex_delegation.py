@@ -55,7 +55,7 @@ WITH task AS (
     ORDER BY effect.registered_at,effect.effect_id LIMIT 1
 ), verification AS (
     SELECT result.codex_verification_id,result.execution_status,result.evidence_id FROM effect
-    JOIN armi.codex_verification_results AS result ON result.effect_id=effect.effect_id
+    JOIN armi.codex_task_sources AS result ON result.effect_id=effect.effect_id
 ), second_episode AS (
     SELECT episode.cognitive_episode_id,episode.status FROM verification
     JOIN armi.opportunities AS opportunity

@@ -595,10 +595,10 @@ class DataRightsOrderService(DataRightsOrderPort):
                         raise DataRightsViolation("DATA-RIGHTS-RETRY-STATE")
                     if removable_snapshot_ids:
                         await unit.transaction.execute(
-                            """UPDATE armi.managed_data_snapshots
-                               SET status='removed',removed_at=statement_timestamp()
-                               WHERE managed_snapshot_id=ANY(%s::uuid[])
-                                 AND status='active'""",
+                            """UPDATE armi.creator_exports
+                               SET snapshot_status='removed',snapshot_removed_at=statement_timestamp()
+                               WHERE creator_export_id=ANY(%s::uuid[])
+                                 AND snapshot_status='active'""",
                             (list(removable_snapshot_ids),),
                         )
                         await unit.transaction.execute(
@@ -670,15 +670,15 @@ class DataRightsOrderService(DataRightsOrderPort):
                 raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
             rows = await (
                 await unit.transaction.execute(
-                    """SELECT snapshot.managed_snapshot_id,snapshot.managed_path
+                    """SELECT snapshot.creator_export_id,snapshot.destination_path
                        FROM armi.data_rights_order_items AS item
-                       JOIN armi.managed_data_snapshots AS snapshot
-                         ON snapshot.managed_snapshot_id=item.target_ref
+                       JOIN armi.creator_exports AS snapshot
+                         ON snapshot.creator_export_id=item.target_ref
                        WHERE item.deletion_order_id=%s
                          AND item.target_kind='managed_snapshot'
                          AND item.result_status='partial'
-                         AND snapshot.status='active'
-                       ORDER BY snapshot.managed_snapshot_id""",
+                         AND snapshot.snapshot_status='active'
+                       ORDER BY snapshot.creator_export_id""",
                     (order_id,),
                 )
             ).fetchall()

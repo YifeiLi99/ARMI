@@ -462,27 +462,36 @@ class PostgreSQLCodexDelegationRepository:
         opportunity_id = admitted.opportunity_id
         if opportunity_id is None:
             raise CodexDelegationViolation("CODEX-RESULT-ADMISSION")
-        # Evidence points back here; its deferred FK checks the atomic commit.
-        await connection.execute(
-            """
-            INSERT INTO armi.codex_verification_results (
-                codex_verification_id, effect_id, effect_attempt_id,
-                execution_status, cleanup_status, final_result_artifact_id,
-                execution_error_code, cleanup_error_code, evidence_id, opportunity_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        # DESIGN.md: the task owns its single result; Evidence checks it at commit.
+        row = await (
+            await connection.execute(
+                """
+            UPDATE armi.codex_task_sources
+            SET codex_verification_id=%s,effect_id=%s,effect_attempt_id=%s,
+                execution_status=%s,cleanup_status=%s,final_result_artifact_id=%s,
+                execution_error_code=%s,cleanup_error_code=%s,evidence_id=%s,
+                opportunity_id=%s,completed_at=statement_timestamp()
+            WHERE codex_task_source_id=%s AND subject_id=%s AND codex_verification_id IS NULL
+            RETURNING codex_verification_id
             """,
-            (
-                verification_id,
-                snapshot.effect_id,
-                snapshot.attempt_id,
-                status.value,
-                cleanup_status.value,
-                final_result.artifact_id.value,
-                execution_error_code,
-                cleanup_error_code,
-                evidence_id,
-                opportunity_id,
-            ),
-        )
+                (
+                    verification_id,
+                    snapshot.effect_id,
+                    snapshot.attempt_id,
+                    status.value,
+                    cleanup_status.value,
+                    final_result.artifact_id.value,
+                    execution_error_code,
+                    cleanup_error_code,
+                    evidence_id,
+                    opportunity_id,
+                    snapshot.task_source_id,
+                    snapshot.subject_id,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise CodexDelegationViolation("CODEX-RESULT-STATE")
         return verification_id
 
     async def _require_artifact(

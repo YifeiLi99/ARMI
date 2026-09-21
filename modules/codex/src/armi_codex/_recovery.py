@@ -25,7 +25,7 @@ class CodexRecoveryParticipant:
         del scope, work
         row = await (
             await transaction.execute("""
-            SELECT count(*) FROM armi.codex_verification_results AS verification
+            SELECT count(*) FROM armi.codex_task_sources AS verification
             WHERE verification.execution_status NOT IN (
                 'verified', 'failed', 'unknown', 'cancelled'
             )

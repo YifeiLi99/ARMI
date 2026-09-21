@@ -23,17 +23,12 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("codex")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "codex_task_sources",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.codex_task_sources AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "codex_verification_results",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.codex_verification_results AS source ORDER BY to_jsonb(source)::text""",
     ),
 )
 
@@ -70,7 +65,7 @@ class PostgreSQLCodexDataRightsParticipant:
                      FROM armi.codex_task_sources
                      UNION ALL SELECT final_result_artifact_id,
                             codex_verification_id=ANY(%s::uuid[])
-                     FROM armi.codex_verification_results
+                     FROM armi.codex_task_sources
                    ) SELECT artifact_id,count(*),count(*) FILTER (WHERE targeted)
                      FROM refs WHERE artifact_id IS NOT NULL
                      GROUP BY artifact_id ORDER BY artifact_id""",

@@ -34,7 +34,7 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
             (table, column, "party")
             for table, column in (
                 ("codex_task_sources", "task_manifest_artifact_id"),
-                ("codex_verification_results", "final_result_artifact_id"),
+                ("codex_task_sources", "final_result_artifact_id"),
             )
         ),
     ),
@@ -58,9 +58,7 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract(
         "effect",
         ("effect",),
-        (
-            ("effects", "payload_artifact_id", "objective"),
-        ),
+        (("effects", "payload_artifact_id", "objective"),),
     ),
     _contract(
         "evidence", ("evidence",), (("external_evidence", "artifact_id", "party"),)

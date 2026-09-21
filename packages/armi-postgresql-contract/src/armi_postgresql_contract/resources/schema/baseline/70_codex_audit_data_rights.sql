@@ -56,35 +56,33 @@ CREATE TABLE armi.codex_task_sources (
     trace_id text NOT NULL,
     admitted_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     origin_subject_commit_id uuid,
+    codex_verification_id uuid,
+    evidence_id uuid,
+    opportunity_id uuid,
+    effect_id uuid,
+    effect_attempt_id uuid,
+    execution_status text,
+    cleanup_status text,
+    final_result_artifact_id uuid,
+    execution_error_code text,
+    cleanup_error_code text,
+    completed_at timestamp(6) with time zone,
+    CONSTRAINT codex_task_result_check CHECK ((execution_status <> 'verified'::text OR execution_error_code IS NULL)),
+    CONSTRAINT codex_task_result_cleanup_error_code_check CHECK (((cleanup_error_code IS NULL) OR (cleanup_error_code ~ '^CODEX-[A-Z0-9-]+$'::text))),
+    CONSTRAINT codex_task_result_cleanup_status_check CHECK ((cleanup_status = ANY (ARRAY['clean'::text, 'failed'::text]))),
+    CONSTRAINT codex_task_result_codex_verification_id_check CHECK ((uuid_extract_version(codex_verification_id) = 7)),
+    CONSTRAINT codex_task_result_execution_error_code_check CHECK (((execution_error_code IS NULL) OR (execution_error_code ~ '^CODEX-[A-Z0-9-]+$'::text))),
+    CONSTRAINT codex_task_result_execution_status_check CHECK ((execution_status = ANY (ARRAY['verified'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text]))),
+    CONSTRAINT codex_task_result_shape_check CHECK (
+        (codex_verification_id IS NULL AND evidence_id IS NULL AND opportunity_id IS NULL AND effect_id IS NULL AND effect_attempt_id IS NULL AND execution_status IS NULL AND cleanup_status IS NULL AND final_result_artifact_id IS NULL AND execution_error_code IS NULL AND cleanup_error_code IS NULL AND completed_at IS NULL)
+        OR (codex_verification_id IS NOT NULL AND evidence_id IS NOT NULL AND opportunity_id IS NOT NULL AND effect_id IS NOT NULL AND effect_attempt_id IS NOT NULL AND execution_status IS NOT NULL AND cleanup_status IS NOT NULL AND final_result_artifact_id IS NOT NULL AND completed_at IS NOT NULL)
+    ),
     CONSTRAINT codex_task_sources_codex_task_source_id_check CHECK ((uuid_extract_version(codex_task_source_id) = 7)),
     CONSTRAINT codex_task_sources_deadline_seconds_check CHECK (((deadline_seconds >= 60) AND (deadline_seconds <= 1800))),
     CONSTRAINT codex_task_sources_task_manifest_digest_check CHECK ((task_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT codex_task_sources_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
 );
 
---
--- Name: codex_verification_results; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.codex_verification_results (
-    codex_verification_id uuid NOT NULL,
-    evidence_id uuid NOT NULL,
-    opportunity_id uuid NOT NULL,
-    effect_id uuid NOT NULL,
-    effect_attempt_id uuid NOT NULL,
-    execution_status text NOT NULL,
-    cleanup_status text NOT NULL,
-    final_result_artifact_id uuid NOT NULL,
-    execution_error_code text,
-    cleanup_error_code text,
-    completed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT codex_verification_results_check CHECK ((execution_status <> 'verified'::text OR execution_error_code IS NULL)),
-    CONSTRAINT codex_verification_results_cleanup_error_code_check CHECK (((cleanup_error_code IS NULL) OR (cleanup_error_code ~ '^CODEX-[A-Z0-9-]+$'::text))),
-    CONSTRAINT codex_verification_results_cleanup_status_check CHECK ((cleanup_status = ANY (ARRAY['clean'::text, 'failed'::text]))),
-    CONSTRAINT codex_verification_results_codex_verification_id_check CHECK ((uuid_extract_version(codex_verification_id) = 7)),
-    CONSTRAINT codex_verification_results_execution_error_code_check CHECK (((execution_error_code IS NULL) OR (execution_error_code ~ '^CODEX-[A-Z0-9-]+$'::text))),
-    CONSTRAINT codex_verification_results_execution_status_check CHECK ((execution_status = ANY (ARRAY['verified'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text])))
-);
 
 --
 -- Name: creator_exports; Type: TABLE; Schema: armi; Owner: -
@@ -92,6 +90,16 @@ CREATE TABLE armi.codex_verification_results (
 
 CREATE TABLE armi.creator_exports (
     creator_export_id uuid NOT NULL,
+    snapshot_contract_version text,
+    snapshot_status text,
+    snapshot_removed_at timestamp(6) with time zone,
+    CONSTRAINT creator_exports_snapshot_check CHECK (
+        (snapshot_contract_version IS NULL AND snapshot_status IS NULL AND snapshot_removed_at IS NULL)
+        OR (snapshot_contract_version IS NOT NULL AND snapshot_status IS NOT NULL
+            AND status IN ('completed','partial')
+            AND ((snapshot_status='active' AND snapshot_removed_at IS NULL)
+                OR (snapshot_status='removed' AND snapshot_removed_at IS NOT NULL)))
+    ),
     creator_party_id uuid NOT NULL,
     directory_name text NOT NULL,
     idempotency_key text NOT NULL,
@@ -124,16 +132,6 @@ CREATE TABLE armi.creator_exports (
     CONSTRAINT creator_exports_segment_count_check CHECK ((segment_count >= 0))
 );
 
-CREATE TABLE armi.managed_data_snapshots (
-    managed_snapshot_id uuid NOT NULL,
-    contract_version text NOT NULL,
-    managed_path text NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    removed_at timestamp(6) with time zone,
-    CONSTRAINT managed_data_snapshots_id_check CHECK ((uuid_extract_version(managed_snapshot_id) = 7)),
-    CONSTRAINT managed_data_snapshots_status_check CHECK ((((status = 'active'::text) AND (removed_at IS NULL)) OR ((status = 'removed'::text) AND (removed_at IS NOT NULL))))
-);
 
 CREATE TABLE armi.managed_data_snapshot_parties (
     managed_snapshot_id uuid NOT NULL,

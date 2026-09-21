@@ -14,7 +14,7 @@ WITH parents AS (
     JOIN armi.cognitive_episodes e USING (cognitive_episode_id)
     JOIN armi.opportunities o USING (opportunity_id)
     LEFT JOIN armi.external_evidence evidence ON evidence.evidence_id=o.evidence_id
-    LEFT JOIN armi.codex_verification_results verification
+    LEFT JOIN armi.codex_task_sources verification
       ON verification.codex_verification_id=evidence.codex_verification_id
     LEFT JOIN armi.effects effect ON effect.effect_id=verification.effect_id
     WHERE e.purpose <> 'reflect_mood'

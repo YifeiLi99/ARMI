@@ -119,13 +119,11 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "effect_observations": TableOwnership("effect", maintenance_writable=False),
     "effects": TableOwnership("effect", maintenance_writable=False),
     # Web, Codex, and Data Rights.
-    "codex_task_sources": TableOwnership("codex", maintenance_writable=True),
-    "codex_verification_results": TableOwnership("codex", maintenance_writable=False),
+    "codex_task_sources": TableOwnership("codex", maintenance_writable=False),
     "creator_exports": TableOwnership("data-rights", maintenance_writable=False),
     "managed_data_snapshot_parties": TableOwnership(
         "data-rights", maintenance_writable=False
     ),
-    "managed_data_snapshots": TableOwnership("data-rights", maintenance_writable=False),
     "data_rights_party_fences": TableOwnership(
         "data-rights", maintenance_writable=False
     ),
