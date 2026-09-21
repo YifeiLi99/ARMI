@@ -104,7 +104,11 @@ from armi_live_vision.bootstrap import (
     compose_visual_capture_router,
     compose_visual_observation_sink,
 )
-from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
+from armi_live_voice.api import (
+    LiveVoiceRuntimePort,
+    LiveVoiceViolation,
+    VoiceActivityState,
+)
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_memory.api import MemoryViolation
@@ -570,6 +574,7 @@ async def _serve(
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
     live_voice_service: LiveVoiceRuntimePort | None = None
+    voice_activity_state = VoiceActivityState()
     live_vision_services: dict[VisualSourceKind, LiveVisionRuntimePort] = {}
     vision_sinks: dict[VisualSourceKind, Any] = {}
     vision_capture_router = None
@@ -950,6 +955,7 @@ async def _serve(
                     with configuration_consumption.consumer("voice"):
                         live_voice_service = compose_runtime_live_voice(
                             prepared,
+                            voice_activity_state=voice_activity_state,
                             factory=runtime_unit_of_work_factory,
                             subject_id=authority.require_writable().subject_id,
                             creator=creator_context,
@@ -1094,6 +1100,7 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 facts=RuntimeLifeOpportunityFacts(
+                    voice_activity_state=voice_activity_state,
                     cognition=cognition_operation,
                     interaction=interaction_module.identity,
                     mood=mood_module.read,
@@ -1115,6 +1122,7 @@ async def _serve(
             runtime_cognition_state = RuntimeCognitionState()
             context_pipeline = compose_context_pipeline(
                 prepared,
+                voice_activity_state=voice_activity_state,
                 voice=live_voice_service,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
@@ -1152,6 +1160,7 @@ async def _serve(
             candidate_context = compose_context_candidate_read()
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
+                voice_activity_state=voice_activity_state,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_commit=activity_module.commit,
                 codex_commit=bootstrap_codex_commit(
@@ -1164,7 +1173,6 @@ async def _serve(
                 experience_commit=experience_owner,
                 context_projections=context_projection_invalidation,
                 data_rights=data_rights_module.subject_commit,
-                evidence=evidence_module.write,
                 evidence_read=evidence_module.read,
                 expression_commit=expression_module.commit,
                 interaction_commit=interaction_module.subject_commit,
@@ -2554,6 +2562,7 @@ async def _serve(
             sleep_module.read,
             mind_module.read,
             RuntimeLifeOpportunityFacts(
+                voice_activity_state=voice_activity_state,
                 cognition=cognition_operation,
                 interaction=interaction_module.identity,
                 mood=mood_module.read,

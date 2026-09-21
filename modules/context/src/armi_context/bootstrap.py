@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
@@ -21,9 +20,8 @@ from armi_evidence.api import EvidenceReadPort
 from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import InteractionContextReadPort
 from armi_kernel.application import DurableWorkPort, ExecutionCustodyPort
-from armi_material.api import MaterialCandidateContextPort, MaterialProjectionPort
+from armi_material.api import MaterialProjectionPort
 from armi_memory.api import (
-    MemoryCandidateContextPort,
     MemoryProjectionPort,
     MemoryReadPort,
 )
@@ -39,7 +37,6 @@ from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._application import ContextPipeline
-from ._candidate_read import PostgreSQLContextCandidateRead
 from ._data_rights import PostgreSQLContextDataRightsParticipant
 from ._dialogue import PostgreSQLContextDialogueRead
 from ._embedding_application import ContextEmbeddingPipeline
@@ -50,7 +47,6 @@ from ._embedding_postgresql import (
 from ._recovery import ContextRecoveryParticipant
 from .api import (
     ContextArtifactCatalogPort,
-    ContextCognitionReadPort,
     ContextDialogueReadPort,
     ContextEmbeddingRuntimePort,
     ContextEpisodePort,
@@ -199,22 +195,8 @@ def bootstrap_context_recovery(
     return ContextRecoveryParticipant(failure_diagnostic)
 
 
-@dataclass(frozen=True, slots=True)
-class ContextCandidateReadPorts:
-    material: MaterialCandidateContextPort
-    memory: MemoryCandidateContextPort
-    cognition: ContextCognitionReadPort
-
-
-def bootstrap_context_candidate_read() -> ContextCandidateReadPorts:
-    owner = PostgreSQLContextCandidateRead()
-    return ContextCandidateReadPorts(owner, owner, owner)
-
-
 __all__ = (
-    "ContextCandidateReadPorts",
     "bootstrap_context",
-    "bootstrap_context_candidate_read",
     "bootstrap_context_data_rights",
     "bootstrap_context_dialogue_read",
     "bootstrap_context_embedding",

@@ -46,22 +46,16 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "scene_participants": TableOwnership("interaction", maintenance_writable=False),
     "scene_timeline_items": TableOwnership("interaction", maintenance_writable=True),
     # Local real-time voice custody.
-    "live_voice_sessions": TableOwnership("live-voice", maintenance_writable=True),
     "live_voice_turns": TableOwnership("live-voice", maintenance_writable=True),
     # Persistent local camera observation custody.
     "live_vision_observations": TableOwnership(
-        "live-vision", maintenance_writable=True
-    ),
-    "live_vision_observation_frames": TableOwnership(
-        "live-vision", maintenance_writable=True
+        "live-vision", maintenance_writable=False
     ),
     # Perception and evidence.
-    "experience_evidence_links": TableOwnership("evidence", maintenance_writable=True),
     "external_evidence": TableOwnership("evidence", maintenance_writable=True),
     # Attention and context.
     "opportunities": TableOwnership("attention", maintenance_writable=True),
     "autonomy_plans": TableOwnership("attention", maintenance_writable=False),
-    "cognitive_context_items": TableOwnership("context", maintenance_writable=True),
     "context_embedding_coverage": TableOwnership("context", maintenance_writable=True),
     "context_embedding_projections": TableOwnership(
         "context", maintenance_writable=True
@@ -70,7 +64,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
         "context", maintenance_writable=True
     ),
     # Experience and cognition.
-    "accepted_experiences": TableOwnership("experience", maintenance_writable=True),
+    "accepted_experiences": TableOwnership("experience", maintenance_writable=False),
     "cognitive_attempts": TableOwnership("cognition", maintenance_writable=False),
     "cognitive_episodes": TableOwnership("cognition", maintenance_writable=False),
     # Subject-owned components.
@@ -101,9 +95,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "codex_task_sources": TableOwnership("codex", maintenance_writable=False),
     "creator_exports": TableOwnership("data-rights", maintenance_writable=False),
     "data_rights_order_items": TableOwnership(
-        "data-rights", maintenance_writable=False
-    ),
-    "data_rights_order_retry_attempts": TableOwnership(
         "data-rights", maintenance_writable=False
     ),
     "data_rights_orders": TableOwnership("data-rights", maintenance_writable=False),

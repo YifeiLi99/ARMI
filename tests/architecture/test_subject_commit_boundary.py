@@ -38,7 +38,6 @@ def test_runtime_subject_commit_contains_only_runtime_owned_business_sql() -> No
         "artifacts",
         "cognitive_candidate_basis_links",
         "cognitive_candidate_validation_items",
-        "cognitive_context_items",
         "cognitive_episodes",
         "data_rights_orders",
         "external_evidence",

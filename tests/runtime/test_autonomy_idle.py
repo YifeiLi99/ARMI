@@ -40,7 +40,7 @@ async def test_only_quiet_completed_human_exchange_is_idle(
         AsyncMock(return_value=(voice_active, None)),
     )
     monkeypatch.setattr(
-        "armi_expression.api.response_intent_ids", AsyncMock(return_value=())
+        "armi_effect.api.response_intent_ids", AsyncMock(return_value=())
     )
     monkeypatch.setattr(
         "armi_effect.api.response_delivery_activity",

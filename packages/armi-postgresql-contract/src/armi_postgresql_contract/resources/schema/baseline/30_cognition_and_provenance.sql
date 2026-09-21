@@ -5,6 +5,7 @@
 --
 
 CREATE TABLE armi.accepted_experiences (
+    evidence_links jsonb DEFAULT '[]'::jsonb NOT NULL CHECK (jsonb_typeof(evidence_links)='array' AND jsonb_array_length(evidence_links)<=8),
     acceptance_ordinal bigint GENERATED ALWAYS AS IDENTITY,
     experience_id uuid NOT NULL,
     subject_id uuid NOT NULL,
@@ -92,38 +93,8 @@ CREATE TABLE armi.cognitive_attempts (
 );
 
 --
--- Name: cognitive_context_items; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.cognitive_context_items (
-    context_item_id uuid NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    ordinal smallint NOT NULL,
-    section text NOT NULL,
-    item_kind text NOT NULL,
-    source_kind text NOT NULL,
-    source_ref uuid,
-    source_version bigint,
-    trust_class text NOT NULL,
-    privacy_scope text NOT NULL,
-    disposition text NOT NULL,
-    reason_code text,
-    content_bytes integer NOT NULL,
-    CONSTRAINT cognitive_context_items_check CHECK ((((source_ref IS NULL) AND (source_version IS NULL)) OR ((source_ref IS NOT NULL) AND (source_version IS NOT NULL)))),
-    CONSTRAINT cognitive_context_items_check1 CHECK ((((disposition = ANY (ARRAY['included'::text, 'excluded_policy'::text])) AND (reason_code IS NULL)) OR ((disposition = ANY (ARRAY['excluded_budget'::text, 'unavailable'::text, 'read_failed'::text])) AND (reason_code IS NOT NULL)))),
-    CONSTRAINT cognitive_context_items_content_bytes_check CHECK ((content_bytes >= 0)),
-    CONSTRAINT cognitive_context_items_context_item_id_check CHECK ((uuid_extract_version(context_item_id) = 7)),
-    CONSTRAINT cognitive_context_items_disposition_check CHECK ((disposition = ANY (ARRAY['included'::text, 'excluded_policy'::text, 'excluded_budget'::text, 'unavailable'::text, 'read_failed'::text]))),
-    CONSTRAINT cognitive_context_items_item_kind_check CHECK ((item_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
-    CONSTRAINT cognitive_context_items_ordinal_check CHECK ((ordinal > 0)),
-    CONSTRAINT cognitive_context_items_privacy_scope_check CHECK ((privacy_scope = ANY (ARRAY['internal'::text, 'private'::text, 'restricted'::text]))),
-    CONSTRAINT cognitive_context_items_reason_code_check CHECK (((reason_code IS NULL) OR (reason_code ~ '^CTX-[A-Z0-9-]+$'::text))),
-    CONSTRAINT cognitive_context_items_section_check CHECK ((section = ANY (ARRAY['runtime_truth'::text, 'purpose'::text, 'self'::text, 'mind'::text, 'mood'::text, 'life_mode'::text, 'scene'::text, 'relationship'::text, 'memory'::text, 'activity'::text, 'material'::text, 'evidence'::text, 'capability'::text, 'prompt'::text]))),
-    CONSTRAINT cognitive_context_items_source_kind_check CHECK ((source_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
-    CONSTRAINT cognitive_context_items_source_ref_check CHECK (((source_ref IS NULL) OR (uuid_extract_version(source_ref) = 7))),
-    CONSTRAINT cognitive_context_items_source_version_check CHECK (((source_version IS NULL) OR (source_version >= 0))),
-    CONSTRAINT cognitive_context_items_trust_class_check CHECK ((trust_class = ANY (ARRAY['runtime_authority'::text, 'subjective_state'::text, 'external_claim'::text, 'policy'::text])))
-);
 
 
 --
@@ -131,6 +102,7 @@ CREATE TABLE armi.cognitive_context_items (
 --
 
 CREATE TABLE armi.cognitive_episodes (
+    context_items jsonb DEFAULT '[]'::jsonb NOT NULL CHECK (jsonb_typeof(context_items)='array'),
     cognitive_episode_id uuid NOT NULL,
     opportunity_id uuid NOT NULL,
     subject_id uuid NOT NULL,
@@ -404,18 +376,8 @@ CREATE VIEW armi.context_model_cache_hit_ratios AS
 
 
 --
--- Name: experience_evidence_links; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.experience_evidence_links (
-    experience_id uuid NOT NULL,
-    evidence_id uuid NOT NULL,
-    context_item_id uuid NOT NULL,
-    link_kind text NOT NULL,
-    ordinal smallint NOT NULL,
-    CONSTRAINT experience_evidence_links_link_kind_check CHECK ((link_kind = 'relied_on'::text)),
-    CONSTRAINT experience_evidence_links_ordinal_check CHECK (((ordinal >= 1) AND (ordinal <= 8)))
-);
 
 --
 -- Name: external_evidence; Type: TABLE; Schema: armi; Owner: -

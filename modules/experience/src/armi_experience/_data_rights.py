@@ -12,13 +12,14 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
     DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("experience")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "accepted_experiences",
@@ -43,13 +44,31 @@ class PostgreSQLExperienceDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction
+        evidence_ids = [
+            item.ref for item in request.related_refs if item.kind == "evidence"
+        ]
+        rows = await (
+            await transaction.execute(
+                """SELECT experience_id FROM armi.accepted_experiences
+               WHERE EXISTS (
+                   SELECT 1 FROM jsonb_array_elements(evidence_links) AS link
+                   WHERE (link->>'evidence_id')::uuid=ANY(%s::uuid[])
+               ) ORDER BY experience_id""",
+                (evidence_ids,),
+            )
+        ).fetchall()
+        experience_ids = sorted(
+            {item.ref for item in request.related_refs if item.kind == "experience"}
+            | {row[0] for row in rows}
+        )
         return DataRightsDiscoveryContribution(
             _OWNER,
+            related_refs=tuple(
+                DataRightsRelatedRef("experience", ref) for ref in experience_ids
+            ),
             targets=tuple(
-                DataRightsTargetRef("experience", item.ref, "tombstone")
-                for item in request.related_refs
-                if item.kind == "experience"
+                DataRightsTargetRef("experience", ref, "tombstone")
+                for ref in experience_ids
             ),
         )
 

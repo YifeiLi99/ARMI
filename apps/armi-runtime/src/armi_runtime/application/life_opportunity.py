@@ -12,6 +12,7 @@ from armi_attention.api import (
 from armi_cognition.api import CognitionOperationReadPort
 from armi_interaction.api import InteractionIdentityPort
 from armi_kernel.application import ConsiderationSignal
+from armi_live_voice.api import VoiceActivityState
 from armi_mind.api import MindReadPort
 from armi_mood.api import MoodReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
@@ -27,6 +28,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         "_model_revision",
         "_mood",
         "_outlet_health",
+        "_voice_activity",
     )
 
     def __init__(
@@ -38,6 +40,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         mind: MindReadPort,
         outlet_health: Callable[[str], Awaitable[tuple[str, str | None]]],
         model_revision: Callable[[], str],
+        voice_activity_state: VoiceActivityState | None = None,
     ) -> None:
         self._cognition = cognition
         self._interaction = interaction
@@ -45,6 +48,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         self._mind = mind
         self._outlet_health = outlet_health
         self._model_revision = model_revision
+        self._voice_activity = voice_activity_state
 
     def model_configuration_revision(self) -> str:
         return self._model_revision()
@@ -108,7 +112,9 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         input_busy, input_at = await human_input_activity(
             transaction, subject_id=subject_id
         )
-        voice_busy, voice_at = await voice_activity(transaction, subject_id=subject_id)
+        voice_busy, voice_at = await voice_activity(
+            transaction, subject_id=subject_id, activity=self._voice_activity
+        )
         reply_busy, reply_at = await response_delivery_activity(
             transaction,
             action_intent_ids=await response_intent_ids(

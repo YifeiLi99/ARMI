@@ -69,10 +69,9 @@ WITH task AS (
       ON commit.cognitive_episode_id=second_episode.cognitive_episode_id
 ), experience AS (
     SELECT accepted.experience_id FROM verification
-    JOIN armi.experience_evidence_links AS link
-      ON link.evidence_id=verification.evidence_id
     JOIN armi.accepted_experiences AS accepted
-      ON accepted.experience_id=link.experience_id
+      ON accepted.evidence_links @> jsonb_build_array(
+           jsonb_build_object('evidence_id', verification.evidence_id))
     ORDER BY accepted.experience_id LIMIT 1
 )
 SELECT

@@ -25,6 +25,21 @@ class InteractionRecoveryParticipant:
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> None:
+        await transaction.execute(
+            """UPDATE armi.interaction_scenes
+               SET last_voice_ended_at=statement_timestamp(),
+                   voice_provider_calls=(
+                     SELECT jsonb_object_agg(key, CASE WHEN value->>'outcome'='pending'
+                       THEN value || jsonb_build_object('outcome','unknown',
+                            'finished_at',statement_timestamp(),
+                            'error_code','VOICE-RUNTIME-RESTARTED')
+                       ELSE value END)
+                     FROM jsonb_each(voice_provider_calls))
+               WHERE subject_id=%s AND EXISTS (
+                 SELECT 1 FROM jsonb_each(voice_provider_calls)
+                 WHERE value->>'outcome'='pending')""",
+            (scope.subject_id,),
+        )
         rows = await (
             await transaction.execute(
                 """UPDATE armi.party_input_interactions SET recognition_status='failed'

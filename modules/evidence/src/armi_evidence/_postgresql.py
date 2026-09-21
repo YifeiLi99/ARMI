@@ -12,7 +12,6 @@ from .api import (
     EvidenceId,
     EvidenceSnapshot,
     EvidenceViolation,
-    ExperienceEvidenceLink,
 )
 
 type EvidenceTransaction = PostgreSQLTransaction | PostgreSQLTransactionAccess
@@ -58,25 +57,6 @@ class PostgreSQLEvidenceWriter:
             ),
         )
         return draft.evidence_id
-
-    async def link_experience(
-        self,
-        transaction: EvidenceTransaction,
-        link: ExperienceEvidenceLink,
-    ) -> None:
-        await _connection(transaction).execute(
-            """
-            INSERT INTO armi.experience_evidence_links (
-                experience_id, evidence_id, context_item_id, link_kind, ordinal)
-            VALUES (%s, %s, %s, 'relied_on', %s)
-            """,
-            (
-                link.experience_id,
-                link.evidence_id.value,
-                link.context_item_id,
-                link.ordinal,
-            ),
-        )
 
     async def find_by_interaction(
         self,

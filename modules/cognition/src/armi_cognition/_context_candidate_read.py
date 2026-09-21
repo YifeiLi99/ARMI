@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from armi_kernel.application import CandidateBasis
-from armi_material.api import MaterialCandidateSourceRef
-from armi_memory.api import MemoryCandidateSourceRef
-from armi_runtime_foundation import PostgreSQLTransaction
-
-from .api import (
+from armi_context.api import (
     ContextBudgetExclusion,
     ContextCandidateBasisSnapshot,
     ContextModelReference,
 )
+from armi_kernel.application import CandidateBasis
+from armi_material.api import MaterialCandidateSourceRef
+from armi_memory.api import MemoryCandidateSourceRef
+from armi_runtime_foundation import PostgreSQLTransaction
 
 
 class PostgreSQLContextCandidateRead:
@@ -25,7 +24,13 @@ class PostgreSQLContextCandidateRead:
         rows = await (
             await transaction.execute(
                 """SELECT ordinal, section, item_kind, disposition, reason_code
-                   FROM armi.cognitive_context_items WHERE cognitive_episode_id=%s
+                   FROM armi.cognitive_episodes AS episode,
+                        jsonb_to_recordset(episode.context_items) AS item(
+                          context_item_id uuid, ordinal integer, section text,
+                          item_kind text, source_ref uuid, source_version bigint,
+                          trust_class text, privacy_scope text, disposition text,
+                          source_kind text, reason_code text)
+                   WHERE episode.cognitive_episode_id=%s
                    ORDER BY ordinal""",
                 (episode_id,),
             )
@@ -49,8 +54,13 @@ class PostgreSQLContextCandidateRead:
             await transaction.execute(
                 """SELECT context_item_id, ordinal, section, item_kind, source_ref,
                           source_version, trust_class, privacy_scope
-                   FROM armi.cognitive_context_items
-                   WHERE cognitive_episode_id=%s AND disposition='included'
+                   FROM armi.cognitive_episodes AS episode,
+                        jsonb_to_recordset(episode.context_items) AS item(
+                          context_item_id uuid, ordinal integer, section text,
+                          item_kind text, source_ref uuid, source_version bigint,
+                          trust_class text, privacy_scope text, disposition text,
+                          source_kind text, reason_code text)
+                   WHERE episode.cognitive_episode_id=%s AND disposition='included'
                    ORDER BY ordinal""",
                 (episode_id,),
             )
@@ -83,8 +93,13 @@ class PostgreSQLContextCandidateRead:
         rows = await (
             await transaction.execute(
                 """SELECT source_ref,source_version
-                   FROM armi.cognitive_context_items
-                   WHERE cognitive_episode_id=%s AND disposition='included'
+                   FROM armi.cognitive_episodes AS episode,
+                        jsonb_to_recordset(episode.context_items) AS item(
+                          context_item_id uuid, ordinal integer, section text,
+                          item_kind text, source_ref uuid, source_version bigint,
+                          trust_class text, privacy_scope text, disposition text,
+                          source_kind text, reason_code text)
+                   WHERE episode.cognitive_episode_id=%s AND disposition='included'
                      AND section='material' AND item_kind='current_material'
                      AND source_kind='life_material'
                    ORDER BY ordinal""",
@@ -102,8 +117,13 @@ class PostgreSQLContextCandidateRead:
         rows = await (
             await transaction.execute(
                 """SELECT source_ref,source_version
-                   FROM armi.cognitive_context_items
-                   WHERE cognitive_episode_id=%s AND disposition='included'
+                   FROM armi.cognitive_episodes AS episode,
+                        jsonb_to_recordset(episode.context_items) AS item(
+                          context_item_id uuid, ordinal integer, section text,
+                          item_kind text, source_ref uuid, source_version bigint,
+                          trust_class text, privacy_scope text, disposition text,
+                          source_kind text, reason_code text)
+                   WHERE episode.cognitive_episode_id=%s AND disposition='included'
                      AND section='memory' AND item_kind='current_memory'
                      AND source_kind='subjective_memory'
                    ORDER BY ordinal""",

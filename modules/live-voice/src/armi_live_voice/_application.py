@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Literal, cast
 from uuid import UUID
 
+from armi_interaction.api import ExternalMessageViolation
 from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -20,6 +22,7 @@ from .api import (
     LiveVoiceSessionState,
     LiveVoiceViolation,
     PlaybackExtent,
+    VoiceActivityState,
     VoiceTimelinePort,
     VoiceTurnSnapshot,
 )
@@ -45,6 +48,7 @@ class PostgreSQLLiveVoiceJournal:
     """Own live-voice facts while provider/device I/O stays outside transactions."""
 
     __slots__ = (
+        "_activity",
         "_binding",
         "_creator_party_id",
         "_factory",
@@ -63,6 +67,7 @@ class PostgreSQLLiveVoiceJournal:
         scene_id: UUID,
         binding: LiveVoiceBinding,
         timeline: VoiceTimelinePort,
+        activity: VoiceActivityState | None = None,
         playback_diagnostic: Callable[[str, UUID, int, str | None], None] | None = None,
     ) -> None:
         if any(
@@ -70,6 +75,7 @@ class PostgreSQLLiveVoiceJournal:
             for value in (subject_id, creator_party_id, scene_id)
         ):
             raise LiveVoiceViolation("VOICE-JOURNAL-SCOPE", "voice scope is invalid")
+        self._activity = activity if activity is not None else VoiceActivityState()
         self._factory = factory
         self._subject_id = subject_id
         self._creator_party_id = creator_party_id
@@ -108,25 +114,27 @@ class PostgreSQLLiveVoiceJournal:
             None if row[4] is None else str(row[4]),
         )
 
+    def _require_session(self, session_id: UUID) -> None:
+        if self._activity.session_id != session_id:
+            raise LiveVoiceViolation("VOICE-JOURNAL-STATE", "voice session is closed")
+
     async def open_session(self, *, session_id: UUID) -> None:
-        async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """INSERT INTO armi.live_voice_sessions
-                   (session_id,subject_id,creator_party_id,scene_id,state,
-                    input_host_api,input_device_name,
-                    output_host_api,output_device_name)
-                   VALUES (%s,%s,%s,%s,'starting',%s,%s,%s,%s)""",
-                (
-                    session_id,
-                    self._subject_id,
-                    self._creator_party_id,
-                    self._scene_id,
-                    self._binding.input_host_api,
-                    self._binding.input_device_name,
-                    self._binding.output_host_api,
-                    self._binding.output_device_name,
-                ),
+        if self._activity.session_id is not None:
+            raise LiveVoiceViolation(
+                "VOICE-JOURNAL-STATE", "voice session is already open"
             )
+        self._activity.session_id = session_id
+        logging.getLogger(__name__).info(
+            "voice.session.opened",
+            extra={
+                "session_id": str(session_id),
+                "scene_id": str(self._scene_id),
+                "input_host_api": self._binding.input_host_api,
+                "input_device_name": self._binding.input_device_name,
+                "output_host_api": self._binding.output_host_api,
+                "output_device_name": self._binding.output_device_name,
+            },
+        )
 
     async def set_session_state(
         self,
@@ -137,29 +145,35 @@ class PostgreSQLLiveVoiceJournal:
     ) -> None:
         if state in {LiveVoiceSessionState.IDLE, LiveVoiceSessionState.UNAVAILABLE}:
             raise LiveVoiceViolation("VOICE-JOURNAL-STATE", "voice state is terminal")
-        async with self._factory.unit_of_work() as unit:
-            result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_sessions
-                   SET state=%s,context_version=COALESCE(%s,context_version)
-                   WHERE session_id=%s AND ended_at IS NULL""",
-                (state.value, context_version, session_id),
-            )
-            if result.rowcount != 1:
-                raise LiveVoiceViolation(
-                    "VOICE-JOURNAL-STATE", "voice session is closed"
-                )
+        self._require_session(session_id)
+        logging.getLogger(__name__).info(
+            "voice.session.state",
+            extra={
+                "session_id": str(session_id),
+                "voice_state": state.value,
+                "context_version": context_version,
+            },
+        )
 
     async def close_session(
         self, *, session_id: UUID, error_code: str | None = None
     ) -> None:
         if error_code is not None:
             _require_voice_error(error_code, AttemptOutcome.FAILED)
+        if self._activity.session_id != session_id:
+            return
+        # Clear before awaiting storage: a failed receipt cannot leave a phantom microphone.
+        self._activity.session_id = None
+        logging.getLogger(__name__).info(
+            "voice.session.closed",
+            extra={
+                "session_id": str(session_id),
+                "error_code": error_code,
+            },
+        )
         async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """UPDATE armi.live_voice_sessions
-                   SET state=%s,ended_at=statement_timestamp(),error_code=%s
-                   WHERE session_id=%s AND ended_at IS NULL""",
-                ("unavailable" if error_code else "stopped", error_code, session_id),
+            await self._timeline.record_voice_session_end(
+                unit.transaction, scene_id=self._scene_id, session_id=session_id
             )
 
     async def begin_turn(
@@ -170,20 +184,32 @@ class PostgreSQLLiveVoiceJournal:
         turn_no: int,
         context_version: str,
     ) -> None:
+        self._require_session(session_id)
         async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
+            self._require_session(session_id)
+            result = await unit.transaction.execute(
                 """INSERT INTO armi.live_voice_turns
                    (turn_id,session_id,turn_no,model_identity,context_version,
-                    result_status)
-                   VALUES (%s,%s,%s,%s,%s,'recognizing')""",
+                    result_status,subject_id,creator_party_id,scene_id)
+                   SELECT %s,%s,%s,%s,%s,'recognizing',%s,%s,%s
+                   WHERE NOT EXISTS (SELECT 1 FROM armi.live_voice_turns
+                     WHERE session_id=%s AND data_rights_redacted_at IS NOT NULL)""",
                 (
                     turn_id,
                     session_id,
                     turn_no,
                     self._binding.llm.model_identity,
                     context_version,
+                    self._subject_id,
+                    self._creator_party_id,
+                    self._scene_id,
+                    session_id,
                 ),
             )
+            if result.rowcount != 1:
+                raise LiveVoiceViolation(
+                    "VOICE-DATA-RIGHTS-CANCELLED", "voice session is redacted"
+                )
 
     async def record_transcript(
         self,
@@ -198,7 +224,8 @@ class PostgreSQLLiveVoiceJournal:
                 """UPDATE armi.live_voice_turns
                    SET final_transcript=%s,interaction_id=%s,root_opportunity_id=%s,
                        speech_ended_at=statement_timestamp(),result_status='thinking'
-                   WHERE turn_id=%s AND completed_at IS NULL""",
+                   WHERE turn_id=%s AND completed_at IS NULL
+                     AND data_rights_redacted_at IS NULL""",
                 (transcript, interaction_id, opportunity_id, turn_id),
             )
             if result.rowcount != 1:
@@ -284,19 +311,28 @@ class PostgreSQLLiveVoiceJournal:
                     """UPDATE armi.live_voice_turns
                        SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
                        WHERE turn_id=%s
-                         AND ((%s AND completed_at IS NULL AND NOT (provider_calls ? %s))
+                         AND ((%s AND completed_at IS NULL AND data_rights_redacted_at IS NULL
+                              AND NOT (provider_calls ? %s))
                               OR (NOT %s AND provider_calls ? %s))""",
                     parameters,
                 )
             else:
-                result = await unit.transaction.execute(
-                    """UPDATE armi.live_voice_sessions
-                       SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
-                       WHERE session_id=%s
-                         AND ((%s AND ended_at IS NULL AND NOT (provider_calls ? %s))
-                              OR (NOT %s AND provider_calls ? %s))""",
-                    parameters,
-                )
+                assert session_id is not None
+                if receipt.registration:
+                    self._require_session(session_id)
+                try:
+                    await self._timeline.record_voice_provider_call(
+                        unit.transaction,
+                        scene_id=self._scene_id,
+                        session_id=session_id,
+                        receipt=receipt,
+                    )
+                except ExternalMessageViolation as error:
+                    raise LiveVoiceViolation(
+                        "VOICE-JOURNAL-USAGE",
+                        "usage parent or registration is unavailable",
+                    ) from error
+                return
             if result.rowcount != 1:
                 raise LiveVoiceViolation(
                     "VOICE-JOURNAL-USAGE", "usage parent or registration is unavailable"

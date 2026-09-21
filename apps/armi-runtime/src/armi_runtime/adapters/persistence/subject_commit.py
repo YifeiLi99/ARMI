@@ -41,12 +41,11 @@ from armi_evidence.api import (
     EvidenceId,
     EvidenceReadPort,
     EvidenceViolation,
-    EvidenceWritePort,
-    ExperienceEvidenceLink,
 )
 from armi_experience.api import (
     AcceptedExperienceDraft,
     ExperienceCommitPort,
+    ExperienceEvidenceLink,
     ExperienceKind,
     ExperienceSourcePerspective,
 )
@@ -91,6 +90,7 @@ from armi_live_vision.api import (
     VisualObservationCommitContext,
     VisualObservationCommitPort,
 )
+from armi_live_voice.api import VoiceActivityState
 from armi_material.api import (
     CandidateLifeMaterialDraft,
     MaterialCommitPort,
@@ -259,7 +259,6 @@ class PostgreSQLSubjectCommitRepository:
         "_cognition_commit",
         "_context_projections",
         "_data_rights",
-        "_evidence",
         "_evidence_read",
         "_experience_commit",
         "_expression_commit",
@@ -274,6 +273,7 @@ class PostgreSQLSubjectCommitRepository:
         "_sleep_commit",
         "_subject_state_commit",
         "_visual_observation_commit",
+        "_voice_activity",
     )
 
     def __init__(
@@ -284,7 +284,6 @@ class PostgreSQLSubjectCommitRepository:
         experience_commit: ExperienceCommitPort,
         context_projections: ContextProjectionInvalidationPort,
         data_rights: DataRightsSubjectCommitGate,
-        evidence: EvidenceWritePort,
         evidence_read: EvidenceReadPort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
@@ -299,14 +298,15 @@ class PostgreSQLSubjectCommitRepository:
         subject_state_commit: SubjectStateCommitPort,
         mind_commit: MindCommitPort,
         visual_observation_commit: VisualObservationCommitPort,
+        voice_activity_state: VoiceActivityState | None = None,
     ) -> None:
+        self._voice_activity = voice_activity_state
         self._activity_commit = activity_commit
         self._codex_commit = codex_commit
         self._cognition_commit = cognition_commit
         self._experience_commit = experience_commit
         self._context_projections = context_projections
         self._data_rights = data_rights
-        self._evidence = evidence
         self._evidence_read = evidence_read
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
@@ -668,6 +668,7 @@ class PostgreSQLSubjectCommitRepository:
                 observed_version=change_set.base_subject_version,
                 change_set=change_set,
                 owner_drafts=owner_drafts,
+                voice_activity_state=self._voice_activity,
             )
         if (
             not change_set.experiences
@@ -778,6 +779,12 @@ class PostgreSQLSubjectCommitRepository:
                     occurred_at=evidence_snapshot.received_at,
                     source_perspective=source_perspective,
                     uncertainty=experience.uncertainty,
+                    evidence_links=tuple(
+                        ExperienceEvidenceLink(
+                            evidence_snapshot.evidence_id.value, context_item_id
+                        )
+                        for context_item_id in proof.basis_context_ids
+                    ),
                 ),
             )
             await self._cognition_commit.note_accepted_experience(
@@ -785,16 +792,6 @@ class PostgreSQLSubjectCommitRepository:
                 subject_id=snapshot.subject_id,
                 acceptance_ordinal=acceptance_ordinal,
             )
-            for ordinal, context_item_id in enumerate(proof.basis_context_ids, 1):
-                await self._evidence.link_experience(
-                    unit_of_work,
-                    ExperienceEvidenceLink(
-                        experience_id.value,
-                        evidence_snapshot.evidence_id,
-                        context_item_id,
-                        ordinal,
-                    ),
-                )
 
         try:
             committed_memory_ids = await self._memory_commit.commit(
@@ -1050,6 +1047,7 @@ class PostgreSQLSubjectCommitRepository:
             status=CandidateApplicationStatus.APPLIED,
             result_ref=application_id.value,
             autonomy_acted=change_set.autonomy_acted,
+            voice_activity_state=self._voice_activity,
         )
         await unit_of_work.audit.append(
             _audit(
@@ -1137,6 +1135,7 @@ async def _settle_without_commit(
     observed_version: int,
     change_set: SubjectChangeSet,
     owner_drafts: SubjectCommitOwnerDrafts,
+    voice_activity_state: VoiceActivityState | None = None,
 ) -> SubjectCommitResult:
     application_id = CandidateApplicationId(uuid7())
     try:
@@ -1210,6 +1209,7 @@ async def _settle_without_commit(
         status=status,
         result_ref=application_id.value,
         autonomy_acted=change_set.autonomy_acted,
+        voice_activity_state=voice_activity_state,
     )
     audit_status = (
         AuditResultStatus.COMPLETED
@@ -1303,6 +1303,7 @@ async def _finish_episode_and_work(
     status: CandidateApplicationStatus,
     result_ref: UUID,
     autonomy_acted: bool | None = None,
+    voice_activity_state: VoiceActivityState | None = None,
 ) -> None:
     if autonomy_acted is not None:
         from armi_interaction.api import human_input_activity
@@ -1312,7 +1313,9 @@ async def _finish_episode_and_work(
             unit_of_work.transaction, subject_id=snapshot.subject_id
         )
         voice_active, _ = await voice_activity(
-            unit_of_work.transaction, subject_id=snapshot.subject_id
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
+            activity=voice_activity_state,
         )
         if pending or voice_active:
             raise SubjectCommitViolation("SUBJECT-HUMAN-INPUT-PREEMPTED")

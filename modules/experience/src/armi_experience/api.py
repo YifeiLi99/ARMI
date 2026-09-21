@@ -53,6 +53,16 @@ def _text(value: object, maximum: int, *, optional: bool = False) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class ExperienceEvidenceLink:
+    evidence_id: UUID
+    context_item_id: UUID
+
+    def __post_init__(self) -> None:
+        if not _uuid7(self.evidence_id) or not _uuid7(self.context_item_id):
+            raise ExperienceViolation("EXPERIENCE-EVIDENCE-LINK")
+
+
+@dataclass(frozen=True, slots=True)
 class AcceptedExperienceDraft:
     experience_id: ExperienceId
     subject_id: UUID
@@ -66,6 +76,7 @@ class AcceptedExperienceDraft:
     occurred_at: datetime
     source_perspective: ExperienceSourcePerspective
     uncertainty: str | None
+    evidence_links: tuple[ExperienceEvidenceLink, ...] = ()
 
     def __post_init__(self) -> None:
         expected_source = {
@@ -81,7 +92,14 @@ class AcceptedExperienceDraft:
             ),
         }
         if (
-            type(self.experience_id) is not ExperienceId
+            type(self.evidence_links) is not tuple
+            or len(self.evidence_links) > 8
+            or any(
+                type(link) is not ExperienceEvidenceLink for link in self.evidence_links
+            )
+            or len({link.context_item_id for link in self.evidence_links})
+            != len(self.evidence_links)
+            or type(self.experience_id) is not ExperienceId
             or not _uuid7(self.subject_id)
             or not _uuid7(self.subject_commit_id)
             or not _uuid7(self.cognitive_episode_id)
@@ -196,6 +214,7 @@ __all__ = (
     "AcceptedExperienceDraft",
     "AcceptedExperienceSnapshot",
     "ExperienceCommitPort",
+    "ExperienceEvidenceLink",
     "ExperienceKind",
     "ExperienceLifeRecordItem",
     "ExperienceLifeRecordPort",

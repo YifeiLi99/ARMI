@@ -13,6 +13,13 @@ from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import PostgreSQLTransaction
 
 
+@dataclass(slots=True)
+class VoiceActivityState:
+    """Runtime-local microphone ownership; restart never resumes a session."""
+
+    session_id: UUID | None = None
+
+
 class LiveVoiceViolation(ValueError):
     """A stable failure that can be exposed without provider secrets."""
 
@@ -305,6 +312,19 @@ class VoiceContextReadPort(Protocol):
 
 @runtime_checkable
 class VoiceTimelinePort(Protocol):
+    async def record_voice_session_end(
+        self, transaction: PostgreSQLTransaction, *, scene_id: UUID, session_id: UUID
+    ) -> None: ...
+
+    async def record_voice_provider_call(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        session_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None: ...
+
     async def record_live_voice_response(
         self,
         transaction: PostgreSQLTransaction,
@@ -437,11 +457,14 @@ class VoiceCognitionResultPort(Protocol):
 
 
 async def voice_activity(
-    transaction: PostgreSQLTransaction, *, subject_id: UUID
+    transaction: PostgreSQLTransaction,
+    *,
+    subject_id: UUID,
+    activity: VoiceActivityState | None = None,
 ) -> tuple[bool, datetime | None]:
     from ._autonomy_read import voice_activity as read
 
-    return await read(transaction, subject_id=subject_id)
+    return await read(transaction, subject_id=subject_id, activity=activity)
 
 
 __all__ = (
@@ -459,6 +482,7 @@ __all__ = (
     "RecognitionEvent",
     "StreamingAsrPort",
     "StreamingTtsPort",
+    "VoiceActivityState",
     "VoiceCognitionResultPort",
     "VoiceContextReadPort",
     "VoiceExpressionPort",

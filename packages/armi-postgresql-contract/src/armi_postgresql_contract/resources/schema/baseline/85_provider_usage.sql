@@ -35,9 +35,9 @@ WITH parents AS (
            t.turn_id, t.result_status, t.completed_at, t.provider_calls
     FROM armi.live_voice_turns t
     UNION ALL
-    SELECT 'live-voice', s.session_id, NULL::uuid, 'voice_session',
-           s.session_id, s.state, s.ended_at, s.provider_calls
-    FROM armi.live_voice_sessions s
+    SELECT 'live-voice', s.scene_id, NULL::uuid, 'voice_scene',
+           s.scene_id, 'recorded'::text, NULL::timestamptz, s.voice_provider_calls
+    FROM armi.interaction_scenes s
 
 )
 SELECT p.owner, p.attempt_id, p.operation_id, p.reference_kind, p.reference_id,

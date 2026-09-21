@@ -657,12 +657,14 @@ version = "0.0.0"
 source = { editable = "modules/live-voice" }
 dependencies = [
     { name = "armi-data-rights" },
+    { name = "armi-interaction" },
     { name = "armi-runtime-foundation" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "armi-data-rights", editable = "modules/data-rights" },
+    { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
 ]
 

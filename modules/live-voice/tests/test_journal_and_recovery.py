@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
+from armi_kernel.application import ProviderCallReceipt, estimate_cost
 from armi_live_voice._application import PostgreSQLLiveVoiceJournal
 from armi_live_voice._recovery import LiveVoiceRecoveryParticipant
 from armi_live_voice.api import (
     AttemptOutcome,
     LiveVoiceBinding,
+    LiveVoiceSessionState,
     LiveVoiceViolation,
+    VoiceActivityState,
     VoiceProviderBinding,
     VoiceProviderService,
+    voice_activity,
 )
 from armi_runtime_foundation import RecoveryScope
 
@@ -31,6 +36,11 @@ class _UnitOfWork:
 class _Factory:
     def __init__(self, transaction: AsyncMock) -> None:
         self._transaction = transaction
+
+    def provider_usage_unit_of_work(
+        self, *, receipt: ProviderCallReceipt
+    ) -> _UnitOfWork:
+        return _UnitOfWork(self._transaction)
 
     def unit_of_work(self) -> _UnitOfWork:
         return _UnitOfWork(self._transaction)
@@ -111,8 +121,10 @@ async def test_turn_binds_model_and_first_playback_marks_turn() -> None:
         timeline=AsyncMock(),
     )
 
+    session_id = uuid7()
+    await journal.open_session(session_id=session_id)
     await journal.begin_turn(
-        session_id=uuid7(), turn_id=uuid7(), turn_no=1, context_version="ctx:1"
+        session_id=session_id, turn_id=uuid7(), turn_no=1, context_version="ctx:1"
     )
     attempt_id = uuid7()
     await journal.mark_playback_first_frame(turn_id=attempt_id)
@@ -223,11 +235,11 @@ async def test_silent_failed_and_unknown_turns_do_not_enter_scene_timeline(
 
 
 @pytest.mark.asyncio
-async def test_recovery_terminalizes_turns_and_session() -> None:
+async def test_recovery_terminalizes_turns() -> None:
     result_sets = []
     for row in (uuid7(), uuid7()):
         result = AsyncMock()
-        result.fetchall.return_value = ((row,),)
+        result.fetchall.return_value = ((row, uuid7()),)
         result_sets.append(result)
     transaction = AsyncMock()
     transaction.execute.side_effect = result_sets
@@ -237,6 +249,82 @@ async def test_recovery_terminalizes_turns_and_session() -> None:
 
     statements = [call.args[0] for call in transaction.execute.await_args_list]
     assert "live_voice_turns" in statements[0]
-    assert "live_voice_sessions" in statements[1]
-    assert [metric.value for metric in contribution.metrics] == [1, 1]
-    assert contribution.findings[0].kind == "live_voice_session"
+    assert len(statements) == 2
+    assert "interaction_scenes" in statements[1]
+    assert [metric.value for metric in contribution.metrics] == [1]
+    assert contribution.findings[0].kind == "live_voice_turn"
+
+
+@pytest.mark.asyncio
+async def test_session_is_local_and_close_blocks_turns_and_new_calls() -> None:
+    transaction = AsyncMock()
+    timeline = AsyncMock()
+    activity = VoiceActivityState()
+    journal = PostgreSQLLiveVoiceJournal(
+        factory=_Factory(transaction),  # type: ignore[arg-type]
+        subject_id=uuid7(),
+        creator_party_id=uuid7(),
+        scene_id=uuid7(),
+        binding=_binding(),
+        timeline=timeline,
+        activity=activity,
+    )
+    session_id = uuid7()
+    await journal.open_session(session_id=session_id)
+    assert activity.session_id == session_id
+    with pytest.raises(LiveVoiceViolation, match="already open"):
+        await journal.open_session(session_id=uuid7())
+    await journal.set_session_state(
+        session_id=session_id, state=LiveVoiceSessionState.LISTENING
+    )
+    transaction.execute.assert_not_awaited()
+    receipt = ProviderCallReceipt(
+        str(uuid7()),
+        "provider",
+        "model",
+        "generation",
+        "voice_probe",
+        datetime.now(UTC).isoformat(),
+        None,
+        estimate_cost(quantities=(), required_units=(), snapshot=None, billable=True),
+        True,
+    )
+    await journal.record_provider_call(
+        turn_id=None, session_id=session_id, receipt=receipt
+    )
+    timeline.record_voice_provider_call.assert_awaited_once()
+    await journal.close_session(session_id=session_id)
+    assert activity.session_id is None
+    timeline.record_voice_session_end.assert_awaited_once()
+    with pytest.raises(LiveVoiceViolation, match="closed"):
+        await journal.begin_turn(
+            session_id=session_id, turn_id=uuid7(), turn_no=1, context_version="ctx"
+        )
+    with pytest.raises(LiveVoiceViolation, match="closed"):
+        await journal.record_provider_call(
+            turn_id=None, session_id=session_id, receipt=receipt
+        )
+    # A real provider receipt arriving after close still updates its registered call.
+    await journal.record_provider_call(
+        turn_id=None,
+        session_id=session_id,
+        receipt=replace(
+            receipt, outcome="returned", finished_at=datetime.now(UTC).isoformat()
+        ),
+    )
+    assert timeline.record_voice_provider_call.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_restart_has_no_active_session_but_keeps_scene_cooldown() -> None:
+    ended_at = datetime.now(UTC)
+    transaction = AsyncMock()
+    transaction.execute.return_value.fetchone.return_value = (ended_at,)
+    activity = VoiceActivityState(session_id=uuid7())
+    assert await voice_activity(transaction, subject_id=uuid7(), activity=activity) == (
+        True,
+        ended_at,
+    )
+    assert await voice_activity(
+        transaction, subject_id=uuid7(), activity=VoiceActivityState()
+    ) == (False, ended_at)

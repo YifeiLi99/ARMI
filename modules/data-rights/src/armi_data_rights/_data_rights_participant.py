@@ -22,7 +22,7 @@ from .api import (
 )
 
 _OWNER = DataRightsOwnerIdentity("data-rights")
-_VERSION = DataRightsContributionVersion(4)
+_VERSION = DataRightsContributionVersion(5)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "creator_exports",
@@ -33,11 +33,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         "data_rights_order_items",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.data_rights_order_items AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "data_rights_order_retry_attempts",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.data_rights_order_retry_attempts AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "data_rights_orders",

@@ -27,7 +27,7 @@ from armi_cognition.api import (
 )
 from armi_context.api import ContextProjectionInvalidationPort
 from armi_data_rights.api import DataRightsSubjectCommitGate
-from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
+from armi_evidence.api import EvidenceReadPort
 from armi_experience.api import ExperienceCommitPort
 from armi_expression.api import (
     CreatorReplyDraft,
@@ -61,7 +61,11 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_live_vision.api import VisualObservationCommitPort
-from armi_live_voice.api import LiveVoiceViolation, VoiceCognitionResultPort
+from armi_live_voice.api import (
+    LiveVoiceViolation,
+    VoiceActivityState,
+    VoiceCognitionResultPort,
+)
 from armi_material.api import (
     CandidateLifeMaterialDraft,
     MaterialCommitPort,
@@ -143,7 +147,6 @@ class SubjectCommitPipeline:
         experience_commit: ExperienceCommitPort,
         context_projections: ContextProjectionInvalidationPort,
         data_rights: DataRightsSubjectCommitGate,
-        evidence: EvidenceWritePort,
         evidence_read: EvidenceReadPort,
         expression_commit: ExpressionCommitPort,
         interaction_commit: InteractionSubjectCommitPort,
@@ -159,6 +162,7 @@ class SubjectCommitPipeline:
         visual_observation_commit: VisualObservationCommitPort,
         notifier: CreatorProjectionNotifier | None,
         voice_results: VoiceCognitionResultPort | None = None,
+        voice_activity_state: VoiceActivityState | None = None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -176,7 +180,6 @@ class SubjectCommitPipeline:
             experience_commit,
             context_projections,
             data_rights,
-            evidence,
             evidence_read,
             expression_commit,
             memory_commit,
@@ -191,6 +194,7 @@ class SubjectCommitPipeline:
             subject_state_commit,
             mind_commit,
             visual_observation_commit,
+            voice_activity_state=voice_activity_state,
         )
         self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
@@ -712,7 +716,6 @@ def build_subject_commit_pipeline(
     experience_commit: ExperienceCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
-    evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     expression_commit: ExpressionCommitPort,
     interaction_commit: InteractionSubjectCommitPort,
@@ -728,6 +731,7 @@ def build_subject_commit_pipeline(
     visual_observation_commit: VisualObservationCommitPort,
     notifier: CreatorProjectionNotifier | None,
     voice_results: VoiceCognitionResultPort | None = None,
+    voice_activity_state: VoiceActivityState | None = None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
@@ -748,7 +752,6 @@ def build_subject_commit_pipeline(
         experience_commit=experience_commit,
         context_projections=context_projections,
         data_rights=data_rights,
-        evidence=evidence,
         evidence_read=evidence_read,
         expression_commit=expression_commit,
         interaction_commit=interaction_commit,
@@ -764,6 +767,7 @@ def build_subject_commit_pipeline(
         visual_observation_commit=visual_observation_commit,
         notifier=notifier,
         voice_results=voice_results,
+        voice_activity_state=voice_activity_state,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,

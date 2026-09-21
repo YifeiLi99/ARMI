@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -45,6 +46,7 @@ from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPo
 from ._admin import PostgreSQLCognitionAdmin
 from ._autonomous_activity_contract import autonomous_schema_for_context
 from ._candidate_application import CandidateValidationService, model_response_candidate
+from ._context_candidate_read import PostgreSQLContextCandidateRead
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._context_schema import bind_context_schema
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
@@ -295,6 +297,7 @@ __all__ = (
     "AUTONOMOUS_ACTIVITY_INSTRUCTIONS",
     "GENERIC_COGNITION_INSTRUCTIONS",
     "CandidateOwner",
+    "ContextCandidateReadPorts",
     "autonomous_schema_for_context",
     "bind_context_schema",
     "bootstrap_cognition_admin",
@@ -308,6 +311,7 @@ __all__ = (
     "bootstrap_cognition_recovery",
     "bootstrap_cognition_subject_commit",
     "bootstrap_cognition_validator",
+    "bootstrap_context_candidate_read",
     "bootstrap_dialogue_decision_record",
     "bootstrap_sleep_decision_record",
     "build_candidate_schema",
@@ -321,3 +325,15 @@ __all__ = (
     "model_response_candidate",
     "parse_model_candidate",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCandidateReadPorts:
+    material: MaterialCandidateContextPort
+    memory: MemoryCandidateContextPort
+    cognition: ContextCognitionReadPort
+
+
+def bootstrap_context_candidate_read() -> ContextCandidateReadPorts:
+    owner = PostgreSQLContextCandidateRead()
+    return ContextCandidateReadPorts(owner, owner, owner)

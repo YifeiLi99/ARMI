@@ -23,13 +23,8 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("evidence")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "experience_evidence_links",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.experience_evidence_links AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "external_evidence",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -68,16 +63,6 @@ class PostgreSQLEvidenceDataRightsParticipant:
             )
         ).fetchall()
         evidence_ids = tuple(row[0] for row in rows)
-        link_rows = await (
-            await transaction.execute(
-                """SELECT DISTINCT link.experience_id
-                   FROM armi.experience_evidence_links AS link
-                   JOIN armi.external_evidence AS evidence
-                     ON evidence.evidence_id = link.evidence_id
-                   WHERE evidence.context_party_id = %s ORDER BY link.experience_id""",
-                (request.party_id,),
-            )
-        ).fetchall()
         usage_rows = await (
             await transaction.execute(
                 """SELECT artifact_id, count(*),
@@ -90,7 +75,6 @@ class PostgreSQLEvidenceDataRightsParticipant:
             _OWNER,
             tuple(
                 [DataRightsRelatedRef("evidence", ref) for ref in evidence_ids]
-                + [DataRightsRelatedRef("experience", row[0]) for row in link_rows]
                 + [
                     DataRightsRelatedRef("codex-task", row[2])
                     for row in rows

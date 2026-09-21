@@ -17,17 +17,12 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("live-vision")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "live_vision_observations",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.live_vision_observations AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "live_vision_observation_frames",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.live_vision_observation_frames AS source ORDER BY to_jsonb(source)::text""",
     ),
 )
 

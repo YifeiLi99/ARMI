@@ -507,7 +507,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("subject_component_revisions", "semantic_digest"),
     ("cognitive_attempts", "binding_digest"),
     ("cognitive_attempts", "request_digest"),
-    ("cognitive_context_items", "source_digest"),
     ("cognitive_episodes", "policy_digest"),
     ("cognitive_episodes", "mechanism_config_digest"),
     ("cognitive_episodes", "life_query_result_digest"),
@@ -786,13 +785,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("live-voice")
     def test_voice_playback_result_survives_restart_without_attempt_table(self) -> None:
-        from unittest.mock import AsyncMock
-
+        from armi_interaction.bootstrap import (
+            bootstrap_interaction_recovery,
+            compose_interaction_perception,
+        )
         from armi_kernel.application import ProviderCallReceipt, estimate_cost
         from armi_live_voice.api import (
             AttemptOutcome,
             LiveVoiceBinding,
             LiveVoiceViolation,
+            VoiceActivityState,
             VoiceProviderBinding,
             VoiceProviderService,
         )
@@ -843,6 +845,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchone()
                 assert scene is not None
                 events = []
+                activity = VoiceActivityState()
                 journal = compose_live_voice_journal(
                     factory=factory,
                     subject_id=born.subject_id,
@@ -863,7 +866,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             VoiceProviderService.TTS, "volcengine", "tts", "voice"
                         ),
                     ),
-                    timeline=AsyncMock(),
+                    timeline=compose_interaction_perception(),
+                    activity=activity,
                     playback_diagnostic=lambda *event: events.append(event),
                 )
                 session_id = _uuid7()
@@ -955,7 +959,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 frames_written=0,
                                 error_code="VOICE-TEST-FAILED",
                             )
+                # A fresh Runtime has no process-local microphone session.
+                activity.session_id = None
                 async with factory.unit_of_work() as unit:
+                    await bootstrap_interaction_recovery().recover(
+                        unit.transaction,
+                        RecoveryScope(
+                            fixture.environment_id,
+                            born.subject_id,
+                            born.bundle_activation_id,
+                            _uuid7(),
+                            1,
+                        ),
+                        (),
+                    )
                     await bootstrap_live_voice_recovery().recover(
                         unit.transaction,
                         RecoveryScope(
@@ -976,7 +993,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchall()
                 self.assertEqual(len(usage), 5)
                 self.assertTrue(all(row[2] == "unknown" for row in usage))
-                self.assertEqual({row[1] for row in usage}, {session_id, *turns})
+                self.assertEqual({row[1] for row in usage}, {scene[0], *turns})
                 for turn_id, receipt in [
                     (None, session_receipt),
                     (turns[0], turn_receipts[0]),
@@ -1047,6 +1064,42 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(completed[:2], (turns[1], "你好"))
                 self.assertIsNone(interrupted)
                 self.assertEqual(len(events), 10)
+                # A session that never produces a turn still retains actual usage.
+                next_session = _uuid7()
+                await journal.open_session(session_id=next_session)
+                no_turn_receipt = pending_receipt()
+                await journal.record_provider_call(
+                    turn_id=None, session_id=next_session, receipt=no_turn_receipt
+                )
+                await journal.close_session(session_id=session_id)
+                async with factory.unit_of_work(read_only=True) as unit:
+                    pending = await (
+                        await unit.transaction.execute(
+                            "SELECT receipt->>'outcome' FROM armi.provider_usage_calls "
+                            "WHERE receipt->>'call_id'=%s",
+                            (no_turn_receipt.call_id,),
+                        )
+                    ).fetchone()
+                self.assertEqual(pending, ("pending",))
+                await journal.close_session(session_id=next_session)
+                with self.assertRaises(LiveVoiceViolation):
+                    await journal.begin_turn(
+                        session_id=next_session,
+                        turn_id=_uuid7(),
+                        turn_no=1,
+                        context_version="ctx:1",
+                    )
+                async with factory.unit_of_work(read_only=True) as unit:
+                    ended = await (
+                        await unit.transaction.execute(
+                            "SELECT last_voice_ended_at,voice_provider_calls->%s->>'outcome' "
+                            "FROM armi.interaction_scenes WHERE scene_id=%s",
+                            (no_turn_receipt.call_id, scene[0]),
+                        )
+                    ).fetchone()
+                assert ended is not None
+                self.assertIsNotNone(ended[0])
+                self.assertEqual(ended[1], "unknown")
             finally:
                 await factory.close()
 
@@ -1178,6 +1231,130 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     with self.assertRaises(DataRightsViolation):
                         await repository.capture(unit.transaction, party_id=uuid7())
+            finally:
+                await factory.close()
+
+        asyncio.run(
+            exercise(),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+
+    @pytest.mark.test_group("data-rights")
+    def test_retry_keys_live_on_order_and_old_keys_do_not_start_new_cycles(
+        self,
+    ) -> None:
+        from unittest.mock import AsyncMock, Mock
+
+        from armi_data_rights._application import DataRightsOrderService
+        from armi_data_rights._postgresql import DataRightsOrderRepository
+        from armi_data_rights.api import DataRightsRetryCommand
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        creator, order_id, export_id = uuid7(), uuid7(), uuid7()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "INSERT INTO armi.parties(party_id,party_kind,creator_role) VALUES (%s,'creator','unique_primary_creator')",
+                (creator,),
+            )
+            connection.execute(
+                """INSERT INTO armi.data_rights_orders(
+                   deletion_order_id,requester_party_id,requester_kind,order_kind,scope_kind,scope_party_id,
+                   reason_code,status,execution_status,idempotency_key,request_digest,trace_id,completed_at)
+                   VALUES (%s,%s,'creator','delete_related','party_local_data',%s,
+                   'requester_exercised_local_right','effective','partial','retry-test',%s,%s,statement_timestamp())""",
+                (
+                    order_id,
+                    creator,
+                    creator,
+                    Digest.from_bytes(b"retry-test").value,
+                    uuid7().hex,
+                ),
+            )
+            connection.execute(
+                """INSERT INTO armi.creator_exports(
+                   creator_export_id,creator_party_id,directory_name,idempotency_key,request_digest,status,
+                   destination_path,snapshot_contract_version,snapshot_status,completed_at)
+                   VALUES (%s,%s,'retry-test','retry-test',%s,'completed',%s,'test','active',statement_timestamp())""",
+                (
+                    export_id,
+                    creator,
+                    Digest.from_bytes(b"export").value,
+                    str((Path.cwd() / ".tmp" / str(export_id)).resolve()),
+                ),
+            )
+            connection.execute(
+                """INSERT INTO armi.data_rights_order_items(
+                   deletion_item_id,deletion_order_id,target_kind,target_ref,required_action,responsible_owner,
+                   result_status,operator_action_required,completed_at)
+                   VALUES (%s,%s,'managed_snapshot',%s,'operator_remove','data-rights','partial',true,statement_timestamp())""",
+                (uuid7(), order_id, export_id),
+            )
+
+        async def exercise() -> None:
+            factory = await self._new_uow_factory(fixture)
+            lifecycle = Mock(
+                deletion_states=AsyncMock(return_value=()),
+                retry_blocked=AsyncMock(return_value=0),
+            )
+            service = DataRightsOrderService(
+                creator_party_id=creator,
+                custody=cast(Any, Mock()),
+                deletion=cast(Any, Mock(execute=AsyncMock())),
+                repository=DataRightsOrderRepository(cast(Any, Mock())),
+                unit_of_work_factory=factory,
+                parties=cast(Any, Mock(creator_party=AsyncMock(return_value=creator))),
+                lifecycle=cast(Any, lifecycle),
+                participants=(cast(Any, Mock()),),
+                owner_contracts=(),
+                identity_key="test",
+                identity_binding=cast(Any, Mock()),
+                data_root=Path.cwd() / ".tmp",
+            )
+            try:
+                first = DataRightsRetryCommand(
+                    IdempotencyKey("first"), TraceId(uuid7().hex)
+                )
+                second = DataRightsRetryCommand(
+                    IdempotencyKey("second"), TraceId(uuid7().hex)
+                )
+                assert (await service.retry_creator(order_id, first)).newly_created
+                assert not (await service.retry_creator(order_id, first)).newly_created
+                async with factory.unit_of_work() as unit:
+                    await unit.transaction.execute(
+                        "UPDATE armi.data_rights_orders SET execution_status='partial',completed_at=statement_timestamp() WHERE deletion_order_id=%s",
+                        (order_id,),
+                    )
+                    await unit.transaction.execute(
+                        "UPDATE armi.creator_exports SET snapshot_status='active',snapshot_removed_at=NULL WHERE creator_export_id=%s",
+                        (export_id,),
+                    )
+                    await unit.transaction.execute(
+                        "UPDATE armi.data_rights_order_items SET result_status='partial',operator_action_required=true WHERE deletion_order_id=%s",
+                        (order_id,),
+                    )
+                assert (await service.retry_creator(order_id, second)).newly_created
+                assert not (await service.retry_creator(order_id, first)).newly_created
+                async with factory.unit_of_work(read_only=True) as unit:
+                    row = await (
+                        await unit.transaction.execute(
+                            "SELECT retry_cycle,retry_requests FROM armi.data_rights_orders WHERE deletion_order_id=%s",
+                            (order_id,),
+                        )
+                    ).fetchone()
+                    assert row is not None and row[0] == 3
+                    assert {
+                        key: value["cycle"]
+                        for key, value in cast(
+                            dict[str, dict[str, Any]], row[1]
+                        ).items()
+                    } == {
+                        "first": 2,
+                        "second": 3,
+                    }
+                assert lifecycle.retry_blocked.await_count == 2
             finally:
                 await factory.close()
 
@@ -2815,6 +2992,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ("live-vision", observations[0], "completed"),
                     ("live-vision", observations[1], "unknown"),
                 ]
+                async with factory.unit_of_work() as unit:
+                    snapshots = await (
+                        await unit.transaction.execute(
+                            "SELECT observation_id,frames FROM armi.live_vision_observations WHERE observation_id=ANY(%s) ORDER BY registered_at",
+                            (observations,),
+                        )
+                    ).fetchall()
+                    assert len(snapshots) == 2
+                    for observation_id, frames in snapshots:
+                        assert len(frames) == 1
+                        assert frames[0]["artifact_id"] is not None
+                        assert frames[0]["purged_at"] is None
+                        frames[0]["purge_after"] = (
+                            datetime.now(UTC) - timedelta(seconds=1)
+                        ).isoformat()
+                        await unit.transaction.execute(
+                            "UPDATE armi.live_vision_observations SET frames=%s::jsonb WHERE observation_id=%s",
+                            (json.dumps(frames), observation_id),
+                        )
+                assert await sink.purge_expired_frames() == 2
+                assert await sink.purge_expired_frames() == 0
+                async with factory.unit_of_work(read_only=True) as unit:
+                    purged = await (
+                        await unit.transaction.execute(
+                            "SELECT frames FROM armi.live_vision_observations WHERE observation_id=ANY(%s)",
+                            (observations,),
+                        )
+                    ).fetchall()
+                    assert all(
+                        row[0][0]["artifact_id"] is None and row[0][0]["purged_at"]
+                        for row in purged
+                    )
                 assert len(calls) == 2
                 assert [event[0] for event in events] == [
                     "prepared",
@@ -7835,52 +8044,63 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
             connection.execute(
-                """
-                INSERT INTO armi.cognitive_context_items (
-                    context_item_id, cognitive_episode_id, ordinal, section,
-                    item_kind, source_kind, source_ref, source_version,
-                    trust_class, privacy_scope, disposition,
-                    content_bytes) VALUES (%s, %s, 1, 'evidence', 'creator_input',
-                          'external_evidence', %s, 1, 'external_claim',
-                          'private', 'included', %s)
-                """,
+                """UPDATE armi.cognitive_episodes SET context_items=%s::jsonb
+                   WHERE cognitive_episode_id=%s""",
                 (
-                    ids["context_item"],
+                    json.dumps(
+                        [
+                            {
+                                "context_item_id": str(context_id),
+                                "ordinal": ordinal,
+                                "section": section,
+                                "item_kind": kind,
+                                "source_kind": source_kind,
+                                "source_ref": str(source_ref),
+                                "source_version": 1,
+                                "trust_class": trust,
+                                "privacy_scope": privacy,
+                                "disposition": "included",
+                                "reason_code": None,
+                                "content_bytes": size,
+                            }
+                            for ordinal, context_id, section, kind, source_kind, source_ref, trust, privacy, size in (
+                                (
+                                    1,
+                                    ids["context_item"],
+                                    "evidence",
+                                    "creator_input",
+                                    "external_evidence",
+                                    ids["evidence"],
+                                    "external_claim",
+                                    "private",
+                                    len(payloads["input"]),
+                                ),
+                                (
+                                    2,
+                                    ids["context_scene"],
+                                    "scene",
+                                    "current_scene",
+                                    "interaction_scene",
+                                    scene_id,
+                                    "runtime_authority",
+                                    "private",
+                                    0,
+                                ),
+                                (
+                                    3,
+                                    ids["context_capability"],
+                                    "capability",
+                                    "capability_catalog",
+                                    "capability_catalog",
+                                    UUID("01985d00-0000-7000-8000-000000000027"),
+                                    "policy",
+                                    "internal",
+                                    0,
+                                ),
+                            )
+                        ]
+                    ),
                     ids["episode"],
-                    ids["evidence"],
-                    len(payloads["input"]),
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.cognitive_context_items (
-                    context_item_id, cognitive_episode_id, ordinal, section,
-                    item_kind, source_kind, source_ref, source_version,
-                    trust_class, privacy_scope, disposition,
-                    content_bytes) VALUES (%s, %s, 2, 'scene', 'current_scene',
-                          'interaction_scene', %s, 1, 'runtime_authority',
-                          'private', 'included', 0)
-                """,
-                (
-                    ids["context_scene"],
-                    ids["episode"],
-                    scene_id,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.cognitive_context_items (
-                    context_item_id, cognitive_episode_id, ordinal, section,
-                    item_kind, source_kind, source_ref, source_version,
-                    trust_class, privacy_scope, disposition,
-                    content_bytes) VALUES (%s, %s, 3, 'capability', 'capability_catalog',
-                          'capability_catalog', %s, 1, 'policy',
-                          'internal', 'included', 0)
-                """,
-                (
-                    ids["context_capability"],
-                    ids["episode"],
-                    UUID("01985d00-0000-7000-8000-000000000027"),
                 ),
             )
 
@@ -8184,7 +8404,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 experience_commit=bootstrap_experience_owner(),
                 context_projections=_ContextProjectionInvalidation(),
                 data_rights=data_rights_core.seal(),
-                evidence=evidence_module.write,
                 evidence_read=evidence_module.read,
                 expression_commit=expression_module.commit,
                 interaction_commit=bootstrap_interaction_subject_commit(),
@@ -9091,7 +9310,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT subject_version FROM armi.subjects WHERE singleton_key = 1),
                     (SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL),
                     (SELECT count(*) FROM armi.accepted_experiences),
-                    (SELECT count(*) FROM armi.experience_evidence_links),
+                    (SELECT coalesce(sum(jsonb_array_length(evidence_links)), 0) FROM armi.accepted_experiences),
                     (SELECT count(*) FROM armi.effects),
                     (SELECT count(*) FROM armi.scene_timeline_items WHERE source_kind = 'subject_commit'),
                     (SELECT count(*) FROM armi.audit_events WHERE operation = 'cognition.subject.committed')
@@ -10144,6 +10363,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                """INSERT INTO armi.deployment_environments
+                   (environment_id,environment_kind,incarnation,resettable,test_controls_enabled)
+                   VALUES (%s,'system_test',1,true,true)""",
+                (fixture.environment_id,),
+            )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
             schema_version="armi.personality-anchor.v1",
@@ -10763,8 +10989,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                               AND failure_code='COGNITION-RUNTIME-INTERRUPTED'
                         ),
                         (
-                            SELECT count(*)
-                            FROM armi.cognitive_context_items
+                            SELECT coalesce(sum(jsonb_array_length(context_items)), 0)
+                            FROM armi.cognitive_episodes
                         ),
                         (
                             SELECT count(*)

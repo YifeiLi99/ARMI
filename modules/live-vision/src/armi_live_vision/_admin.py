@@ -13,8 +13,9 @@ class PostgreSQLLiveVisionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         row = transaction.execute(
-            """SELECT (SELECT count(*) FROM armi.live_vision_observation_frames
-               WHERE artifact_id=%s) +
+            """SELECT (SELECT count(*) FROM armi.live_vision_observations observation,
+               jsonb_to_recordset(observation.frames) AS frame(artifact_id uuid)
+               WHERE frame.artifact_id=%s) +
                (SELECT count(*) FROM armi.live_vision_observations
                 WHERE request_artifact_id=%s OR response_artifact_id=%s)""",
             (artifact_id, artifact_id, artifact_id),

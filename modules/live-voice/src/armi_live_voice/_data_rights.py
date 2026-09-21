@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("live-voice")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "live_voice_sessions",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.live_voice_sessions AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "live_voice_turns",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -47,7 +42,7 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
     ) -> DataRightsDiscoveryContribution:
         rows = await (
             await transaction.execute(
-                """SELECT session_id FROM armi.live_voice_sessions
+                """SELECT DISTINCT session_id FROM armi.live_voice_turns
                    WHERE creator_party_id=%s ORDER BY session_id""",
                 (request.party_id,),
             )
@@ -77,14 +72,6 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
                        data_rights_redacted_at=statement_timestamp()
                    WHERE session_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",
-                (list(sessions),),
-            )
-            await transaction.execute(
-                """UPDATE armi.live_voice_sessions
-                   SET state='unavailable',ended_at=COALESCE(ended_at,statement_timestamp()),
-                       error_code=COALESCE(error_code,'VOICE-DATA-RIGHTS-CANCELLED')
-                   WHERE session_id=ANY(%s::uuid[])
-                     AND state NOT IN ('stopped','failed','unavailable')""",
                 (list(sessions),),
             )
         return DataRightsApplyContribution(

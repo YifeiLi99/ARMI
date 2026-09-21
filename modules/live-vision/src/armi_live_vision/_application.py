@@ -8,6 +8,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from typing import TypedDict, cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.api import ArtifactCatalogPort
@@ -62,6 +63,18 @@ from .api import (
     VisualSourceIdentity,
     VisualSourceKind,
 )
+
+
+class _FrameDocument(TypedDict):
+    ordinal: int
+    artifact_id: str | None
+    content_digest: str
+    byte_size: int
+    width: int
+    height: int
+    captured_at: str
+    purge_after: str
+    purged_at: str | None
 
 
 class DurableVisualObservationCoordinator:
@@ -164,23 +177,7 @@ class DurableVisualObservationCoordinator:
             self._log("interrupted", row[0], error_code)
 
     async def purge_expired_frames(self) -> int:
-        async with self._factory.unit_of_work() as unit:
-            rows = await (
-                await unit.transaction.execute(
-                    """SELECT artifact_id FROM armi.live_vision_observation_frames
-                       WHERE artifact_id IS NOT NULL AND purge_after<=statement_timestamp()
-                       ORDER BY purge_after FOR UPDATE"""
-                )
-            ).fetchall()
-            if rows:
-                await unit.transaction.execute(
-                    """UPDATE armi.live_vision_observation_frames
-                       SET artifact_id=NULL,purged_at=statement_timestamp()
-                       WHERE artifact_id IS NOT NULL AND purge_after<=statement_timestamp()"""
-                )
-                for row in rows:
-                    await self._catalog.retire_artifact(unit, ArtifactId(row[0]))
-        return len(rows)
+        return await _purge_frames(self._factory, self._catalog)
 
     async def get_observation_by_key(
         self, idempotency_key: str
@@ -349,8 +346,9 @@ class DurableVisualObservationCoordinator:
             frame_rows = await (
                 await unit.transaction.execute(
                     "SELECT frame.artifact_id,frame.width,frame.height,frame.captured_at "
-                    "FROM armi.live_vision_observation_frames AS frame "
-                    "WHERE frame.observation_id=%s ORDER BY frame.ordinal",
+                    "FROM armi.live_vision_observations AS observation, "
+                    "jsonb_to_recordset(observation.frames) AS frame(ordinal int, artifact_id uuid, width int, height int, captured_at timestamptz) "
+                    "WHERE observation.observation_id=%s ORDER BY frame.ordinal",
                     (row[0],),
                 )
             ).fetchall()
@@ -704,24 +702,30 @@ class DurableVisualObservationCoordinator:
                 "UPDATE armi.live_vision_observations SET session_id=%s,observation_no=%s,recognition_work_id=%s,status='registered' WHERE observation_id=%s AND status='capturing'",
                 (session_id, int(number_row[0]), work_id, observation_id),
             )
+            frames_document: list[_FrameDocument] = []
             for ordinal, (frame, published) in enumerate(published_frames, 1):
                 registration = await self._catalog.register(
                     unit, ArtifactId(uuid7()), published
                 )
-                await unit.transaction.execute(
-                    "INSERT INTO armi.live_vision_observation_frames (observation_id,ordinal,artifact_id,content_digest,byte_size,width,height,captured_at,purge_after) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (
-                        observation_id,
-                        ordinal,
-                        registration.ref.artifact_id.value,
-                        registration.ref.content_digest.value,
-                        registration.ref.byte_size,
-                        frame.width,
-                        frame.height,
-                        frame.captured_at,
-                        frame.captured_at + self._retention,
-                    ),
+                frames_document.append(
+                    {
+                        "ordinal": ordinal,
+                        "artifact_id": str(registration.ref.artifact_id.value),
+                        "content_digest": registration.ref.content_digest.value,
+                        "byte_size": registration.ref.byte_size,
+                        "width": frame.width,
+                        "height": frame.height,
+                        "captured_at": frame.captured_at.isoformat(),
+                        "purge_after": (
+                            frame.captured_at + self._retention
+                        ).isoformat(),
+                        "purged_at": None,
+                    }
                 )
+            await unit.transaction.execute(
+                "UPDATE armi.live_vision_observations SET frames=%s::jsonb WHERE observation_id=%s",
+                (json.dumps(frames_document), observation_id),
+            )
             request_registration = await self._catalog.register(
                 unit, ArtifactId(uuid7()), published_request
             )
@@ -908,26 +912,7 @@ class LiveVisionRetentionCoordinator:
         self._stop = asyncio.Event()
 
     async def purge_once(self) -> int:
-        async with self._factory.unit_of_work() as unit:
-            rows = await (
-                await unit.transaction.execute(
-                    """SELECT observation_id,ordinal,artifact_id
-                       FROM armi.live_vision_observation_frames
-                       WHERE artifact_id IS NOT NULL
-                         AND purge_after<=statement_timestamp()
-                       ORDER BY purge_after,observation_id,ordinal
-                       FOR UPDATE SKIP LOCKED"""
-                )
-            ).fetchall()
-            for observation_id, ordinal, artifact_id in rows:
-                await self._catalog.retire_artifact(unit, ArtifactId(artifact_id))
-                await unit.transaction.execute(
-                    """UPDATE armi.live_vision_observation_frames
-                       SET artifact_id=NULL,purged_at=statement_timestamp()
-                       WHERE observation_id=%s AND ordinal=%s AND artifact_id=%s""",
-                    (observation_id, ordinal, artifact_id),
-                )
-        return len(rows)
+        return await _purge_frames(self._factory, self._catalog)
 
     async def run(self) -> None:
         while not self._stop.is_set():
@@ -935,9 +920,10 @@ class LiveVisionRetentionCoordinator:
             async with self._factory.unit_of_work(read_only=True) as unit:
                 row = await (
                     await unit.transaction.execute(
-                        """SELECT min(purge_after)
-                           FROM armi.live_vision_observation_frames
-                           WHERE artifact_id IS NOT NULL"""
+                        """SELECT min(frame.purge_after)
+                           FROM armi.live_vision_observations observation,
+                           jsonb_to_recordset(observation.frames) AS frame(artifact_id uuid,purge_after timestamptz)
+                           WHERE frame.artifact_id IS NOT NULL"""
                     )
                 ).fetchone()
             delay = 60.0
@@ -951,6 +937,43 @@ class LiveVisionRetentionCoordinator:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+async def _purge_frames(
+    factory: PostgreSQLRuntimeUnitOfWorkFactory, catalog: ArtifactCatalogPort
+) -> int:
+    # The observation owns its bounded frame list; retire references in the same transaction.
+    count = 0
+    async with factory.unit_of_work() as unit:
+        rows = await (
+            await unit.transaction.execute(
+                """SELECT observation_id,frames,statement_timestamp()
+               FROM armi.live_vision_observations observation
+               WHERE EXISTS (
+                   SELECT 1 FROM jsonb_to_recordset(observation.frames)
+                   AS frame(artifact_id uuid,purge_after timestamptz)
+                   WHERE frame.artifact_id IS NOT NULL AND frame.purge_after<=statement_timestamp())
+               ORDER BY observation_id FOR UPDATE SKIP LOCKED"""
+            )
+        ).fetchall()
+        for observation_id, frame_value, now in rows:
+            frames = cast(list[_FrameDocument], frame_value)
+            for frame in frames:
+                if (
+                    frame["artifact_id"] is not None
+                    and datetime.fromisoformat(frame["purge_after"]) <= now
+                ):
+                    await catalog.retire_artifact(
+                        unit, ArtifactId(UUID(frame["artifact_id"]))
+                    )
+                    frame["artifact_id"] = None
+                    frame["purged_at"] = now.isoformat()
+                    count += 1
+            await unit.transaction.execute(
+                "UPDATE armi.live_vision_observations SET frames=%s::jsonb WHERE observation_id=%s",
+                (json.dumps(frames), observation_id),
+            )
+    return count
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:

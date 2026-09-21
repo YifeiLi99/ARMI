@@ -27,6 +27,7 @@ from armi_codex.bootstrap import (
 from armi_cognition.bootstrap import (
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
+    bootstrap_context_candidate_read,
     bootstrap_dialogue_decision_record,
     bootstrap_sleep_decision_record,
     build_candidate_schema,
@@ -37,7 +38,6 @@ from armi_cognition.bootstrap import (
     load_active_model_binding,
     parse_model_candidate,
 )
-from armi_context.bootstrap import bootstrap_context_candidate_read
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
     bootstrap_effect_intent_read,

@@ -14,19 +14,13 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
-    DataRightsRelatedRef,
     DataRightsTupleRecordStream,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("context")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "cognitive_context_items",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognitive_context_items AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "context_embedding_coverage",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -61,22 +55,8 @@ class PostgreSQLContextDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        source_refs = tuple(item.ref for item in request.related_refs)
-        rows = await (
-            await transaction.execute(
-                """SELECT DISTINCT cognitive_episode_id
-                   FROM armi.cognitive_context_items
-                   WHERE source_ref=%s OR source_ref=ANY(%s::uuid[])
-                   ORDER BY cognitive_episode_id""",
-                (request.party_id, list(source_refs)),
-            )
-        ).fetchall()
-        return DataRightsDiscoveryContribution(
-            _OWNER,
-            related_refs=tuple(
-                DataRightsRelatedRef("cognitive-context", row[0]) for row in rows
-            ),
-        )
+        del transaction, request
+        return DataRightsDiscoveryContribution(_OWNER)
 
     async def apply(
         self,

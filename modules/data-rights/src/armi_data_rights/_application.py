@@ -530,9 +530,13 @@ class DataRightsOrderService(DataRightsOrderPort):
                     raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
                 existing = await (
                     await unit.transaction.execute(
-                        """SELECT retry_cycle FROM armi.data_rights_order_retry_attempts
-                           WHERE deletion_order_id=%s AND idempotency_key=%s""",
-                        (order_id, command.idempotency_key.value),
+                        """SELECT (retry_requests->%s->>'cycle')::int FROM armi.data_rights_orders
+                           WHERE deletion_order_id=%s AND retry_requests ? %s""",
+                        (
+                            command.idempotency_key.value,
+                            order_id,
+                            command.idempotency_key.value,
+                        ),
                     )
                 ).fetchone()
                 if existing is None:
@@ -560,9 +564,8 @@ class DataRightsOrderService(DataRightsOrderPort):
                         raise DataRightsViolation("DATA-RIGHTS-RETRY-NOT-AVAILABLE")
                     cycle_row = await (
                         await unit.transaction.execute(
-                            """SELECT COALESCE(max(retry_cycle),1)+1
-                               FROM armi.data_rights_order_retry_attempts
-                               WHERE deletion_order_id=%s""",
+                            """SELECT retry_cycle+1 FROM armi.data_rights_orders
+                               WHERE deletion_order_id=%s FOR UPDATE""",
                             (order_id,),
                         )
                     ).fetchone()
@@ -570,16 +573,16 @@ class DataRightsOrderService(DataRightsOrderPort):
                         raise DataRightsViolation("DATA-RIGHTS-STATE")
                     cycle = int(cycle_row[0])
                     await unit.transaction.execute(
-                        """INSERT INTO armi.data_rights_order_retry_attempts
-                           (deletion_order_retry_attempt_id,deletion_order_id,
-                            retry_cycle,idempotency_key,trace_id)
-                           VALUES (%s,%s,%s,%s,%s)""",
+                        """UPDATE armi.data_rights_orders
+                           SET retry_cycle=%s,retry_requests=jsonb_set(retry_requests,ARRAY[%s],
+                               jsonb_build_object('cycle',%s::int,'trace_id',%s::text,'created_at',statement_timestamp()))
+                           WHERE deletion_order_id=%s""",
                         (
-                            uuid7(),
-                            order_id,
                             cycle,
                             command.idempotency_key.value,
+                            cycle,
                             command.trace_id.value,
+                            order_id,
                         ),
                     )
                     reset = await self._lifecycle.retry_blocked(

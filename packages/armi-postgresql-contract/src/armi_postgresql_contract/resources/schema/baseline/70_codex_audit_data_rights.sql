@@ -167,6 +167,8 @@ CREATE TABLE armi.data_rights_order_items (
 --
 
 CREATE TABLE armi.data_rights_orders (
+    retry_cycle integer DEFAULT 1 NOT NULL CHECK (retry_cycle>=1),
+    retry_requests jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(retry_requests)='object'),
     deletion_order_id uuid NOT NULL,
     requester_party_id uuid NOT NULL,
     requester_kind text NOT NULL,
@@ -197,15 +199,3 @@ CREATE TABLE armi.data_rights_orders (
 );
 
 -- Append-only explicit retry cycles for blocked local deletion work.
-CREATE TABLE armi.data_rights_order_retry_attempts (
-    deletion_order_retry_attempt_id uuid NOT NULL,
-    deletion_order_id uuid NOT NULL,
-    retry_cycle integer NOT NULL,
-    idempotency_key text NOT NULL,
-    trace_id text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT data_rights_order_retry_attempts_id_check CHECK ((uuid_extract_version(deletion_order_retry_attempt_id) = 7)),
-    CONSTRAINT data_rights_order_retry_attempts_cycle_check CHECK ((retry_cycle >= 2)),
-    CONSTRAINT data_rights_order_retry_attempts_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
-    CONSTRAINT data_rights_order_retry_attempts_trace_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
-);

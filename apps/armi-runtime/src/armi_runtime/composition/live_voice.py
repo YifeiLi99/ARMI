@@ -14,6 +14,7 @@ from armi_live_voice.api import (
     LiveVoiceBinding,
     LiveVoiceRuntimePort,
     LiveVoiceViolation,
+    VoiceActivityState,
     VoiceProviderBinding,
     VoiceProviderDiagnostic,
     VoiceProviderService,
@@ -45,6 +46,7 @@ def compose_runtime_live_voice(
     creator: CreatorIdentityContext,
     interaction: CreatorInteractionPort,
     timeline: VoiceTimelinePort,
+    voice_activity_state: VoiceActivityState | None = None,
     provider_diagnostic: Callable[[VoiceProviderDiagnostic], None] | None = None,
     playback_diagnostic: Callable[[str, UUID, int, str | None], None] | None = None,
 ) -> LiveVoiceRuntimePort | None:
@@ -162,6 +164,7 @@ def compose_runtime_live_voice(
         scene_id=creator.scene_id,
         binding=binding,
         timeline=timeline,
+        activity=voice_activity_state,
         playback_diagnostic=playback_diagnostic,
     )
     bridge = RuntimeLiveVoiceInteraction(

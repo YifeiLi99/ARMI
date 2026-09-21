@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Sequence
 from typing import cast
 from uuid import UUID
@@ -258,14 +260,16 @@ class PostgreSQLCognitionContextLifecycle:
         compiled_artifact_id: UUID,
         manifest_digest: Digest,
         compiled_digest: Digest,
+        context_items: tuple[dict[str, object], ...],
     ) -> CognitionContextEpisodeSnapshot:
+        _validate_context_items(context_items)
         row = await (
             await transaction.execute(
                 """UPDATE armi.cognitive_episodes SET status='prepared',
                       context_manifest_artifact_id=%s,
                       compiled_context_artifact_id=%s,
                       context_manifest_digest=%s, compiled_context_digest=%s,
-                      prepared_at=statement_timestamp()
+                      context_items=%s::jsonb, prepared_at=statement_timestamp()
                WHERE cognitive_episode_id=%s AND status='preparing'
                RETURNING cognitive_episode_id, opportunity_id, subject_id, scene_id,
                          context_party_id, purpose, base_subject_version,
@@ -276,6 +280,7 @@ class PostgreSQLCognitionContextLifecycle:
                     compiled_artifact_id,
                     manifest_digest.value,
                     compiled_digest.value,
+                    json.dumps(context_items),
                     episode_id,
                 ),
             )
@@ -377,3 +382,100 @@ async def autonomy_check_current(
 
 
 __all__ = ("PostgreSQLCognitionContextLifecycle",)
+
+
+def _validate_context_items(items: tuple[dict[str, object], ...]) -> None:
+    # Frozen reference identity stays unique after embedding the list; see DESIGN.md.
+    identifiers: set[UUID] = set()
+    ordinals: set[int] = set()
+    fields = {
+        "context_item_id",
+        "ordinal",
+        "section",
+        "item_kind",
+        "source_kind",
+        "source_ref",
+        "source_version",
+        "trust_class",
+        "privacy_scope",
+        "disposition",
+        "reason_code",
+        "content_bytes",
+    }
+    for item in items:
+        try:
+            identity = UUID(str(item["context_item_id"]))
+            ordinal = item["ordinal"]
+            source_ref = item["source_ref"]
+            source_version = item["source_version"]
+            disposition = item["disposition"]
+            reason = item["reason_code"]
+            size = item["content_bytes"]
+            if (
+                set(item) != fields
+                or identity.version != 7
+                or identity in identifiers
+                or type(ordinal) is not int
+                or not 1 <= ordinal <= 32767
+                or ordinal in ordinals
+                or item["section"]
+                not in {
+                    "runtime_truth",
+                    "purpose",
+                    "self",
+                    "mind",
+                    "mood",
+                    "life_mode",
+                    "scene",
+                    "relationship",
+                    "memory",
+                    "activity",
+                    "material",
+                    "evidence",
+                    "capability",
+                    "prompt",
+                }
+                or any(
+                    re.fullmatch(r"[a-z][a-z0-9._-]{0,63}", str(item[field])) is None
+                    for field in ("item_kind", "source_kind")
+                )
+                or (source_ref is None) != (source_version is None)
+                or (
+                    source_ref is not None
+                    and (
+                        UUID(str(source_ref)).version != 7
+                        or type(source_version) is not int
+                        or source_version < 0
+                    )
+                )
+                or item["trust_class"]
+                not in {
+                    "runtime_authority",
+                    "subjective_state",
+                    "external_claim",
+                    "policy",
+                }
+                or item["privacy_scope"] not in {"internal", "private", "restricted"}
+                or disposition
+                not in {
+                    "included",
+                    "excluded_policy",
+                    "excluded_budget",
+                    "unavailable",
+                    "read_failed",
+                }
+                or (
+                    (disposition in {"included", "excluded_policy"}) != (reason is None)
+                )
+                or (
+                    reason is not None
+                    and re.fullmatch(r"CTX-[A-Z0-9-]+", str(reason)) is None
+                )
+                or type(size) is not int
+                or size < 0
+            ):
+                raise ValueError("invalid frozen Context item")
+        except (KeyError, ValueError, TypeError) as error:
+            raise CandidateViolation("CANDIDATE-CONTEXT-ITEMS") from error
+        identifiers.add(identity)
+        ordinals.add(ordinal)

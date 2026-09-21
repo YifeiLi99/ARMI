@@ -23,7 +23,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("cognition")
-_VERSION = DataRightsContributionVersion(10)
+_VERSION = DataRightsContributionVersion(11)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "cognitive_attempts",
@@ -53,9 +53,7 @@ class PostgreSQLCognitionDataRightsParticipant:
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
         context_episode_ids = tuple(
-            item.ref
-            for item in request.related_refs
-            if item.kind == "cognitive-context"
+            item.ref for item in request.related_refs if item.kind == "cognition"
         )
         episode_rows = await (
             await transaction.execute(
@@ -63,8 +61,16 @@ class PostgreSQLCognitionDataRightsParticipant:
                    FROM armi.cognitive_episodes
                    WHERE context_party_id=%s
                       OR cognitive_episode_id=ANY(%s::uuid[])
+                      OR EXISTS (
+                          SELECT 1 FROM jsonb_array_elements(context_items) AS item
+                          WHERE (item->>'source_ref')::uuid=ANY(%s::uuid[])
+                      )
                    ORDER BY cognitive_episode_id""",
-                (request.party_id, list(context_episode_ids)),
+                (
+                    request.party_id,
+                    list(context_episode_ids),
+                    [request.party_id, *(item.ref for item in request.related_refs)],
+                ),
             )
         ).fetchall()
         episode_ids = tuple(row[0] for row in episode_rows)

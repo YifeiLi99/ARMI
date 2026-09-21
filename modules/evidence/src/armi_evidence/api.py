@@ -105,22 +105,6 @@ class EvidenceDraft:
 
 
 @dataclass(frozen=True, slots=True)
-class ExperienceEvidenceLink:
-    experience_id: UUID
-    evidence_id: EvidenceId
-    context_item_id: UUID
-    ordinal: int
-
-    def __post_init__(self) -> None:
-        _require_uuid7(self.experience_id, "EVIDENCE-LINK-EXPERIENCE")
-        if type(self.evidence_id) is not EvidenceId:
-            raise EvidenceViolation("EVIDENCE-LINK-EVIDENCE")
-        _require_uuid7(self.context_item_id, "EVIDENCE-LINK-CONTEXT")
-        if type(self.ordinal) is not int or not 1 <= self.ordinal <= 8:
-            raise EvidenceViolation("EVIDENCE-LINK-ORDINAL")
-
-
-@dataclass(frozen=True, slots=True)
 class EvidenceSnapshot:
     evidence_id: EvidenceId
     received_at: datetime
@@ -141,12 +125,6 @@ class EvidenceWritePort(Protocol):
         transaction: EvidenceTransaction,
         draft: EvidenceDraft,
     ) -> EvidenceId: ...
-
-    async def link_experience(
-        self,
-        transaction: EvidenceTransaction,
-        link: ExperienceEvidenceLink,
-    ) -> None: ...
 
 
 @runtime_checkable
@@ -218,5 +196,4 @@ __all__ = (
     "EvidenceSourceKind",
     "EvidenceViolation",
     "EvidenceWritePort",
-    "ExperienceEvidenceLink",
 )

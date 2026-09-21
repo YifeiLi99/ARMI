@@ -52,7 +52,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_live_voice.api import voice_activity
+from armi_live_voice.api import VoiceActivityState, voice_activity
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -116,6 +116,7 @@ class RuntimeContextEpisodeAdapter:
         compiled_artifact_id: UUID,
         manifest_digest: Digest,
         compiled_digest: Digest,
+        context_items: tuple[dict[str, object], ...],
     ) -> ContextEpisodeState:
         return _context_episode(
             await self._owner.mark_context_prepared(
@@ -125,6 +126,7 @@ class RuntimeContextEpisodeAdapter:
                 compiled_artifact_id=compiled_artifact_id,
                 manifest_digest=manifest_digest,
                 compiled_digest=compiled_digest,
+                context_items=context_items,
             )
         )
 
@@ -154,6 +156,7 @@ class RuntimeCognitionCycleSelector:
         effects: EffectOperationReadPort,
         expression: ExpressionIntentReadPort,
         origins: RuntimeOpportunityOrigin,
+        voice_activity_state: VoiceActivityState | None = None,
     ) -> None:
         self._factory = factory
         self._opportunities = opportunities
@@ -167,6 +170,7 @@ class RuntimeCognitionCycleSelector:
         self._effects = effects
         self._expression = expression
         self._origins = origins
+        self._voice_activity = voice_activity_state
 
     async def select_once(self) -> CognitiveEpisodeId | None:
         async with self._factory.unit_of_work() as unit:
@@ -183,7 +187,9 @@ class RuntimeCognitionCycleSelector:
                 unit.transaction, subject_id=fence.subject_id
             )
             voice_active, _ = await voice_activity(
-                unit.transaction, subject_id=fence.subject_id
+                unit.transaction,
+                subject_id=fence.subject_id,
+                activity=self._voice_activity,
             )
             if (
                 input_pending

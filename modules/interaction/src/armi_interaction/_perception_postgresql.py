@@ -23,6 +23,52 @@ from .api import (
 
 
 class PostgreSQLInteractionPerception:
+    async def record_voice_session_end(
+        self, transaction: PostgreSQLTransaction, *, scene_id: UUID, session_id: UUID
+    ) -> None:
+        await transaction.execute(
+            """UPDATE armi.interaction_scenes
+               SET last_voice_ended_at=statement_timestamp(),
+                   voice_provider_calls=COALESCE((
+                     SELECT jsonb_object_agg(key, CASE
+                       WHEN value->>'voice_session_id'=%s AND value->>'outcome'='pending'
+                       THEN value || jsonb_build_object('outcome','unknown',
+                            'finished_at',statement_timestamp(),
+                            'error_code','VOICE-SESSION-ENDED')
+                       ELSE value END)
+                     FROM jsonb_each(voice_provider_calls)
+                   ),'{}'::jsonb)
+               WHERE scene_id=%s""",
+            (str(session_id), scene_id),
+        )
+
+    async def record_voice_provider_call(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        session_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        result = await transaction.execute(
+            """UPDATE armi.interaction_scenes
+               SET voice_provider_calls=jsonb_set(voice_provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE scene_id=%s
+                 AND ((%s AND NOT (voice_provider_calls ? %s))
+                      OR (NOT %s AND voice_provider_calls ? %s))""",
+            (
+                receipt.call_id,
+                json.dumps({**receipt.document(), "voice_session_id": str(session_id)}),
+                scene_id,
+                receipt.registration,
+                receipt.call_id,
+                receipt.registration,
+                receipt.call_id,
+            ),
+        )
+        if result.rowcount != 1:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-VOICE-USAGE")
+
     async def begin_recognition(
         self,
         transaction: PostgreSQLTransaction,

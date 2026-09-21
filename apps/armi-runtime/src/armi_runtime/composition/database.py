@@ -66,10 +66,12 @@ from armi_cognition.api import (
     CognitionWorkerPort,
 )
 from armi_cognition.bootstrap import (
+    ContextCandidateReadPorts,
     bootstrap_cognition_candidate,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
     bootstrap_cognition_operation,
+    bootstrap_context_candidate_read,
     bootstrap_dialogue_decision_record,
     bootstrap_sleep_decision_record,
 )
@@ -85,9 +87,7 @@ from armi_context.api import (
     load_embedding_binding,
 )
 from armi_context.bootstrap import (
-    ContextCandidateReadPorts,
     bootstrap_context,
-    bootstrap_context_candidate_read,
     bootstrap_context_dialogue_read,
     bootstrap_context_embedding,
     bootstrap_context_projection_invalidation,
@@ -182,7 +182,11 @@ from armi_live_vision.bootstrap import (
     bootstrap_live_vision_commit,
     bootstrap_visual_origin_read,
 )
-from armi_live_voice.api import LiveVoiceRuntimePort, VoiceCognitionResultPort
+from armi_live_voice.api import (
+    LiveVoiceRuntimePort,
+    VoiceActivityState,
+    VoiceCognitionResultPort,
+)
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_local_control.configuration import ConfigurationViolation
 from armi_local_control.runtime_errors import RuntimeViolation
@@ -1298,11 +1302,13 @@ def compose_context_pipeline(
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     voice: LiveVoiceRuntimePort | None = None,
+    voice_activity_state: VoiceActivityState | None = None,
 ) -> ContextRuntimePort:
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
     config = prepared.effective.config
     selection = RuntimeCognitionCycleSelector(
+        voice_activity_state=voice_activity_state,
         factory=unit_of_work_factory,
         opportunities=opportunity_cognition,
         episodes=cognition_context,
@@ -1719,7 +1725,6 @@ def compose_subject_commit_pipeline(
     experience_commit: ExperienceCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
-    evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     expression_commit: ExpressionCommitPort,
     interaction_commit: InteractionSubjectCommitPort,
@@ -1735,6 +1740,7 @@ def compose_subject_commit_pipeline(
     catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None,
     voice_results: VoiceCognitionResultPort | None = None,
+    voice_activity_state: VoiceActivityState | None = None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -1754,7 +1760,6 @@ def compose_subject_commit_pipeline(
         experience_commit=experience_commit,
         context_projections=context_projections,
         data_rights=data_rights,
-        evidence=evidence,
         evidence_read=evidence_read,
         expression_commit=expression_commit,
         interaction_commit=interaction_commit,
@@ -1770,6 +1775,7 @@ def compose_subject_commit_pipeline(
         visual_observation_commit=bootstrap_live_vision_commit(),
         notifier=notifier,
         voice_results=voice_results,
+        voice_activity_state=voice_activity_state,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,

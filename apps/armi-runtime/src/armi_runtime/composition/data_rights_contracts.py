@@ -84,7 +84,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         "live-vision",
         ("media_recognition",),
         (
-            ("live_vision_observation_frames", "artifact_id", "shared"),
             ("live_vision_observations", "request_artifact_id", "shared"),
             ("live_vision_observations", "response_artifact_id", "shared"),
         ),

@@ -3,11 +3,13 @@ name = "armi-live-voice"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "armi-interaction==0.0.0",
     "armi-data-rights==0.0.0",
     "armi-runtime-foundation==0.0.0",
 ]
 
 [tool.uv.sources]
+armi-interaction = { workspace = true }
 armi-data-rights = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 

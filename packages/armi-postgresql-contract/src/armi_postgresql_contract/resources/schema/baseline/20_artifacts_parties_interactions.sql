@@ -186,6 +186,8 @@ CREATE TABLE armi.external_message_parts (
 --
 
 CREATE TABLE armi.interaction_scenes (
+    voice_provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(voice_provider_calls)='object'),
+    last_voice_ended_at timestamp(6) with time zone,
     scene_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     scene_key text NOT NULL,
@@ -210,34 +212,15 @@ CREATE TABLE armi.interaction_scenes (
 );
 
 --
--- Name: live_vision_observation_frames; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.live_vision_observation_frames (
-    observation_id uuid NOT NULL,
-    ordinal smallint NOT NULL,
-    artifact_id uuid,
-    content_digest text NOT NULL,
-    byte_size bigint NOT NULL,
-    width integer NOT NULL,
-    height integer NOT NULL,
-    captured_at timestamp(6) with time zone NOT NULL,
-    purge_after timestamp(6) with time zone NOT NULL,
-    purged_at timestamp(6) with time zone,
-    CONSTRAINT live_vision_observation_frames_byte_size_check CHECK ((byte_size > 0)),
-    CONSTRAINT live_vision_observation_frames_check CHECK ((purge_after > captured_at)),
-    CONSTRAINT live_vision_observation_frames_check1 CHECK (((artifact_id IS NULL) = (purged_at IS NOT NULL))),
-    CONSTRAINT live_vision_observation_frames_content_digest_check CHECK ((content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT live_vision_observation_frames_height_check CHECK ((height > 0)),
-    CONSTRAINT live_vision_observation_frames_ordinal_check CHECK (((ordinal >= 1) AND (ordinal <= 4))),
-    CONSTRAINT live_vision_observation_frames_width_check CHECK ((width > 0))
-);
 
 --
 -- Name: live_vision_observations; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.live_vision_observations (
+    frames jsonb DEFAULT '[]'::jsonb NOT NULL CHECK (jsonb_typeof(frames)='array' AND jsonb_array_length(frames)<=4),
     observation_id uuid NOT NULL,
     session_id uuid,
     subject_id uuid NOT NULL,
@@ -298,37 +281,17 @@ CREATE TABLE armi.live_vision_observations (
 
 
 --
--- Name: live_voice_sessions; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.live_voice_sessions (
-    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
-    session_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    creator_party_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    state text NOT NULL,
-    context_version text,
-    input_host_api text NOT NULL,
-    input_device_name text NOT NULL,
-    output_host_api text NOT NULL,
-    output_device_name text NOT NULL,
-    started_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    ended_at timestamp(6) with time zone,
-    error_code text,
-    CONSTRAINT live_voice_sessions_context_check CHECK (((context_version IS NULL) OR ((length(context_version) >= 1) AND (length(context_version) <= 128)))),
-    CONSTRAINT live_voice_sessions_device_check CHECK ((((length(btrim(input_host_api)) >= 1) AND (length(btrim(input_host_api)) <= 128)) AND ((length(btrim(input_device_name)) >= 1) AND (length(btrim(input_device_name)) <= 512)) AND ((length(btrim(output_host_api)) >= 1) AND (length(btrim(output_host_api)) <= 128)) AND ((length(btrim(output_device_name)) >= 1) AND (length(btrim(output_device_name)) <= 512)))),
-    CONSTRAINT live_voice_sessions_error_check CHECK (((error_code IS NULL) OR (error_code ~ '^VOICE-[A-Z0-9-]{1,120}$'::text))),
-    CONSTRAINT live_voice_sessions_id_check CHECK ((uuid_extract_version(session_id) = 7)),
-    CONSTRAINT live_voice_sessions_lifecycle_check CHECK (((state = ANY (ARRAY['stopped'::text, 'failed'::text, 'unavailable'::text])) = (ended_at IS NOT NULL))),
-    CONSTRAINT live_voice_sessions_state_check CHECK ((state = ANY (ARRAY['starting'::text, 'listening'::text, 'recognizing'::text, 'thinking'::text, 'speaking'::text, 'stopped'::text, 'failed'::text, 'unavailable'::text])))
-);
 
 --
 -- Name: live_voice_turns; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.live_voice_turns (
+    subject_id uuid NOT NULL,
+    creator_party_id uuid NOT NULL,
+    scene_id uuid NOT NULL,
     provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
     turn_id uuid NOT NULL,
     session_id uuid NOT NULL,

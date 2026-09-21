@@ -729,6 +729,19 @@ class InteractionPerceptionPort(Protocol):
 
 @runtime_checkable
 class InteractionEffectDeliveryPort(Protocol):
+    async def record_voice_session_end(
+        self, transaction: PostgreSQLTransaction, *, scene_id: UUID, session_id: UUID
+    ) -> None: ...
+
+    async def record_voice_provider_call(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        session_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None: ...
+
     async def record_party_response(
         self,
         transaction: PostgreSQLTransaction,
@@ -803,6 +816,22 @@ class InteractionSceneTransitionPort(Protocol):
         scene_id: UUID,
         other_party_id: UUID,
     ) -> None: ...
+
+
+async def mark_voice_activity_ended(
+    transaction: PostgreSQLTransaction, *, scene_ids: tuple[UUID, ...]
+) -> None:
+    from ._autonomy_read import mark_voice_activity_ended as write
+
+    await write(transaction, scene_ids=scene_ids)
+
+
+async def last_voice_activity(
+    transaction: PostgreSQLTransaction, *, subject_id: UUID
+) -> datetime | None:
+    from ._autonomy_read import last_voice_activity as read
+
+    return await read(transaction, subject_id=subject_id)
 
 
 async def human_input_activity(
@@ -921,4 +950,6 @@ __all__ = (
     "SceneTimelineQueryPort",
     "TimelineItemId",
     "human_input_activity",
+    "last_voice_activity",
+    "mark_voice_activity_ended",
 )

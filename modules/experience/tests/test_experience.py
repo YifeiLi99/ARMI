@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, LiteralString, Never, cast
 from uuid import uuid7
@@ -15,6 +17,7 @@ from armi_experience._data_rights import PostgreSQLExperienceDataRightsParticipa
 from armi_experience._postgresql import PostgreSQLExperienceOwner
 from armi_experience.api import (
     AcceptedExperienceDraft,
+    ExperienceEvidenceLink,
     ExperienceKind,
     ExperienceSourcePerspective,
     ExperienceViolation,
@@ -210,3 +213,50 @@ def test_public_protocols_are_structurally_usable() -> None:
     assert callable(owner.accepted_in_ordinal_window)
     assert callable(owner.by_ids)
     assert callable(owner.life_record_branch)
+
+
+def test_evidence_links_reject_duplicate_context_and_more_than_eight() -> None:
+    link = ExperienceEvidenceLink(uuid7(), uuid7())
+    with pytest.raises(ExperienceViolation, match="EXPERIENCE-DRAFT"):
+        replace(_draft(), evidence_links=(link, link))
+    with pytest.raises(ExperienceViolation, match="EXPERIENCE-DRAFT"):
+        replace(
+            _draft(),
+            evidence_links=tuple(
+                ExperienceEvidenceLink(uuid7(), uuid7()) for _ in range(9)
+            ),
+        )
+
+
+def test_experience_keeps_evidence_references_in_same_insert() -> None:
+    links = tuple(ExperienceEvidenceLink(uuid7(), uuid7()) for _ in range(2))
+    transaction = _Transaction(_Result(((1,),)))
+    asyncio.run(
+        PostgreSQLExperienceOwner().record(
+            cast(Any, transaction), replace(_draft(), evidence_links=links)
+        )
+    )
+    assert len(transaction.calls) == 1
+    payload = json.loads(str(transaction.calls[0][1][-1]))
+    assert [item["context_item_id"] for item in payload] == [
+        str(link.context_item_id) for link in links
+    ]
+    assert [item["ordinal"] for item in payload] == [1, 2]
+
+
+def test_rights_find_experience_through_its_embedded_evidence_links() -> None:
+    experience_id, evidence_id = uuid7(), uuid7()
+    transaction = _Transaction(_Result(((experience_id,),)))
+    contribution = asyncio.run(
+        PostgreSQLExperienceDataRightsParticipant().discover(
+            cast(Any, transaction),
+            DataRightsDiscoveryRequest(
+                uuid7(), uuid7(), (DataRightsRelatedRef("evidence", evidence_id),)
+            ),
+        )
+    )
+    assert contribution.related_refs == (
+        DataRightsRelatedRef("experience", experience_id),
+    )
+    assert contribution.targets[0].ref == experience_id
+    assert transaction.calls[0][1] == ([evidence_id],)

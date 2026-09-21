@@ -450,29 +450,27 @@ class PostgreSQLContextRepository:
         snapshot: ContextEpisodeSnapshot,
     ) -> None:
         tx = unit_of_work.transaction
-        for item in result.items:
-            source = item.candidate.source
-            await tx.execute(
-                """INSERT INTO armi.cognitive_context_items (
-                   context_item_id,cognitive_episode_id,ordinal,section,item_kind,
-                   source_kind,source_ref,source_version,trust_class,privacy_scope,
-                   disposition,reason_code,content_bytes)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'private',%s,%s,%s)""",
-                (
-                    uuid7(),
-                    episode_id,
-                    item.ordinal,
-                    item.candidate.section.value,
-                    item.candidate.item_kind,
-                    source.kind,
-                    source.reference,
-                    source.version,
-                    item.candidate.trust_class.value,
-                    item.disposition.value,
-                    item.reason_code,
-                    item.content_bytes,
+        context_items: tuple[dict[str, object], ...] = tuple(
+            {
+                "context_item_id": str(uuid7()),
+                "ordinal": item.ordinal,
+                "section": item.candidate.section.value,
+                "item_kind": item.candidate.item_kind,
+                "source_kind": item.candidate.source.kind,
+                "source_ref": (
+                    str(item.candidate.source.reference)
+                    if item.candidate.source.reference is not None
+                    else None
                 ),
-            )
+                "source_version": item.candidate.source.version,
+                "trust_class": item.candidate.trust_class.value,
+                "privacy_scope": "private",
+                "disposition": item.disposition.value,
+                "reason_code": item.reason_code,
+                "content_bytes": item.content_bytes,
+            }
+            for item in result.items
+        )
         included = {
             item.candidate.source.reference
             for item in result.items
@@ -495,6 +493,7 @@ class PostgreSQLContextRepository:
             compiled_artifact_id=compiled_artifact.artifact_id.value,
             manifest_digest=manifest_artifact.content_digest,
             compiled_digest=compiled_artifact.content_digest,
+            context_items=context_items,
         )
         from datetime import UTC
 

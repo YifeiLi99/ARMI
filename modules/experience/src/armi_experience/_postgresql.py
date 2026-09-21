@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
@@ -32,10 +33,10 @@ class PostgreSQLExperienceOwner:
                 experience_id, subject_id, subject_commit_id, cognitive_episode_id,
                 proposal_ref, experience_kind, fact_class, first_person_gist,
                 scene_id, occurred_at, learned_at, source_perspective,
-                uncertainty, privacy_scope
+                uncertainty, privacy_scope, evidence_links
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, 'private'
+                %s, %s, %s, %s, %s, 'private', %s::jsonb
             ) RETURNING acceptance_ordinal
             """,
                 (
@@ -52,6 +53,17 @@ class PostgreSQLExperienceOwner:
                     draft.occurred_at,
                     draft.source_perspective.value,
                     draft.uncertainty,
+                    json.dumps(
+                        [
+                            {
+                                "evidence_id": str(link.evidence_id),
+                                "context_item_id": str(link.context_item_id),
+                                "ordinal": ordinal,
+                                "link_kind": "relied_on",
+                            }
+                            for ordinal, link in enumerate(draft.evidence_links, 1)
+                        ]
+                    ),
                 ),
             )
         ).fetchone()

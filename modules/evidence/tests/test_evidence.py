@@ -10,7 +10,6 @@ from armi_evidence.api import (
     EvidencePrivacyScope,
     EvidenceSourceKind,
     EvidenceViolation,
-    ExperienceEvidenceLink,
 )
 from armi_evidence.bootstrap import bootstrap_evidence
 from armi_runtime_foundation import PostgreSQLTransactionAccess
@@ -57,15 +56,10 @@ def test_evidence_source_identity_is_owned_by_contract() -> None:
 
 
 @pytest.mark.asyncio
-async def test_writer_uses_caller_transaction_for_acceptance_and_link() -> None:
+async def test_writer_uses_caller_transaction_for_acceptance() -> None:
     unit = _Unit()
     module = bootstrap_evidence()
     draft = _creator_draft()
     transaction = cast(PostgreSQLTransactionAccess, unit)
     assert await module.write.accept(transaction, draft) == draft.evidence_id
-    await module.write.link_experience(
-        transaction,
-        ExperienceEvidenceLink(uuid7(), draft.evidence_id, uuid7(), 1),
-    )
     assert "INSERT INTO armi.external_evidence" in unit.transaction.calls[0][0]
-    assert "INSERT INTO armi.experience_evidence_links" in unit.transaction.calls[1][0]

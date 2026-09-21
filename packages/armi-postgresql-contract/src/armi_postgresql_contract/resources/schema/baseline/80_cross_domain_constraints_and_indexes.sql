@@ -265,18 +265,12 @@ ALTER TABLE ONLY armi.cognitive_attempts
 
 
 --
--- Name: cognitive_context_items cognitive_context_items_cognitive_episode_id_ordinal_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.cognitive_context_items
-    ADD CONSTRAINT cognitive_context_items_cognitive_episode_id_ordinal_key UNIQUE (cognitive_episode_id, ordinal);
 
 --
--- Name: cognitive_context_items cognitive_context_items_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.cognitive_context_items
-    ADD CONSTRAINT cognitive_context_items_pkey PRIMARY KEY (context_item_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_opportunity_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -348,14 +342,8 @@ ALTER TABLE ONLY armi.data_rights_order_items
 ALTER TABLE ONLY armi.data_rights_order_items
     ADD CONSTRAINT data_rights_order_items_pkey PRIMARY KEY (deletion_item_id);
 
-ALTER TABLE ONLY armi.data_rights_order_retry_attempts
-    ADD CONSTRAINT data_rights_order_retry_attempts_pkey PRIMARY KEY (deletion_order_retry_attempt_id);
 
-ALTER TABLE ONLY armi.data_rights_order_retry_attempts
-    ADD CONSTRAINT data_rights_order_retry_attempts_order_cycle_key UNIQUE (deletion_order_id,retry_cycle);
 
-ALTER TABLE ONLY armi.data_rights_order_retry_attempts
-    ADD CONSTRAINT data_rights_order_retry_attempts_order_key_key UNIQUE (deletion_order_id,idempotency_key);
 
 --
 -- Name: data_rights_orders data_rights_orders_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -487,18 +475,12 @@ ALTER TABLE ONLY armi.effects
 
 
 --
--- Name: experience_evidence_links experience_evidence_links_experience_id_evidence_id_context_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.experience_evidence_links
-    ADD CONSTRAINT experience_evidence_links_experience_id_evidence_id_context_key UNIQUE (experience_id, evidence_id, context_item_id);
 
 --
--- Name: experience_evidence_links experience_evidence_links_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.experience_evidence_links
-    ADD CONSTRAINT experience_evidence_links_pkey PRIMARY KEY (experience_id, ordinal);
 
 --
 -- Name: external_channel_bindings external_channel_bindings_identity_unique; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -610,11 +592,8 @@ ALTER TABLE ONLY armi.life_materials
     ADD CONSTRAINT life_materials_pkey PRIMARY KEY (life_material_id);
 
 --
--- Name: live_vision_observation_frames live_vision_observation_frames_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_vision_observation_frames
-    ADD CONSTRAINT live_vision_observation_frames_pkey PRIMARY KEY (observation_id, ordinal);
 
 --
 -- Name: live_vision_observations live_vision_observations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -638,11 +617,8 @@ ALTER TABLE ONLY armi.live_vision_observations
 
 
 --
--- Name: live_voice_sessions live_voice_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_voice_sessions
-    ADD CONSTRAINT live_voice_sessions_pkey PRIMARY KEY (session_id);
 
 --
 -- Name: live_voice_turns live_voice_turns_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1319,7 +1295,6 @@ CREATE INDEX life_materials_subject_current_idx ON armi.life_materials USING btr
 -- Name: live_voice_one_open_session; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX live_voice_one_open_session ON armi.live_voice_sessions USING btree (subject_id) WHERE (ended_at IS NULL);
 
 --
 -- Name: maintenance_sessions_one_unfinished; Type: INDEX; Schema: armi; Owner: -
@@ -1750,11 +1725,8 @@ ALTER TABLE ONLY armi.effects
 
 
 --
--- Name: cognitive_context_items cognitive_context_items_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.cognitive_context_items
-    ADD CONSTRAINT cognitive_context_items_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_bundle_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -1842,8 +1814,6 @@ ALTER TABLE ONLY armi.creator_exports
 ALTER TABLE ONLY armi.data_rights_order_items
     ADD CONSTRAINT data_rights_order_items_deletion_order_id_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
-ALTER TABLE ONLY armi.data_rights_order_retry_attempts
-    ADD CONSTRAINT data_rights_order_retry_attempts_order_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
 ALTER TABLE ONLY armi.data_rights_order_items
     ADD CONSTRAINT data_rights_order_items_artifact_object_deletion_fkey FOREIGN KEY (artifact_object_deletion_id) REFERENCES armi.artifact_object_deletions(artifact_object_deletion_id);
@@ -1984,25 +1954,16 @@ ALTER TABLE ONLY armi.effects
 
 
 --
--- Name: experience_evidence_links experience_evidence_links_context_item_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.experience_evidence_links
-    ADD CONSTRAINT experience_evidence_links_context_item_id_fkey FOREIGN KEY (context_item_id) REFERENCES armi.cognitive_context_items(context_item_id);
 
 --
--- Name: experience_evidence_links experience_evidence_links_evidence_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.experience_evidence_links
-    ADD CONSTRAINT experience_evidence_links_evidence_id_fkey FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
 
 --
--- Name: experience_evidence_links experience_evidence_links_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.experience_evidence_links
-    ADD CONSTRAINT experience_evidence_links_experience_id_fkey FOREIGN KEY (experience_id) REFERENCES armi.accepted_experiences(experience_id);
 
 --
 -- Name: external_channel_bindings external_channel_bindings_party_kind_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2192,18 +2153,12 @@ ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observation_evidence_fkey FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
 
 --
--- Name: live_vision_observation_frames live_vision_observation_frames_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_vision_observation_frames
-    ADD CONSTRAINT live_vision_observation_frames_artifact_id_fkey FOREIGN KEY (artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
--- Name: live_vision_observation_frames live_vision_observation_frames_observation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_vision_observation_frames
-    ADD CONSTRAINT live_vision_observation_frames_observation_id_fkey FOREIGN KEY (observation_id) REFERENCES armi.live_vision_observations(observation_id);
 
 --
 -- Name: live_vision_observations live_vision_observations_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2237,25 +2192,16 @@ ALTER TABLE ONLY armi.live_vision_observations
 
 
 --
--- Name: live_voice_sessions live_voice_sessions_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_voice_sessions
-    ADD CONSTRAINT live_voice_sessions_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
 
 --
--- Name: live_voice_sessions live_voice_sessions_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_voice_sessions
-    ADD CONSTRAINT live_voice_sessions_scene_id_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
 
 --
--- Name: live_voice_sessions live_voice_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_voice_sessions
-    ADD CONSTRAINT live_voice_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: live_voice_turns live_voice_turns_interaction_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2271,8 +2217,6 @@ ALTER TABLE ONLY armi.live_voice_turns
 -- Name: live_voice_turns live_voice_turns_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_voice_turns
-    ADD CONSTRAINT live_voice_turns_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_voice_sessions(session_id);
 
 
 
@@ -2944,3 +2888,10 @@ ALTER TABLE ONLY armi.cognitive_episodes
     REFERENCES armi.runtime_instances(runtime_instance_id);
 CREATE INDEX creator_exports_snapshot_party_scopes_idx
     ON armi.creator_exports USING gin (snapshot_party_scopes);
+
+CREATE INDEX cognitive_episodes_context_items_idx ON armi.cognitive_episodes USING gin(context_items);
+CREATE INDEX accepted_experiences_evidence_links_idx ON armi.accepted_experiences USING gin(evidence_links);
+
+ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_creator_party_fk FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
+ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.live_voice_turns ADD CONSTRAINT live_voice_turns_scene_fk FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);

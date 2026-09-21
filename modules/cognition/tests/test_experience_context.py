@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
+import pytest
 from armi_cognition._context_postgresql import PostgreSQLCognitionContextLifecycle
 from armi_cognition._subject_commit import PostgreSQLCognitionSubjectCommit
 from armi_cognition.api import CognitionContextEpisodeDraft
@@ -12,8 +14,8 @@ from armi_experience.api import (
     AcceptedExperienceSnapshot,
     ExperienceSourcePerspective,
 )
-from armi_kernel.application import CandidateFactClass, ExperienceId
-from armi_kernel.contracts import TraceId
+from armi_kernel.application import CandidateFactClass, CandidateViolation, ExperienceId
+from armi_kernel.contracts import Digest, TraceId
 
 
 class _Result:
@@ -259,3 +261,87 @@ def test_hidden_tail_still_creates_an_empty_batch_with_frozen_coverage() -> None
     params = cast(tuple[object, ...], batch_call[1])
     assert params[1:4] == (0, 5, [])
     assert params[4] == draft.episode_id
+
+
+def _frozen_item() -> dict[str, object]:
+    return {
+        "context_item_id": str(uuid7()),
+        "ordinal": 1,
+        "section": "evidence",
+        "item_kind": "creator_input",
+        "source_kind": "external_evidence",
+        "source_ref": str(uuid7()),
+        "source_version": 1,
+        "trust_class": "external_claim",
+        "privacy_scope": "private",
+        "disposition": "included",
+        "reason_code": None,
+        "content_bytes": 12,
+    }
+
+
+@pytest.mark.parametrize("duplicate_field", ["context_item_id", "ordinal"])
+def test_freezing_context_rejects_ambiguous_reference_identity(
+    duplicate_field: str,
+) -> None:
+    first, second = _frozen_item(), _frozen_item()
+    second["ordinal"] = 2
+    second[duplicate_field] = first[duplicate_field]
+    transaction = _Transaction()
+    owner = PostgreSQLCognitionContextLifecycle(
+        cast(Any, _Experiences(())), cast(Any, _Maintenance())
+    )
+    with pytest.raises(CandidateViolation, match="CANDIDATE-CONTEXT-ITEMS"):
+        asyncio.run(
+            owner.mark_context_prepared(
+                cast(Any, transaction),
+                episode_id=uuid7(),
+                manifest_artifact_id=uuid7(),
+                compiled_artifact_id=uuid7(),
+                manifest_digest=Digest("sha256:" + "1" * 64),
+                compiled_digest=Digest("sha256:" + "2" * 64),
+                context_items=(first, second),
+            )
+        )
+    assert transaction.calls == []
+
+
+def test_preparation_freezes_references_with_artifact_identity_in_one_write() -> None:
+    episode_id, opportunity_id, subject_id = uuid7(), uuid7(), uuid7()
+    transaction = _Transaction(
+        _Result(
+            (
+                (
+                    episode_id,
+                    opportunity_id,
+                    subject_id,
+                    None,
+                    None,
+                    "consider_creator_input",
+                    0,
+                    0,
+                    uuid7(),
+                    "context-test",
+                    "1" * 32,
+                ),
+            )
+        )
+    )
+    owner = PostgreSQLCognitionContextLifecycle(
+        cast(Any, _Experiences(())), cast(Any, _Maintenance())
+    )
+    item = _frozen_item()
+    snapshot = asyncio.run(
+        owner.mark_context_prepared(
+            cast(Any, transaction),
+            episode_id=episode_id,
+            manifest_artifact_id=uuid7(),
+            compiled_artifact_id=uuid7(),
+            manifest_digest=Digest("sha256:" + "1" * 64),
+            compiled_digest=Digest("sha256:" + "2" * 64),
+            context_items=(item,),
+        )
+    )
+    assert snapshot.episode_id == episode_id
+    assert len(transaction.calls) == 1
+    assert json.loads(str(cast(tuple[object, ...], transaction.calls[0][1])[-2])) == [item]
