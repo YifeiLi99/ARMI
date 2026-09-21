@@ -59,7 +59,6 @@ CREATE TABLE armi.cognitive_attempts (
     input_tokens integer,
     output_tokens integer,
     cached_input_tokens integer,
-    estimated_cost_microyuan bigint,
     result_status text,
     error_code text,
     prepared_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
@@ -69,11 +68,10 @@ CREATE TABLE armi.cognitive_attempts (
     CONSTRAINT cognitive_attempts_attempt_no_check CHECK ((attempt_no >= 1)),
     CONSTRAINT cognitive_attempts_cached_input_tokens_check CHECK (((cached_input_tokens IS NULL) OR (cached_input_tokens >= 0))),
     CONSTRAINT cognitive_attempts_candidate_schema_version_check CHECK ((candidate_schema_version = ANY (ARRAY['armi.cognition-candidate.v12'::text, 'armi.creator-dialogue-candidate.v25'::text, 'armi.creator-dialogue-candidate.v26'::text, 'armi.creator-cognitive-act-candidate.v3'::text, 'armi.creator-voice-act-candidate.v3'::text, 'armi.autonomous-activity-candidate.v4'::text, 'armi.activity-attention-candidate.v4'::text, 'armi.activity-internal-work-candidate.v3'::text, 'armi.sleep-decision-candidate.v1'::text, 'armi.maintenance-work-candidate.v1'::text, 'armi.owner-reflection-candidate.v1'::text, 'armi.other-human-dialogue-candidate.v6'::text, 'armi.visual-observation-candidate.v1'::text, 'armi.creator-cognitive-act-candidate.v4'::text, 'armi.creator-cognitive-act-candidate.v5'::text, 'armi.creator-cognitive-act-candidate.v6'::text, 'armi.creator-cognitive-act-candidate.v8'::text, 'armi.creator-voice-act-candidate.v4'::text, 'armi.creator-voice-act-candidate.v5'::text, 'armi.creator-voice-act-candidate.v6'::text, 'armi.creator-voice-act-candidate.v8'::text, 'armi.cognition-candidate.v13'::text, 'armi.cognition-candidate.v14'::text, 'armi.cognition-candidate.v15'::text, 'armi.cognition-candidate.v16'::text, 'armi.cognition-candidate.v18'::text, 'armi.activity-attention-candidate.v5'::text, 'armi.activity-internal-work-candidate.v4'::text, 'armi.activity-internal-work-candidate.v5'::text, 'armi.autonomous-activity-candidate.v5'::text, 'armi.autonomous-activity-candidate.v6'::text, 'armi.autonomous-activity-candidate.v7'::text, 'armi.autonomous-activity-candidate.v8'::text, 'armi.autonomous-activity-candidate.v9'::text, 'armi.autonomous-activity-candidate.v10'::text, 'armi.autonomous-activity-candidate.v12'::text, 'armi.autonomy-check-candidate.v1'::text, 'armi.other-human-dialogue-candidate.v7'::text, 'armi.other-human-dialogue-candidate.v8'::text, 'armi.other-human-dialogue-candidate.v9'::text, 'armi.visual-observation-candidate.v2'::text, 'armi.visual-observation-candidate.v3'::text, 'armi.visual-observation-candidate.v4'::text, 'armi.owner-reflection-candidate.v2'::text, 'armi.owner-reflection-candidate.v3'::text, 'armi.owner-reflection-candidate.v4'::text, 'armi.maintenance-work-candidate.v2'::text, 'armi.maintenance-work-candidate.v3'::text]))),
-    CONSTRAINT cognitive_attempts_check CHECK ((((dispatch_status = 'prepared'::text) AND (dispatched_at IS NULL) AND (settled_at IS NULL) AND (result_status IS NULL) AND (provider_request_id IS NULL) AND (provider_model_id IS NULL) AND (response_artifact_id IS NULL) AND (input_tokens IS NULL) AND (output_tokens IS NULL) AND (cached_input_tokens IS NULL) AND (estimated_cost_microyuan IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'dispatched'::text) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL) AND (result_status IS NULL) AND (response_artifact_id IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'settled'::text) AND (settled_at IS NOT NULL) AND (result_status IS NOT NULL) AND (((result_status = 'succeeded'::text) AND (dispatched_at IS NOT NULL) AND (provider_request_id IS NOT NULL) AND (provider_model_id IS NOT NULL) AND (response_artifact_id IS NOT NULL) AND (input_tokens IS NOT NULL) AND (output_tokens IS NOT NULL) AND (cached_input_tokens IS NOT NULL) AND (error_code IS NULL)) OR ((result_status <> 'succeeded'::text) AND (response_artifact_id IS NULL) AND (error_code IS NOT NULL) AND ((dispatched_at IS NOT NULL) OR ((result_status = 'cancelled'::text) AND (provider_request_id IS NULL) AND (provider_model_id IS NULL) AND (input_tokens IS NULL) AND (output_tokens IS NULL) AND (cached_input_tokens IS NULL) AND (estimated_cost_microyuan IS NULL)))))))),
+    CONSTRAINT cognitive_attempts_check CHECK ((((dispatch_status = 'prepared'::text) AND (dispatched_at IS NULL) AND (settled_at IS NULL) AND (result_status IS NULL) AND (provider_request_id IS NULL) AND (provider_model_id IS NULL) AND (response_artifact_id IS NULL) AND (input_tokens IS NULL) AND (output_tokens IS NULL) AND (cached_input_tokens IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'dispatched'::text) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL) AND (result_status IS NULL) AND (response_artifact_id IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'settled'::text) AND (settled_at IS NOT NULL) AND (result_status IS NOT NULL) AND (((result_status = 'succeeded'::text) AND (dispatched_at IS NOT NULL) AND (provider_request_id IS NOT NULL) AND (provider_model_id IS NOT NULL) AND (response_artifact_id IS NOT NULL) AND (input_tokens IS NOT NULL) AND (output_tokens IS NOT NULL) AND (cached_input_tokens IS NOT NULL) AND (error_code IS NULL)) OR ((result_status <> 'succeeded'::text) AND (response_artifact_id IS NULL) AND (error_code IS NOT NULL) AND ((dispatched_at IS NOT NULL) OR ((result_status = 'cancelled'::text) AND (provider_request_id IS NULL) AND (provider_model_id IS NULL) AND (input_tokens IS NULL) AND (output_tokens IS NULL) AND (cached_input_tokens IS NULL)))))))),
     CONSTRAINT cognitive_attempts_credential_identity_check CHECK (credential_identity IN ('armi.model.ark-api-key.v1', 'armi.model.qwen-api-key.v1', 'armi.model.deepseek-api-key.v1')),
     CONSTRAINT cognitive_attempts_dispatch_status_check CHECK ((dispatch_status = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'settled'::text]))),
     CONSTRAINT cognitive_attempts_error_code_check CHECK (((error_code IS NULL) OR (error_code ~ '^MODEL-[A-Z0-9-]+$'::text))),
-    CONSTRAINT cognitive_attempts_estimated_cost_microyuan_check CHECK (((estimated_cost_microyuan IS NULL) OR (estimated_cost_microyuan >= 0))),
     CONSTRAINT cognitive_attempts_input_tokens_check CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
     CONSTRAINT cognitive_attempts_model_attempt_id_check CHECK ((uuid_extract_version(model_attempt_id) = 7)),
     CONSTRAINT cognitive_attempts_model_id_check CHECK (model_id ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
@@ -144,7 +142,6 @@ CREATE TABLE armi.cognitive_episodes (
     ),
     context_manifest_artifact_id uuid,
     compiled_context_artifact_id uuid,
-    context_manifest_digest text,
     compiled_context_digest text,
     failure_code text,
     trace_id text NOT NULL,
@@ -279,14 +276,12 @@ CREATE TABLE armi.cognitive_episodes (
     CONSTRAINT cognitive_episodes_base_state_epoch_check CHECK ((base_state_epoch >= 0)),
     CONSTRAINT cognitive_episodes_base_subject_version_check CHECK ((base_subject_version >= 0)),
     CONSTRAINT cognitive_episodes_cognitive_episode_id_check CHECK ((uuid_extract_version(cognitive_episode_id) = 7)),
-    CONSTRAINT cognitive_episodes_context_manifest_digest_check CHECK (((context_manifest_digest IS NULL) OR (context_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT cognitive_episodes_compiled_context_digest_check CHECK (((compiled_context_digest IS NULL) OR (compiled_context_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT cognitive_episodes_failure_code_check CHECK (((failure_code IS NULL) OR (failure_code ~ '^[A-Z][A-Z0-9-]{2,127}$'::text))),
     CONSTRAINT cognitive_episodes_final_disposition_check CHECK (((final_disposition IS NULL) OR (final_disposition = ANY (ARRAY['change'::text, 'no_change'::text, 'defer'::text, 'decline'::text, 'no_action'::text, 'need_information'::text])))),
     CONSTRAINT cognitive_episodes_mechanism_identity_check CHECK ((mechanism_identity = 'armi.context-compiler.layered-v3'::text)),
     CONSTRAINT cognitive_episodes_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_input'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text, 'consider_requested_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
     CONSTRAINT cognitive_episodes_scene_shape_check CHECK (((purpose IN ('consider_autonomy_check','consider_autonomous_life') AND ((scene_id IS NULL) = (context_party_id IS NULL))) OR ((purpose = ANY (ARRAY['consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (scene_id IS NULL) AND (context_party_id IS NULL)) OR ((purpose <> ALL (ARRAY['consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL)))),
-    CONSTRAINT cognitive_episodes_context_digest_pair_check CHECK ((context_manifest_digest IS NULL) = (compiled_context_digest IS NULL)),
     CONSTRAINT cognitive_episodes_state_check CHECK (
         (status='preparing' AND compiled_context_digest IS NULL AND prepared_at IS NULL AND model_returned_at IS NULL AND validated_at IS NULL AND application_resolution IS NULL AND committed_at IS NULL)
         OR (status IN ('prepared','calling_model') AND compiled_context_digest IS NOT NULL AND prepared_at IS NOT NULL AND model_returned_at IS NULL AND validated_at IS NULL AND application_resolution IS NULL AND committed_at IS NULL)
@@ -348,7 +343,6 @@ CREATE TABLE armi.context_embedding_projections (
 );
 
 CREATE TABLE armi.context_embedding_source_sets (
-    context_embedding_source_set_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     source_kind text NOT NULL,
     source_ref uuid NOT NULL,
@@ -358,8 +352,6 @@ CREATE TABLE armi.context_embedding_source_sets (
     expected_chunk_count integer NOT NULL,
     state text NOT NULL,
     completed_at timestamp(6) with time zone,
-    CONSTRAINT context_embedding_source_sets_pkey PRIMARY KEY (context_embedding_source_set_id),
-    CONSTRAINT context_embedding_source_sets_id_check CHECK (uuid_extract_version(context_embedding_source_set_id) = 7),
     CONSTRAINT context_embedding_source_sets_source_check CHECK (source_kind = ANY (ARRAY['subjective_memory'::text, 'life_material'::text])),
     CONSTRAINT context_embedding_source_sets_source_ref_check CHECK (uuid_extract_version(source_ref) = 7),
     CONSTRAINT context_embedding_source_sets_version_check CHECK (source_version > 0),
@@ -367,7 +359,7 @@ CREATE TABLE armi.context_embedding_source_sets (
     CONSTRAINT context_embedding_source_sets_count_check CHECK (expected_chunk_count > 0),
     CONSTRAINT context_embedding_source_sets_state_check CHECK (state = ANY (ARRAY['building'::text, 'complete'::text, 'stale'::text, 'failed'::text])),
     CONSTRAINT context_embedding_source_sets_completion_check CHECK ((state = 'complete') = (completed_at IS NOT NULL)),
-    CONSTRAINT context_embedding_source_sets_identity_key UNIQUE (source_kind, source_ref, source_version, model_binding)
+    CONSTRAINT context_embedding_source_sets_pkey PRIMARY KEY (source_kind, source_ref, source_version, model_binding)
 );
 
 CREATE INDEX context_embedding_source_sets_current_idx

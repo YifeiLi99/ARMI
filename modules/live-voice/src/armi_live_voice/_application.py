@@ -211,22 +211,21 @@ class PostgreSQLLiveVoiceJournal:
                     "VOICE-DATA-RIGHTS-CANCELLED", "voice session is redacted"
                 )
 
-    async def record_transcript(
+    async def record_input(
         self,
         *,
         turn_id: UUID,
-        transcript: str | None,
         interaction_id: UUID | None,
         opportunity_id: UUID | None,
     ) -> None:
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns
-                   SET final_transcript=%s,interaction_id=%s,root_opportunity_id=%s,
+                   SET interaction_id=%s,root_opportunity_id=%s,
                        speech_ended_at=statement_timestamp(),result_status='thinking'
                    WHERE turn_id=%s AND completed_at IS NULL
                      AND data_rights_redacted_at IS NULL""",
-                (transcript, interaction_id, opportunity_id, turn_id),
+                (interaction_id, opportunity_id, turn_id),
             )
             if result.rowcount != 1:
                 raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")

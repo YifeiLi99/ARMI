@@ -376,23 +376,21 @@ class PostgreSQLContextEmbeddingRepository:
         source: EmbeddingProjectionSource,
         source_digest: Digest,
         expected_chunk_count: int,
-    ) -> UUID:
-        source_set_id = uuid7()
+    ) -> None:
         transaction = unit_of_work.transaction
         await transaction.execute(
             """
             INSERT INTO armi.context_embedding_source_sets (
-              context_embedding_source_set_id, subject_id,
+              subject_id,
               source_kind, source_ref, source_version, source_digest,
               model_binding, expected_chunk_count, state)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'building')
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'building')
             ON CONFLICT (source_kind, source_ref, source_version, model_binding)
             DO UPDATE SET source_digest=EXCLUDED.source_digest,
                           expected_chunk_count=EXCLUDED.expected_chunk_count,
                           state='building',completed_at=NULL
             """,
             (
-                source_set_id,
                 source.subject_id,
                 source.source_kind,
                 source.source_ref,
@@ -402,22 +400,6 @@ class PostgreSQLContextEmbeddingRepository:
                 expected_chunk_count,
             ),
         )
-        row = await (
-            await transaction.execute(
-                """SELECT context_embedding_source_set_id
-                   FROM armi.context_embedding_source_sets
-                   WHERE source_kind=%s AND source_ref=%s AND source_version=%s
-                     AND model_binding=%s""",
-                (
-                    source.source_kind,
-                    source.source_ref,
-                    source.source_version,
-                    EMBEDDING_BINDING_ID,
-                ),
-            )
-        ).fetchone()
-        assert row is not None
-        return cast(UUID, row[0])
 
     async def complete_source_set(
         self,
@@ -469,7 +451,7 @@ class PostgreSQLContextEmbeddingRepository:
                    WHERE source_kind=%s AND source_ref=%s AND source_version=%s
                      AND model_binding=%s AND source_digest=%s
                      AND expected_chunk_count=%s AND state='building'
-                   RETURNING context_embedding_source_set_id""",
+                   RETURNING source_ref""",
                 (
                     source.source_kind,
                     source.source_ref,

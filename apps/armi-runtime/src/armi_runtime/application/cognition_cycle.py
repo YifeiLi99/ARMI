@@ -114,7 +114,6 @@ class RuntimeContextEpisodeAdapter:
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        manifest_digest: Digest,
         compiled_digest: Digest,
         context_items: tuple[dict[str, object], ...],
     ) -> ContextEpisodeState:
@@ -124,7 +123,6 @@ class RuntimeContextEpisodeAdapter:
                 episode_id=episode_id,
                 manifest_artifact_id=manifest_artifact_id,
                 compiled_artifact_id=compiled_artifact_id,
-                manifest_digest=manifest_digest,
                 compiled_digest=compiled_digest,
                 context_items=context_items,
             )

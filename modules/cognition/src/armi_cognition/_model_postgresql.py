@@ -591,7 +591,6 @@ class PostgreSQLCognitiveModelRepository:
                     input_tokens = %s,
                     output_tokens = %s,
                     cached_input_tokens = %s,
-                    estimated_cost_microyuan = %s,
                     result_status = CASE WHEN dispatch_status='prepared'
                                          THEN 'cancelled' ELSE %s END,
                     error_code = %s,
@@ -609,7 +608,6 @@ class PostgreSQLCognitiveModelRepository:
                     usage.input_tokens if usage else None,
                     usage.output_tokens if usage else None,
                     usage.cached_input_tokens if usage else None,
-                    None,
                     result.status.value,
                     result.error_code,
                     attempt_id.value,

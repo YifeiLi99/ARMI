@@ -491,7 +491,6 @@ class PostgreSQLContextRepository:
             episode_id=episode_id,
             manifest_artifact_id=manifest_artifact.artifact_id.value,
             compiled_artifact_id=compiled_artifact.artifact_id.value,
-            manifest_digest=manifest_artifact.content_digest,
             compiled_digest=compiled_artifact.content_digest,
             context_items=context_items,
         )

@@ -933,9 +933,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             session_id=None,
                             receipt=receipt,
                         )
-                    await journal.record_transcript(
+                    await journal.record_input(
                         turn_id=turn_id,
-                        transcript="你好",
                         interaction_id=None,
                         opportunity_id=None,
                     )
@@ -6436,8 +6435,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.effects (
                     effect_id, subject_id, scene_id, context_party_id,
                     payload_artifact_id, payload_digest, payload_bytes,
-                    effect_kind, capability_kind, operation_class, audience_scope,
-                    data_scope, purpose, authorization_basis, destination_kind,
+                    effect_kind, destination_kind,
                     destination_party_id, registration_digest, status,
                     verification_status, trace_id, current_attempt_id,
                     current_observation_id, settled_at, action_intent_id,
@@ -6447,9 +6445,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     claim_token, attempt_count, last_error_code)
                 SELECT uuidv7(), %s, uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
-                       'creator_response', 'creator.scene.reply', 'send',
-                       'creator', 'creator_visible_response', 'respond_to_creator',
-                       'runtime_builtin', 'creator_inbox', uuidv7(),
+                       'creator_response', 'creator_inbox', uuidv7(),
                        'sha256:' || repeat('f', 64),
                        CASE state WHEN 'ready' THEN 'registered'
                          WHEN 'claimed' THEN 'dispatching' ELSE 'unknown' END,
@@ -7288,6 +7284,82 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute("SELECT * FROM armi.scene_timeline_items")
             connection.rollback()
 
+    @pytest.mark.test_group("effect-classification", "effect")
+    def test_effect_destinations_remain_constrained_without_classification_columns(
+        self,
+    ) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        cases = (
+            ("creator_response", "creator_inbox"),
+            ("creator_response", "external_private"),
+            ("creator_response", "live_voice_audio"),
+            ("local_inbox_delivery", "other_human_inbox"),
+            ("external_group_delivery", "external_group"),
+            ("external_private_delivery", "external_private"),
+            ("codex_delegation", "codex_workspace"),
+        )
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            # Isolate destination CHECKs from the unrelated subject/commit graph.
+            connection.execute("SET session_replication_role = replica")
+            for kind, destination in cases:
+                effect_id, intent_id, party_id, artifact_id = (
+                    uuid7(),
+                    uuid7(),
+                    uuid7(),
+                    uuid7(),
+                )
+                binding = uuid7() if destination.startswith("external_") else None
+                connection.execute(
+                    """INSERT INTO armi.effects (
+                       effect_id,action_intent_id,subject_id,scene_id,context_party_id,
+                       payload_artifact_id,payload_digest,payload_bytes,effect_kind,
+                       destination_kind,destination_party_id,destination_binding_id,
+                       live_voice_turn_id,codex_task_source_id,registration_digest,
+                       status,verification_status,trace_id,root_opportunity_id,
+                       operation_ref,candidate_validation_id,proposal_ref,subject_commit_id)
+                       VALUES (%s,%s,uuidv7(),uuidv7(),%s,%s,%s,5,%s,%s,%s,%s,%s,%s,%s,
+                         'registered','not_started',%s,uuidv7(),uuidv7(),uuidv7(),'proposal:1',uuidv7())""",
+                    (
+                        effect_id,
+                        intent_id,
+                        party_id,
+                        artifact_id,
+                        Digest.from_bytes(b"hello").value,
+                        kind,
+                        destination,
+                        party_id,
+                        binding,
+                        uuid7() if destination == "live_voice_audio" else None,
+                        uuid7() if kind == "codex_delegation" else None,
+                        Digest.from_bytes(b"registration").value,
+                        uuid7().hex,
+                    ),
+                )
+                with self.assertRaises(psycopg.errors.CheckViolation) as rejected:
+                    connection.execute(
+                        "UPDATE armi.effects SET destination_binding_id=%s WHERE effect_id=%s",
+                        (uuid7() if binding is None else None, effect_id),
+                    )
+                assert rejected.exception.diag.constraint_name == "effects_family_check"
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    connection.execute(
+                        "UPDATE armi.effects SET destination_party_id=NULL WHERE effect_id=%s",
+                        (effect_id,),
+                    )
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    connection.execute(
+                        "UPDATE armi.effects SET destination_kind=%s WHERE effect_id=%s",
+                        (
+                            "other_human_inbox"
+                            if kind == "creator_response"
+                            else "creator_inbox",
+                            effect_id,
+                        ),
+                    )
+
     @pytest.mark.test_group("cognition", "subject-commit", "data-rights")
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         self._exercise_creator_reply()
@@ -8090,11 +8162,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 0
         )
-        estimated_cost = (
-            int(cast(int, live_evidence["estimated_cost_microyuan"]))
-            if live_evidence is not None
-            else 1
-        )
         candidate_contract_version = "armi.cognition-candidate.v18"
 
         def locator(digest: Digest) -> str:
@@ -8241,12 +8308,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_party_id, purpose, status, base_subject_version,
                     base_state_epoch, bundle_activation_id, mechanism_identity,
                     context_manifest_artifact_id, compiled_context_artifact_id,
-                    context_manifest_digest, compiled_context_digest,
+                    compiled_context_digest,
                     trace_id, prepared_at, model_returned_at,
                     final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'finalizing', 0, 0, %s,
                           'armi.context-compiler.layered-v3',
-                          %s, %s, %s, %s, %s, statement_timestamp(),
+                          %s, %s, %s, %s, statement_timestamp(),
                           statement_timestamp(), 'change', statement_timestamp())
                 """,
                 (
@@ -8258,7 +8325,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     born.bundle_activation_id,
                     artifact_ids["context_manifest"],
                     artifact_ids["compiled_context"],
-                    digests["context_manifest"].value,
                     digests["compiled_context"].value,
                     trace,
                 ),
@@ -8370,7 +8436,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 """
-                INSERT INTO armi.cognitive_attempts (model_attempt_id, cognitive_episode_id, work_id, work_attempt_id, attempt_no, provider, model_id, version_policy, profile, request_schema_version, candidate_schema_version, credential_identity, request_artifact_id, dispatch_status, provider_request_id, provider_model_id, response_artifact_id, input_tokens, output_tokens, cached_input_tokens, estimated_cost_microyuan, result_status, dispatched_at, settled_at)
+                INSERT INTO armi.cognitive_attempts (model_attempt_id, cognitive_episode_id, work_id, work_attempt_id, attempt_no, provider, model_id, version_policy, profile, request_schema_version, candidate_schema_version, credential_identity, request_artifact_id, dispatch_status, provider_request_id, provider_model_id, response_artifact_id, input_tokens, output_tokens, cached_input_tokens, result_status, dispatched_at, settled_at)
                     VALUES (%s,
                     %s,
                     %s,
@@ -8385,7 +8451,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     'armi.model.ark-api-key.v1',
                     %s,
                     'settled',
-                    %s,
                     %s,
                     %s,
                     %s,
@@ -8409,7 +8474,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     input_tokens,
                     output_tokens,
                     cached_input_tokens,
-                    estimated_cost,
                 ),
             )
             connection.execute(
@@ -9083,7 +9147,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """UPDATE armi.cognitive_attempts SET dispatch_status='prepared',
                            result_status=NULL,response_artifact_id=NULL,settled_at=NULL,dispatched_at=NULL,
                            provider_request_id=NULL,provider_model_id=NULL,input_tokens=NULL,
-                           output_tokens=NULL,cached_input_tokens=NULL,estimated_cost_microyuan=NULL
+                           output_tokens=NULL,cached_input_tokens=NULL
                            WHERE cognitive_episode_id=%s""",
                         (ids["episode"],),
                     )
@@ -9100,7 +9164,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute(
                         """UPDATE armi.cognitive_episodes SET status='preparing',prepared_at=NULL,
                            context_manifest_artifact_id=NULL,compiled_context_artifact_id=NULL,
-                           context_manifest_digest=NULL,compiled_context_digest=NULL
+                           compiled_context_digest=NULL
                            WHERE cognitive_episode_id=%s""",
                         (ids["episode"],),
                     )
@@ -10262,9 +10326,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                     INSERT INTO armi.effects (
                         action_intent_id,subject_id,scene_id,context_party_id,
-                        root_opportunity_id,purpose,effect_kind,operation_ref)
+                        root_opportunity_id,effect_kind,operation_ref)
                     SELECT uuidv7(),subject_id,scene_id,context_party_id,
-                           root_opportunity_id,purpose,effect_kind,uuidv7()
+                           root_opportunity_id,effect_kind,uuidv7()
                     FROM armi.effects LIMIT 1
                     """
                 )
@@ -10445,7 +10509,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     context_party_id, purpose, status, base_subject_version,
                                     base_state_epoch, bundle_activation_id, mechanism_identity,
                                     context_manifest_artifact_id, compiled_context_artifact_id,
-                                    context_manifest_digest, compiled_context_digest,
+                                    compiled_context_digest,
                                     trace_id, prepared_at)
                                 SELECT %s, result.opportunity_id, original.subject_id,
                                     original.scene_id, original.context_party_id,
@@ -10454,7 +10518,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     original.mechanism_identity,
                                     original.context_manifest_artifact_id,
                                     original.compiled_context_artifact_id,
-                                    original.context_manifest_digest, original.compiled_context_digest,
+                                    original.compiled_context_digest,
                                     original.trace_id, statement_timestamp()
                                 FROM armi.cognitive_episodes AS original
                                 CROSS JOIN armi.codex_task_sources AS result

@@ -135,7 +135,7 @@ class FakeJournal:
     async def begin_turn(self, *, turn_id: UUID, **_: object) -> None:
         self.turn_id = turn_id
 
-    async def record_transcript(self, **_: object) -> None:
+    async def record_input(self, **_: object) -> None:
         pass
 
     async def settle_turn(self, **_: object) -> None:

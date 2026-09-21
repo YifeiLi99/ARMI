@@ -68,7 +68,7 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
         if request.order_kind == "delete_related" and sessions:
             await transaction.execute(
                 """UPDATE armi.live_voice_turns
-                   SET final_transcript=NULL,registered_response_text=NULL,
+                   SET registered_response_text=NULL,
                        data_rights_redacted_at=statement_timestamp()
                    WHERE session_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",

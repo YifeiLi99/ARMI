@@ -331,7 +331,6 @@ class CognitionContextLifecyclePort(Protocol):
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        manifest_digest: Digest,
         compiled_digest: Digest,
         context_items: tuple[dict[str, object], ...],
     ) -> CognitionContextEpisodeSnapshot: ...

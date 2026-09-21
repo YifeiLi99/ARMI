@@ -298,7 +298,6 @@ def test_freezing_context_rejects_ambiguous_reference_identity(
                 episode_id=uuid7(),
                 manifest_artifact_id=uuid7(),
                 compiled_artifact_id=uuid7(),
-                manifest_digest=Digest("sha256:" + "1" * 64),
                 compiled_digest=Digest("sha256:" + "2" * 64),
                 context_items=(first, second),
             )
@@ -337,11 +336,12 @@ def test_preparation_freezes_references_with_artifact_identity_in_one_write() ->
             episode_id=episode_id,
             manifest_artifact_id=uuid7(),
             compiled_artifact_id=uuid7(),
-            manifest_digest=Digest("sha256:" + "1" * 64),
             compiled_digest=Digest("sha256:" + "2" * 64),
             context_items=(item,),
         )
     )
     assert snapshot.episode_id == episode_id
     assert len(transaction.calls) == 1
-    assert json.loads(str(cast(tuple[object, ...], transaction.calls[0][1])[-2])) == [item]
+    assert json.loads(str(cast(tuple[object, ...], transaction.calls[0][1])[-2])) == [
+        item
+    ]

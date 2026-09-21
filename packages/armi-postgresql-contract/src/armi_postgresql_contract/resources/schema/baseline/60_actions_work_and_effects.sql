@@ -189,12 +189,6 @@ CREATE TABLE armi.effects (
     payload_digest text NOT NULL,
     payload_bytes integer NOT NULL,
     effect_kind text NOT NULL,
-    capability_kind text NOT NULL,
-    operation_class text NOT NULL,
-    audience_scope text,
-    data_scope text,
-    purpose text NOT NULL,
-    authorization_basis text NOT NULL,
     destination_kind text NOT NULL,
     destination_party_id uuid,
     registration_digest text NOT NULL,
@@ -229,10 +223,20 @@ CREATE TABLE armi.effects (
     ),
     CONSTRAINT effects_local_delivery_id_check CHECK (uuid_extract_version(local_delivery_id) = 7),
     CONSTRAINT effects_local_receipt_digest_check CHECK (local_receipt_digest ~ '^sha256:[0-9a-f]{64}$'),
-    CONSTRAINT effects_authorization_check CHECK ((authorization_basis = ANY (ARRAY['runtime_builtin'::text, 'runtime_configuration'::text]))),
     CONSTRAINT effects_destination_check CHECK ((destination_kind = ANY (ARRAY['creator_inbox'::text, 'other_human_inbox'::text, 'codex_workspace'::text, 'external_group'::text, 'external_private'::text, 'live_voice_audio'::text]))),
     CONSTRAINT effects_live_voice_shape_check CHECK (((destination_kind = 'live_voice_audio'::text) = (live_voice_turn_id IS NOT NULL))),
-    CONSTRAINT effects_family_check CHECK ((((effect_kind = 'creator_response'::text) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (authorization_basis = CASE WHEN destination_kind = 'creator_inbox' THEN 'runtime_builtin' ELSE 'runtime_configuration' END) AND (destination_kind = ANY (ARRAY['creator_inbox'::text, 'external_private'::text, 'live_voice_audio'::text])) AND (destination_party_id IS NOT NULL) AND (((destination_kind = ANY (ARRAY['creator_inbox'::text, 'live_voice_audio'::text])) AND (destination_binding_id IS NULL)) OR ((destination_kind = 'external_private'::text) AND (destination_binding_id IS NOT NULL)))) OR ((effect_kind = 'local_inbox_delivery'::text) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_builtin'::text) AND (destination_kind = 'other_human_inbox'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NULL)) OR ((effect_kind = 'external_group_delivery'::text) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'external_group'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NOT NULL)) OR ((effect_kind = 'external_private_delivery'::text) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'external_private'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NOT NULL)) OR ((effect_kind = 'codex_delegation'::text) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'codex_workspace'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NULL)))),
+    -- Classification is derived from effect_kind; only the destination is stored.
+    CONSTRAINT effects_family_check CHECK (
+        destination_party_id IS NOT NULL AND (
+            (effect_kind = 'creator_response' AND (
+                (destination_kind IN ('creator_inbox', 'live_voice_audio') AND destination_binding_id IS NULL)
+                OR (destination_kind = 'external_private' AND destination_binding_id IS NOT NULL)))
+            OR (effect_kind = 'local_inbox_delivery' AND destination_kind = 'other_human_inbox' AND destination_binding_id IS NULL)
+            OR (effect_kind = 'external_group_delivery' AND destination_kind = 'external_group' AND destination_binding_id IS NOT NULL)
+            OR (effect_kind = 'external_private_delivery' AND destination_kind = 'external_private' AND destination_binding_id IS NOT NULL)
+            OR (effect_kind = 'codex_delegation' AND destination_kind = 'codex_workspace' AND destination_binding_id IS NULL)
+        )
+    ),
     CONSTRAINT effects_id_check CHECK ((uuid_extract_version(effect_id) = 7)),
     CONSTRAINT effects_lifecycle_check CHECK ((((status = 'registered'::text) AND (verification_status = 'not_started'::text) AND (current_attempt_id IS NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = 'dispatching'::text) AND (verification_status = 'pending'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (verification_status = ANY (ARRAY['verified'::text, 'operator_attested'::text])) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'unknown'::text) AND (verification_status = 'inconclusive'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'cancelled'::text) AND (verification_status = 'verified'::text) AND (settled_at IS NOT NULL) AND (cancelled_at = settled_at)))),
     CONSTRAINT effects_payload_bytes_check CHECK (((payload_bytes >= 1) AND (payload_bytes <= 65536))),

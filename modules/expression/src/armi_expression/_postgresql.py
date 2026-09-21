@@ -314,25 +314,12 @@ class PostgreSQLExpressionOwner:
             raise ResponseViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
         action_id = uuid7()
         operation_ref = uuid7()
-        capability_kind = (
-            "external.group.message.send"
-            if group_route
-            else "external.private.message.send"
-            if private_route
-            else "local.other-human-inbox.deliver"
-        )
-        audience_scope = "social_group" if group_route else "other_human"
         effect_kind = (
             "external_group_delivery"
             if group_route
             else "external_private_delivery"
             if private_route
             else "local_inbox_delivery"
-        )
-        authorization_basis = (
-            "runtime_configuration"
-            if group_route or private_route
-            else "runtime_builtin"
         )
         destination_kind = (
             "external_group"
@@ -357,9 +344,6 @@ class PostgreSQLExpressionOwner:
                 payload_digest=response_artifact.content_digest,
                 payload_bytes=len(reply.content_bytes),
                 effect_kind=effect_kind,
-                capability_kind=capability_kind,
-                audience_scope=audience_scope,
-                authorization_basis=authorization_basis,
                 destination_kind=destination_kind,
                 destination_party_id=destination_party_id,
                 destination_binding_id=destination_binding_id,
@@ -414,11 +398,6 @@ class PostgreSQLExpressionOwner:
                 payload_digest=response_artifact.content_digest,
                 payload_bytes=len(reply.content_bytes),
                 effect_kind="creator_response",
-                capability_kind="creator.scene.reply",
-                audience_scope="creator",
-                authorization_basis="runtime_configuration"
-                if route.destination_binding_id is not None or turn_id is not None
-                else "runtime_builtin",
                 destination_kind="live_voice_audio"
                 if turn_id is not None
                 else route.destination_kind,

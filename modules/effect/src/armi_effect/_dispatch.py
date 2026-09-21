@@ -21,6 +21,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
+from ._family import effect_family
 from .api import (
     EffectAdapterReceipt,
     EffectAttemptId,
@@ -248,8 +249,8 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 SELECT effect.effect_id, effect.attempt_count,
-                       effect.effect_id, effect.subject_id, effect.purpose,
-                       effect.trace_id, effect.authorization_basis,
+                       effect.effect_id, effect.subject_id, effect.effect_kind,
+                       effect.trace_id,
                        effect.destination_kind, effect.claim_token
                 FROM armi.effects AS effect
                 WHERE effect.dispatch_status='ready'
@@ -271,12 +272,12 @@ class PostgreSQLEffectDispatchRepository:
         attempt_id = uuid7()
         observation_id = uuid7()
         attempt_no = int(row[1]) + 1
-        claim_token = int(row[8]) + 1
+        claim_token = int(row[7]) + 1
         error_code = None if cancelled else "EFFECT-DISPATCH-DEADLINE"
         result_status = "cancelled" if cancelled else "failed"
         effect_status = "cancelled" if cancelled else "failed"
         dispatch_status = "cancelled" if cancelled else "dead"
-        adapter_binding = _adapter_binding(str(row[7]))
+        adapter_binding = _adapter_binding(str(row[6]))
         digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
@@ -365,7 +366,7 @@ class PostgreSQLEffectDispatchRepository:
             AuditDraft(
                 AuditEventId(uuid7()),
                 AuditReference("runtime", uow.environment_id),
-                Purpose(str(row[4])),
+                Purpose(effect_family(str(row[4])).purpose),
                 f"effect.{effect_status}",
                 AuditReference("effect", row[2]),
                 (AuditResultStatus.APPLIED if cancelled else AuditResultStatus.FAILED),
@@ -562,10 +563,10 @@ class PostgreSQLEffectDispatchRepository:
         if snapshot.claim_owner is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
         connection = uow.transaction
-        authorization = await (
+        destination = await (
             await connection.execute(
                 """
-                SELECT effect.authorization_basis, effect.destination_kind,
+                SELECT effect.destination_kind,
                        effect.scene_id, effect.destination_party_id, effect.destination_binding_id
                 FROM armi.effects AS effect
                 WHERE effect.effect_id = %s AND effect.current_attempt_id = %s
@@ -576,54 +577,50 @@ class PostgreSQLEffectDispatchRepository:
                 ),
             )
         ).fetchone()
-        if authorization is None:
+        if destination is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
-        basis = str(authorization[0])
-        destination_kind = str(authorization[1])
-        if basis in {"runtime_builtin", "runtime_configuration"}:
-            try:
-                route = await self._routes.effect_route(
-                    connection,
-                    scene_id=authorization[2],
-                    context_party_id=authorization[3],
-                    intended_destination_kind="creator_inbox"
-                    if destination_kind == "live_voice_audio"
-                    else destination_kind,
-                )
-                current_route = (
-                    route.external_channel,
-                    route.external_account_key,
-                    route.external_conversation_key,
-                )
-                frozen_route = (
-                    snapshot.request.external_channel,
-                    snapshot.request.external_account_key,
-                    snapshot.request.external_conversation_key,
-                )
-                route_matches = current_route == frozen_route
-            except OtherHumanInputViolation:
-                route_matches = False
-            if not route_matches:
-                await self._settle(
-                    uow,
-                    snapshot,
-                    observation_kind="query",
-                    reliability="reliable",
-                    observation_digest=_observation_digest(
-                        snapshot, "query", "destination_unavailable"
-                    ),
-                    receiver_ref=None,
-                    receiver_external_ref=None,
-                    status="cancelled",
-                    verification="verified",
-                    dispatch_status="cancelled",
-                    operation_status="effect_cancelled",
-                    attempt_result="cancelled",
-                    error_code="EFFECT-DESTINATION-UNAVAILABLE",
-                )
-                return False
-        else:
-            raise EffectViolation("EFFECT-AUTHORIZATION-INVALID")
+        destination_kind = str(destination[0])
+        try:
+            route = await self._routes.effect_route(
+                connection,
+                scene_id=destination[1],
+                context_party_id=destination[2],
+                intended_destination_kind="creator_inbox"
+                if destination_kind == "live_voice_audio"
+                else destination_kind,
+            )
+            current_route = (
+                route.external_channel,
+                route.external_account_key,
+                route.external_conversation_key,
+            )
+            frozen_route = (
+                snapshot.request.external_channel,
+                snapshot.request.external_account_key,
+                snapshot.request.external_conversation_key,
+            )
+            route_matches = current_route == frozen_route
+        except OtherHumanInputViolation:
+            route_matches = False
+        if not route_matches:
+            await self._settle(
+                uow,
+                snapshot,
+                observation_kind="query",
+                reliability="reliable",
+                observation_digest=_observation_digest(
+                    snapshot, "query", "destination_unavailable"
+                ),
+                receiver_ref=None,
+                receiver_external_ref=None,
+                status="cancelled",
+                verification="verified",
+                dispatch_status="cancelled",
+                operation_status="effect_cancelled",
+                attempt_result="cancelled",
+                error_code="EFFECT-DESTINATION-UNAVAILABLE",
+            )
+            return False
         row = await (
             await connection.execute(
                 """

@@ -260,11 +260,10 @@ class VoiceJournalPort(Protocol):
         turn_no: int,
         context_version: str,
     ) -> None: ...
-    async def record_transcript(
+    async def record_input(
         self,
         *,
         turn_id: UUID,
-        transcript: str | None,
         interaction_id: UUID | None,
         opportunity_id: UUID | None,
     ) -> None: ...

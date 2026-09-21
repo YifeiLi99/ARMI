@@ -314,9 +314,8 @@ class LiveVoiceService:
             event="settled", call=asr_attempt, outcome=AttemptOutcome.COMPLETED
         )
         if not transcript.strip():
-            await self._journal.record_transcript(
+            await self._journal.record_input(
                 turn_id=turn_id,
-                transcript=None,
                 interaction_id=None,
                 opportunity_id=None,
             )
@@ -328,9 +327,8 @@ class LiveVoiceService:
             session_id=self._session_id,
             turn_id=turn_id,
         )
-        await self._journal.record_transcript(
+        await self._journal.record_input(
             turn_id=turn_id,
-            transcript=transcript.strip(),
             interaction_id=accepted.interaction_id,
             opportunity_id=accepted.opportunity_id,
         )

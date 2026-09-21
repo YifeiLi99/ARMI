@@ -12,6 +12,8 @@ from armi_expression.api import (
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import PostgreSQLTransaction
 
+from ._family import effect_family
+
 
 class PostgreSQLEffectIntentRead:
     __slots__ = ()
@@ -28,8 +30,7 @@ class PostgreSQLEffectIntentRead:
                 SELECT intent.operation_ref, intent.action_intent_id,
                        intent.root_opportunity_id, intent.subject_id,
                        intent.scene_id, intent.context_party_id,
-                       CASE WHEN intent.effect_kind='codex_delegation' THEN 'codex_delegation' ELSE 'party_response' END, intent.capability_kind,
-                       intent.operation_class, intent.purpose,
+                       CASE WHEN intent.effect_kind='codex_delegation' THEN 'codex_delegation' ELSE 'party_response' END, intent.effect_kind,
                        CASE WHEN intent.effect_kind <> 'codex_delegation' THEN intent.payload_artifact_id END, CASE WHEN intent.effect_kind <> 'codex_delegation' THEN intent.payload_digest END,
                        CASE WHEN intent.effect_kind <> 'codex_delegation' THEN intent.payload_bytes END, intent.codex_task_source_id,
                        CASE WHEN intent.effect_kind='codex_delegation' THEN intent.payload_digest END
@@ -42,6 +43,7 @@ class PostgreSQLEffectIntentRead:
         ).fetchone()
         if row is None:
             raise ResponseViolation("RESPONSE-WORK-STALE")
+        family = effect_family(str(row[7]))
         return ExpressionIntentSnapshot(
             operation_ref=row[0],
             action_intent_id=row[1],
@@ -50,17 +52,17 @@ class PostgreSQLEffectIntentRead:
             scene_id=row[4],
             context_party_id=row[5],
             action_kind=str(row[6]),
-            capability_kind=str(row[7]),
-            operation_class=str(row[8]),
-            purpose=str(row[9]),
-            response_artifact_id=row[10],
-            response_digest=Digest(str(row[11])) if row[11] is not None else None,
-            response_bytes=int(row[12]) if row[12] is not None else None,
-            codex_task_source_id=row[13],
+            capability_kind=family.capability_kind,
+            operation_class=family.operation_class,
+            purpose=family.purpose,
+            response_artifact_id=row[8],
+            response_digest=Digest(str(row[9])) if row[9] is not None else None,
+            response_bytes=int(row[10]) if row[10] is not None else None,
+            codex_task_source_id=row[11],
             task_manifest_digest=(
-                Digest(str(row[14])) if row[14] is not None else None
+                Digest(str(row[12])) if row[12] is not None else None
             ),
-            created_at=row[15],
+            created_at=row[13],
         )
 
     async def operation_snapshot(

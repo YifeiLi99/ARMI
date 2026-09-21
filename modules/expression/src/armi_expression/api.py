@@ -291,9 +291,6 @@ class DeclaredResponseEffectDraft:
     payload_digest: Digest
     payload_bytes: int
     effect_kind: str
-    capability_kind: str
-    audience_scope: str
-    authorization_basis: str
     destination_kind: str
     destination_party_id: UUID
     destination_binding_id: UUID | None
@@ -326,11 +323,6 @@ class DeclaredResponseEffectDraft:
                 "local_inbox_delivery",
                 "creator_response",
             }
-            or type(self.capability_kind) is not str
-            or not self.capability_kind
-            or self.audience_scope not in {"social_group", "other_human", "creator"}
-            or self.authorization_basis
-            not in {"runtime_configuration", "runtime_builtin"}
             or self.destination_kind
             not in {
                 "external_group",

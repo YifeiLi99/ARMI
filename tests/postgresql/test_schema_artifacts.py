@@ -92,7 +92,7 @@ def test_baseline_contains_authoritative_schema() -> None:
     assert "CREATE TABLE armi.creator_exports" in sql
     assert "CREATE TABLE armi.data_rights_orders" in sql
     assert "CREATE TABLE armi.schema_migrations" not in sql
-    assert "external.private.message.send" in sql
+    assert "external_private_delivery" in sql
 
 
 def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
@@ -129,7 +129,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v69" in (
+    assert "armi.schema-baseline.v70" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

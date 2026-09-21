@@ -258,7 +258,6 @@ class PostgreSQLCognitionContextLifecycle:
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        manifest_digest: Digest,
         compiled_digest: Digest,
         context_items: tuple[dict[str, object], ...],
     ) -> CognitionContextEpisodeSnapshot:
@@ -268,7 +267,7 @@ class PostgreSQLCognitionContextLifecycle:
                 """UPDATE armi.cognitive_episodes SET status='prepared',
                       context_manifest_artifact_id=%s,
                       compiled_context_artifact_id=%s,
-                      context_manifest_digest=%s, compiled_context_digest=%s,
+                      compiled_context_digest=%s,
                       context_items=%s::jsonb, prepared_at=statement_timestamp()
                WHERE cognitive_episode_id=%s AND status='preparing'
                RETURNING cognitive_episode_id, opportunity_id, subject_id, scene_id,
@@ -278,7 +277,6 @@ class PostgreSQLCognitionContextLifecycle:
                 (
                     manifest_artifact_id,
                     compiled_artifact_id,
-                    manifest_digest.value,
                     compiled_digest.value,
                     json.dumps(context_items),
                     episode_id,

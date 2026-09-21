@@ -296,7 +296,6 @@ CREATE TABLE armi.live_voice_turns (
     turn_no bigint NOT NULL,
     interaction_id uuid,
     root_opportunity_id uuid,
-    final_transcript text,
     registered_response_text text DEFAULT ''::text,
     response_fragment_count smallint DEFAULT 0 NOT NULL CHECK (response_fragment_count BETWEEN 0 AND 64),
     playback_extent text DEFAULT 'none'::text NOT NULL,
@@ -317,8 +316,7 @@ CREATE TABLE armi.live_voice_turns (
     CONSTRAINT live_voice_turns_response_text_check CHECK (((data_rights_redacted_at IS NOT NULL) OR (length(registered_response_text) <= 4096))),
     CONSTRAINT live_voice_turns_playback_extent_check CHECK ((playback_extent = ANY (ARRAY['none'::text, 'partial_prefix'::text, 'complete'::text, 'unknown_completion'::text]))),
     CONSTRAINT live_voice_turns_frames_written_check CHECK ((frames_written >= 0)),
-    CONSTRAINT live_voice_turns_status_check CHECK ((result_status = ANY (ARRAY['recognizing'::text, 'thinking'::text, 'speaking'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'silent'::text]))),
-    CONSTRAINT live_voice_turns_transcript_check CHECK (((final_transcript IS NULL) OR ((length(btrim(final_transcript)) >= 1) AND (length(btrim(final_transcript)) <= 4096))))
+    CONSTRAINT live_voice_turns_status_check CHECK ((result_status = ANY (ARRAY['recognizing'::text, 'thinking'::text, 'speaking'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'silent'::text])))
 );
 
 

@@ -142,8 +142,9 @@ async def test_creator_reply_registers_effect_in_subject_transaction(
         }[channel]
     )
     assert draft.live_voice_turn_id == voice.turn_for_opportunity.return_value
-    assert draft.authorization_basis == (
-        "runtime_builtin" if channel == "text" else "runtime_configuration"
+    assert (
+        draft.destination_binding_id
+        == route.effect_route.return_value.destination_binding_id
     )
 
 
@@ -163,9 +164,6 @@ def test_declared_response_effect_draft_freezes_the_cross_owner_contract() -> No
         payload_digest=Digest.from_bytes(b"hello"),
         payload_bytes=5,
         effect_kind="external_private_delivery",
-        capability_kind="external.private.message.send",
-        audience_scope="other_human",
-        authorization_basis="runtime_configuration",
         destination_kind="external_private",
         destination_party_id=ids[7],
         destination_binding_id=ids[8],

@@ -7,6 +7,7 @@ from uuid import UUID
 from armi_kernel.contracts import Digest, Instant
 from armi_runtime_foundation import PostgreSQLTransaction
 
+from ._family import effect_family
 from .api import (
     EffectLedgerSnapshot,
     EffectObservationKind,
@@ -69,7 +70,7 @@ class PostgreSQLEffectOperationRead:
                        effect.action_intent_id, effect.subject_id, effect.scene_id, effect.context_party_id,
                        effect.payload_artifact_id, effect.payload_digest,
                        effect.payload_bytes, effect.effect_kind,
-                       effect.capability_kind, effect.status,
+                       effect.status,
                        effect.verification_status, effect.registered_at,
                        effect.cancelled_at, effect.settled_at,
                        (SELECT count(*) FROM armi.effect_attempts AS attempt
@@ -102,24 +103,24 @@ class PostgreSQLEffectOperationRead:
             payload_digest=Digest(str(row[6])),
             payload_bytes=int(row[7]),
             effect_kind=str(row[8]),
-            capability_kind=str(row[9]),
-            status=EffectStatus(str(row[10])),
-            verification_status=EffectVerificationStatus(str(row[11])),
-            registered_at=Instant(row[12]),
-            cancelled_at=None if row[13] is None else Instant(row[13]),
-            settled_at=None if row[14] is None else Instant(row[14]),
-            attempt_count=int(row[15]),
+            capability_kind=effect_family(str(row[8])).capability_kind,
+            status=EffectStatus(str(row[9])),
+            verification_status=EffectVerificationStatus(str(row[10])),
+            registered_at=Instant(row[11]),
+            cancelled_at=None if row[12] is None else Instant(row[12]),
+            settled_at=None if row[13] is None else Instant(row[13]),
+            attempt_count=int(row[14]),
             current_observation_kind=(
-                None if row[16] is None else EffectObservationKind(str(row[16]))
+                None if row[15] is None else EffectObservationKind(str(row[15]))
             ),
             current_observation_reliability=(
-                None if row[17] is None else EffectObservationReliability(str(row[17]))
+                None if row[16] is None else EffectObservationReliability(str(row[16]))
             ),
-            current_attempt_id=row[18],
-            current_attempt_no=None if row[19] is None else int(row[19]),
-            current_dispatch_state=None if row[20] is None else str(row[20]),
-            current_observation_id=row[21],
-            observation_conclusion=None if row[22] is None else str(row[22]),
-            observation_reason=None if row[23] is None else str(row[23]),
-            observation_evidence_kind=None if row[24] is None else str(row[24]),
+            current_attempt_id=row[17],
+            current_attempt_no=None if row[18] is None else int(row[18]),
+            current_dispatch_state=None if row[19] is None else str(row[19]),
+            current_observation_id=row[20],
+            observation_conclusion=None if row[21] is None else str(row[21]),
+            observation_reason=None if row[22] is None else str(row[22]),
+            observation_evidence_kind=None if row[23] is None else str(row[23]),
         )
