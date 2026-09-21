@@ -46,7 +46,7 @@ WITH task AS (
     ORDER BY episode.prepared_at NULLS LAST,episode.cognitive_episode_id LIMIT 1
 ), first_commit AS (
     SELECT commit.subject_commit_id FROM first_episode
-    JOIN armi.subject_commits AS commit
+    JOIN armi.cognitive_episodes AS commit
       ON commit.cognitive_episode_id=first_episode.cognitive_episode_id
 ), effect AS (
     SELECT effect.effect_id,effect.status FROM task
@@ -65,7 +65,7 @@ WITH task AS (
     ORDER BY episode.prepared_at NULLS LAST,episode.cognitive_episode_id LIMIT 1
 ), second_commit AS (
     SELECT commit.subject_commit_id FROM second_episode
-    JOIN armi.subject_commits AS commit
+    JOIN armi.cognitive_episodes AS commit
       ON commit.cognitive_episode_id=second_episode.cognitive_episode_id
 ), experience AS (
     SELECT accepted.experience_id FROM verification

@@ -294,31 +294,8 @@ CREATE TABLE armi.live_vision_observations (
 );
 
 --
--- Name: live_vision_sessions; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.live_vision_sessions (
-    session_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    source_kind text NOT NULL,
-    state text NOT NULL,
-    source_identity jsonb NOT NULL,
-    width integer NOT NULL,
-    height integer NOT NULL,
-    fps integer NOT NULL,
-    started_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    ended_at timestamp(6) with time zone,
-    error_code text,
-    CONSTRAINT live_vision_sessions_check CHECK (((state = ANY (ARRAY['stopped'::text, 'failed'::text])) = (ended_at IS NOT NULL))),
-    CONSTRAINT live_vision_sessions_error_code_check CHECK (((error_code IS NULL) OR (error_code ~ '^VISION-[A-Z0-9-]{1,120}$'::text))),
-    CONSTRAINT live_vision_sessions_fps_check CHECK ((fps > 0)),
-    CONSTRAINT live_vision_sessions_height_check CHECK ((height > 0)),
-    CONSTRAINT live_vision_sessions_session_id_check CHECK ((uuid_extract_version(session_id) = 7)),
-    CONSTRAINT live_vision_sessions_state_check CHECK ((state = ANY (ARRAY['starting'::text, 'observing'::text, 'degraded'::text, 'unavailable'::text, 'stopping'::text, 'stopped'::text, 'failed'::text]))),
-    CONSTRAINT live_vision_sessions_source_identity_check CHECK ((jsonb_typeof(source_identity) = 'object'::text)),
-    CONSTRAINT live_vision_sessions_source_kind_check CHECK ((source_kind = ANY (ARRAY['camera'::text, 'screen'::text]))),
-    CONSTRAINT live_vision_sessions_width_check CHECK ((width > 0))
-);
 
 --
 -- Name: live_voice_sessions; Type: TABLE; Schema: armi; Owner: -

@@ -11,6 +11,15 @@ from .api import CognitionAdminAttempt, CognitionAdminEpisodeSnapshot
 
 
 class PostgreSQLCognitionAdmin:
+    def commits_for_episode(
+        self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
+    ) -> tuple[tuple[UUID, int], ...]:
+        rows = transaction.execute(
+            "SELECT subject_commit_id,new_subject_version FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s AND subject_commit_id IS NOT NULL ORDER BY subject_commit_id LIMIT 32",
+            (episode_id,),
+        ).fetchall()
+        return tuple((cast(UUID, row[0]), int(cast(int, row[1]))) for row in rows)
+
     __slots__ = ()
 
     def autonomous_commit_ids(

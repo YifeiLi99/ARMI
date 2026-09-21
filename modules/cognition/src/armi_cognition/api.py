@@ -573,6 +573,18 @@ class CognitionOperationSnapshot:
 
 @runtime_checkable
 class CognitionOperationReadPort(Protocol):
+    async def commit_at_version(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        subject_version: int,
+    ) -> UUID | None: ...
+
+    async def episode_for_commit(
+        self, transaction: PostgreSQLTransaction, *, subject_commit_id: UUID
+    ) -> UUID | None: ...
+
     async def autonomous_commit_ids(
         self,
         transaction: PostgreSQLTransaction,
@@ -657,6 +669,22 @@ class CognitionMaintenanceProgressPort(Protocol):
 
 @runtime_checkable
 class CognitionSubjectCommitPort(Protocol):
+    async def register_subject_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        validation_id: UUID,
+        subject_id: UUID,
+        activation_id: UUID,
+        base_subject_version: int,
+        base_state_epoch: int,
+        commit_id: UUID,
+        new_subject_version: int,
+        runtime_instance_id: UUID,
+        fence_token: int,
+    ) -> None: ...
+
     async def snapshot(
         self,
         transaction: PostgreSQLTransaction,
@@ -752,6 +780,10 @@ class CognitionAdminEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionAdminPort(Protocol):
+    def commits_for_episode(
+        self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
+    ) -> tuple[tuple[UUID, int], ...]: ...
+
     def autonomous_commit_ids(
         self,
         transaction: PostgreSQLAdminTransaction,

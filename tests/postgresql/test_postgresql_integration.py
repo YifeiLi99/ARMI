@@ -504,8 +504,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("deployment_environments", "template_digest"),
     ("deployment_environments", "data_root_identity_digest"),
     ("deployment_environments", "database_identity_digest"),
-    ("subject_commits", "change_set_digest"),
-    ("subject_commits", "commit_digest"),
     ("subject_component_revisions", "semantic_digest"),
     ("cognitive_attempts", "binding_digest"),
     ("cognitive_attempts", "request_digest"),
@@ -1267,7 +1265,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     async with factory.unit_of_work() as unit:
                         row = await (
                             await unit.transaction.execute(
-                                """SELECT snapshot_status,snapshot_contract_version,snapshot_removed_at
+                                """SELECT snapshot_status,snapshot_contract_version,snapshot_removed_at,snapshot_party_scopes
                                FROM armi.creator_exports WHERE creator_export_id=%s""",
                                 (export_id,),
                             )
@@ -1279,9 +1277,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         refs = {item.ref for item in discovery.related_refs}
                         if status is CreatorExportStatus.FAILED:
-                            self.assertEqual(row, (None, None, None))
+                            self.assertEqual(row, (None, None, None, {}))
                             self.assertNotIn(export_id, refs)
                         else:
+                            self.assertEqual(row[3], {str(creator_id): [1, 1]})
+                            unrelated = await participant.discover(
+                                unit.transaction,
+                                DataRightsDiscoveryRequest(uuid7(), uuid7(), ()),
+                            )
+                            self.assertNotIn(
+                                export_id, {item.ref for item in unrelated.related_refs}
+                            )
                             self.assertEqual(row[0], "active")
                             self.assertIsNotNone(row[1])
                             self.assertIn(export_id, refs)
@@ -2096,7 +2102,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (fixture.environment_id,),
                 )
                 commits_before = one(
-                    connection, "SELECT count(*) FROM armi.subject_commits"
+                    connection,
+                    "SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL",
                 )[0]
             config = AdminConfig.model_validate(
                 {
@@ -2348,7 +2355,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertIn("ADMIN-CONTENT-BUSY", busy.model_dump_json())
                 with psycopg.connect(fixture.provisioner_dsn) as connection:
                     self.assertEqual(
-                        one(connection, "SELECT count(*) FROM armi.subject_commits")[0],
+                        one(
+                            connection,
+                            "SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL",
+                        )[0],
                         commits_before,
                     )
                     self.assertEqual(
@@ -2824,83 +2834,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     selectors.SelectSelector()
                 ),
             )
-
-    @pytest.mark.test_group("live-vision")
-    def test_live_vision_allows_one_open_session_per_source(self) -> None:
-        fixture = self.create_database()
-        self._install_current(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        packaged = packaged_birth_digests()
-        manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
-            environment_id=fixture.environment_id,
-            birth_request_id=_uuid7(),
-            creator_party_id=_uuid7(),
-            idempotency_key="live-vision-session-birth",
-            personality_anchor=PersonalityAnchor(
-                schema_version="armi.personality-anchor.v1",
-                voice_style="约 16 岁少女口吻",
-                traits=("清醒",),
-            ),
-            birth_contract_digest=packaged["birth_contract_digest"],
-            request_digest=Digest.from_bytes(b"live-vision-session-birth"),
-        )
-
-        async def birth_subject(data_root: Path) -> Any:
-            factory = PostgreSQLUnitOfWorkFactory(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                pool_min=1,
-                pool_max=2,
-                acquire_timeout_seconds=2,
-                statement_timeout_seconds=5,
-                require_runtime_fence=False,
-            )
-            birth = BirthTransaction(
-                _publishing_artifact_store(data_root / "artifacts", factory),
-                ArtifactCatalogRepository(),
-                _birth_repository(),
-                factory,
-            )
-            await factory.open()
-            try:
-                return await birth.birth(manifest)
-            finally:
-                await factory.close()
-
-        with tempfile.TemporaryDirectory() as directory:
-            born = asyncio.run(
-                birth_subject(Path(directory)),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
-        with psycopg.connect(fixture.runtime_dsn) as connection:
-            for source_kind in ("camera", "screen"):
-                connection.execute(
-                    """INSERT INTO armi.live_vision_sessions
-                       (session_id,subject_id,source_kind,state,source_identity,width,height,fps)
-                       VALUES (%s,%s,%s,'observing','{}'::jsonb,1280,720,1)""",
-                    (_uuid7(), born.subject_id, source_kind),
-                )
-            connection.commit()
-            with (
-                self.assertRaises(psycopg.errors.UniqueViolation),
-                connection.transaction(),
-            ):
-                connection.execute(
-                    """INSERT INTO armi.live_vision_sessions
-                       (session_id,subject_id,source_kind,state,source_identity,width,height,fps)
-                       VALUES (%s,%s,'camera','observing','{}'::jsonb,1280,720,5)""",
-                    (_uuid7(), born.subject_id),
-                )
-            count = connection.execute(
-                "SELECT count(*) FROM armi.live_vision_sessions WHERE subject_id=%s AND ended_at IS NULL",
-                (born.subject_id,),
-            ).fetchone()
-        self.assertEqual(count, (2,))
 
     @pytest.mark.test_group("schema", "admin")
     def test_runtime_status_rejects_missing_head_dml_capability(self) -> None:
@@ -8145,16 +8078,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                     )
                     async with factory.unit_of_work(read_only=True) as uow:
-                        for table in (
-                            "effects",
-                            "subject_commits",
+                        for query in (
+                            "SELECT count(*) FROM armi.effects",
+                            "SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL",
                         ):
                             self.assertEqual(
-                                await (
-                                    await uow.transaction.execute(
-                                        f"SELECT count(*) FROM armi.{table}"
-                                    )
-                                ).fetchone(),
+                                await (await uow.transaction.execute(query)).fetchone(),
                                 (0,),
                             )
                 finally:
@@ -8766,7 +8695,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     connection.execute("""
                     SELECT (SELECT subject_version FROM armi.subjects),
-                           (SELECT count(*) FROM armi.subject_commits),
+                           (SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL),
                            (SELECT count(*) FROM armi.effects)
                 """).fetchone(),
                     (0, 0, 0),
@@ -8919,7 +8848,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """UPDATE armi.cognitive_episodes
                            SET purpose='reflect_prompt',scene_id=NULL,context_party_id=NULL,
                                status='finalizing',application_resolution=NULL,committed_at=NULL,
-                               candidate_application_id=NULL,subject_commit_id=NULL,
+                               candidate_application_id=NULL,
                                observed_subject_version=NULL,maintenance_source_episode_id=%s
                            WHERE cognitive_episode_id=%s""",
                         (root_id, ids["episode"]),
@@ -9129,7 +9058,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     connection.execute(
-                        "SELECT count(*) FROM armi.codex_task_sources source JOIN armi.subject_commits commit USING (subject_id) WHERE source.origin_subject_commit_id=commit.subject_commit_id"
+                        "SELECT count(*) FROM armi.codex_task_sources source JOIN armi.cognitive_episodes commit USING (subject_id) WHERE source.origin_subject_commit_id=commit.subject_commit_id"
                     ).fetchone(),
                     (1,),
                 )
@@ -9160,7 +9089,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 SELECT
                     (SELECT subject_version FROM armi.subjects WHERE singleton_key = 1),
-                    (SELECT count(*) FROM armi.subject_commits),
+                    (SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL),
                     (SELECT count(*) FROM armi.accepted_experiences),
                     (SELECT count(*) FROM armi.experience_evidence_links),
                     (SELECT count(*) FROM armi.effects),
@@ -9917,7 +9846,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     connection.execute(
-                        "SELECT count(*) FROM armi.subject_commits"
+                        "SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL"
                     ).fetchone(),
                     (0,),
                 )
@@ -9930,7 +9859,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             else:
                 self.assertEqual(
                     connection.execute(
-                        "SELECT count(*) FROM armi.subject_commits"
+                        "SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL"
                     ).fetchone(),
                     (1,),
                 )

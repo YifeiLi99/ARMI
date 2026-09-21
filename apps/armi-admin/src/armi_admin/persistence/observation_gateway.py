@@ -928,7 +928,7 @@ class AdminObservationGateway:
                             artifact_id,
                             "cognition",
                         )
-                    for commit_id, version in self._runtime.commits_for_episode(
+                    for commit_id, version in self._cognition.commits_for_episode(
                         tx, episode_id=identity
                     ):
                         link(

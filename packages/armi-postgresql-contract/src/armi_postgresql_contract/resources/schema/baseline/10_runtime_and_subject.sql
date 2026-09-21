@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v63'::text
+        baseline_identity = 'armi.schema-baseline.v64'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v63');
+VALUES ('armi.schema-baseline.v64');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -143,29 +143,8 @@ CREATE TABLE armi.runtime_instances (
 );
 
 --
--- Name: subject_commits; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.subject_commits (
-    subject_commit_id uuid NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    bundle_activation_id uuid NOT NULL,
-    base_subject_version bigint NOT NULL,
-    new_subject_version bigint NOT NULL,
-    base_state_epoch bigint NOT NULL,
-    runtime_instance_id uuid NOT NULL,
-    fence_token bigint NOT NULL,
-    trace_id text NOT NULL,
-    committed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT subject_commits_base_state_epoch_check CHECK ((base_state_epoch >= 0)),
-    CONSTRAINT subject_commits_base_subject_version_check CHECK ((base_subject_version >= 0)),
-    CONSTRAINT subject_commits_check CHECK ((new_subject_version = (base_subject_version + 1))),
-    CONSTRAINT subject_commits_fence_token_check CHECK ((fence_token > 0)),
-    CONSTRAINT subject_commits_subject_commit_id_check CHECK ((uuid_extract_version(subject_commit_id) = 7)),
-    CONSTRAINT subject_commits_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
-);
 
 
 --

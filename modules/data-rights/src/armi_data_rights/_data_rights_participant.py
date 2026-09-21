@@ -22,7 +22,7 @@ from .api import (
 )
 
 _OWNER = DataRightsOwnerIdentity("data-rights")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "creator_exports",
@@ -43,12 +43,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         "data_rights_orders",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.data_rights_orders AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "managed_data_snapshot_parties",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.managed_data_snapshot_parties AS source
-           ORDER BY to_jsonb(source)::text""",
     ),
 )
 
@@ -71,11 +65,9 @@ class PostgreSQLDataRightsParticipant:
             await transaction.execute(
                 """SELECT snapshot.creator_export_id
                    FROM armi.creator_exports AS snapshot
-                   JOIN armi.managed_data_snapshot_parties AS scope
-                     ON scope.managed_snapshot_id=snapshot.creator_export_id
-                   WHERE scope.party_id=%s AND snapshot.snapshot_status='active'
+                   WHERE snapshot.snapshot_party_scopes ? %s AND snapshot.snapshot_status='active'
                    ORDER BY snapshot.creator_export_id""",
-                (request.party_id,),
+                (str(request.party_id),),
             )
         ).fetchall()
         return DataRightsDiscoveryContribution(

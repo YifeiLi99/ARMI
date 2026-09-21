@@ -23,7 +23,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "durable_work": TableOwnership("runtime", maintenance_writable=True),
     "runtime_instances": TableOwnership("runtime", maintenance_writable=False),
     "schema_baseline_identity": TableOwnership("runtime", maintenance_writable=False),
-    "subject_commits": TableOwnership("runtime", maintenance_writable=False),
     "subjects": TableOwnership("runtime", maintenance_writable=False),
     # Technical artifact catalog.
     "artifact_object_deletions": TableOwnership(
@@ -50,7 +49,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "live_voice_sessions": TableOwnership("live-voice", maintenance_writable=True),
     "live_voice_turns": TableOwnership("live-voice", maintenance_writable=True),
     # Persistent local camera observation custody.
-    "live_vision_sessions": TableOwnership("live-vision", maintenance_writable=True),
     "live_vision_observations": TableOwnership(
         "live-vision", maintenance_writable=True
     ),
@@ -74,7 +72,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Experience and cognition.
     "accepted_experiences": TableOwnership("experience", maintenance_writable=True),
     "cognitive_attempts": TableOwnership("cognition", maintenance_writable=False),
-    "cognitive_episodes": TableOwnership("cognition", maintenance_writable=True),
+    "cognitive_episodes": TableOwnership("cognition", maintenance_writable=False),
     # Subject-owned components.
     "subject_component_revisions": TableOwnership(
         "subject-state", maintenance_writable=True
@@ -102,9 +100,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Web, Codex, and Data Rights.
     "codex_task_sources": TableOwnership("codex", maintenance_writable=False),
     "creator_exports": TableOwnership("data-rights", maintenance_writable=False),
-    "managed_data_snapshot_parties": TableOwnership(
-        "data-rights", maintenance_writable=False
-    ),
     "data_rights_order_items": TableOwnership(
         "data-rights", maintenance_writable=False
     ),

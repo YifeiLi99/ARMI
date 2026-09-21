@@ -107,17 +107,13 @@ class CreatorTimelineProjectionAssembler(InteractionCreatorTimelineProjectionPor
         subject_commit_id: UUID,
         context_party_id: UUID,
     ) -> UUID:
-        row = await (
-            await transaction.execute(
-                """SELECT cognitive_episode_id FROM armi.subject_commits
-                   WHERE subject_commit_id = %s""",
-                (subject_commit_id,),
-            )
-        ).fetchone()
-        if row is None:
+        episode_id = await self._cognition.episode_for_commit(
+            transaction, subject_commit_id=subject_commit_id
+        )
+        if episode_id is None:
             raise RuntimeError("CREATOR-TIMELINE-SOURCE")
         opportunity_id = await self._cognition.opportunity_for_episode(
-            transaction, episode_id=row[0]
+            transaction, episode_id=episode_id
         )
         if opportunity_id is None:
             raise RuntimeError("CREATOR-TIMELINE-SOURCE")

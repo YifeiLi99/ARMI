@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
@@ -102,6 +103,7 @@ class DurableVisualObservationCoordinator:
         self._height = height
         self._fps = fps
         self._retention = retention
+        self._session_lock = asyncio.Lock()
         self._session_id: UUID | None = None
         self._number = 0
         self._previous_summary: str | None = None
@@ -117,36 +119,35 @@ class DurableVisualObservationCoordinator:
     async def open_session(self) -> None:
         await self._storage.prepare()
         await self.purge_expired_frames()
-        self._session_id = uuid7()
-        async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """INSERT INTO armi.live_vision_sessions
-                   (session_id,subject_id,source_kind,state,source_identity,width,height,fps)
-                   VALUES (%s,%s,%s,'observing',%s::jsonb,%s,%s,%s)""",
-                (
-                    self._session_id,
-                    self._subject_id,
-                    self._source_kind.value,
-                    json.dumps(_source_identity_document(self._source)),
-                    self._width,
-                    self._height,
-                    self._fps,
-                ),
+        async with self._session_lock:
+            if self._session_id is not None:
+                raise RuntimeError("VISION-SESSION-ALREADY-OPEN")
+            self._session_id = uuid7()
+            logging.getLogger(__name__).info(
+                "live vision session opened",
+                extra={
+                    "session_id": str(self._session_id),
+                    "source_kind": self._source_kind.value,
+                    "source_identity": _source_identity_document(self._source),
+                    "width": self._width,
+                    "height": self._height,
+                    "fps": self._fps,
+                },
             )
 
     async def close_session(self, *, error_code: str | None = None) -> None:
-        if self._session_id is None:
-            return
-        async with self._factory.unit_of_work() as unit:
-            await unit.transaction.execute(
-                """UPDATE armi.live_vision_sessions SET state=%s,ended_at=statement_timestamp(),error_code=%s
-                   WHERE session_id=%s AND ended_at IS NULL""",
-                ("failed" if error_code else "stopped", error_code, self._session_id),
+        async with self._session_lock:
+            if self._session_id is None:
+                return
+            logging.getLogger(__name__).info(
+                "live vision session closed",
+                extra={"session_id": str(self._session_id), "error_code": error_code},
             )
-        self._session_id = None
+            self._session_id = None
 
     async def settle_interrupted_observations(self, *, error_code: str) -> None:
-        if self._session_id is None:
+        session_id = self._session_id
+        if session_id is None:
             return
         async with self._factory.unit_of_work() as unit:
             observation_rows = await (
@@ -156,7 +157,7 @@ class DurableVisualObservationCoordinator:
                            settled_at=statement_timestamp()
                        WHERE session_id=%s AND status='recognizing'
                        RETURNING observation_id""",
-                    (error_code, self._session_id),
+                    (error_code, session_id),
                 )
             ).fetchall()
         for row in observation_rows:
@@ -207,7 +208,8 @@ class DurableVisualObservationCoordinator:
         origin_scene_id: UUID | None = None,
     ) -> VisualObservation:
         await self.purge_expired_frames()
-        if self._session_id is None:
+        session_id = self._session_id
+        if session_id is None:
             raise RuntimeError("live vision session is not open")
         if frames:
             raise RuntimeError("VISION-CAPTURE-MUST-BE-DURABLE")
@@ -225,7 +227,7 @@ class DurableVisualObservationCoordinator:
             separators=(",", ":"),
         ).encode()
         request_digest = Digest.from_bytes(request_bytes)
-        key = idempotency_key or f"auto:{self._session_id}:{uuid7()}"
+        key = idempotency_key or f"auto:{session_id}:{uuid7()}"
         async with self._factory.unit_of_work(read_only=True) as unit:
             existing = await (
                 await unit.transaction.execute(
@@ -242,15 +244,8 @@ class DurableVisualObservationCoordinator:
         observation_id, work_id = uuid7(), uuid7()
         trace_id = TraceId(uuid7().hex)
         registered_at = datetime.now(UTC)
-        async with self._factory.unit_of_work() as unit:
-            session = await (
-                await unit.transaction.execute(
-                    "SELECT session_id FROM armi.live_vision_sessions "
-                    "WHERE session_id=%s AND ended_at IS NULL FOR UPDATE",
-                    (self._session_id,),
-                )
-            ).fetchone()
-            if session is None:
+        async with self._session_lock, self._factory.unit_of_work() as unit:
+            if self._session_id != session_id:
                 raise RuntimeError("VISION-SESSION-CLOSED")
             prior = await (
                 await unit.transaction.execute(
@@ -533,6 +528,7 @@ class DurableVisualObservationCoordinator:
         return True
 
     async def process_claimed_capture(self, record: WorkRecord) -> None:
+        session_id = self._session_id
         lease = record.lease
         if lease is None:
             raise RuntimeError("VISION-CAPTURE-WORK-LEASE")
@@ -575,9 +571,16 @@ class DurableVisualObservationCoordinator:
             return
         assert self._capture is not None
         try:
-            frames = await self._capture()
+            # Closing waits for an active capture; reopening cannot adopt its frames.
+            async with self._session_lock:
+                if session_id is None or self._session_id != session_id:
+                    raise LiveVisionViolation(
+                        "VISION-SOURCE-NOT-RUNNING", "source session closed"
+                    )
+                frames = await self._capture()
             await self._attach_captured_frames(
                 observation_id=observation_id,
+                session_id=session_id,
                 frames=frames,
                 origin_kind=ObservationOriginKind(str(row[1])),
                 trigger=ObservationTrigger(str(row[2])),
@@ -618,6 +621,7 @@ class DurableVisualObservationCoordinator:
         self,
         *,
         observation_id: UUID,
+        session_id: UUID,
         frames: tuple[VisualFrame, ...],
         origin_kind: ObservationOriginKind,
         trigger: ObservationTrigger,
@@ -628,7 +632,7 @@ class DurableVisualObservationCoordinator:
         idempotency_key: str,
         capture_lease: WorkLease,
     ) -> None:
-        if self._session_id is None:
+        if self._session_id != session_id:
             raise LiveVisionViolation(
                 "VISION-SOURCE-NOT-RUNNING", "source has no open session"
             )
@@ -666,12 +670,16 @@ class DurableVisualObservationCoordinator:
         )
         work_id = uuid7()
         now = datetime.now(UTC)
-        async with self._factory.unit_of_work() as unit:
+        async with self._session_lock, self._factory.unit_of_work() as unit:
+            if self._session_id != session_id:
+                raise LiveVisionViolation(
+                    "VISION-SOURCE-NOT-RUNNING", "source session closed"
+                )
             await unit.work.validate_lease(capture_lease)
             number_row = await (
                 await unit.transaction.execute(
                     "SELECT COALESCE(max(observation_no),0)+1 FROM armi.live_vision_observations WHERE session_id=%s",
-                    (self._session_id,),
+                    (session_id,),
                 )
             ).fetchone()
             if number_row is None:
@@ -694,7 +702,7 @@ class DurableVisualObservationCoordinator:
             )
             await unit.transaction.execute(
                 "UPDATE armi.live_vision_observations SET session_id=%s,observation_no=%s,recognition_work_id=%s,status='registered' WHERE observation_id=%s AND status='capturing'",
-                (self._session_id, int(number_row[0]), work_id, observation_id),
+                (session_id, int(number_row[0]), work_id, observation_id),
             )
             for ordinal, (frame, published) in enumerate(published_frames, 1):
                 registration = await self._catalog.register(

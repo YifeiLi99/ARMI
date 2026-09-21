@@ -651,18 +651,19 @@ class CreatorExportService(CreatorExportPort):
                 )
                 await unit.transaction.execute(
                     """UPDATE armi.creator_exports
-                       SET snapshot_contract_version=%s,snapshot_status='active'
+                       SET snapshot_contract_version=%s,snapshot_status='active',snapshot_party_scopes=%s::jsonb
                        WHERE creator_export_id=%s AND snapshot_status IS NULL""",
-                    (_EXPORT_FORMAT, export_id),
+                    (
+                        _EXPORT_FORMAT,
+                        json.dumps(
+                            {
+                                str(party_id): [contact, use]
+                                for party_id, contact, use in party_scopes
+                            }
+                        ),
+                        export_id,
+                    ),
                 )
-                for party_id, contact, use in party_scopes:
-                    await unit.transaction.execute(
-                        """INSERT INTO armi.managed_data_snapshot_parties (
-                               managed_snapshot_id,party_id,contact_generation,
-                               use_generation) VALUES (%s,%s,%s,%s)
-                           ON CONFLICT (managed_snapshot_id,party_id) DO NOTHING""",
-                        (export_id, party_id, contact, use),
-                    )
             return True
         except RuntimeTransactionFailure:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
@@ -729,19 +730,19 @@ class CreatorExportService(CreatorExportPort):
                     # DESIGN.md: file removal and export completion are separate facts.
                     await connection.execute(
                         """UPDATE armi.creator_exports
-                           SET snapshot_contract_version=%s,snapshot_status='active'
+                           SET snapshot_contract_version=%s,snapshot_status='active',snapshot_party_scopes=%s::jsonb
                            WHERE creator_export_id=%s AND snapshot_status IS NULL""",
-                        (_EXPORT_FORMAT, export_id),
+                        (
+                            _EXPORT_FORMAT,
+                            json.dumps(
+                                {
+                                    str(party_id): [contact, use]
+                                    for party_id, contact, use in party_scopes
+                                }
+                            ),
+                            export_id,
+                        ),
                     )
-                    for party_id, contact, use in party_scopes:
-                        await connection.execute(
-                            """INSERT INTO armi.managed_data_snapshot_parties (
-                                   managed_snapshot_id,party_id,contact_generation,
-                                   use_generation) VALUES (%s,%s,%s,%s)
-                               ON CONFLICT (managed_snapshot_id,party_id)
-                               DO NOTHING""",
-                            (export_id, party_id, contact, use),
-                        )
                 await unit_of_work.audit.append(
                     self._audit(
                         export_id=export_id,

@@ -75,6 +75,9 @@ def test_commit_consumers_do_not_requery_cognition_validation_tables() -> None:
 
 def test_cognition_subject_commit_port_is_replaceable_by_public_fake() -> None:
     class FakeCognition:
+        async def register_subject_commit(self, transaction, **receipt):
+            return None
+
         async def snapshot(self, transaction, *, episode_id):
             raise NotImplementedError
 

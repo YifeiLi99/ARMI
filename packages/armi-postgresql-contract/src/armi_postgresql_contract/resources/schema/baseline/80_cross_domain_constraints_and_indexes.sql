@@ -634,11 +634,8 @@ ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_session_id_observation_no_key UNIQUE (session_id, observation_no);
 
 --
--- Name: live_vision_sessions live_vision_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_vision_sessions
-    ADD CONSTRAINT live_vision_sessions_pkey PRIMARY KEY (session_id);
 
 --
 -- Name: live_voice_sessions live_voice_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1006,39 +1003,24 @@ ALTER TABLE ONLY armi.scene_timeline_items
 
 
 --
--- Name: subject_commits subject_commits_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_candidate_validation_id_key UNIQUE (candidate_validation_id);
 
 --
--- Name: subject_commits subject_commits_cognitive_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
 
 --
--- Name: subject_commits subject_commits_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_pkey PRIMARY KEY (subject_commit_id);
 
 --
--- Name: subject_commits subject_commits_subject_commit_id_subject_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_subject_commit_id_subject_id_key UNIQUE (subject_commit_id, subject_id);
 
 --
--- Name: subject_commits subject_commits_subject_id_new_subject_version_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_subject_id_new_subject_version_key UNIQUE (subject_id, new_subject_version);
 
 --
 
@@ -1332,7 +1314,6 @@ CREATE INDEX life_materials_subject_current_idx ON armi.life_materials USING btr
 -- Name: live_vision_one_open_session; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX live_vision_one_open_session ON armi.live_vision_sessions USING btree (subject_id, source_kind) WHERE (ended_at IS NULL);
 
 --
 -- Name: live_voice_one_open_session; Type: INDEX; Schema: armi; Owner: -
@@ -1508,14 +1489,14 @@ ALTER TABLE ONLY armi.accepted_experiences
 --
 
 ALTER TABLE ONLY armi.accepted_experiences
-    ADD CONSTRAINT accepted_experiences_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT accepted_experiences_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: accepted_experiences accepted_experiences_subject_commit_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.accepted_experiences
-    ADD CONSTRAINT accepted_experiences_subject_commit_owner_fkey FOREIGN KEY (subject_commit_id, subject_id) REFERENCES armi.subject_commits(subject_commit_id, subject_id);
+    ADD CONSTRAINT accepted_experiences_subject_commit_owner_fkey FOREIGN KEY (subject_commit_id, subject_id) REFERENCES armi.cognitive_episodes(subject_commit_id, subject_id);
 
 
 --
@@ -1533,7 +1514,7 @@ ALTER TABLE ONLY armi.effects
 --
 
 ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_intent_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT effects_intent_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 
 
@@ -1618,7 +1599,7 @@ ALTER TABLE ONLY armi.activity_revisions
 --
 
 ALTER TABLE ONLY armi.activity_revisions
-    ADD CONSTRAINT activity_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT activity_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 --
@@ -1678,7 +1659,7 @@ ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_sources_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 ALTER TABLE ONLY armi.codex_task_sources
-    ADD CONSTRAINT codex_task_sources_origin_subject_commit_id_fkey FOREIGN KEY (origin_subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT codex_task_sources_origin_subject_commit_id_fkey FOREIGN KEY (origin_subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: codex_task_sources codex_task_sources_task_manifest_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2179,7 +2160,7 @@ ALTER TABLE ONLY armi.life_material_revisions
 --
 
 ALTER TABLE ONLY armi.life_material_revisions
-    ADD CONSTRAINT life_material_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT life_material_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: life_materials life_materials_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2228,8 +2209,6 @@ ALTER TABLE ONLY armi.live_vision_observation_frames
 -- Name: live_vision_observations live_vision_observations_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_vision_observations
-    ADD CONSTRAINT live_vision_observations_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_vision_sessions(session_id);
 
 --
 -- Name: live_vision_observations live_vision_observations_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2254,11 +2233,8 @@ ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_origin_context_party_id_fkey FOREIGN KEY (origin_context_party_id) REFERENCES armi.parties(party_id);
 
 --
--- Name: live_vision_sessions live_vision_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.live_vision_sessions
-    ADD CONSTRAINT live_vision_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: live_voice_sessions live_voice_sessions_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2320,7 +2296,7 @@ ALTER TABLE ONLY armi.maintenance_session_revisions
     ADD CONSTRAINT maintenance_revisions_result_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 ALTER TABLE ONLY armi.maintenance_session_revisions
-    ADD CONSTRAINT maintenance_revisions_result_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT maintenance_revisions_result_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: maintenance_session_revisions maintenance_session_revisions_maintenance_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2422,7 +2398,7 @@ ALTER TABLE ONLY armi.mood_revisions
 --
 
 ALTER TABLE ONLY armi.mood_revisions
-    ADD CONSTRAINT mood_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT mood_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: mood_revisions mood_revisions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2598,7 +2574,7 @@ ALTER TABLE ONLY armi.prompt_revisions
 --
 
 ALTER TABLE ONLY armi.prompt_revisions
-    ADD CONSTRAINT prompt_revisions_subject_commit_fk FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT prompt_revisions_subject_commit_fk FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 --
@@ -2634,7 +2610,7 @@ ALTER TABLE ONLY armi.relationship_revisions
 --
 
 ALTER TABLE ONLY armi.relationship_revisions
-    ADD CONSTRAINT relationship_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT relationship_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: relationships relationships_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2717,40 +2693,25 @@ ALTER TABLE ONLY armi.scene_timeline_items
 
 
 --
--- Name: subject_commits subject_commits_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
-
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.subjects(current_bundle_activation_id);
-
---
--- Name: subject_commits subject_commits_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
-
---
--- Name: subject_commits subject_commits_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 
 --
--- Name: subject_commits subject_commits_runtime_instance_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_runtime_instance_id_fkey FOREIGN KEY (runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
 
 --
--- Name: subject_commits subject_commits_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+
+--
+--
+
+
+--
+--
+
 
 --
 
@@ -2761,7 +2722,7 @@ ALTER TABLE ONLY armi.subject_commits
 --
 
 ALTER TABLE ONLY armi.subject_component_revisions
-    ADD CONSTRAINT subject_component_revisions_commit_fk FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT subject_component_revisions_commit_fk FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: subject_component_revisions subject_component_revisions_previous_revision_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2825,7 +2786,7 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 --
 
 ALTER TABLE ONLY armi.subjective_memory_revisions
-    ADD CONSTRAINT subjective_memory_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+    ADD CONSTRAINT subjective_memory_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 
 
@@ -2851,17 +2812,9 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 -- F02 execution custody and current-state fence ownership.
 
 
-ALTER TABLE ONLY armi.managed_data_snapshot_parties
-    ADD CONSTRAINT managed_data_snapshot_parties_pkey PRIMARY KEY (managed_snapshot_id,party_id);
 
-ALTER TABLE ONLY armi.managed_data_snapshot_parties
-    ADD CONSTRAINT managed_data_snapshot_parties_snapshot_id_fkey FOREIGN KEY (managed_snapshot_id) REFERENCES armi.creator_exports(creator_export_id);
 
-ALTER TABLE ONLY armi.managed_data_snapshot_parties
-    ADD CONSTRAINT managed_data_snapshot_parties_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
 
-CREATE INDEX managed_data_snapshot_parties_party_active_idx
-    ON armi.managed_data_snapshot_parties USING btree (party_id,managed_snapshot_id);
 
 
 -- Administrative revision receipts remain outside cognition provenance.
@@ -2880,7 +2833,7 @@ ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_owner_key UNIQUE (
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_version_key UNIQUE (subject_id,mind_version);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_previous_fkey FOREIGN KEY (previous_revision_id,subject_id) REFERENCES armi.mind_revisions(mind_revision_id,subject_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_admin_change_fkey FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 CREATE INDEX mind_revisions_payload_trgm_idx ON armi.mind_revisions USING gin ((semantic_payload::text) armi_extensions.gin_trgm_ops);
 
@@ -2914,8 +2867,6 @@ ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_validated_attempt_fkey FOREIGN KEY (validated_model_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_change_set_fkey FOREIGN KEY (change_set_artifact_id) REFERENCES armi.artifacts(artifact_id);
-ALTER TABLE ONLY armi.cognitive_episodes
-    ADD CONSTRAINT cognitive_episodes_subject_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_successor_fkey FOREIGN KEY (successor_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
@@ -2987,3 +2938,9 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 CREATE INDEX subjective_memory_revisions_related_memory_idx
     ON armi.subjective_memory_revisions (related_memory_id, created_at DESC)
     WHERE related_memory_id IS NOT NULL;
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_commit_runtime_fkey FOREIGN KEY (commit_runtime_instance_id)
+    REFERENCES armi.runtime_instances(runtime_instance_id);
+CREATE INDEX creator_exports_snapshot_party_scopes_idx
+    ON armi.creator_exports USING gin (snapshot_party_scopes);

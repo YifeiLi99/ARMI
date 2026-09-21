@@ -178,7 +178,7 @@ def test_format_retry_attempts_preserve_evidence_and_do_not_resume(
                 }[outcome],
             )
             assert connection.execute(
-                "SELECT count(*) FROM armi.subject_commits"
+                "SELECT count(*) FROM armi.cognitive_episodes WHERE subject_commit_id IS NOT NULL"
             ).fetchone() == (0,)
             assert connection.execute(
                 "SELECT count(*) FROM armi.effects"

@@ -90,6 +90,7 @@ CREATE TABLE armi.codex_task_sources (
 
 CREATE TABLE armi.creator_exports (
     creator_export_id uuid NOT NULL,
+    snapshot_party_scopes jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(snapshot_party_scopes)='object'),
     snapshot_contract_version text,
     snapshot_status text,
     snapshot_removed_at timestamp(6) with time zone,
@@ -133,13 +134,6 @@ CREATE TABLE armi.creator_exports (
 );
 
 
-CREATE TABLE armi.managed_data_snapshot_parties (
-    managed_snapshot_id uuid NOT NULL,
-    party_id uuid NOT NULL,
-    contact_generation bigint NOT NULL,
-    use_generation bigint NOT NULL,
-    CONSTRAINT managed_data_snapshot_parties_generation_check CHECK ((contact_generation > 0) AND (use_generation > 0))
-);
 
 --
 -- Name: data_rights_order_items; Type: TABLE; Schema: armi; Owner: -

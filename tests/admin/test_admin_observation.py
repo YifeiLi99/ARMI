@@ -141,7 +141,7 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
     )
     ports["effects"].snapshot.return_value = effect
     ports["effects"].for_intent.return_value = (effect,)
-    ports["runtime"].commits_for_episode.return_value = ((ids["commit"], 2),)
+    ports["cognition"].commits_for_episode.return_value = ((ids["commit"], 2),)
     ports["artifacts"].object_identity.return_value = ids["object"]
     ports["cognition"].artifact_episodes.side_effect = lambda tx, artifact_id: (
         (ids["episode"],) if artifact_id in {ids["manifest"], ids["compiled"]} else ()

@@ -682,30 +682,18 @@ class PostgreSQLSubjectCommitRepository:
         commit_id = SubjectCommitId(uuid7())
         new_version = change_set.base_subject_version + 1
         fence = cast(RuntimeFence, unit_of_work.runtime_fence)
-        await connection.execute(
-            """
-            INSERT INTO armi.subject_commits (
-                subject_commit_id, candidate_validation_id,
-                cognitive_episode_id, subject_id,
-                bundle_activation_id, base_subject_version,
-                new_subject_version, base_state_epoch,
-                runtime_instance_id, fence_token, trace_id) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s)
-            """,
-            (
-                commit_id.value,
-                snapshot.validation_id,
-                snapshot.episode_id,
-                snapshot.subject_id,
-                snapshot.activation_id,
-                change_set.base_subject_version,
-                new_version,
-                change_set.base_state_epoch,
-                fence.runtime_instance_id.value,
-                fence.fence_token,
-                snapshot.trace_id.value,
-            ),
+        await self._cognition_commit.register_subject_commit(
+            connection,
+            episode_id=snapshot.episode_id,
+            validation_id=snapshot.validation_id,
+            subject_id=snapshot.subject_id,
+            activation_id=snapshot.activation_id,
+            base_subject_version=snapshot.base_subject_version,
+            base_state_epoch=snapshot.base_state_epoch,
+            commit_id=commit_id.value,
+            new_subject_version=new_version,
+            runtime_instance_id=fence.runtime_instance_id.value,
+            fence_token=fence.fence_token,
         )
         experience_ids: dict[str, ExperienceId] = {}
         memory_experience_sources: list[MemoryExperienceSource] = []

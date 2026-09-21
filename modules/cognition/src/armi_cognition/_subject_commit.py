@@ -319,6 +319,77 @@ class PostgreSQLCognitionSubjectCommit:
             transaction, subject_id=subject_id, acceptance_ordinal=acceptance_ordinal
         )
 
+    async def register_subject_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        validation_id: UUID,
+        subject_id: UUID,
+        activation_id: UUID,
+        base_subject_version: int,
+        base_state_epoch: int,
+        commit_id: UUID,
+        new_subject_version: int,
+        runtime_instance_id: UUID,
+        fence_token: int,
+    ) -> None:
+        # Runtime owns the transaction; Cognition owns its persisted receipt (DESIGN.md).
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes
+               SET subject_commit_id=%s,new_subject_version=%s,
+                   commit_runtime_instance_id=%s,commit_fence_token=%s
+               WHERE cognitive_episode_id=%s AND candidate_validation_id=%s
+                 AND subject_id=%s AND bundle_activation_id=%s
+                 AND base_subject_version=%s AND base_state_epoch=%s
+                 AND status='finalizing' AND subject_commit_id IS NULL
+                 AND candidate_application_id IS NULL
+               RETURNING cognitive_episode_id""",
+                (
+                    commit_id,
+                    new_subject_version,
+                    runtime_instance_id,
+                    fence_token,
+                    episode_id,
+                    validation_id,
+                    subject_id,
+                    activation_id,
+                    base_subject_version,
+                    base_state_epoch,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise SubjectCommitViolation("SUBJECT-WORK-STALE")
+
+    async def commit_at_version(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        subject_version: int,
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                """SELECT subject_commit_id FROM armi.cognitive_episodes
+               WHERE subject_id=%s AND new_subject_version=%s""",
+                (subject_id, subject_version),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
+    async def episode_for_commit(
+        self, transaction: PostgreSQLTransaction, *, subject_commit_id: UUID
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                "SELECT cognitive_episode_id FROM armi.cognitive_episodes WHERE subject_commit_id=%s",
+                (subject_commit_id,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
     async def record_application(
         self, transaction: PostgreSQLTransaction, draft: CognitionApplicationDraft
     ) -> None:

@@ -992,6 +992,7 @@ async def _serve(
             await exact_life_query_pipeline.open()
             subject_summary_provider = RuntimeSubjectSummaryAssembler(
                 runtime_unit_of_work_factory,
+                cognition=cognition_owner,
                 subject_state=subject_state_module.read,
                 subject_id=authority.require_writable().subject_id,
                 mind=mind_module.read,

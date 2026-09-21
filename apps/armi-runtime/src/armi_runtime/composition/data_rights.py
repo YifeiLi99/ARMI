@@ -24,7 +24,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _RUNTIME_OWNER = DataRightsOwnerIdentity("runtime")
 _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
 _VERSION = DataRightsContributionVersion(1)
-_RUNTIME_VERSION = DataRightsContributionVersion(5)
+_RUNTIME_VERSION = DataRightsContributionVersion(6)
 _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "admin_data_changes",
@@ -49,10 +49,6 @@ _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "schema_baseline_identity",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.schema_baseline_identity AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "subject_commits",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.subject_commits AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "subjects",

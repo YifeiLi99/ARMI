@@ -194,6 +194,20 @@ CREATE TABLE armi.cognitive_episodes (
     change_set_artifact_id uuid,
     candidate_application_id uuid UNIQUE,
     subject_commit_id uuid UNIQUE,
+    new_subject_version bigint,
+    commit_runtime_instance_id uuid,
+    commit_fence_token bigint,
+    CONSTRAINT cognitive_episodes_subject_commit_key UNIQUE (subject_commit_id,subject_id),
+    CONSTRAINT cognitive_episodes_subject_version_key UNIQUE (subject_id,new_subject_version),
+    CONSTRAINT cognitive_episodes_commit_ledger_check CHECK (
+        (subject_commit_id IS NULL AND new_subject_version IS NULL
+         AND commit_runtime_instance_id IS NULL AND commit_fence_token IS NULL)
+        OR (subject_commit_id IS NOT NULL AND candidate_validation_id IS NOT NULL
+            AND new_subject_version IS NOT NULL AND new_subject_version=base_subject_version+1
+            AND commit_runtime_instance_id IS NOT NULL
+            AND commit_fence_token IS NOT NULL AND commit_fence_token>0
+            AND uuid_extract_version(subject_commit_id)=7)
+    ),
     successor_opportunity_id uuid UNIQUE,
     observed_subject_version bigint,
     exact_life_query_intent_id uuid,
@@ -259,7 +273,7 @@ CREATE TABLE armi.cognitive_episodes (
         OR (validation_status IS NOT NULL AND validation_status IN ('accepted','partially_accepted') AND candidate_validation_id IS NOT NULL AND validated_model_attempt_id IS NOT NULL AND change_set_artifact_id IS NOT NULL AND final_disposition IS NOT NULL AND validated_at IS NOT NULL)
     ),
     CONSTRAINT cognitive_episodes_application_result_check CHECK (
-        (candidate_application_id IS NULL AND subject_commit_id IS NULL AND successor_opportunity_id IS NULL AND observed_subject_version IS NULL)
+        (candidate_application_id IS NULL AND successor_opportunity_id IS NULL AND observed_subject_version IS NULL AND (subject_commit_id IS NULL OR status='finalizing'))
         OR (candidate_application_id IS NOT NULL AND candidate_validation_id IS NOT NULL AND observed_subject_version IS NOT NULL AND observed_subject_version >= 0)
     ),
     CONSTRAINT cognitive_episodes_commit_result_check CHECK (

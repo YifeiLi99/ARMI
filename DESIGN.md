@@ -126,7 +126,7 @@ Windows 安装版按当前用户部署，不注册系统服务。私有 Python�
 
 记忆修订直接保存关联记忆与关联类型；关系修订直接保存来源经历与依据类型，维持每次修订最多一个关联、来源外键和重新建立关系时的经历防复用检查。主体记录保存经历整理游标，由 Runtime 端口在同一提交事务中推进；只有最终反思提交成功才推进已处理范围，中断不跳过未整理经历。
 
-Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 60 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
+Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 57 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
 
 ## 5. 主体与连续性
 
@@ -298,7 +298,7 @@ Mood v5 / cpm-fuzzy.v4 包含 `engagement`：满足的投入、投入不足、�
 
 同一 episode 的重评修正：`new` 和有依据的新刺激 `reinforce` 追加感受；`reappraise/resolve` 更新已有贡献，不叠加完整新刺激。整体事件感受与各情绪家族分别按新旧推导强度之比调整当前余量、更新方向和半衰期；原样重评保留原衰减起点，只改变应对能力不额外增加悲伤。新家族开始感受；退出评价的家族保留余绪，半衰期在重评时乘 0.5、解决时乘 0.25，后续无关重评不重复加速；家族重新出现时替换其余绪。整体事件感受变为零时同样加速消退。解决后不再是可续接 episode；最新 gist/phase 仍用于未解决 episode 的投影。算法根据已保存的逐次推导结果重建轨迹，不改历史记录或输入/存储结构。模型共享指令明确：仅重复思考不应选 `new/reinforce`；误判为新刺激仍会加强，不能靠此算法证明语义理解正确。
 
-连续事件感受：每次评价独立保存 `derived_vad`、`affect_intensity` 与 `affect_half_life_seconds`。强度为重要程度乘以目标/体验/准则影响、意外性、紧迫性、努力或明确投入不足中的最大信号（投入不足暂取 0.5），按 0–100 整数保存；未知或无变化本身不生成刺激。当前 VAD 与活动 episode 强度只累计事件感受一次，不再累计其情绪名称。无情绪名称的事件仍可影响心情与进入活动 episode；名称仍独立衰减，用于 top-3 情绪和行动倾向。情绪匹配取消 0.5 硬门槛，非零匹配形成有界强度，允许轻微感受及强弱不同的混合情绪。确定损失可产生悲伤，应对能力独立影响掌控感，不作为悲伤存在的前提。VAD 目标、指数衰减形状、重评/解决加速比例和行动倾向映射保持原公式；新事件感受沿用重要性、强度与事件阶段的半衰期公式。这些权重仍是待校准的工程假设，不构成人类心理效度证明。状态合同为 `armi.mood.v5`，候选输入不变；baseline v44 不兼容旧数据库，不能在安装更新时自动改库或重算历史。
+连续事件感受：每次评价独立保存 `derived_vad`、`affect_intensity` 与 `affect_half_life_seconds`。强度为重要程度乘以目标/体验/准则影响、意外性、紧迫性、努力或明确投入不足中的最大信号（投入不足暂取 0.5），按 0–100 整数保存；未知或无变化本身不生成刺激。当前 VAD 与活动 episode 强度只累计事件感受一次，不再累计其情绪名称。无情绪名称的事件仍可影响心情与进入活动 episode；名称仍独立衰减，用于 top-3 情绪和行动倾向。情绪匹配取消 0.5 硬门槛，非零匹配形成有界强度，允许轻微感受及强弱不同的混合情绪。确定损失可产生悲伤，应对能力独立影响掌控感，不作为悲伤存在的前提。VAD 目标、指数衰减形状、重评/解决加速比例和行动倾向映射保持原公式；新事件感受沿用重要性、强度与事件阶段的半衰期公式。这些权重仍是待校准的工程假设，不构成人类心理效度证明。状态合同为 `armi.mood.v5`，候选输入不变；当前 baseline 不兼容旧数据库，不能在安装更新时自动改库或重算历史。
 
 实验策略为：目标强度 = 100 × 重要性 × 差距 × 与期望结果有关的条件。理解使用未解释程度，投入使用停滞/重复程度，交流使用关系愿望的差距；可行机会单独保留，不把不能行动当作没有愿望。重要性映射 0/0.25/0.65/1，差距映射 0/0.3/1；部分理解取 0.5，停滞取 0.6。状态按实际时间以 30 分钟半衰期趋近有界目标，重复评价不累加刺激；初始强度为 0，满足/放下立即结束。已明确无差距、无重要性、已理解或持续有效投入时，目标为零，即使其他维度未知也不能保留旧增长目标；没有此类明确依据的未知评价才保留已有目标并标记不确定。这些数值是待检验的工程假设，不是心理学常数。更改评估频率不得改变恒定处境下的轨迹，时间本身不创建未满足愿望。
 
@@ -543,7 +543,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v63` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v64` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
@@ -595,7 +595,7 @@ Codex 结果表直接保存证据和后续思考机会关联，不再单独建�
 
 睡眠决定直接保存在对应的 cognitive_episodes：是否入睡、周期锚点和延期复查时间，与该轮认知的主体、机会和提交共用记录；决定时间沿用 committed_at。只有决定入睡才创建 maintenance_sessions，并通过 sleep_episode_id 关联来源认知；睡眠进度仍由 Sleep 维护。
 
-当前 baseline 为 v56，只维护最新数据库的空库安装与精确校验。动作意图及其内容、待执行状态、领取租约和结果统一存于 effects，以 effect_id 领取和结算；登记不代表执行成功。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
+数据库只维护最新数据库的空库安装与精确校验。动作意图及其内容、待执行状态、领取租约和结果统一存于 effects，以 effect_id 领取和结算；登记不代表执行成功。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
 
 出生合同摘要只按当前 packaged 合同核验；不匹配时拒绝启动，不容纳旧合同摘要。
 
@@ -607,4 +607,8 @@ Codex 结果表直接保存证据和后续思考机会关联，不再单独建�
 
 Codex 的任务来源与执行结果共用 `codex_task_sources` 一条记录。未交回结果时结果字段为空，结算时同事务登记执行状态、独立清理状态、正文 Artifact、证据和后续机会；一个任务只接受一次结果，不覆盖已有结果或重跑。合并表包含核验事实，Admin 表维护只读。
 
-Creator 导出文件的合同版本、存在/移除状态直接保存在 `creator_exports`。完成或部分完成后才登记文件状态，移除文件不改写原导出结果；`managed_data_snapshot_parties` 直接关联导出 ID，继续保存涉及哪些人的权限范围。
+Creator 导出文件的合同版本、存在/移除状态直接保存在 `creator_exports`。完成或部分完成后才登记文件状态，移除文件不改写原导出结果；涉及人员及导出时的权限计数直接保存在 `snapshot_party_scopes`，格式为 party ID → [contact, use]；按人员撤回权限时仍可查出受影响的有效导出。
+
+主体提交回执保存在对应 cognitive_episodes 的 subject_commit_id、new_subject_version、commit_runtime_instance_id 和 commit_fence_token 中，复用来源、基准版本和追踪字段。Runtime 仍协调同一原子事务，由 Cognition owner 写入；各业务事实继续外键关联提交 ID。该表不允许管理端物理改写，避免修改已提交事实。
+
+实时视觉的开关、设备身份、分辨率和会话故障写运行日志，会话存于内存；关闭与采集互斥，重开后不接纳旧会话帧。实际观察、图像及识别结果仍由 live_vision_observations 和 frames 保存；session_id 仅作日志关联，不再指向会话表。

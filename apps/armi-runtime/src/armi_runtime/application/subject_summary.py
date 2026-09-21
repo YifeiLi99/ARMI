@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from armi_cognition.api import CognitionOperationReadPort
 from armi_mind.api import MindReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
@@ -72,7 +73,7 @@ class SubjectSummary:
 
 
 class RuntimeSubjectSummaryAssembler:
-    __slots__ = ("_factory", "_mind", "_subject_id", "_subject_state")
+    __slots__ = ("_cognition", "_factory", "_mind", "_subject_id", "_subject_state")
 
     def __init__(
         self,
@@ -81,11 +82,13 @@ class RuntimeSubjectSummaryAssembler:
         subject_id: UUID,
         subject_state: SubjectStateReadPort,
         mind: MindReadPort,
+        cognition: CognitionOperationReadPort,
     ) -> None:
         self._factory = factory
         self._subject_id = subject_id
         self._subject_state = subject_state
         self._mind = mind
+        self._cognition = cognition
 
     async def __call__(self) -> SubjectSummary:
         async with self._factory.unit_of_work(read_only=True) as unit_of_work:
@@ -93,23 +96,24 @@ class RuntimeSubjectSummaryAssembler:
             row = await (
                 await transaction.execute(
                     """
-                    SELECT subject_version,
-                           (SELECT subject_commit_id FROM armi.subject_commits
-                            WHERE subject_id = subjects.subject_id
-                            ORDER BY new_subject_version DESC LIMIT 1),
-                           statement_timestamp()
+                    SELECT subject_version, statement_timestamp()
                     FROM armi.subjects WHERE subject_id = %s AND status = 'active'
                     """,
                     (self._subject_id,),
                 )
             ).fetchone()
+            if row is None:
+                raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
+            commit_id = await self._cognition.commit_at_version(
+                transaction, subject_id=self._subject_id, subject_version=int(row[0])
+            )
             heads = await self._subject_state.current_heads(
                 transaction, subject_id=self._subject_id
             )
             mind = await self._mind.current_head(
                 transaction, subject_id=self._subject_id
             )
-        if row is None or len(heads) != 2:
+        if len(heads) != 2:
             raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
         components = [
             SubjectComponentSummary(
@@ -125,7 +129,7 @@ class RuntimeSubjectSummaryAssembler:
                 SubjectComponentKind.MIND, mind.version, "armi.mind.v4"
             ),
         )
-        return SubjectSummary(int(row[0]), tuple(components), row[1], row[2])
+        return SubjectSummary(int(row[0]), tuple(components), commit_id, row[1])
 
 
 __all__ = (

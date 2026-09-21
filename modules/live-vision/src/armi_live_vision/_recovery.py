@@ -72,12 +72,6 @@ class LiveVisionRecoveryParticipant:
         reconciliation = OwnerReconciliationContext(
             transaction, self.owner_identity, work
         )
-        rows = await (
-            await transaction.execute(
-                """UPDATE armi.live_vision_sessions SET state='failed',ended_at=statement_timestamp(),
-               error_code='VISION-RUNTIME-RESTARTED' WHERE ended_at IS NULL RETURNING session_id"""
-            )
-        ).fetchall()
         observation_rows = await (
             await transaction.execute(
                 """UPDATE armi.live_vision_observations
@@ -101,18 +95,15 @@ class LiveVisionRecoveryParticipant:
         return RecoveryContribution(
             self.owner_identity,
             findings=()
-            if not rows and not observation_rows
+            if not observation_rows
             else (
                 RecoveryFindingContribution(
                     "live_vision_runtime_state",
                     RecoveryFindingDecision.TERMINAL,
-                    "REC-LIVE-VISION-SESSION-ENDED",
+                    "REC-LIVE-VISION-OBSERVATION-ENDED",
                 ),
             ),
             metrics=(
-                RecoveryMetricContribution(
-                    "live_vision.ended_session_count", len(rows)
-                ),
                 RecoveryMetricContribution(
                     "live_vision.unknown_observation_count", len(observation_rows)
                 ),
