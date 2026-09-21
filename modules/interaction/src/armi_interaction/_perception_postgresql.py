@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from uuid import UUID, uuid7
 
+from armi_kernel.application import ProviderCallReceipt
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLTransaction
 
@@ -21,6 +23,115 @@ from .api import (
 
 
 class PostgreSQLInteractionPerception:
+    async def begin_recognition(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        request_artifact_id: UUID,
+        work_id: UUID,
+        use_generation: int,
+    ) -> None:
+        result = await transaction.execute(
+            """UPDATE armi.external_message_parts
+               SET recognition_request_artifact_id=%s,recognition_work_id=%s,
+                   recognition_use_generation=%s
+               WHERE external_message_part_id=%s AND processing_status='pending'
+                 AND recognition_request_artifact_id IS NULL""",
+            (request_artifact_id, work_id, use_generation, part_id),
+        )
+        if result.rowcount != 1:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION-EXISTS")
+
+    async def recognition_fence(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+    ) -> tuple[UUID, int]:
+        row = await (
+            await transaction.execute(
+                """SELECT input.source_party_id,part.recognition_use_generation
+               FROM armi.external_message_parts AS part
+               JOIN armi.party_input_interactions AS input USING (interaction_id)
+               WHERE part.external_message_part_id=%s AND part.processing_status='pending'
+                 AND part.recognition_request_artifact_id IS NOT NULL
+                 AND input.data_rights_hidden_at IS NULL
+               FOR UPDATE OF part,input""",
+                (part_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+        return row[0], int(row[1])
+
+    async def record_recognition_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        artifact_id: UUID,
+    ) -> None:
+        result = await transaction.execute(
+            """UPDATE armi.external_message_parts SET recognition_response_artifact_id=%s
+               WHERE external_message_part_id=%s AND processing_status='pending'
+                 AND recognition_request_artifact_id IS NOT NULL""",
+            (artifact_id, part_id),
+        )
+        if result.rowcount != 1:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+
+    async def record_recognition_call(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        # DESIGN.md: late usage may settle an existing call without restarting recognition.
+        result = await transaction.execute(
+            """UPDATE armi.external_message_parts
+               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE external_message_part_id=%s
+                 AND ((%s AND processing_status='pending' AND recognition_request_artifact_id IS NOT NULL
+                          AND NOT (provider_calls ? %s))
+                      OR (NOT %s AND provider_calls ? %s))""",
+            (
+                receipt.call_id,
+                json.dumps(receipt.document()),
+                part_id,
+                receipt.registration,
+                receipt.call_id,
+                receipt.registration,
+                receipt.call_id,
+            ),
+        )
+        if result.rowcount != 1:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+
+    async def interrupt_recognition(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_ids: tuple[UUID, ...] | None,
+        error_code: str,
+    ) -> tuple[UUID, ...]:
+        rows = await (
+            await transaction.execute(
+                """UPDATE armi.external_message_parts
+               SET processing_status='unknown',failure_code=%s,settled_at=statement_timestamp()
+               WHERE processing_status='pending' AND recognition_request_artifact_id IS NOT NULL
+                 AND (%s::uuid[] IS NULL OR interaction_id=ANY(%s::uuid[]))
+               RETURNING recognition_work_id""",
+                (
+                    error_code,
+                    None if interaction_ids is None else list(interaction_ids),
+                    None if interaction_ids is None else list(interaction_ids),
+                ),
+            )
+        ).fetchall()
+        return tuple(row[0] for row in rows)
+
     async def creator_input_ids(
         self, transaction: PostgreSQLTransaction, interaction_ids: tuple[UUID, ...]
     ) -> tuple[UUID, ...]:
@@ -53,24 +164,6 @@ class PostgreSQLInteractionPerception:
         if row is None:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
         return row[0], row[1]
-
-    async def recognition_source_visible(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        interaction_id: UUID,
-        source_party_id: UUID,
-    ) -> bool:
-        row = await (
-            await transaction.execute(
-                """SELECT 1 FROM armi.party_input_interactions
-                   WHERE interaction_id=%s AND source_party_id=%s
-                     AND data_rights_hidden_at IS NULL
-                   FOR UPDATE""",
-                (interaction_id, source_party_id),
-            )
-        ).fetchone()
-        return row is not None
 
     async def recover_terminal(
         self,

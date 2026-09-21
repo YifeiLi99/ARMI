@@ -210,7 +210,7 @@ from armi_mind.api import MindCognitionPort, MindCommitPort, MindReadPort
 from armi_mind.bootstrap import MindModule, bootstrap_mind
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
-from armi_perception.api import ExternalMediaFetchPort
+from armi_perception.api import ExternalMediaFetchPort, PerceptionDiagnostic
 from armi_perception.bootstrap import (
     PerceptionModule,
     bootstrap_perception,
@@ -1111,7 +1111,7 @@ def compose_perception_module(
     opportunity: OpportunityAdmissionPort,
     catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus,
-    diagnostic: Callable[[str], None] | None = None,
+    diagnostic: PerceptionDiagnostic | None = None,
 ) -> PerceptionModule:
     model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
     speech_locator = prepared.effective.config.secret_locators.get(SPEECH_LOCATOR_NAME)

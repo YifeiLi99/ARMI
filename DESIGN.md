@@ -128,6 +128,8 @@ Runtime 拥有跨 Owner 的统一主体版本；Subject State 只拥有 Self 与
 
 Creator HTTP/CLI、other-human 控制面、QQ、live voice、视觉/Web/Codex 结果都先形成稳定 interaction/evidence/opportunity 身份。重复 idempotency key 返回同一逻辑接纳，不产生第二段经历。外部媒体先成为受治理 artifact，再由 Perception 识别；识别文字不自动等于 sender 原话或主体记忆。
 
+每个消息附件最多发起一次模型识别，请求、原始返回 Artifact 引用和 Provider 用量回执归入 `external_message_parts`，识别状态复用附件处理状态，不另建调用表。Perception 通过 Interaction 的正式接口登记与结算；请求标记防重复，调用前冻结数据使用版本，返回后仍核验来源可见性和使用版本。调用过程写日志；中断或停止使用后不恢复识别，迟到用量只允许补记已登记的调用。附件请求与原始返回参与同一 Interaction 数据权利发现、导出及 Artifact 引用管理。
+
 ### 6.2 Context
 
 Context 以 purpose profile 冻结，而不是拼接所有历史。四层为 stable prefix、scope context、conversation history、turn tail；可选 section 闭集为 runtime truth、purpose、Self、Mind、Mood、life mode、scene、relationship、memory、activity、material、evidence、capability、prompt。

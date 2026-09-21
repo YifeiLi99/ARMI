@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
@@ -42,35 +41,18 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from .api import ExternalContentRecognitionResult
-
 
 class PostgreSQLExternalContentRepository:
     async def record_provider_call(
         self,
         unit: PostgreSQLRuntimeUnitOfWork,
         *,
-        attempt_id: UUID,
+        part_id: UUID,
         receipt: ProviderCallReceipt,
     ) -> None:
-        result = await unit.transaction.execute(
-            """UPDATE armi.external_content_recognition_attempts
-               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
-               WHERE recognition_attempt_id=%s
-                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
-                      OR (NOT %s AND provider_calls ? %s))""",
-            (
-                receipt.call_id,
-                json.dumps(receipt.document()),
-                attempt_id,
-                receipt.registration,
-                receipt.call_id,
-                receipt.registration,
-                receipt.call_id,
-            ),
+        await self._interaction.record_recognition_call(
+            unit.transaction, part_id=part_id, receipt=receipt
         )
-        if result.rowcount != 1:
-            raise RuntimeError("PERCEPTION-ATTEMPT-STALE")
 
     __slots__ = (
         "_data_rights",
@@ -102,15 +84,6 @@ class PostgreSQLExternalContentRepository:
         connection = unit.transaction
         rows = await self._interaction.recover_terminal(connection, interaction_ids)
         for recovered in rows:
-            await connection.execute(
-                """UPDATE armi.external_content_recognition_attempts
-                   SET dispatch_status='settled',result_status='unknown',
-                       error_code='EXTERNAL-MESSAGE-RECOGNITION-INTERRUPTED',
-                       settled_at=statement_timestamp()
-                   WHERE external_message_part_id=ANY(%s)
-                     AND dispatch_status='dispatched'""",
-                (recovered.part_ids,),
-            )
             now = Instant(datetime.now(UTC))
             await unit.work.enqueue(
                 WorkDraft(
@@ -169,7 +142,7 @@ class PostgreSQLExternalContentRepository:
             frame_count=frame_count,
         )
 
-    async def begin_attempt(
+    async def begin_recognition(
         self,
         unit: PostgreSQLRuntimeUnitOfWork,
         *,
@@ -177,43 +150,22 @@ class PostgreSQLExternalContentRepository:
         part_id: UUID,
         raw_artifact_id: UUID,
         request_artifact_id: UUID,
-        provider: str,
-        model_id: str,
-    ) -> UUID:
+    ) -> None:
         await unit.work.validate_lease(lease)
         await self.attach_raw(unit, part_id=part_id, raw_artifact_id=raw_artifact_id)
-        connection = unit.transaction
-        interaction_id, source_party_id = await self._interaction.recognition_source(
-            connection, part_id=part_id
+        _, source_party_id = await self._interaction.recognition_source(
+            unit.transaction, part_id=part_id
         )
-        fence = await self._data_rights.capture(connection, party_id=source_party_id)
-        attempt_id = uuid7()
-        inserted = await connection.execute(
-            """
-            INSERT INTO armi.external_content_recognition_attempts (
-                recognition_attempt_id, external_message_part_id,
-                interaction_id, source_party_id, data_rights_use_generation, work_id,
-                work_attempt_id, provider, model_id, request_artifact_id,
-                dispatch_status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'dispatched')
-            ON CONFLICT (external_message_part_id) DO NOTHING
-            """,
-            (
-                attempt_id,
-                part_id,
-                interaction_id,
-                source_party_id,
-                fence.use_generation,
-                lease.work_id.value,
-                lease.attempt_id.value,
-                provider,
-                model_id,
-                request_artifact_id,
-            ),
+        fence = await self._data_rights.capture(
+            unit.transaction, party_id=source_party_id
         )
-        if inserted.rowcount != 1:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-ATTEMPT-EXISTS")
-        return attempt_id
+        await self._interaction.begin_recognition(
+            unit.transaction,
+            part_id=part_id,
+            request_artifact_id=request_artifact_id,
+            work_id=lease.work_id.value,
+            use_generation=fence.use_generation,
+        )
 
     async def settle_success(
         self,
@@ -224,68 +176,31 @@ class PostgreSQLExternalContentRepository:
         raw_artifact_id: UUID,
         interpretation_artifact_id: UUID,
         interpretation_text: str,
-        attempt_id: UUID | None = None,
         response_artifact_id: UUID | None = None,
-        result: ExternalContentRecognitionResult | None = None,
     ) -> None:
         await unit.work.validate_lease(lease)
-        connection = unit.transaction
-        if attempt_id is not None:
-            attempt = await (
-                await connection.execute(
-                    """SELECT interaction_id,source_party_id,
-                              data_rights_use_generation
-                       FROM armi.external_content_recognition_attempts
-                       WHERE recognition_attempt_id=%s
-                         AND dispatch_status='dispatched'
-                       FOR UPDATE""",
-                    (attempt_id,),
-                )
-            ).fetchone()
-            if (
-                attempt is None
-                or not await self._interaction.recognition_source_visible(
-                    connection,
-                    interaction_id=attempt[0],
-                    source_party_id=attempt[1],
-                )
-            ):
-                raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+        if response_artifact_id is not None:
+            party_id, generation = await self._interaction.recognition_fence(
+                unit.transaction, part_id=part_id
+            )
             await self._data_rights.validate(
-                connection,
-                DataRightsFence(attempt[1], 1, int(attempt[2])),
+                unit.transaction,
+                DataRightsFence(party_id, 1, generation),
                 require_contact=False,
                 require_use=True,
             )
+            await self._interaction.record_recognition_response(
+                unit.transaction,
+                part_id=part_id,
+                artifact_id=response_artifact_id,
+            )
         await self._interaction.settle_part_success(
-            connection,
+            unit.transaction,
             part_id=part_id,
             raw_artifact_id=raw_artifact_id,
             interpretation_artifact_id=interpretation_artifact_id,
             interpretation_text=interpretation_text,
         )
-        if attempt_id is not None:
-            assert result is not None and response_artifact_id is not None
-            settled = await connection.execute(
-                """
-                UPDATE armi.external_content_recognition_attempts
-                SET dispatch_status = 'settled', provider_request_id = %s,
-                    provider_model_id = %s, response_artifact_id = %s,
-                    input_tokens = %s, output_tokens = %s,
-                    result_status = 'succeeded', settled_at = statement_timestamp()
-                WHERE recognition_attempt_id = %s AND dispatch_status = 'dispatched'
-                """,
-                (
-                    result.provider_request_id,
-                    result.response_model_id,
-                    response_artifact_id,
-                    result.input_tokens,
-                    result.output_tokens,
-                    attempt_id,
-                ),
-            )
-            if settled.rowcount != 1:
-                raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
 
     async def settle_failure(
         self,
@@ -295,38 +210,14 @@ class PostgreSQLExternalContentRepository:
         part_id: UUID,
         status: str,
         error_code: str,
-        attempt_id: UUID | None = None,
-        result: ExternalContentRecognitionResult | None = None,
     ) -> None:
         await unit.work.validate_lease(lease)
-        if status not in {"failed", "unknown"}:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION")
-        connection = unit.transaction
         await self._interaction.settle_part_failure(
-            connection, part_id=part_id, status=status, error_code=error_code
+            unit.transaction,
+            part_id=part_id,
+            status=status,
+            error_code=error_code,
         )
-        if attempt_id is not None:
-            settled = await connection.execute(
-                """
-                UPDATE armi.external_content_recognition_attempts
-                SET dispatch_status = 'settled', provider_request_id = %s,
-                    provider_model_id = %s, input_tokens = %s, output_tokens = %s,
-                    result_status = %s, error_code = %s,
-                    settled_at = statement_timestamp()
-                WHERE recognition_attempt_id = %s AND dispatch_status = 'dispatched'
-                """,
-                (
-                    None if result is None else result.provider_request_id,
-                    None if result is None else result.response_model_id,
-                    None if result is None else result.input_tokens,
-                    None if result is None else result.output_tokens,
-                    status,
-                    error_code,
-                    attempt_id,
-                ),
-            )
-            if settled.rowcount != 1:
-                raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
 
     async def finish_recognition(
         self,

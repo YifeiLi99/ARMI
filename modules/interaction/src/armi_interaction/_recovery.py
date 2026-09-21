@@ -35,7 +35,7 @@ class InteractionRecoveryParticipant:
         ).fetchall()
         input_ids: list[UUID] = [row[0] for row in rows]
         await transaction.execute(
-            """UPDATE armi.external_message_parts SET processing_status='failed',
+            """UPDATE armi.external_message_parts SET processing_status=CASE WHEN recognition_request_artifact_id IS NULL THEN 'failed' ELSE 'unknown' END,
                    failure_code='RECOGNITION-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
                WHERE interaction_id=ANY(%s::uuid[]) AND processing_status='pending'""",
             (input_ids,),

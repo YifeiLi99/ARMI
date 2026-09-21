@@ -20,18 +20,17 @@ WITH parents AS (
     LEFT JOIN armi.action_intents codex_origin ON codex_origin.action_intent_id=effect.action_intent_id
     WHERE e.purpose <> 'reflect_mood'
     UNION ALL
-    SELECT 'perception', a.recognition_attempt_id, origin.operation_id, 'interaction',
-           a.interaction_id, a.result_status, a.settled_at,
-           a.provider_calls, a.usage_contract_version, a.provider, a.model_id,
-           CASE WHEN a.provider = 'volcengine_doubao_speech' THEN 'asr' ELSE 'generation' END,
-           'external_content_recognition', a.dispatched_at,
-           a.provider_request_id, a.provider_model_id, a.input_tokens, a.output_tokens,
-           NULL::integer, NULL::integer, a.estimated_cost_microyuan, a.error_code
-    FROM armi.external_content_recognition_attempts a
+    SELECT 'interaction', p.external_message_part_id, origin.operation_id, 'interaction',
+           p.interaction_id, p.processing_status, p.settled_at,
+           p.provider_calls, 1, NULL::text, NULL::text,
+           NULL::text, 'external_content_recognition', p.created_at,
+           NULL::text, NULL::text, NULL::integer, NULL::integer,
+           NULL::integer, NULL::integer, NULL::bigint, p.failure_code
+    FROM armi.external_message_parts p
     LEFT JOIN LATERAL (
         SELECT o.root_opportunity_id AS operation_id
         FROM armi.external_evidence e JOIN armi.opportunities o USING (evidence_id)
-        WHERE e.interaction_id = a.interaction_id
+        WHERE e.interaction_id = p.interaction_id
         ORDER BY o.available_after, o.opportunity_id LIMIT 1
     ) origin ON true
     UNION ALL

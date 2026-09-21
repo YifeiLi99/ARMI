@@ -134,9 +134,10 @@ class PostgreSQLInteractionAdmin:
     ) -> int:
         row = transaction.execute(
             "SELECT (SELECT count(*) FROM armi.external_message_parts "
-            "WHERE raw_artifact_id=%s OR interpretation_artifact_id=%s) + "
+            "WHERE raw_artifact_id=%s OR interpretation_artifact_id=%s "
+            "OR recognition_request_artifact_id=%s OR recognition_response_artifact_id=%s) + "
             "(SELECT count(*) FROM armi.system_notifications WHERE payload_artifact_id=%s)",
-            (artifact_id, artifact_id, artifact_id),
+            (artifact_id, artifact_id, artifact_id, artifact_id, artifact_id),
         ).fetchone()
         return 0 if row is None else int(cast(int, row[0]))
 

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import OpportunityAdmissionPort
-from armi_data_rights.api import DataRightsFencePort, DataRightsParticipant
+from armi_data_rights.api import DataRightsFencePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import (
     ExternalMessagePartKind,
@@ -20,25 +20,17 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
-from ._admin import PostgreSQLPerceptionAdmin
 from ._application import Diagnostic, ExternalContentPipeline
-from ._data_rights import PostgreSQLPerceptionDataRightsParticipant
 from ._recognizer import ExternalContentRecognizer
 from ._recovery import PerceptionRecoveryParticipant
 from .api import (
     ExternalContentRecognitionPort,
     ExternalMediaFetchPort,
-    PerceptionAdminPort,
     PerceptionArtifactCatalogPort,
     PerceptionDurableWorkPort,
     PerceptionWakeupPort,
     PerceptionWorkerPort,
 )
-
-
-def bootstrap_perception_admin() -> PerceptionAdminPort:
-    return PostgreSQLPerceptionAdmin()
-
 
 compose_external_content_pipeline = ExternalContentPipeline
 
@@ -102,10 +94,6 @@ def bootstrap_perception(
     return PerceptionModule(worker)
 
 
-def bootstrap_perception_data_rights() -> DataRightsParticipant:
-    return PostgreSQLPerceptionDataRightsParticipant()
-
-
 def bootstrap_perception_recovery(
     interaction: InteractionPerceptionPort,
 ) -> RecoveryParticipant:
@@ -115,8 +103,6 @@ def bootstrap_perception_recovery(
 __all__ = (
     "PerceptionModule",
     "bootstrap_perception",
-    "bootstrap_perception_admin",
-    "bootstrap_perception_data_rights",
     "bootstrap_perception_recovery",
     "compose_external_content_pipeline",
 )

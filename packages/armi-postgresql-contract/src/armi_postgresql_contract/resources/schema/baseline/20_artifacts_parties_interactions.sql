@@ -127,41 +127,6 @@ CREATE TABLE armi.external_channel_bindings (
     CONSTRAINT external_channel_bindings_time_check CHECK ((last_observed_at >= first_observed_at))
 );
 
---
--- Name: external_content_recognition_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.external_content_recognition_attempts (
-    recognition_attempt_id uuid CONSTRAINT external_content_recognition_at_recognition_attempt_id_not_null NOT NULL,
-    external_message_part_id uuid CONSTRAINT external_content_recognition__external_message_part_id_not_null NOT NULL,
-    interaction_id uuid NOT NULL,
-    source_party_id uuid NOT NULL,
-    data_rights_use_generation bigint NOT NULL,
-    work_id uuid NOT NULL,
-    work_attempt_id uuid NOT NULL,
-    provider text NOT NULL,
-    model_id text NOT NULL,
-    request_artifact_id uuid CONSTRAINT external_content_recognition_attem_request_artifact_id_not_null NOT NULL,
-    dispatch_status text NOT NULL,
-    provider_request_id text,
-    provider_model_id text,
-    response_artifact_id uuid,
-    input_tokens integer,
-    output_tokens integer,
-    estimated_cost_microyuan bigint,
-    result_status text,
-    error_code text,
-    dispatched_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    settled_at timestamp(6) with time zone,
-    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version IN (0, 1)),
-    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
-    CONSTRAINT external_content_recognition_attempts_dispatch_check CHECK ((dispatch_status = ANY (ARRAY['dispatched'::text, 'settled'::text]))),
-    CONSTRAINT external_content_recognition_attempts_id_check CHECK ((uuid_extract_version(recognition_attempt_id) = 7)),
-    CONSTRAINT external_content_recognition_attempts_generation_check CHECK ((data_rights_use_generation > 0)),
-    CONSTRAINT external_content_recognition_attempts_result_check CHECK (((result_status IS NULL) OR (result_status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text])))),
-    CONSTRAINT external_content_recognition_attempts_settlement_check CHECK ((((dispatch_status = 'dispatched'::text) AND (result_status IS NULL) AND (settled_at IS NULL) AND (response_artifact_id IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'settled'::text) AND (result_status IS NOT NULL) AND (settled_at IS NOT NULL) AND (((result_status = 'succeeded'::text) AND (response_artifact_id IS NOT NULL) AND (error_code IS NULL)) OR ((result_status = ANY (ARRAY['failed'::text, 'unknown'::text, 'cancelled'::text])) AND (error_code IS NOT NULL)))))),
-    CONSTRAINT external_content_recognition_attempts_usage_check CHECK ((((input_tokens IS NULL) OR (input_tokens >= 0)) AND ((output_tokens IS NULL) OR (output_tokens >= 0)) AND ((estimated_cost_microyuan IS NULL) OR (estimated_cost_microyuan >= 0))))
-);
 
 --
 -- Name: external_message_parts; Type: TABLE; Schema: armi; Owner: -
@@ -192,6 +157,16 @@ CREATE TABLE armi.external_message_parts (
     pixel_width integer,
     pixel_height integer,
     frame_count integer,
+    recognition_request_artifact_id uuid,
+    recognition_response_artifact_id uuid,
+    recognition_work_id uuid,
+    recognition_use_generation bigint,
+    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT external_message_parts_recognition_check CHECK (
+        (recognition_request_artifact_id IS NULL AND recognition_work_id IS NULL AND recognition_use_generation IS NULL AND recognition_response_artifact_id IS NULL)
+        OR (recognition_request_artifact_id IS NOT NULL AND recognition_work_id IS NOT NULL AND recognition_use_generation IS NOT NULL AND recognition_use_generation > 0)
+    ),
+    CONSTRAINT external_message_parts_provider_calls_check CHECK (jsonb_typeof(provider_calls) = 'object'),
     CONSTRAINT external_message_parts_detected_media_type_check CHECK (((detected_media_type IS NULL) OR (detected_media_type ~ '^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$'::text))),
     CONSTRAINT external_message_parts_id_check CHECK ((uuid_extract_version(external_message_part_id) = 7)),
     CONSTRAINT external_message_parts_kind_check CHECK ((part_kind = ANY (ARRAY['text'::text, 'mention'::text, 'reply'::text, 'face'::text, 'image'::text, 'audio'::text, 'video'::text, 'file'::text, 'unknown'::text]))),

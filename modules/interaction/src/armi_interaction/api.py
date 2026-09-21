@@ -12,6 +12,7 @@ from armi_kernel.application import (
     ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
+    ProviderCallReceipt,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
@@ -628,6 +629,47 @@ class ExternalRecognitionRecovery:
 
 @runtime_checkable
 class InteractionPerceptionPort(Protocol):
+    async def begin_recognition(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        request_artifact_id: UUID,
+        work_id: UUID,
+        use_generation: int,
+    ) -> None: ...
+
+    async def recognition_fence(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+    ) -> tuple[UUID, int]: ...
+
+    async def record_recognition_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        artifact_id: UUID,
+    ) -> None: ...
+
+    async def record_recognition_call(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None: ...
+
+    async def interrupt_recognition(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_ids: tuple[UUID, ...] | None,
+        error_code: str,
+    ) -> tuple[UUID, ...]: ...
+
     async def creator_input_ids(
         self, transaction: PostgreSQLTransaction, interaction_ids: tuple[UUID, ...]
     ) -> tuple[UUID, ...]: ...
@@ -645,14 +687,6 @@ class InteractionPerceptionPort(Protocol):
     async def recognition_source(
         self, transaction: PostgreSQLTransaction, *, part_id: UUID
     ) -> tuple[UUID, UUID]: ...
-
-    async def recognition_source_visible(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        interaction_id: UUID,
-        source_party_id: UUID,
-    ) -> bool: ...
 
     async def attach_raw(
         self, transaction: PostgreSQLTransaction, *, part_id: UUID, artifact_id: UUID

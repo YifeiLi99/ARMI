@@ -72,6 +72,8 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         (
             ("external_message_parts", "interpretation_artifact_id", "party"),
             ("external_message_parts", "raw_artifact_id", "party"),
+            ("external_message_parts", "recognition_request_artifact_id", "party"),
+            ("external_message_parts", "recognition_response_artifact_id", "party"),
             ("system_notifications", "payload_artifact_id", "party"),
         ),
     ),
@@ -94,14 +96,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract("memory", ("memory",), ()),
     _contract("mood", ("mood",), ()),
     _contract("opportunity", (), ()),
-    _contract(
-        "perception",
-        ("media_recognition",),
-        (
-            ("external_content_recognition_attempts", "request_artifact_id", "party"),
-            ("external_content_recognition_attempts", "response_artifact_id", "party"),
-        ),
-    ),
     _contract(
         "prompt", ("prompt",), (("prompt_revisions", "content_artifact_id", "party"),)
     ),

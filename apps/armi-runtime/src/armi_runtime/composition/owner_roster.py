@@ -67,7 +67,6 @@ from armi_mind.bootstrap import bootstrap_mind_data_rights, bootstrap_mind_recov
 from armi_mood.api import MoodReadPort
 from armi_mood.bootstrap import bootstrap_mood_data_rights, bootstrap_mood_recovery
 from armi_perception.bootstrap import (
-    bootstrap_perception_data_rights,
     bootstrap_perception_recovery,
 )
 from armi_prompt.api import PromptReadPort
@@ -95,7 +94,7 @@ from armi_web_observation.bootstrap import (
 @dataclass(frozen=True, slots=True)
 class OwnerParticipantAggregate:
     owner: str
-    data_rights: DataRightsParticipant
+    data_rights: DataRightsParticipant | None
     recovery: RecoveryParticipant
 
 
@@ -105,7 +104,9 @@ class RuntimeOwnerRoster:
 
     @property
     def data_rights(self) -> tuple[DataRightsParticipant, ...]:
-        return tuple(owner.data_rights for owner in self.owners)
+        return tuple(
+            owner.data_rights for owner in self.owners if owner.data_rights is not None
+        )
 
     @property
     def recovery(self) -> tuple[RecoveryParticipant, ...]:
@@ -117,7 +118,7 @@ class RuntimeOwnerRoster:
         return tuple(RecoveryOwnerIdentity(owner) for owner in _RECOVERY_ORDER)
 
 
-_DATA_RIGHTS_ORDER = (
+_OWNER_ORDER = (
     "interaction",
     "perception",
     "live-voice",
@@ -206,7 +207,6 @@ def compose_runtime_owner_roster(
     }
     data_rights_participants = {
         "interaction": bootstrap_interaction_data_rights(),
-        "perception": bootstrap_perception_data_rights(),
         "live-voice": bootstrap_live_voice_data_rights(),
         "live-vision": bootstrap_live_vision_data_rights(),
         "evidence": bootstrap_evidence_data_rights(),
@@ -232,12 +232,12 @@ def compose_runtime_owner_roster(
     owners = tuple(
         OwnerParticipantAggregate(
             owner,
-            data_rights_participants[owner],
+            data_rights_participants.get(owner),
             recovery[owner],
         )
-        for owner in _DATA_RIGHTS_ORDER
+        for owner in _OWNER_ORDER
     )
-    if tuple(owner.owner for owner in owners) != _DATA_RIGHTS_ORDER:
+    if tuple(owner.owner for owner in owners) != _OWNER_ORDER:
         raise RuntimeError("RUNTIME-OWNER-ROSTER")
     return RuntimeOwnerRoster(owners)
 

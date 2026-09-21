@@ -615,6 +615,15 @@ class _ExternalMediaFetch:
 
 class _ExternalContentRecognizer:
     async def recognize(self, request) -> ExternalContentRecognitionResult:
+        from armi_kernel.application import provider_call
+
+        async with provider_call(
+            provider="test_provider", model="test_model", service="generation"
+        ) as call:
+            await call.capture(
+                usage={"input_tokens": 10, "output_tokens": 5},
+                provider_request_id="request-1",
+            )
         return ExternalContentRecognitionResult(
             ExternalContentRecognitionStatus.SUCCEEDED,
             "图片里有一张测试卡片。",
@@ -1053,7 +1062,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
-    @pytest.mark.test_group("data-rights", "artifacts", "live-vision")
+    @pytest.mark.test_group("data-rights", "artifacts", "live-vision", "perception")
     def test_data_rights_artifact_fk_contract_matches_installed_catalog(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -3090,7 +3099,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertNotIn(browser_token, log_text)
             self.assertNotIn(message, log_text)
 
-    @pytest.mark.test_group("interaction", "channels")
+    @pytest.mark.test_group("interaction", "channels", "perception")
     def test_external_messages_share_people_but_separate_conversations(
         self,
     ) -> None:
@@ -3115,6 +3124,111 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             birth_contract_digest=packaged["birth_contract_digest"],
             request_digest=Digest.from_bytes(b"qq-group-input-birth"),
         )
+
+        async def check_recognition_boundaries(factory, interaction_id):
+            from dataclasses import replace
+
+            from armi_data_rights.api import DataRightsViolation
+            from armi_interaction.api import ExternalMessageViolation
+            from armi_kernel.application import ProviderCallReceipt, estimate_cost
+
+            owner = PostgreSQLInteractionPerception()
+            fence_owner = bootstrap_data_rights_core().fence
+            async with factory.unit_of_work(read_only=True) as unit:
+                part_id, request_id, work_id = await (
+                    await unit.transaction.execute(
+                        "SELECT external_message_part_id,recognition_request_artifact_id,recognition_work_id FROM armi.external_message_parts WHERE interaction_id=%s AND recognition_request_artifact_id IS NOT NULL",
+                        (interaction_id,),
+                    )
+                ).fetchone()
+
+            async def pending(unit):
+                await unit.transaction.execute(
+                    "UPDATE armi.external_message_parts SET processing_status='pending',settled_at=NULL,interpretation_artifact_id=NULL,interpretation_text=NULL,recognition_response_artifact_id=NULL WHERE external_message_part_id=%s",
+                    (part_id,),
+                )
+
+            with self.assertRaises(ExternalMessageViolation):
+                async with factory.unit_of_work() as unit:
+                    await pending(unit)
+                    await owner.begin_recognition(
+                        unit.transaction,
+                        part_id=part_id,
+                        request_artifact_id=request_id,
+                        work_id=work_id,
+                        use_generation=1,
+                    )
+
+            with self.assertRaises(DataRightsViolation):
+                async with factory.unit_of_work() as unit:
+                    await pending(unit)
+                    party_id, generation = await owner.recognition_fence(
+                        unit.transaction, part_id=part_id
+                    )
+                    await unit.transaction.execute(
+                        "UPDATE armi.data_rights_party_fences SET use_generation=use_generation+1 WHERE party_id=%s",
+                        (party_id,),
+                    )
+                    await fence_owner.validate(
+                        unit.transaction,
+                        DataRightsFence(party_id, 1, generation),
+                        require_contact=False,
+                        require_use=True,
+                    )
+
+            class RollbackFixture(Exception):
+                pass
+
+            with self.assertRaises(RollbackFixture):
+                async with factory.unit_of_work() as unit:
+                    await pending(unit)
+                    receipt = ProviderCallReceipt(
+                        str(_uuid7()),
+                        "test_provider",
+                        "test_model",
+                        "generation",
+                        "external_content_recognition",
+                        datetime.now(UTC).isoformat(),
+                        None,
+                        estimate_cost(
+                            quantities=(),
+                            required_units=(),
+                            snapshot=None,
+                            billable=True,
+                        ),
+                        True,
+                    )
+                    await owner.record_recognition_call(
+                        unit.transaction, part_id=part_id, receipt=receipt
+                    )
+                    await owner.interrupt_recognition(
+                        unit.transaction,
+                        interaction_ids=(interaction_id,),
+                        error_code="RECOGNITION-RUNTIME-INTERRUPTED",
+                    )
+                    late = replace(
+                        receipt,
+                        outcome="returned",
+                        received_at=datetime.now(UTC).isoformat(),
+                        finished_at=datetime.now(UTC).isoformat(),
+                    )
+                    await owner.record_recognition_call(
+                        unit.transaction, part_id=part_id, receipt=late
+                    )
+                    with self.assertRaises(ExternalMessageViolation):
+                        await owner.record_recognition_call(
+                            unit.transaction,
+                            part_id=part_id,
+                            receipt=replace(receipt, call_id=str(_uuid7())),
+                        )
+                    row = await (
+                        await unit.transaction.execute(
+                            "SELECT processing_status,provider_calls->%s->>'outcome' FROM armi.external_message_parts WHERE external_message_part_id=%s",
+                            (receipt.call_id, part_id),
+                        )
+                    ).fetchone()
+                    self.assertEqual(row, ("unknown", "returned"))
+                    raise RollbackFixture()
 
         async def exercise(root: Path) -> tuple[Any, ...]:
             factory = PostgreSQLUnitOfWorkFactory(
@@ -3315,6 +3429,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertTrue(await pipeline.execute_once())
                     self.assertTrue(await pipeline.execute_once())
                     self.assertFalse(await pipeline.execute_once())
+                    await check_recognition_boundaries(
+                        input_factory, media.interaction_id.value
+                    )
                 finally:
                     await pipeline.close()
                     await pipeline_factory.close()
@@ -3456,14 +3573,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 SELECT input.recognition_status,
                        count(DISTINCT part.external_message_part_id),
-                       count(DISTINCT attempt.recognition_attempt_id),
+                       count(DISTINCT part.external_message_part_id) FILTER (WHERE part.recognition_request_artifact_id IS NOT NULL),
                        count(DISTINCT evidence.evidence_id),
                        count(DISTINCT opportunity.opportunity_id)
                 FROM armi.party_input_interactions AS input
                 JOIN armi.external_message_parts AS part
                   ON part.interaction_id = input.interaction_id
-                LEFT JOIN armi.external_content_recognition_attempts AS attempt
-                  ON attempt.external_message_part_id = part.external_message_part_id
                 LEFT JOIN armi.external_evidence AS evidence
                   ON evidence.interaction_id = input.interaction_id
                 LEFT JOIN armi.opportunities AS opportunity
@@ -3473,6 +3588,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (media.interaction_id.value,),
             ).fetchone()
+            recognition_receipt = connection.execute(
+                """SELECT part.recognition_request_artifact_id IS NOT NULL,
+                          part.recognition_response_artifact_id IS NOT NULL,
+                          usage.owner,usage.receipt->>'provider_request_id',
+                          usage.receipt->'raw_usage'->>'input_tokens'
+                   FROM armi.external_message_parts part
+                   JOIN armi.provider_usage_calls usage ON usage.attempt_id=part.external_message_part_id
+                   WHERE part.interaction_id=%s""",
+                (media.interaction_id.value,),
+            ).fetchall()
+            self.assertEqual(
+                recognition_receipt, [(True, True, "interaction", "request-1", "10")]
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT to_regclass('armi.external_content_recognition_attempts')"
+                ).fetchone(),
+                (None,),
+            )
             visual_state = connection.execute(
                 """
                 SELECT visual_role, source_kind, source_summary,

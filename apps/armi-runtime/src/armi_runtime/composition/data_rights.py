@@ -185,7 +185,6 @@ def compose_data_rights_participants(
     identities = tuple(item.owner_identity.value for item in participants)
     expected = (
         "interaction",
-        "perception",
         "live-voice",
         "live-vision",
         "evidence",

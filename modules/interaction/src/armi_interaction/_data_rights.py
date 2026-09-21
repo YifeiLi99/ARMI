@@ -124,6 +124,12 @@ class PostgreSQLInteractionDataRightsParticipant:
                      FROM armi.external_message_parts
                      WHERE interpretation_artifact_id IS NOT NULL
                      UNION ALL
+                     SELECT recognition_request_artifact_id, interaction_id
+                     FROM armi.external_message_parts WHERE recognition_request_artifact_id IS NOT NULL
+                     UNION ALL
+                     SELECT recognition_response_artifact_id, interaction_id
+                     FROM armi.external_message_parts WHERE recognition_response_artifact_id IS NOT NULL
+                     UNION ALL
                      SELECT payload_artifact_id, interaction_id FROM armi.system_notifications
                    )
                    SELECT refs.artifact_id, count(*),

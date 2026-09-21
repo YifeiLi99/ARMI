@@ -34,12 +34,10 @@ class PerceptionRecoveryParticipant:
                 item.owner_ref for item in work if item.status in {"ready", "leased"}
             ),
         )
-        await transaction.execute(
-            """UPDATE armi.external_content_recognition_attempts
-               SET dispatch_status='settled',result_status='unknown',
-                   error_code='RECOGNITION-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
-               WHERE interaction_id=ANY(%s::uuid[]) AND dispatch_status='dispatched'""",
-            (list(input_ids),),
+        await self._interaction.interrupt_recognition(
+            transaction,
+            interaction_ids=input_ids,
+            error_code="RECOGNITION-RUNTIME-INTERRUPTED",
         )
         reconciliation = OwnerReconciliationContext(
             transaction, self.owner_identity, work
@@ -70,18 +68,16 @@ class PerceptionRecoveryParticipant:
         del scope
         cancelled = await self._end_interrupted_work(transaction, work)
         work = tuple(item for item in work if item.work_id not in cancelled)
-        rows = await (
-            await transaction.execute("""
-            UPDATE armi.external_content_recognition_attempts
-            SET dispatch_status='settled', result_status='unknown',
-                error_code='RECOGNITION-OUTCOME-UNKNOWN', settled_at=statement_timestamp()
-            WHERE dispatch_status='dispatched' RETURNING work_id
-        """)
-        ).fetchall()
+        unknown_ids = set(
+            await self._interaction.interrupt_recognition(
+                transaction,
+                interaction_ids=None,
+                error_code="RECOGNITION-OUTCOME-UNKNOWN",
+            )
+        )
         reconciliation = OwnerReconciliationContext(
             transaction, self.owner_identity, work
         )
-        unknown_ids: set[UUID] = {row[0] for row in rows}
         for item in work:
             if not item.reconciliation_required:
                 continue
@@ -99,7 +95,7 @@ class PerceptionRecoveryParticipant:
         return RecoveryContribution(
             self.owner_identity,
             findings=()
-            if not rows
+            if not unknown_ids
             else (
                 RecoveryFindingContribution(
                     "recognition_attempt",
@@ -109,7 +105,7 @@ class PerceptionRecoveryParticipant:
             ),
             metrics=(
                 RecoveryMetricContribution(
-                    "perception.unknown_attempt_count", len(rows)
+                    "perception.unknown_attempt_count", len(unknown_ids)
                 ),
             ),
         )

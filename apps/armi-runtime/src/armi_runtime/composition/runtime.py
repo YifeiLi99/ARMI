@@ -1045,9 +1045,12 @@ async def _serve(
                         opportunity=opportunity_admission,
                         catalog=artifact_catalog,
                         wakeups=work_wakeups,
-                        diagnostic=lambda event: diagnostic.emit(
+                        diagnostic=lambda event, part_id=None: diagnostic.emit(
                             event,
                             result_code="EXTERNAL_CONTENT",
+                            details={
+                                "part_id": None if part_id is None else str(part_id)
+                            },
                         ),
                     )
                     await perception_module.open()

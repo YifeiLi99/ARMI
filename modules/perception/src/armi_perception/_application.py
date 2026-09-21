@@ -60,6 +60,7 @@ from .api import (
     ExternalMediaContent,
     ExternalMediaFetchPort,
     PerceptionArtifactCatalogPort,
+    PerceptionDiagnostic,
     PerceptionDurableWorkPort,
     PerceptionWakeupPort,
 )
@@ -76,11 +77,11 @@ _MAX_BYTES = {
 }
 _MAX_LOCAL_FILE_BYTES = 25 * 1024 * 1024
 _MAX_PROJECTION_BYTES = 256 * 1024
-Diagnostic = Callable[[str], None]
+Diagnostic = PerceptionDiagnostic
 _T = TypeVar("_T")
 
 
-def _ignore_diagnostic(_event: str) -> None:
+def _ignore_diagnostic(event: str, *, part_id: UUID | None = None) -> None:
     return None
 
 
@@ -213,7 +214,6 @@ class ExternalContentPipeline:
         snapshot: ExternalRecognitionSnapshot,
         part: ExternalContentPartSnapshot,
     ) -> WorkLease:
-        attempt_id: UUID | None = None
         try:
             if (
                 part.declared_byte_size is not None
@@ -381,19 +381,20 @@ class ExternalContentPipeline:
                 request_registration = await self._catalog.register(
                     unit, ArtifactId(uuid7()), request_evidence
                 )
-                attempt_id = await self._repository.begin_attempt(
+                await self._repository.begin_recognition(
                     unit,
                     lease=lease,
                     part_id=part.part_id,
                     raw_artifact_id=raw_registration.ref.artifact_id.value,
                     request_artifact_id=request_registration.ref.artifact_id.value,
-                    provider=provider,
-                    model_id=model_id,
                 )
+            self._diagnostic(
+                "external.content.recognition.dispatched", part_id=part.part_id
+            )
             result, lease = await self._await_with_lease(
                 lease,
                 self._recognize_metered(
-                    attempt_id,
+                    part.part_id,
                     snapshot.purpose,
                     ExternalContentRecognitionRequest(
                         kind=part.kind,
@@ -407,6 +408,10 @@ class ExternalContentPipeline:
                         visual_inputs=extracted.visual_inputs,
                     ),
                 ),
+            )
+            self._diagnostic(
+                "external.content.recognition." + result.status.value,
+                part_id=part.part_id,
             )
             if result.status is ExternalContentRecognitionStatus.SUCCEEDED:
                 assert result.text is not None and result.raw_response is not None
@@ -437,9 +442,7 @@ class ExternalContentPipeline:
                         raw_artifact_id=raw_registration.ref.artifact_id.value,
                         interpretation_artifact_id=interpretation_registration.ref.artifact_id.value,
                         interpretation_text=result.text,
-                        attempt_id=attempt_id,
                         response_artifact_id=response_registration.ref.artifact_id.value,
-                        result=result,
                     )
             else:
                 await self._settle_failure(
@@ -449,21 +452,16 @@ class ExternalContentPipeline:
                     if result.status is ExternalContentRecognitionStatus.UNKNOWN
                     else "failed",
                     result.error_code or "EXTERNAL-MESSAGE-RECOGNITION",
-                    attempt_id=attempt_id,
-                    result=result,
                 )
             return lease
         except ExternalMessageViolation as error:
-            await self._settle_failure(
-                lease, part.part_id, "failed", error.code, attempt_id=attempt_id
-            )
+            await self._settle_failure(lease, part.part_id, "failed", error.code)
         except ArtifactViolation, OSError:
             await self._settle_failure(
                 lease,
                 part.part_id,
                 "failed",
                 "EXTERNAL-MESSAGE-ARTIFACT",
-                attempt_id=attempt_id,
             )
         return lease
 
@@ -473,9 +471,6 @@ class ExternalContentPipeline:
         part_id: UUID,
         status: str,
         code: str,
-        *,
-        attempt_id: UUID | None = None,
-        result: ExternalContentRecognitionResult | None = None,
     ) -> None:
         async with self._factory.unit_of_work() as unit:
             await self._repository.settle_failure(
@@ -484,8 +479,6 @@ class ExternalContentPipeline:
                 part_id=part_id,
                 status=status,
                 error_code=code,
-                attempt_id=attempt_id,
-                result=result,
             )
 
         await self._notify_failure(lease, code)
@@ -581,7 +574,7 @@ class ExternalContentPipeline:
 
     async def _recognize_metered(
         self,
-        attempt_id: UUID,
+        part_id: UUID,
         purpose: str,
         request: ExternalContentRecognitionRequest,
     ) -> ExternalContentRecognitionResult:
@@ -590,7 +583,7 @@ class ExternalContentPipeline:
                 receipt=receipt
             ) as unit:
                 await self._repository.record_provider_call(
-                    unit, attempt_id=attempt_id, receipt=receipt
+                    unit, part_id=part_id, receipt=receipt
                 )
 
         with provider_meter_scope(ProviderMeterScope(save, self._prices, purpose)):

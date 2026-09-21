@@ -25,7 +25,6 @@ from armi_live_vision.api import LiveVisionAdminPort
 from armi_material.api import MaterialAdminReadPort
 from armi_mind.api import MindAdminCorrectionPort
 from armi_mood.api import MoodAdminCorrectionPort
-from armi_perception.api import PerceptionAdminPort
 from armi_prompt.api import PromptAdminReferencePort
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -78,7 +77,6 @@ class AdminCorrectionGateway:
         "_mind",
         "_mood",
         "_opportunity",
-        "_perception",
         "_prompts",
         "_runtime",
         "_subject_state",
@@ -100,7 +98,6 @@ class AdminCorrectionGateway:
         live_vision: LiveVisionAdminPort,
         material: MaterialAdminReadPort,
         opportunity: OpportunityAdminPort,
-        perception: PerceptionAdminPort,
         web: WebObservationAdminPort,
         environment_id: str,
         incarnation: int,
@@ -121,7 +118,6 @@ class AdminCorrectionGateway:
         self._live_vision = live_vision
         self._material = material
         self._opportunity = opportunity
-        self._perception = perception
         self._web = web
         self._environment_id = environment_id
         self._incarnation = incarnation
@@ -1021,9 +1017,6 @@ class AdminCorrectionGateway:
                     self._material.references_artifact(
                         connection, artifact_id=artifact_uuid
                     )
-                ),
-                self._perception.artifact_reference_count(
-                    connection, artifact_id=artifact_uuid
                 ),
                 self._live_vision.artifact_reference_count(
                     connection, artifact_id=artifact_uuid

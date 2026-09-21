@@ -41,7 +41,6 @@ from armi_mood.bootstrap import (
     bootstrap_mood_admin_correction,
     bootstrap_mood_admin_read,
 )
-from armi_perception.bootstrap import bootstrap_perception_admin
 from armi_prompt.bootstrap import (
     bootstrap_prompt_admin_content,
     bootstrap_prompt_admin_reference,
@@ -148,7 +147,6 @@ def bootstrap_admin(
             live_vision=bootstrap_live_vision_admin(),
             material=materials,
             opportunity=opportunity,
-            perception=bootstrap_perception_admin(),
             web=web,
             environment_id=config.environment_id,
             incarnation=config.environment_incarnation,

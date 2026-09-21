@@ -694,19 +694,7 @@ ALTER TABLE ONLY armi.external_channel_bindings
 ALTER TABLE ONLY armi.external_channel_bindings
     ADD CONSTRAINT external_channel_bindings_pkey PRIMARY KEY (external_binding_id);
 
---
--- Name: external_content_recognition_attempts external_content_recognition_attem_external_message_part_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attem_external_message_part_id_key UNIQUE (external_message_part_id);
-
---
--- Name: external_content_recognition_attempts external_content_recognition_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attempts_pkey PRIMARY KEY (recognition_attempt_id);
 
 --
 -- Name: external_evidence external_evidence_interaction_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2785,39 +2773,11 @@ ALTER TABLE ONLY armi.external_channel_bindings
 ALTER TABLE ONLY armi.external_channel_bindings
     ADD CONSTRAINT external_channel_bindings_scene_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
 
---
--- Name: external_content_recognition_attempts external_content_recognition_atte_external_message_part_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_atte_external_message_part_id_fkey FOREIGN KEY (external_message_part_id) REFERENCES armi.external_message_parts(external_message_part_id);
 
---
--- Name: external_content_recognition_attempts external_content_recognition_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attempts_interaction_id_fkey FOREIGN KEY (interaction_id) REFERENCES armi.party_input_interactions(interaction_id);
 
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attempts_source_party_id_fkey FOREIGN KEY (source_party_id) REFERENCES armi.parties(party_id);
 
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attempts_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: external_content_recognition_attempts external_content_recognition_attempts_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attempts_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: external_content_recognition_attempts external_content_recognition_attempts_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.external_content_recognition_attempts
-    ADD CONSTRAINT external_content_recognition_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
 --
 -- Name: external_evidence external_evidence_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -4019,3 +3979,10 @@ ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
 ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_recognition_request_artifact_id_fkey FOREIGN KEY (recognition_request_artifact_id) REFERENCES armi.artifacts(artifact_id);
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_recognition_response_artifact_id_fkey FOREIGN KEY (recognition_response_artifact_id) REFERENCES armi.artifacts(artifact_id);
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_recognition_work_id_fkey FOREIGN KEY (recognition_work_id) REFERENCES armi.durable_work(work_id);
