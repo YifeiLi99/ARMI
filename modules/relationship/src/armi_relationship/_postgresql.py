@@ -589,8 +589,8 @@ async def _commit_one(
             reused_experience = await (
                 await connection.execute(
                     """
-                    SELECT 1 FROM armi.relationship_experience_links
-                    WHERE experience_id = %s LIMIT 1
+                    SELECT 1 FROM armi.relationship_revisions
+                    WHERE source_experience_id = %s LIMIT 1
                     """,
                     (source_experience_id,),
                 )
@@ -629,9 +629,10 @@ async def _commit_one(
             previous_revision_id, subject_commit_id, candidate_validation_id,
             proposal_ref, facts, interpretation, boundaries, commitments,
             open_issues, commitment_event, issue_resolution,
-            relationship_status, mechanism_identity, privacy_scope
+            relationship_status, mechanism_identity, privacy_scope,
+            source_experience_id, source_link_kind
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                  %s, %s, %s, %s, 'private')
+                  %s, %s, %s, %s, 'private', %s, %s)
         """,
         (
             revision_id,
@@ -668,6 +669,10 @@ async def _commit_one(
             ),
             relationship.status.value,
             relationship.mechanism_identity,
+            source_experience_id,
+            "supports_commitment_event"
+            if relationship.commitment_event is not None
+            else "supports_relationship_change",
         ),
     )
     if previous is not None:
@@ -689,20 +694,6 @@ async def _commit_one(
         ).fetchone()
         if updated is None:
             raise RelationshipViolation("RELATIONSHIP-COMMIT-HEAD-STALE")
-    await connection.execute(
-        """
-        INSERT INTO armi.relationship_experience_links (
-            relationship_revision_id, experience_id, link_kind, ordinal
-        ) VALUES (%s, %s, %s, 1)
-        """,
-        (
-            revision_id,
-            source_experience_id,
-            "supports_commitment_event"
-            if relationship.commitment_event is not None
-            else "supports_relationship_change",
-        ),
-    )
 
 
 def _revision(row: tuple[Any, ...]) -> CreatorRelationshipRevision:

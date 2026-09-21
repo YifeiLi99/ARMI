@@ -37,6 +37,26 @@ class _Transaction:
         return self.results.pop(0) if self.results else _Result()
 
 
+class _Maintenance:
+    def __init__(self):
+        self.accepted = []
+
+    async def pending_window(self, transaction, *, subject_id):
+        return await (
+            await transaction.execute("pending_window", (subject_id,))
+        ).fetchone()
+
+    async def note_accepted_experience(
+        self, transaction, *, subject_id, acceptance_ordinal
+    ):
+        self.accepted.append((subject_id, acceptance_ordinal))
+
+    async def complete_window(
+        self, transaction, *, subject_id, after_ordinal, through_ordinal
+    ):
+        raise AssertionError("Unexpected completion")
+
+
 class _Experiences:
     def __init__(self, snapshots: tuple[AcceptedExperienceSnapshot, ...]) -> None:
         self.snapshots = snapshots
@@ -123,7 +143,9 @@ def test_creator_context_reads_recent_eight_through_experience_port() -> None:
     )
 
     result = asyncio.run(
-        PostgreSQLCognitionContextLifecycle(experiences).context_episode(  # type: ignore[arg-type]
+        PostgreSQLCognitionContextLifecycle(
+            experiences, _Maintenance()
+        ).context_episode(  # type: ignore[arg-type]
             transaction,  # type: ignore[arg-type]
             episode_id=uuid7(),
         )
@@ -148,7 +170,9 @@ def test_maintenance_context_keeps_batch_ownership_in_cognition() -> None:
     )
 
     result = asyncio.run(
-        PostgreSQLCognitionContextLifecycle(experiences).context_episode(  # type: ignore[arg-type]
+        PostgreSQLCognitionContextLifecycle(
+            experiences, _Maintenance()
+        ).context_episode(  # type: ignore[arg-type]
             transaction,  # type: ignore[arg-type]
             episode_id=uuid7(),
         )
@@ -162,19 +186,19 @@ def test_maintenance_context_keeps_batch_ownership_in_cognition() -> None:
     assert "accepted_experiences" not in statements
 
 
-def test_new_experience_only_marks_cognition_maintenance_cursor() -> None:
+def test_new_experience_advances_subject_progress_through_owner_port() -> None:
     transaction = _Transaction()
+    maintenance = _Maintenance()
+    subject_id = uuid7()
     asyncio.run(
-        PostgreSQLCognitionSubjectCommit().note_accepted_experience(
-            transaction,  # type: ignore[arg-type]
-            subject_id=uuid7(),
+        PostgreSQLCognitionSubjectCommit(maintenance).note_accepted_experience(
+            cast(Any, transaction),
+            subject_id=subject_id,
             acceptance_ordinal=1,
         )
     )
-
-    assert len(transaction.calls) == 1
-    assert "cognition_maintenance_cursors" in transaction.calls[0][0]
-    assert "accepted_experiences" not in transaction.calls[0][0]
+    assert maintenance.accepted == [(subject_id, 1)]
+    assert transaction.calls == []
 
 
 def test_maintenance_batch_freezes_sixty_four_of_sixty_five_visible_sources() -> None:
@@ -187,7 +211,9 @@ def test_maintenance_batch_freezes_sixty_four_of_sixty_five_visible_sources() ->
     )
 
     assert asyncio.run(
-        PostgreSQLCognitionContextLifecycle(experiences).create_context_episode(
+        PostgreSQLCognitionContextLifecycle(
+            experiences, _Maintenance()
+        ).create_context_episode(
             cast(Any, transaction),
             draft,
         )
@@ -217,7 +243,9 @@ def test_hidden_tail_still_creates_an_empty_batch_with_frozen_coverage() -> None
     )
 
     assert asyncio.run(
-        PostgreSQLCognitionContextLifecycle(experiences).create_context_episode(
+        PostgreSQLCognitionContextLifecycle(
+            experiences, _Maintenance()
+        ).create_context_episode(
             cast(Any, transaction),
             draft,
         )

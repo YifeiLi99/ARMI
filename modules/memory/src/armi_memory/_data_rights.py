@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("memory")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "memory_relations",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.memory_relations AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "subjective_memories",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

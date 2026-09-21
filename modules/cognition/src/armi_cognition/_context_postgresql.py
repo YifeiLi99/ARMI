@@ -18,14 +18,20 @@ from .api import (
     CognitionContextEpisodeDraft,
     CognitionContextEpisodeSnapshot,
     CognitionExperienceContextItem,
+    CognitionMaintenanceProgressPort,
 )
 
 
 class PostgreSQLCognitionContextLifecycle:
-    __slots__ = ("_experiences",)
+    __slots__ = ("_experiences", "_maintenance")
 
-    def __init__(self, experiences: ExperienceReadPort) -> None:
+    def __init__(
+        self,
+        experiences: ExperienceReadPort,
+        maintenance: CognitionMaintenanceProgressPort,
+    ) -> None:
         self._experiences = experiences
+        self._maintenance = maintenance
 
     async def active_opportunities(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -101,16 +107,9 @@ class PostgreSQLCognitionContextLifecycle:
         if row is not None and draft.purpose == "maintain_subjective_memory":
             if draft.maintenance_trigger_kind not in {"runtime_idle", "sleep"}:
                 raise CandidateViolation("CANDIDATE-MAINTENANCE-TRIGGER")
-            cursor = await (
-                await transaction.execute(
-                    """SELECT latest_accepted_ordinal,processed_through_ordinal
-                       FROM armi.cognition_maintenance_cursors
-                       WHERE subject_id=%s
-                         AND latest_accepted_ordinal > processed_through_ordinal
-                       FOR UPDATE""",
-                    (draft.subject_id,),
-                )
-            ).fetchone()
+            cursor = await self._maintenance.pending_window(
+                transaction, subject_id=draft.subject_id
+            )
             if cursor is not None:
                 existing = await (
                     await transaction.execute(

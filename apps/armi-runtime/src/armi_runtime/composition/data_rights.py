@@ -24,7 +24,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _RUNTIME_OWNER = DataRightsOwnerIdentity("runtime")
 _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
 _VERSION = DataRightsContributionVersion(1)
-_RUNTIME_VERSION = DataRightsContributionVersion(4)
+_RUNTIME_VERSION = DataRightsContributionVersion(5)
 _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "admin_data_changes",

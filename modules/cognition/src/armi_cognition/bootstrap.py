@@ -85,6 +85,7 @@ from .api import (
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
     CognitionFinalizationPort,
+    CognitionMaintenanceProgressPort,
     CognitionModelAdapterFactory,
     CognitionOperationReadPort,
     CognitionOwnerPort,
@@ -143,18 +144,22 @@ def bootstrap_sleep_decision_record() -> SleepDecisionRecordPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
-def bootstrap_cognition_subject_commit() -> CognitionSubjectCommitPort:
-    return PostgreSQLCognitionSubjectCommit()
+def bootstrap_cognition_subject_commit(
+    *, maintenance: CognitionMaintenanceProgressPort
+) -> CognitionSubjectCommitPort:
+    return PostgreSQLCognitionSubjectCommit(maintenance)
 
 
-def bootstrap_cognition_owner() -> CognitionOwnerPort:
-    return PostgreSQLCognitionSubjectCommit()
+def bootstrap_cognition_owner(
+    *, maintenance: CognitionMaintenanceProgressPort
+) -> CognitionOwnerPort:
+    return PostgreSQLCognitionSubjectCommit(maintenance)
 
 
 def bootstrap_cognition_context(
-    *, experiences: ExperienceReadPort
+    *, experiences: ExperienceReadPort, maintenance: CognitionMaintenanceProgressPort
 ) -> CognitionContextLifecyclePort:
-    return PostgreSQLCognitionContextLifecycle(experiences)
+    return PostgreSQLCognitionContextLifecycle(experiences, maintenance)
 
 
 def bootstrap_cognition_operation() -> CognitionOperationReadPort:

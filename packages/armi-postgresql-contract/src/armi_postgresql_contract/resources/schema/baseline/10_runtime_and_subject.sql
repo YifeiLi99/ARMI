@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v62'::text
+        baseline_identity = 'armi.schema-baseline.v63'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v62');
+VALUES ('armi.schema-baseline.v63');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -217,6 +217,12 @@ CREATE TABLE armi.subjects (
     subject_version bigint DEFAULT 0 NOT NULL,
     state_epoch bigint DEFAULT 0 NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
+    maintenance_latest_accepted_ordinal bigint DEFAULT 0 NOT NULL,
+    maintenance_processed_through_ordinal bigint DEFAULT 0 NOT NULL,
+    maintenance_updated_at timestamp(6) with time zone,
+    CONSTRAINT subjects_maintenance_coverage_check CHECK (
+        maintenance_processed_through_ordinal >= 0 AND
+        maintenance_latest_accepted_ordinal >= maintenance_processed_through_ordinal),
     born_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT subjects_birth_idempotency_key_check CHECK (((length(birth_idempotency_key) >= 1) AND (length(birth_idempotency_key) <= 128) AND (birth_idempotency_key ~ '^[A-Za-z0-9._:-]+$'::text))),
     CONSTRAINT subjects_birth_manifest_digest_check CHECK ((birth_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),

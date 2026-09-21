@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("relationship")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "relationship_experience_links",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.relationship_experience_links AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "relationship_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

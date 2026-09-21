@@ -409,13 +409,9 @@ class PostgreSQLMemoryOwner:
                            revision.revision_kind, revision.accessibility,
                            revision.summary, revision.uncertainty,
                            revision.source_kind, revision.source_fact_class,
-                           relation.relation_kind, relation.to_memory_id,
+                           revision.relation_kind, revision.related_memory_id,
                            revision.created_at
                     FROM armi.subjective_memory_revisions AS revision
-                    LEFT JOIN LATERAL (
-                      SELECT relation_kind,to_memory_id FROM armi.memory_relations
-                      WHERE from_memory_revision_id=revision.memory_revision_id
-                      ORDER BY memory_relation_id DESC LIMIT 1) AS relation ON TRUE
                     WHERE revision.memory_id=%s
                       AND revision.revision_no<=%s
                       AND (%s::bigint IS NULL OR revision.revision_no<%s)
@@ -567,6 +563,16 @@ class PostgreSQLMemoryOwner:
             ):
                 raise MemoryViolation("MEMORY-HEAD-STALE")
             validate_transition(MemoryAccessibility(str(row[6])), value)
+            if value.related_memory_id is not None:
+                related = await (
+                    await transaction.execute(
+                        """SELECT 1 FROM armi.subjective_memories
+                           WHERE memory_id=%s AND subject_id=%s""",
+                        (value.related_memory_id, subject_id),
+                    )
+                ).fetchone()
+                if related is None or value.relation_kind is None:
+                    raise MemoryViolation("MEMORY-RELATION")
             revision_id = uuid7()
             await transaction.execute(
                 """INSERT INTO armi.subjective_memory_revisions
@@ -574,8 +580,8 @@ class PostgreSQLMemoryOwner:
                     subject_commit_id,candidate_validation_id,proposal_ref,
                     source_experience_id,source_kind,source_fact_class,summary,
                     uncertainty,revision_kind,accessibility,mechanism_identity,
-                    mechanism_config_identity,privacy_scope)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'private')""",
+                    mechanism_config_identity,privacy_scope,related_memory_id,relation_kind)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'private',%s,%s)""",
                 (
                     revision_id,
                     value.memory_id,
@@ -593,6 +599,8 @@ class PostgreSQLMemoryOwner:
                     value.accessibility.value,
                     value.mechanism_identity,
                     value.mechanism_config_identity,
+                    value.related_memory_id,
+                    None if value.relation_kind is None else value.relation_kind.value,
                 ),
             )
             updated = await (
@@ -611,33 +619,6 @@ class PostgreSQLMemoryOwner:
             ).fetchone()
             if updated is None:
                 raise MemoryViolation("MEMORY-HEAD-STALE")
-            if value.related_memory_id is not None:
-                related = await (
-                    await transaction.execute(
-                        """SELECT 1 FROM armi.subjective_memories
-                           WHERE memory_id=%s AND subject_id=%s""",
-                        (value.related_memory_id, subject_id),
-                    )
-                ).fetchone()
-                if related is None or value.relation_kind is None:
-                    raise MemoryViolation("MEMORY-RELATION")
-                await transaction.execute(
-                    """INSERT INTO armi.memory_relations
-                       (memory_relation_id,from_memory_id,from_memory_revision_id,
-                        to_memory_id,relation_kind,subject_commit_id,
-                        candidate_validation_id,proposal_ref)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (
-                        uuid7(),
-                        value.memory_id,
-                        revision_id,
-                        value.related_memory_id,
-                        value.relation_kind.value,
-                        commit_id,
-                        validation_id,
-                        value.proposal_ref,
-                    ),
-                )
             affected.append(value.memory_id)
         return tuple(affected)
 

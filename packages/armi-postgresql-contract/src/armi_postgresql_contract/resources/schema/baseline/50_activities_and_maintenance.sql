@@ -73,16 +73,8 @@ CREATE TABLE armi.activity_revisions (
 
 
 --
--- Name: cognition_maintenance_cursors; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.cognition_maintenance_cursors (
-    subject_id uuid NOT NULL,
-    latest_accepted_ordinal bigint NOT NULL,
-    processed_through_ordinal bigint DEFAULT 0 NOT NULL,
-    updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT cognition_maintenance_cursors_coverage_check CHECK ((processed_through_ordinal >= 0) AND (latest_accepted_ordinal >= processed_through_ordinal))
-);
 
 
 --

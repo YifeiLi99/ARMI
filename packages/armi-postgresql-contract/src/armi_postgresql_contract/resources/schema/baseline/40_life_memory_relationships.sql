@@ -57,43 +57,24 @@ CREATE TABLE armi.life_materials (
 );
 
 --
--- Name: memory_relations; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.memory_relations (
-    memory_relation_id uuid NOT NULL,
-    from_memory_id uuid NOT NULL,
-    from_memory_revision_id uuid NOT NULL,
-    to_memory_id uuid NOT NULL,
-    relation_kind text NOT NULL,
-    subject_commit_id uuid NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    proposal_ref text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT memory_relations_check CHECK ((from_memory_id <> to_memory_id)),
-    CONSTRAINT memory_relations_memory_relation_id_check CHECK ((uuid_extract_version(memory_relation_id) = 7)),
-    CONSTRAINT memory_relations_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
-    CONSTRAINT memory_relations_relation_kind_check CHECK ((relation_kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'reinterprets'::text])))
-);
 
 --
--- Name: relationship_experience_links; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.relationship_experience_links (
-    relationship_revision_id uuid NOT NULL,
-    experience_id uuid NOT NULL,
-    link_kind text NOT NULL,
-    ordinal smallint NOT NULL,
-    CONSTRAINT relationship_experience_links_link_kind_check CHECK ((link_kind = ANY (ARRAY['supports_relationship_change'::text, 'supports_commitment_event'::text]))),
-    CONSTRAINT relationship_experience_links_ordinal_check CHECK ((ordinal > 0))
-);
 
 --
 -- Name: relationship_revisions; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.relationship_revisions (
+    source_experience_id uuid,
+    source_link_kind text,
+    CONSTRAINT relationship_revisions_source_check CHECK (
+        (source_experience_id IS NULL AND source_link_kind IS NULL)
+        OR (source_experience_id IS NOT NULL AND source_link_kind IS NOT NULL
+            AND source_link_kind IN ('supports_relationship_change','supports_commitment_event'))),
     relationship_revision_id uuid NOT NULL,
     relationship_id uuid NOT NULL,
     revision_no bigint NOT NULL,
@@ -178,6 +159,13 @@ CREATE TABLE armi.subjective_memories (
 --
 
 CREATE TABLE armi.subjective_memory_revisions (
+    related_memory_id uuid,
+    relation_kind text,
+    CONSTRAINT subjective_memory_revisions_relation_check CHECK (
+        (related_memory_id IS NULL AND relation_kind IS NULL)
+        OR (related_memory_id IS NOT NULL AND relation_kind IS NOT NULL
+            AND related_memory_id <> memory_id
+            AND relation_kind IN ('supports','contradicts','reinterprets'))),
     memory_revision_id uuid NOT NULL,
     memory_id uuid NOT NULL,
     revision_no bigint NOT NULL,

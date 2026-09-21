@@ -237,11 +237,8 @@ ALTER TABLE ONLY armi.codex_task_sources
 
 
 --
--- Name: cognition_maintenance_cursors cognition_maintenance_cursors_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.cognition_maintenance_cursors
-    ADD CONSTRAINT cognition_maintenance_cursors_pkey PRIMARY KEY (subject_id);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_episode_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -736,18 +733,12 @@ ALTER TABLE ONLY armi.maintenance_sessions
     ADD CONSTRAINT maintenance_sessions_wake_request_id_key UNIQUE (wake_request_id);
 
 --
--- Name: memory_relations memory_relations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_pkey PRIMARY KEY (memory_relation_id);
 
 --
--- Name: memory_relations memory_relations_subject_commit_id_proposal_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
 
 --
 -- Name: mood_appraisal_events mood_appraisal_events_identity_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -917,18 +908,12 @@ ALTER TABLE ONLY armi.prompt_revisions
     ADD CONSTRAINT prompt_revisions_prompt_revision_id_prompt_document_id_key UNIQUE (prompt_revision_id, prompt_document_id);
 
 --
--- Name: relationship_experience_links relationship_experience_links_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.relationship_experience_links
-    ADD CONSTRAINT relationship_experience_links_pkey PRIMARY KEY (relationship_revision_id, experience_id, link_kind);
 
 --
--- Name: relationship_experience_links relationship_experience_links_relationship_revision_id_ordi_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.relationship_experience_links
-    ADD CONSTRAINT relationship_experience_links_relationship_revision_id_ordi_key UNIQUE (relationship_revision_id, ordinal);
 
 --
 -- Name: relationship_revisions relationship_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1362,16 +1347,12 @@ CREATE UNIQUE INDEX live_voice_one_open_session ON armi.live_voice_sessions USIN
 CREATE UNIQUE INDEX maintenance_sessions_one_unfinished ON armi.maintenance_sessions USING btree (subject_id) WHERE (finished_at IS NULL);
 
 --
--- Name: memory_relations_from_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX memory_relations_from_idx ON armi.memory_relations USING btree (from_memory_id, created_at DESC);
 
 --
--- Name: memory_relations_to_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX memory_relations_to_idx ON armi.memory_relations USING btree (to_memory_id, created_at DESC);
 
 --
 -- Name: mood_appraisal_events_episode_time_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1733,11 +1714,8 @@ ALTER TABLE ONLY armi.codex_task_sources
 
 
 --
--- Name: cognition_maintenance_cursors cognition_maintenance_cursors_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.cognition_maintenance_cursors
-    ADD CONSTRAINT cognition_maintenance_cursors_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2388,39 +2366,24 @@ ALTER TABLE ONLY armi.maintenance_sessions
     ADD CONSTRAINT maintenance_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
--- Name: memory_relations memory_relations_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
--- Name: memory_relations memory_relations_from_memory_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_from_memory_id_fkey FOREIGN KEY (from_memory_id) REFERENCES armi.subjective_memories(memory_id);
 
 --
--- Name: memory_relations memory_relations_from_memory_id_from_memory_revision_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_from_memory_id_from_memory_revision_id_fkey FOREIGN KEY (from_memory_id, from_memory_revision_id) REFERENCES armi.subjective_memory_revisions(memory_id, memory_revision_id);
 
 --
--- Name: memory_relations memory_relations_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
 --
--- Name: memory_relations memory_relations_to_memory_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_to_memory_id_fkey FOREIGN KEY (to_memory_id) REFERENCES armi.subjective_memories(memory_id);
 
 --
 -- Name: mood_appraisal_events mood_appraisal_events_previous_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2638,18 +2601,12 @@ ALTER TABLE ONLY armi.prompt_revisions
     ADD CONSTRAINT prompt_revisions_subject_commit_fk FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
 --
--- Name: relationship_experience_links relationship_experience_links_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.relationship_experience_links
-    ADD CONSTRAINT relationship_experience_links_experience_id_fkey FOREIGN KEY (experience_id) REFERENCES armi.accepted_experiences(experience_id);
 
 --
--- Name: relationship_experience_links relationship_experience_links_relationship_revision_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.relationship_experience_links
-    ADD CONSTRAINT relationship_experience_links_relationship_revision_id_fkey FOREIGN KEY (relationship_revision_id) REFERENCES armi.relationship_revisions(relationship_revision_id);
 
 --
 -- Name: relationship_revisions relationship_revisions_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3017,3 +2974,16 @@ ALTER TABLE ONLY armi.cognitive_episodes
     REFERENCES armi.cognitive_episodes(cognitive_episode_id, subject_id);
 CREATE UNIQUE INDEX cognitive_episodes_maintenance_active_idx
     ON armi.cognitive_episodes(subject_id) WHERE maintenance_status='running';
+
+CREATE INDEX relationship_revisions_source_experience_idx
+    ON armi.relationship_revisions (source_experience_id)
+    WHERE source_experience_id IS NOT NULL;
+ALTER TABLE ONLY armi.relationship_revisions
+    ADD CONSTRAINT relationship_revisions_source_experience_fkey
+    FOREIGN KEY (source_experience_id) REFERENCES armi.accepted_experiences(experience_id);
+ALTER TABLE ONLY armi.subjective_memory_revisions
+    ADD CONSTRAINT subjective_memory_revisions_related_memory_fkey
+    FOREIGN KEY (related_memory_id) REFERENCES armi.subjective_memories(memory_id);
+CREATE INDEX subjective_memory_revisions_related_memory_idx
+    ON armi.subjective_memory_revisions (related_memory_id, created_at DESC)
+    WHERE related_memory_id IS NOT NULL;

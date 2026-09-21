@@ -196,6 +196,9 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
 )
+from armi_runtime.adapters.persistence.subject_maintenance import (
+    PostgreSQLSubjectMaintenance,
+)
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
@@ -7012,6 +7015,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_maintenance_scope_and_reflections_share_source_episode(self) -> None:
         self._exercise_creator_reply(check_maintenance_scope=True)
 
+    @pytest.mark.test_group("memory", "relationship", "cognition")
+    def test_memory_and_relationship_links_live_on_revisions(self) -> None:
+        self._exercise_creator_reply(check_revision_links=True)
+
     def _exercise_creator_reply(
         self,
         *,
@@ -7023,6 +7030,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         check_sleep_decisions: bool = False,
         check_life_query: bool = False,
         check_maintenance_scope: bool = False,
+        check_revision_links: bool = False,
         check_dialogue_decisions: bool = False,
         purpose: str | None = None,
         technical_failure: str | None = None,
@@ -8241,7 +8249,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
                 codex_commit=codex_commit,
-                cognition_commit=bootstrap_cognition_subject_commit(),
+                cognition_commit=bootstrap_cognition_subject_commit(
+                    maintenance=PostgreSQLSubjectMaintenance()
+                ),
                 experience_commit=bootstrap_experience_owner(),
                 context_projections=_ContextProjectionInvalidation(),
                 data_rights=data_rights_core.seal(),
@@ -8356,6 +8366,197 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             else None
                         ),
                     )
+                    if check_revision_links:
+                        from armi_memory.api import (
+                            CandidateMemoryDraft,
+                            CandidateMemoryRevisionDraft,
+                            MemoryAccessibility,
+                            MemoryExperienceSource,
+                            MemoryRelationKind,
+                            MemoryRevisionKind,
+                            MemorySourceKind,
+                        )
+                        from armi_relationship.api import (
+                            CandidateRelationshipDraft,
+                            RelationshipBoundary,
+                            RelationshipBoundaryAction,
+                            RelationshipBoundaryKind,
+                            RelationshipFact,
+                            RelationshipFactKind,
+                            RelationshipPartyRole,
+                            RelationshipStatus,
+                            RelationshipViolation,
+                        )
+
+                        tx = unit_of_work.transaction
+                        await tx.execute("SAVEPOINT revision_links")
+                        source = await (
+                            await tx.execute(
+                                "SELECT experience_id,subject_commit_id FROM armi.accepted_experiences WHERE cognitive_episode_id=%s",
+                                (ids["episode"],),
+                            )
+                        ).fetchone()
+                        assert source is not None
+                        experience_id, commit_id = source
+                        second_experience_id = uuid7()
+                        await tx.execute(
+                            """INSERT INTO armi.accepted_experiences (
+                               experience_id,subject_id,subject_commit_id,cognitive_episode_id,
+                               proposal_ref,experience_kind,fact_class,first_person_gist,
+                               scene_id,occurred_at,learned_at,source_perspective,privacy_scope)
+                               SELECT %s,subject_id,subject_commit_id,cognitive_episode_id,
+                               'proposal:10',experience_kind,fact_class,first_person_gist,
+                               scene_id,occurred_at,learned_at,source_perspective,privacy_scope
+                               FROM armi.accepted_experiences WHERE experience_id=%s""",
+                            (second_experience_id, experience_id),
+                        )
+                        memories = await memory_module.commit.commit(
+                            tx,
+                            subject_id=born.subject_id,
+                            commit_id=commit_id,
+                            validation_id=ids["validation"],
+                            drafts=tuple(
+                                CandidateMemoryDraft(
+                                    proposal_ref=f"proposal:{number}",
+                                    atomic_group_ref="group:1",
+                                    basis_ordinals=(1,),
+                                    fact_class=CandidateFactClass.EXTERNAL_CLAIM,
+                                    source_experience_ref="proposal:1"
+                                    if number == 11
+                                    else "proposal:10",
+                                    source_kind=MemorySourceKind.REPORTED,
+                                    summary=f"Memory {number}",
+                                )
+                                for number in (11, 12)
+                            ),
+                            experience_sources=(
+                                MemoryExperienceSource(
+                                    "proposal:1", experience_id, None
+                                ),
+                                MemoryExperienceSource(
+                                    "proposal:10", second_experience_id, None
+                                ),
+                            ),
+                        )
+                        current = await (
+                            await tx.execute(
+                                "SELECT current_revision_id FROM armi.subjective_memories WHERE memory_id=%s",
+                                (memories[0],),
+                            )
+                        ).fetchone()
+                        assert current is not None
+                        await memory_module.commit.commit(
+                            tx,
+                            subject_id=born.subject_id,
+                            commit_id=commit_id,
+                            validation_id=ids["validation"],
+                            drafts=(
+                                CandidateMemoryRevisionDraft(
+                                    proposal_ref="proposal:13",
+                                    atomic_group_ref="group:1",
+                                    basis_ordinals=(1,),
+                                    fact_class=CandidateFactClass.EXTERNAL_CLAIM,
+                                    memory_id=memories[0],
+                                    current_revision_id=current[0],
+                                    expected_head_version=1,
+                                    revision_kind=MemoryRevisionKind.REINTERPRETED,
+                                    accessibility=MemoryAccessibility.AVAILABLE,
+                                    source_kind=MemorySourceKind.REPORTED,
+                                    summary="Changed understanding",
+                                    uncertainty=None,
+                                    related_memory_id=memories[1],
+                                    relation_kind=MemoryRelationKind.CONTRADICTS,
+                                ),
+                            ),
+                            experience_sources=(),
+                        )
+                        self.assertEqual(
+                            await (
+                                await tx.execute(
+                                    "SELECT related_memory_id,relation_kind FROM armi.subjective_memory_revisions WHERE memory_id=%s ORDER BY revision_no",
+                                    (memories[0],),
+                                )
+                            ).fetchall(),
+                            [(None, None), (memories[1], "contradicts")],
+                        )
+                        subject_party = await (
+                            await tx.execute(
+                                "SELECT party_id FROM armi.parties WHERE represented_subject_id=%s",
+                                (born.subject_id,),
+                            )
+                        ).fetchone()
+                        assert subject_party is not None
+                        relation = CandidateRelationshipDraft(
+                            proposal_ref="proposal:14",
+                            atomic_group_ref="group:1",
+                            basis_ordinals=(1,),
+                            fact_class=CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                            relationship_id=uuid7(),
+                            subject_party_id=subject_party[0],
+                            other_party_id=creator_party_id,
+                            current_revision_id=None,
+                            expected_head_version=0,
+                            source_experience_ref="proposal:1",
+                            facts=(
+                                RelationshipFact(
+                                    uuid7(),
+                                    RelationshipFactKind.SHARED_EXPERIENCE,
+                                    "Shared event",
+                                ),
+                            ),
+                            interpretation="End this relationship",
+                            boundaries=(
+                                RelationshipBoundary(
+                                    RelationshipPartyRole.SUBJECT,
+                                    RelationshipBoundaryKind.EXIT,
+                                    RelationshipBoundaryAction.END_CONTACT,
+                                    "No contact",
+                                ),
+                            ),
+                            status=RelationshipStatus.ENDED,
+                        )
+                        await relationship_module.commit.commit(
+                            tx,
+                            subject_id=born.subject_id,
+                            commit_id=commit_id,
+                            validation_id=ids["validation"],
+                            drafts=(relation,),
+                            experience_ids={"proposal:1": experience_id},
+                        )
+                        revision = await (
+                            await tx.execute(
+                                "SELECT relationship_revision_id,source_experience_id,source_link_kind FROM armi.relationship_revisions WHERE relationship_id=%s",
+                                (relation.relationship_id,),
+                            )
+                        ).fetchone()
+                        assert revision is not None
+                        self.assertEqual(
+                            revision[1:],
+                            (experience_id, "supports_relationship_change"),
+                        )
+                        with self.assertRaises(RelationshipViolation) as reused:
+                            await relationship_module.commit.commit(
+                                tx,
+                                subject_id=born.subject_id,
+                                commit_id=commit_id,
+                                validation_id=ids["validation"],
+                                drafts=(
+                                    replace(
+                                        relation,
+                                        proposal_ref="proposal:15",
+                                        current_revision_id=revision[0],
+                                        expected_head_version=1,
+                                        reopen=True,
+                                        status=RelationshipStatus.ACTIVE,
+                                        interpretation="A new understanding",
+                                        boundaries=(),
+                                    ),
+                                ),
+                                experience_ids={"proposal:1": experience_id},
+                            )
+                        self.assertEqual(reused.exception.code, "RELATIONSHIP-REOPEN")
+                        await tx.execute("ROLLBACK TO SAVEPOINT revision_links")
+
                     if change_set.action_choices and not codex:
                         self.assertEqual(
                             await (
@@ -8615,7 +8816,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             async def check_maintenance() -> None:
                 owner = bootstrap_cognition_context(
-                    experiences=bootstrap_experience_owner()
+                    maintenance=PostgreSQLSubjectMaintenance(),
+                    experiences=bootstrap_experience_owner(),
                 )
                 async with await psycopg.AsyncConnection.connect(
                     fixture.runtime_dsn
@@ -8722,7 +8924,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                            WHERE cognitive_episode_id=%s""",
                         (root_id, ids["episode"]),
                     )
-                    await bootstrap_cognition_subject_commit().record_application(
+                    await bootstrap_cognition_subject_commit(
+                        maintenance=PostgreSQLSubjectMaintenance()
+                    ).record_application(
                         transaction,
                         CognitionApplicationDraft(
                             application_id=CandidateApplicationId(application[0]),
@@ -8747,7 +8951,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(
                         await (
                             await connection.execute(
-                                "SELECT processed_through_ordinal FROM armi.cognition_maintenance_cursors WHERE subject_id=%s",
+                                "SELECT maintenance_processed_through_ordinal FROM armi.subjects WHERE subject_id=%s",
                                 (born.subject_id,),
                             )
                         ).fetchone(),

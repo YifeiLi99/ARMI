@@ -23,7 +23,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("cognition")
-_VERSION = DataRightsContributionVersion(8)
+_VERSION = DataRightsContributionVersion(9)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "cognitive_attempts",
@@ -34,12 +34,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         "cognitive_episodes",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.cognitive_episodes AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "cognition_maintenance_cursors",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognition_maintenance_cursors AS source
-           ORDER BY to_jsonb(source)::text""",
     ),
 )
 

@@ -632,6 +632,30 @@ class CognitionExactLifeQueryIntentDraft:
 
 
 @runtime_checkable
+class CognitionMaintenanceProgressPort(Protocol):
+    async def pending_window(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[int, int] | None: ...
+
+    async def note_accepted_experience(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        acceptance_ordinal: int,
+    ) -> None: ...
+
+    async def complete_window(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        after_ordinal: int,
+        through_ordinal: int,
+    ) -> None: ...
+
+
+@runtime_checkable
 class CognitionSubjectCommitPort(Protocol):
     async def snapshot(
         self,
@@ -828,6 +852,7 @@ __all__ = (
     "CognitionExactLifeQuerySnapshot",
     "CognitionExperienceContextItem",
     "CognitionFinalizationPort",
+    "CognitionMaintenanceProgressPort",
     "CognitionModelAdapterFactory",
     "CognitionModelPort",
     "CognitionOperationReadPort",

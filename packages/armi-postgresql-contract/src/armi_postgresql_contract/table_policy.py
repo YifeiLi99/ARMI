@@ -75,9 +75,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "accepted_experiences": TableOwnership("experience", maintenance_writable=True),
     "cognitive_attempts": TableOwnership("cognition", maintenance_writable=False),
     "cognitive_episodes": TableOwnership("cognition", maintenance_writable=True),
-    "cognition_maintenance_cursors": TableOwnership(
-        "cognition", maintenance_writable=True
-    ),
     # Subject-owned components.
     "subject_component_revisions": TableOwnership(
         "subject-state", maintenance_writable=True
@@ -88,12 +85,8 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "mood_revisions": TableOwnership("mood", maintenance_writable=True),
     "mood_appraisal_events": TableOwnership("mood", maintenance_writable=True),
     # Life facts.
-    "memory_relations": TableOwnership("memory", maintenance_writable=True),
     "subjective_memories": TableOwnership("memory", maintenance_writable=True),
     "subjective_memory_revisions": TableOwnership("memory", maintenance_writable=True),
-    "relationship_experience_links": TableOwnership(
-        "relationship", maintenance_writable=True
-    ),
     "relationship_revisions": TableOwnership("relationship", maintenance_writable=True),
     "relationships": TableOwnership("relationship", maintenance_writable=True),
     "life_material_revisions": TableOwnership("material", maintenance_writable=True),

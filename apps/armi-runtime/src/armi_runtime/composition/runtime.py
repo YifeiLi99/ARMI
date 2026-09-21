@@ -125,6 +125,9 @@ from armi_runtime.adapters.persistence.provider_usage import PostgreSQLUsageQuer
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
 )
+from armi_runtime.adapters.persistence.subject_maintenance import (
+    PostgreSQLSubjectMaintenance,
+)
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
@@ -777,9 +780,11 @@ async def _serve(
             evidence_module = compose_evidence_module()
             await evidence_module.open()
             experience_owner = bootstrap_experience_owner()
-            cognition_owner = bootstrap_cognition_owner()
+            cognition_owner = bootstrap_cognition_owner(
+                maintenance=PostgreSQLSubjectMaintenance()
+            )
             cognition_context = bootstrap_cognition_context(
-                experiences=experience_owner
+                maintenance=PostgreSQLSubjectMaintenance(), experiences=experience_owner
             )
             opportunity_owner = bootstrap_opportunity_owner(
                 AutonomyPolicy(**config.autonomy.model_dump())

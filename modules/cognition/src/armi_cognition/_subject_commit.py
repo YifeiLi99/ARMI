@@ -31,11 +31,18 @@ from .api import (
     CognitionCommitSnapshot,
     CognitionEpisodeStatus,
     CognitionExactLifeQueryIntentDraft,
+    CognitionMaintenanceProgressPort,
     CognitionOperationSnapshot,
 )
 
 
 class PostgreSQLCognitionSubjectCommit:
+    def __init__(
+        self, maintenance: CognitionMaintenanceProgressPort | None = None
+    ) -> None:
+        # Read/decision-only public ports never advance maintenance progress.
+        self._maintenance = maintenance
+
     async def record_dialogue_decision(
         self,
         transaction: PostgreSQLTransaction,
@@ -227,7 +234,7 @@ class PostgreSQLCognitionSubjectCommit:
 
     """Own Cognition reads and writes used by the Runtime commit coordinator."""
 
-    __slots__ = ()
+    __slots__ = ("_maintenance",)
 
     async def snapshot(
         self,
@@ -307,18 +314,9 @@ class PostgreSQLCognitionSubjectCommit:
         subject_id: UUID,
         acceptance_ordinal: int,
     ) -> None:
-        await transaction.execute(
-            """
-            INSERT INTO armi.cognition_maintenance_cursors (
-                subject_id,latest_accepted_ordinal)
-            VALUES (%s,%s)
-            ON CONFLICT (subject_id) DO UPDATE
-            SET latest_accepted_ordinal=GREATEST(
-                    armi.cognition_maintenance_cursors.latest_accepted_ordinal,
-                    EXCLUDED.latest_accepted_ordinal),
-                updated_at=statement_timestamp()
-            """,
-            (subject_id, acceptance_ordinal),
+        assert self._maintenance is not None
+        await self._maintenance.note_accepted_experience(
+            transaction, subject_id=subject_id, acceptance_ordinal=acceptance_ordinal
         )
 
     async def record_application(
@@ -359,27 +357,24 @@ class PostgreSQLCognitionSubjectCommit:
             ).fetchone()
             if episode is None:
                 raise SubjectCommitViolation("SUBJECT-EPISODE-STATE")
-            await transaction.execute(
-                """WITH completed AS (
-                     UPDATE armi.cognitive_episodes
-                     SET maintenance_status='completed',maintenance_finished_at=statement_timestamp()
-                     WHERE cognitive_episode_id=%s
-                       AND subject_id=%s
-                       AND maintenance_status='running'
-                     RETURNING maintenance_from_ordinal,maintenance_through_ordinal
-                   )
-                   UPDATE armi.cognition_maintenance_cursors
-                   SET processed_through_ordinal=(SELECT maintenance_through_ordinal FROM completed),
-                       updated_at=statement_timestamp()
-                   WHERE subject_id=%s
-                     AND processed_through_ordinal=(SELECT maintenance_from_ordinal FROM completed)
-                     AND EXISTS (SELECT 1 FROM completed)""",
-                (
-                    episode[1],
-                    episode[0],
-                    episode[0],
-                ),
-            )
+            completed = await (
+                await transaction.execute(
+                    """UPDATE armi.cognitive_episodes
+                       SET maintenance_status='completed',maintenance_finished_at=statement_timestamp()
+                       WHERE cognitive_episode_id=%s AND subject_id=%s
+                         AND maintenance_status='running'
+                       RETURNING maintenance_from_ordinal,maintenance_through_ordinal""",
+                    (episode[1], episode[0]),
+                )
+            ).fetchone()
+            if completed is not None:
+                assert self._maintenance is not None
+                await self._maintenance.complete_window(
+                    transaction,
+                    subject_id=episode[0],
+                    after_ordinal=int(completed[0]),
+                    through_ordinal=int(completed[1]),
+                )
 
     async def record_exact_life_query(
         self,
