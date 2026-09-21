@@ -37,7 +37,7 @@ external_evidence external_message_parts interaction_scenes life_generations
 life_material_revisions life_materials live_vision_observation_frames
 live_vision_observations live_vision_sessions
 live_voice_sessions
-live_voice_turns local_inbox_deliveries maintenance_phase_results
+live_voice_turns local_inbox_deliveries
 maintenance_session_revisions maintenance_sessions memory_relations
 mood_appraisal_events mood_heads mood_revisions
 opportunities parties
@@ -52,6 +52,7 @@ subjects
 """
 
 _RUNTIME_UPDATE = """
+maintenance_session_revisions
 autonomy_plans
 accepted_experiences activities
 activity_decisions activity_revisions

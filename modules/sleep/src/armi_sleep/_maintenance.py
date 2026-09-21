@@ -234,10 +234,11 @@ class PostgreSQLMaintenanceRepository:
                 await connection.execute(
                     """
                     SELECT 1
-                    FROM armi.maintenance_phase_results
+                    FROM armi.maintenance_session_revisions
                     WHERE maintenance_session_id = %s
                       AND maintenance_revision_id = %s
                       AND expected_head_version = %s
+                      AND outcome IS NOT NULL
                     """,
                     (session_id, revision_id, head_version),
                 )

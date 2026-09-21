@@ -798,54 +798,22 @@ ALTER TABLE ONLY armi.local_inbox_deliveries
 ALTER TABLE ONLY armi.local_inbox_deliveries
     ADD CONSTRAINT local_inbox_deliveries_pkey PRIMARY KEY (delivery_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_candidate_application_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_candidate_application_id_key UNIQUE (candidate_application_id);
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_candidate_application_id_key UNIQUE (candidate_application_id);
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_candidate_validation_id_key UNIQUE (candidate_validation_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_candidate_validation_id_key UNIQUE (candidate_validation_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_cognitive_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_opportunity_id_key UNIQUE (opportunity_id);
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_maintenance_revision_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_maintenance_revision_id_key UNIQUE (maintenance_revision_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_opportunity_id_key UNIQUE (opportunity_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_pkey PRIMARY KEY (maintenance_phase_result_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_subject_commit_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_subject_commit_id_key UNIQUE (subject_commit_id);
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_subject_commit_id_key UNIQUE (subject_commit_id);
 
 --
 -- Name: maintenance_session_revisions maintenance_session_revisions_maintenance_revision_id_maint_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2806,61 +2774,25 @@ ALTER TABLE ONLY armi.local_inbox_deliveries
 ALTER TABLE ONLY armi.local_inbox_deliveries
     ADD CONSTRAINT local_inbox_deliveries_scene_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_candidate_application_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_memory_id_fkey FOREIGN KEY (memory_id) REFERENCES armi.subjective_memories(memory_id);
 
---
--- Name: maintenance_phase_results maintenance_phase_results_maintenance_revision_id_maintena_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_maintenance_revision_id_maintena_fkey FOREIGN KEY (maintenance_revision_id, maintenance_session_id) REFERENCES armi.maintenance_session_revisions(maintenance_revision_id, maintenance_session_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_maintenance_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_maintenance_session_id_fkey FOREIGN KEY (maintenance_session_id) REFERENCES armi.maintenance_sessions(maintenance_session_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_memory_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_memory_id_fkey FOREIGN KEY (memory_id) REFERENCES armi.subjective_memories(memory_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: maintenance_phase_results maintenance_phase_results_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+ALTER TABLE ONLY armi.maintenance_session_revisions
+    ADD CONSTRAINT maintenance_revisions_result_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
 --
 -- Name: maintenance_session_revisions maintenance_session_revisions_maintenance_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

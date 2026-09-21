@@ -139,39 +139,6 @@ CREATE TABLE armi.cognition_maintenance_cursors (
     CONSTRAINT cognition_maintenance_cursors_coverage_check CHECK ((processed_through_ordinal >= 0) AND (latest_accepted_ordinal >= processed_through_ordinal))
 );
 
---
--- Name: maintenance_phase_results; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.maintenance_phase_results (
-    maintenance_phase_result_id uuid NOT NULL,
-    opportunity_id uuid NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    candidate_application_id uuid NOT NULL,
-    subject_commit_id uuid NOT NULL,
-    maintenance_session_id uuid NOT NULL,
-    maintenance_revision_id uuid NOT NULL,
-    expected_head_version bigint NOT NULL,
-    phase text NOT NULL,
-    outcome text NOT NULL,
-    result_summary text NOT NULL,
-    creator_visible_problem text,
-    memory_id uuid,
-    completed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    issue_target text,
-    CONSTRAINT maintenance_phase_results_check CHECK ((((phase = 'memory_maintenance'::text) AND (outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text]))) OR ((phase = 'self_check'::text) AND (outcome = ANY (ARRAY['issue_found'::text, 'no_issue'::text]))) OR ((phase = ANY (ARRAY['reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (outcome = ANY (ARRAY['reflection_changed'::text, 'reflection_unchanged'::text]))))),
-    CONSTRAINT maintenance_phase_results_check1 CHECK (((outcome = 'memory_changed'::text) = (memory_id IS NOT NULL))),
-    CONSTRAINT maintenance_phase_results_check2 CHECK (((outcome = 'issue_found'::text) = (creator_visible_problem IS NOT NULL))),
-    CONSTRAINT maintenance_phase_results_creator_visible_problem_check CHECK (((creator_visible_problem IS NULL) OR ((length(creator_visible_problem) >= 1) AND (length(creator_visible_problem) <= 512)))),
-    CONSTRAINT maintenance_phase_results_expected_head_version_check CHECK ((expected_head_version > 0)),
-    CONSTRAINT maintenance_phase_results_issue_target_check CHECK (((outcome = 'issue_found'::text) = (issue_target IS NOT NULL))),
-    CONSTRAINT maintenance_phase_results_issue_target_value_check CHECK (((issue_target IS NULL) OR (issue_target = ANY (ARRAY['self'::text, 'mind'::text, 'prompt'::text])))),
-    CONSTRAINT maintenance_phase_results_maintenance_phase_result_id_check CHECK ((uuid_extract_version(maintenance_phase_result_id) = 7)),
-    CONSTRAINT maintenance_phase_results_outcome_check CHECK ((outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text, 'issue_found'::text, 'no_issue'::text, 'reflection_changed'::text, 'reflection_unchanged'::text]))),
-    CONSTRAINT maintenance_phase_results_phase_check CHECK ((phase = ANY (ARRAY['memory_maintenance'::text, 'self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
-    CONSTRAINT maintenance_phase_results_result_summary_check CHECK (((length(result_summary) >= 1) AND (length(result_summary) <= 512)))
-);
 
 --
 -- Name: maintenance_session_revisions; Type: TABLE; Schema: armi; Owner: -
@@ -181,6 +148,29 @@ CREATE TABLE armi.maintenance_session_revisions (
     maintenance_revision_id uuid NOT NULL,
     maintenance_session_id uuid NOT NULL,
     revision_no bigint NOT NULL,
+    opportunity_id uuid,
+    cognitive_episode_id uuid,
+    candidate_validation_id uuid,
+    candidate_application_id uuid,
+    subject_commit_id uuid,
+    expected_head_version bigint,
+    outcome text,
+    result_summary text,
+    creator_visible_problem text,
+    memory_id uuid,
+    completed_at timestamp(6) with time zone,
+    issue_target text,
+    CONSTRAINT maintenance_session_revisions_result_check CHECK (outcome IS NULL OR (((phase = 'memory_maintenance'::text) AND (outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text]))) OR ((phase = 'self_check'::text) AND (outcome = ANY (ARRAY['issue_found'::text, 'no_issue'::text]))) OR ((phase = ANY (ARRAY['reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (outcome = ANY (ARRAY['reflection_changed'::text, 'reflection_unchanged'::text]))))),
+    CONSTRAINT maintenance_session_revisions_result_check1 CHECK (outcome IS NULL OR ((outcome = 'memory_changed'::text) = (memory_id IS NOT NULL))),
+    CONSTRAINT maintenance_session_revisions_result_check2 CHECK (outcome IS NULL OR ((outcome = 'issue_found'::text) = (creator_visible_problem IS NOT NULL))),
+    CONSTRAINT maintenance_session_revisions_result_creator_visible_problem_check CHECK (outcome IS NULL OR ((creator_visible_problem IS NULL) OR ((length(creator_visible_problem) >= 1) AND (length(creator_visible_problem) <= 512)))),
+    CONSTRAINT maintenance_session_revisions_result_expected_head_version_check CHECK (outcome IS NULL OR (expected_head_version > 0)),
+    CONSTRAINT maintenance_session_revisions_result_issue_target_check CHECK (outcome IS NULL OR ((outcome = 'issue_found'::text) = (issue_target IS NOT NULL))),
+    CONSTRAINT maintenance_session_revisions_result_issue_target_value_check CHECK (outcome IS NULL OR ((issue_target IS NULL) OR (issue_target = ANY (ARRAY['self'::text, 'mind'::text, 'prompt'::text])))),
+    CONSTRAINT maintenance_session_revisions_result_outcome_check CHECK (outcome IS NULL OR (outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text, 'issue_found'::text, 'no_issue'::text, 'reflection_changed'::text, 'reflection_unchanged'::text]))),
+    CONSTRAINT maintenance_session_revisions_result_phase_check CHECK (outcome IS NULL OR (phase = ANY (ARRAY['memory_maintenance'::text, 'self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
+    CONSTRAINT maintenance_session_revisions_result_result_summary_check CHECK (outcome IS NULL OR ((length(result_summary) >= 1) AND (length(result_summary) <= 512))),
+    CONSTRAINT maintenance_session_revisions_result_shape CHECK ((opportunity_id IS NULL AND cognitive_episode_id IS NULL AND candidate_validation_id IS NULL AND candidate_application_id IS NULL AND subject_commit_id IS NULL AND expected_head_version IS NULL AND outcome IS NULL AND result_summary IS NULL AND creator_visible_problem IS NULL AND memory_id IS NULL AND completed_at IS NULL AND issue_target IS NULL) OR (opportunity_id IS NOT NULL AND cognitive_episode_id IS NOT NULL AND candidate_validation_id IS NOT NULL AND candidate_application_id IS NOT NULL AND subject_commit_id IS NOT NULL AND expected_head_version IS NOT NULL AND outcome IS NOT NULL AND result_summary IS NOT NULL AND completed_at IS NOT NULL)),
     previous_revision_id uuid,
     phase text NOT NULL,
     result_status text NOT NULL,

@@ -82,7 +82,7 @@ class PostgreSQLSleepCommit:
         if maintenance is not None:
             if commit_id is None:
                 raise SleepViolation("SLEEP-MAINTENANCE-COMMIT")
-            await self._insert_maintenance_result(
+            await self._record_maintenance_result(
                 transaction,
                 context=context,
                 application_id=application_id,
@@ -104,7 +104,7 @@ class PostgreSQLSleepCommit:
                 WHERE decision.candidate_validation_id = %s
                 UNION
                 SELECT maintenance_session_id
-                FROM armi.maintenance_phase_results
+                FROM armi.maintenance_session_revisions
                 WHERE candidate_validation_id = %s
                 ORDER BY maintenance_session_id
                 """,
@@ -296,7 +296,7 @@ class PostgreSQLSleepCommit:
         )
 
     @staticmethod
-    async def _insert_maintenance_result(
+    async def _record_maintenance_result(
         transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
@@ -312,36 +312,37 @@ class PostgreSQLSleepCommit:
             if len(committed_memory_ids) != 1:
                 raise SleepViolation("SLEEP-MAINTENANCE-MEMORY")
             memory_id = committed_memory_ids[0]
-        await transaction.execute(
+        updated = await transaction.execute(
             """
-            INSERT INTO armi.maintenance_phase_results (
-                maintenance_phase_result_id, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                candidate_application_id, subject_commit_id,
-                maintenance_session_id, maintenance_revision_id,
-                expected_head_version, phase, outcome, result_summary,
-                creator_visible_problem, memory_id, issue_target) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s)
+            UPDATE armi.maintenance_session_revisions
+            SET opportunity_id=%s, cognitive_episode_id=%s,
+                candidate_validation_id=%s, candidate_application_id=%s,
+                subject_commit_id=%s, expected_head_version=%s,
+                outcome=%s, result_summary=%s, creator_visible_problem=%s,
+                memory_id=%s, issue_target=%s, completed_at=statement_timestamp()
+            WHERE maintenance_session_id=%s AND maintenance_revision_id=%s
+              AND phase=%s AND outcome IS NULL
+            RETURNING maintenance_revision_id
             """,
             (
-                uuid7(),
                 context.opportunity_id,
                 context.episode_id,
                 context.validation_id,
                 application_id,
                 commit_id,
-                decision.maintenance_session_id,
-                decision.current_revision_id,
                 decision.expected_head_version,
-                decision.phase.value,
                 decision.outcome.value,
                 decision.result_summary,
                 decision.creator_visible_problem,
                 memory_id,
                 decision.issue_target,
+                decision.maintenance_session_id,
+                decision.current_revision_id,
+                decision.phase.value,
             ),
         )
+        if await updated.fetchone() is None:
+            raise SleepViolation("SLEEP-MAINTENANCE-COMMIT")
 
 
 __all__ = ("PostgreSQLSleepCommit",)

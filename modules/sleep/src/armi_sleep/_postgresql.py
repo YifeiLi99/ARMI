@@ -227,12 +227,9 @@ class PostgreSQLSleepRead:
                         SELECT revision.maintenance_revision_id,
                                revision.revision_no, revision.phase,
                                revision.result_status, revision.transition_kind,
-                               revision.created_at, result.outcome,
-                               result.creator_visible_problem
+                               revision.created_at, revision.outcome,
+                               revision.creator_visible_problem
                         FROM armi.maintenance_session_revisions AS revision
-                        LEFT JOIN armi.maintenance_phase_results AS result
-                          ON result.maintenance_revision_id
-                            = revision.maintenance_revision_id
                         WHERE revision.maintenance_session_id = %s
                           AND revision.revision_no<=%s
                           AND (%s::bigint IS NULL OR revision.revision_no<%s)
