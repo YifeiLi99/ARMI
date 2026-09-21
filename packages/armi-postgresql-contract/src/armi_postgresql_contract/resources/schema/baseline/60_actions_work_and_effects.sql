@@ -41,25 +41,6 @@ CREATE TABLE armi.action_intents (
 
 -- Expression owns the complete outcome of one response-admission responsibility.
 
---
--- Name: capabilities; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.capabilities (
-    capability_id uuid NOT NULL,
-    capability_kind text NOT NULL,
-    adapter_kind text NOT NULL,
-    operation_class text NOT NULL,
-    scope_schema text NOT NULL,
-    availability_status text NOT NULL,
-    verification_capability text NOT NULL,
-    configuration_version bigint NOT NULL,
-    CONSTRAINT capabilities_availability_chk CHECK ((availability_status = ANY (ARRAY['available'::text, 'unavailable'::text]))),
-    CONSTRAINT capabilities_id_v7_chk CHECK (("substring"((capability_id)::text, 15, 1) = '7'::text)),
-    CONSTRAINT capabilities_kind_chk CHECK ((capability_kind = ANY (ARRAY['creator.scene.reply'::text, 'codex.delegated-work'::text, 'local.other-human-inbox.deliver'::text, 'external.group.message.send'::text, 'external.private.message.send'::text]))),
-    CONSTRAINT capabilities_operation_chk CHECK ((((capability_kind = ANY (ARRAY['creator.scene.reply'::text, 'local.other-human-inbox.deliver'::text, 'external.group.message.send'::text, 'external.private.message.send'::text])) AND (operation_class = 'send'::text)) OR ((capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text)))),
-    CONSTRAINT capabilities_version_chk CHECK ((configuration_version > 0))
-);
 
 --
 --

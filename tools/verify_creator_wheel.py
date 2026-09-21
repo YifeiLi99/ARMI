@@ -36,7 +36,6 @@ CONTRACT_REQUIRED = {
             "70_codex_audit_data_rights.sql",
             "80_cross_domain_constraints_and_indexes.sql",
             "85_provider_usage.sql",
-            "90_static_catalog.sql",
             "99_privileges.sql",
         )
     },

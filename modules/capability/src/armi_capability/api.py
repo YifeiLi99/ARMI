@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLTransaction
-
 type CapabilityContextStatePayload = tuple[UUID, int, bytes, str]
 
 
@@ -26,12 +24,7 @@ class CapabilityAvailability:
 
 @runtime_checkable
 class CapabilityReadPort(Protocol):
-    async def context_state_payloads(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-    ) -> tuple[CapabilityContextStatePayload, ...]: ...
+    def context_state_payloads(self) -> tuple[CapabilityContextStatePayload, ...]: ...
 
 
 __all__ = (

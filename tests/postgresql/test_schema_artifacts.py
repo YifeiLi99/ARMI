@@ -28,7 +28,6 @@ BASELINE_DOCUMENTS = [
     "80_cross_domain_constraints_and_indexes.sql",
     "85_provider_usage.sql",
     "86_autonomy.sql",
-    "90_static_catalog.sql",
     "99_privileges.sql",
 ]
 
@@ -130,7 +129,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v45" in (
+    assert "armi.schema-baseline.v46" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

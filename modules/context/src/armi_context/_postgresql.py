@@ -310,9 +310,7 @@ class PostgreSQLContextRepository:
         capabilities = (
             ()
             if other_human
-            else await self._capabilities.context_state_payloads(
-                tx, subject_id=episode.subject_id
-            )
+            else self._capabilities.context_state_payloads()
         )
 
         evidence_source = None

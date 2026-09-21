@@ -24,7 +24,6 @@ _DOCUMENTS = (
     "80_cross_domain_constraints_and_indexes.sql",
     "85_provider_usage.sql",
     "86_autonomy.sql",
-    "90_static_catalog.sql",
     "99_privileges.sql",
 )
 

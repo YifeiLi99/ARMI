@@ -126,7 +126,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Expression, capability, and effect lifecycle.
     "action_intents": TableOwnership("expression", maintenance_writable=True),
     "dialogue_decisions": TableOwnership("expression", maintenance_writable=True),
-    "capabilities": TableOwnership("capability", maintenance_writable=False),
     "effect_attempts": TableOwnership("effect", maintenance_writable=False),
     "effect_observations": TableOwnership("effect", maintenance_writable=False),
     "effect_outbox_items": TableOwnership("effect", maintenance_writable=False),

@@ -182,18 +182,6 @@ ALTER TABLE ONLY armi.audit_events
     ADD CONSTRAINT audit_events_pkey PRIMARY KEY (audit_event_id);
 
 --
--- Name: capabilities capabilities_capability_kind_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.capabilities
-    ADD CONSTRAINT capabilities_capability_kind_key UNIQUE (capability_kind);
-
---
--- Name: capabilities capabilities_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.capabilities
-    ADD CONSTRAINT capabilities_pkey PRIMARY KEY (capability_id);
 
 --
 --

@@ -4,36 +4,27 @@ from collections.abc import Callable, Mapping
 from uuid import UUID
 
 import rfc8785
-from armi_runtime_foundation import PostgreSQLTransaction
 
 from .api import CapabilityAvailability, CapabilityContextStatePayload
 
 
-class PostgreSQLCapabilityCatalog:
+class CapabilityCatalog:
     def __init__(
         self, availability: Callable[[], Mapping[str, CapabilityAvailability]]
     ) -> None:
         self._availability = availability
 
-    async def context_state_payloads(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-    ) -> tuple[CapabilityContextStatePayload, ...]:
-        del subject_id
-        rows = await (
-            await transaction.execute(
-                """SELECT capability_id, capability_kind, operation_class, configuration_version
-               FROM armi.capabilities WHERE capability_kind='codex.delegated-work'
-               ORDER BY capability_kind"""
-            )
-        ).fetchall()
+    def context_state_payloads(self) -> tuple[CapabilityContextStatePayload, ...]:
         states = self._availability()
         # Stable identities for configuration-owned built-in entries; they are
         # Context sources, not grants or writable permission records.
         rows = [
-            *rows,
+            (
+                UUID("01985d00-0000-7000-8000-000000000038"),
+                "codex.delegated-work",
+                "execute",
+                2,
+            ),
             *(
                 (UUID(identity), kind, operation, 1)
                 for identity, kind, operation in (

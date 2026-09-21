@@ -8,7 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
-BASELINE_IDENTITY: Final = "armi.schema-baseline.v45"
+BASELINE_IDENTITY: Final = "armi.schema-baseline.v46"
 EXPECTED_REVISION: Final = "0000"
 BASELINE_DOCUMENTS: Final = (
     "10_runtime_and_subject.sql",
@@ -22,7 +22,6 @@ BASELINE_DOCUMENTS: Final = (
     "80_cross_domain_constraints_and_indexes.sql",
     "85_provider_usage.sql",
     "86_autonomy.sql",
-    "90_static_catalog.sql",
     "99_privileges.sql",
 )
 _RESOURCE_FILES: Final = (

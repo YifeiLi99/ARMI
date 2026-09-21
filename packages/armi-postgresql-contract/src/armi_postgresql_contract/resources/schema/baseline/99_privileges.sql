@@ -28,8 +28,6 @@ GRANT SELECT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, arm
 GRANT SELECT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_runtime;
 GRANT SELECT ON TABLE armi.audit_events TO armi_admin;
 GRANT SELECT ON TABLE armi.audit_events TO armi_runtime;
-GRANT SELECT ON TABLE armi.capabilities TO armi_admin;
-GRANT SELECT ON TABLE armi.capabilities TO armi_runtime;
 
 
 

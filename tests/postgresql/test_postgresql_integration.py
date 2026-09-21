@@ -494,7 +494,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("activity_decisions", "resource_snapshot_digest"),
     ("maintenance_sessions", "schedule_digest"),
     ("sleep_decisions", "source_digest"),
-    ("capabilities", "configuration_digest"),
     ("effect_attempts", "request_digest"),
     ("effect_outbox_items", "payload_digest"),
     ("effects", "settlement_digest"),

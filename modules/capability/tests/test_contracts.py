@@ -1,15 +1,16 @@
 """Runtime availability, without approval or permission state."""
 
 import json
-from typing import Any, cast
-from uuid import uuid7
 
 import pytest
 from armi_capability.api import CapabilityAvailability
 from armi_capability.bootstrap import bootstrap_capability
 
 
-@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["codex.delegated-work", "vision.camera", "vision.screen", "life.query"],
+)
 @pytest.mark.parametrize(
     "availability",
     [
@@ -18,24 +19,17 @@ from armi_capability.bootstrap import bootstrap_capability
         CapabilityAvailability(True, True, None),
     ],
 )
-async def test_catalog_uses_runtime_availability(
+def test_catalog_uses_runtime_availability(
     availability: CapabilityAvailability,
+    kind: str,
 ) -> None:
-    class Transaction:
-        async def execute(self, *_args: object) -> Any:
-            return self
-
-        async def fetchall(self) -> list[tuple[object, ...]]:
-            return [(uuid7(), "codex.delegated-work", "execute", 1)]
-
-    catalog = bootstrap_capability(lambda: {"codex.delegated-work": availability})
-    rows = await catalog.context_state_payloads(
-        cast(Any, Transaction()), subject_id=uuid7()
-    )
+    catalog = bootstrap_capability(lambda: {kind: availability})
+    rows = catalog.context_state_payloads()
     if not availability.enabled:
         assert rows == ()
         return
     payload = json.loads(rows[0][2])
+    assert payload["capability_kind"] == kind
     assert payload["enabled"] is availability.enabled
     assert payload["availability_status"] == (
         "available" if availability.available else "unavailable"
