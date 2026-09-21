@@ -1,35 +1,5 @@
 -- Current ARMI schema tables owned by this baseline module.
 
---
--- Name: action_intent_revisions; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.action_intent_revisions (
-    action_intent_revision_id uuid NOT NULL,
-    action_intent_id uuid NOT NULL,
-    revision_no bigint NOT NULL,
-    response_artifact_id uuid,
-    response_digest text,
-    response_bytes integer,
-    media_type text,
-    capability_kind text NOT NULL,
-    operation_class text NOT NULL,
-    audience_scope text,
-    data_scope text,
-    purpose text NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    proposal_ref text NOT NULL,
-    subject_commit_id uuid NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    codex_task_source_id uuid,
-    task_manifest_digest text,
-    CONSTRAINT action_intent_revisions_bytes_check CHECK (((response_bytes IS NULL) OR ((response_bytes >= 1) AND (response_bytes <= 65536)))),
-    CONSTRAINT action_intent_revisions_digest_check CHECK (((response_digest IS NULL) OR (response_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT action_intent_revisions_family_check CHECK ((((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NULL) AND (response_digest IS NULL) AND (response_bytes IS NULL) AND (media_type IS NULL) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (codex_task_source_id IS NOT NULL) AND (task_manifest_digest IS NOT NULL) AND (task_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)))),
-    CONSTRAINT action_intent_revisions_id_check CHECK ((uuid_extract_version(action_intent_revision_id) = 7)),
-    CONSTRAINT action_intent_revisions_response_shape_check CHECK ((((response_artifact_id IS NULL) = (response_digest IS NULL)) AND ((response_digest IS NULL) = (response_bytes IS NULL)) AND ((response_bytes IS NULL) = (media_type IS NULL)))),
-    CONSTRAINT action_intent_revisions_revision_no_check CHECK ((revision_no > 0))
-);
 
 --
 -- Name: action_intents; Type: TABLE; Schema: armi; Owner: -
@@ -42,10 +12,26 @@ CREATE TABLE armi.action_intents (
     context_party_id uuid NOT NULL,
     root_opportunity_id uuid NOT NULL,
     purpose text NOT NULL,
-    current_revision_id uuid,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     action_kind text NOT NULL,
     operation_ref uuid NOT NULL,
+    response_artifact_id uuid,
+    response_digest text,
+    response_bytes integer,
+    media_type text,
+    capability_kind text NOT NULL,
+    operation_class text NOT NULL,
+    audience_scope text,
+    data_scope text,
+    candidate_validation_id uuid NOT NULL,
+    proposal_ref text NOT NULL,
+    subject_commit_id uuid NOT NULL,
+    codex_task_source_id uuid,
+    task_manifest_digest text,
+    CONSTRAINT action_intents_bytes_check CHECK (((response_bytes IS NULL) OR ((response_bytes >= 1) AND (response_bytes <= 65536)))),
+    CONSTRAINT action_intents_digest_check CHECK (((response_digest IS NULL) OR (response_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT action_intents_family_check CHECK ((((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NULL) AND (response_digest IS NULL) AND (response_bytes IS NULL) AND (media_type IS NULL) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (codex_task_source_id IS NOT NULL) AND (task_manifest_digest IS NOT NULL) AND (task_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)))),
+    CONSTRAINT action_intents_response_shape_check CHECK ((((response_artifact_id IS NULL) = (response_digest IS NULL)) AND ((response_digest IS NULL) = (response_bytes IS NULL)) AND ((response_bytes IS NULL) = (media_type IS NULL)))),
     CONSTRAINT action_intents_id_check CHECK ((uuid_extract_version(action_intent_id) = 7)),
     CONSTRAINT action_intents_kind_check CHECK ((action_kind = ANY (ARRAY['party_response'::text, 'codex_delegation'::text]))),
     CONSTRAINT action_intents_operation_ref_check CHECK ((uuid_extract_version(operation_ref) = 7)),
@@ -289,7 +275,6 @@ CREATE TABLE armi.effect_outbox_items (
 
 CREATE TABLE armi.effects (
     effect_id uuid NOT NULL,
-    action_intent_revision_id uuid,
     subject_id uuid NOT NULL,
     scene_id uuid NOT NULL,
     context_party_id uuid NOT NULL,
@@ -318,7 +303,7 @@ CREATE TABLE armi.effects (
     destination_binding_id uuid,
     live_voice_turn_id uuid,
     system_notification_id uuid UNIQUE,
-    CONSTRAINT effects_origin_check CHECK ((system_notification_id IS NOT NULL AND action_intent_id IS NULL AND action_intent_revision_id IS NULL) OR (system_notification_id IS NULL AND action_intent_id IS NOT NULL AND action_intent_revision_id IS NOT NULL)),
+    CONSTRAINT effects_origin_check CHECK ((system_notification_id IS NOT NULL AND action_intent_id IS NULL) OR (system_notification_id IS NULL AND action_intent_id IS NOT NULL)),
     CONSTRAINT effects_authorization_check CHECK ((authorization_basis = ANY (ARRAY['runtime_builtin'::text, 'runtime_configuration'::text]))),
     CONSTRAINT effects_destination_check CHECK ((destination_kind = ANY (ARRAY['creator_inbox'::text, 'other_human_inbox'::text, 'codex_workspace'::text, 'external_group'::text, 'external_private'::text, 'live_voice_audio'::text]))),
     CONSTRAINT effects_live_voice_shape_check CHECK (((destination_kind = 'live_voice_audio'::text) = (live_voice_turn_id IS NOT NULL))),

@@ -1519,6 +1519,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_supported_v29_database_upgrade_preserves_subject_and_history(self) -> None:
         self._assert_supported_database_upgrade("v29")
 
+    @pytest.mark.test_group("schema", "expression", "effect", "admin")
+    def test_supported_v30_database_upgrade_preserves_subject_and_history(self) -> None:
+        self._assert_supported_database_upgrade("v30")
+
     def _assert_upgrade_preserves_codex_artifacts(self, source_version: str) -> None:
         from zipfile import ZipFile
 
@@ -1667,7 +1671,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 revision_id = uuid7()
                 await transaction.execute(
                     "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb,'private')"
-                    if source_version in {"v24", "v25", "v29"}
+                    if source_version in {"v24", "v25", "v29", "v30"}
                     else "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,'mind',1,'bootstrap',%s,%s::jsonb,'private')",
                     (
                         revision_id,
@@ -1678,7 +1682,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 await transaction.execute(
                     "INSERT INTO armi.mind_heads (subject_id,current_revision_id,mind_version) VALUES (%s,%s,1)"
-                    if source_version in {"v24", "v25", "v29"}
+                    if source_version in {"v24", "v25", "v29", "v30"}
                     else "INSERT INTO armi.subject_component_heads (subject_id,component_kind,current_revision_id,component_version) VALUES (%s,'mind',%s,1)",
                     (subject_id, revision_id),
                 )
@@ -1708,7 +1712,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         historical_birth_digest = (
             packaged_birth_digests()["birth_contract_digest"].value
-            if source_version == "v29"
+            if source_version in {"v29", "v30"}
             else "sha256:509201df7bf69f24e3a701e7904fcf43fa075d5aeffda7cb71cc709a142e0a61"
             if source_version == "v21"
             else "sha256:0a90eadd62ff80c41fb32368f6e0edc06e99951a50441bac667e4023d9e04131"
@@ -1732,10 +1736,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 BirthRepository(
                     bootstrap_subject_state().birth,
                     bootstrap_mind().birth
-                    if source_version == "v29"
+                    if source_version in {"v29", "v30"}
                     else cast(Any, SourceSchemaMindFixture()),
                     bootstrap_mood().birth
-                    if source_version == "v29"
+                    if source_version in {"v29", "v30"}
                     else cast(Any, SourceSchemaMoodFixture()),
                     bootstrap_prompt().birth,
                     bootstrap_interaction_birth(),
@@ -1759,7 +1763,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         birth_contract_digest=packaged_birth_digests()[
                             "birth_contract_digest"
                         ]
-                        if source_version == "v29"
+                        if source_version in {"v29", "v30"}
                         else Digest(historical_birth_digest),
                         request_digest=Digest.from_bytes(b"usage-upgrade-fixture"),
                     )
@@ -1809,7 +1813,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                    SELECT %s,subject_id,2,mind_revision_id,'admin_correction',%s,
                           semantic_payload,'private'
                    FROM armi.mind_revisions WHERE subject_id=%s"""
-                if source_version in {"v24", "v25", "v29"}
+                if source_version in {"v24", "v25", "v29", "v30"}
                 else """INSERT INTO armi.subject_component_revisions
                    (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,
                     origin_kind,origin_ref,semantic_payload,privacy_scope)
@@ -1820,13 +1824,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=2 WHERE subject_id=%s"
-                if source_version in {"v24", "v25", "v29"}
+                if source_version in {"v24", "v25", "v29", "v30"}
                 else "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=2 WHERE subject_id=%s AND component_kind='mind'",
                 (revision_id, born.subject_id),
             )
             old_mind_history = connection.execute(
                 "SELECT to_jsonb(r) FROM armi.mind_revisions r WHERE subject_id=%s ORDER BY mind_version"
-                if source_version in {"v24", "v25", "v29"}
+                if source_version in {"v24", "v25", "v29", "v30"}
                 else """SELECT to_jsonb(r)-'component_kind'-'component_revision_id'-'component_version'
                           || jsonb_build_object('mind_revision_id',r.component_revision_id,'mind_version',r.component_version)
                    FROM armi.subject_component_revisions r WHERE subject_id=%s AND component_kind='mind'
@@ -1835,7 +1839,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchall()
             old_mind = connection.execute(
                 "SELECT mind_revision_id,mind_version,semantic_payload FROM armi.mind_revisions WHERE subject_id=%s ORDER BY mind_version DESC LIMIT 1"
-                if source_version in {"v24", "v25", "v29"}
+                if source_version in {"v24", "v25", "v29", "v30"}
                 else "SELECT component_revision_id,component_version,semantic_payload "
                 "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind' ORDER BY component_version DESC LIMIT 1",
                 (born.subject_id,),
@@ -1936,14 +1940,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             assert migrated_mind is not None
             self.assertEqual(
                 migrated_mind[0],
-                "admin_correction" if source_version == "v29" else "module_migration",
+                "admin_correction"
+                if source_version in {"v29", "v30"}
+                else "module_migration",
             )
             self.assertEqual(
                 migrated_mind[2],
                 old_mind[1]
                 + (
                     0
-                    if source_version == "v29"
+                    if source_version in {"v29", "v30"}
                     else 2
                     if source_version == "v21"
                     else 1
@@ -1965,7 +1971,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 mood_rows,
                 old_mood_history
-                if source_version == "v29"
+                if source_version in {"v29", "v30"}
                 else [
                     ("bootstrap", historical_psychology["mood"]),
                     (
@@ -6208,7 +6214,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """
                 INSERT INTO armi.effects (
-                    effect_id, action_intent_revision_id,
+                    effect_id,
                     subject_id, scene_id,
                     context_party_id, payload_artifact_id, payload_digest,
                     payload_bytes, effect_kind, capability_kind,
@@ -6219,7 +6225,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     current_observation_id, settled_at,
                     action_intent_id
                 )
-                SELECT uuidv7(), uuidv7(), %s,
+                SELECT uuidv7(), %s,
                        uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
                        'creator_response', 'creator.scene.reply', 'send',
@@ -7091,6 +7097,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             interruption_stage="rollback", concerns=True, neutral_mood=True
         )
 
+    @pytest.mark.test_group("schema", "expression", "effect")
+    def test_intent_upgrade_preserves_delivered_reply_and_rejects_extra_history(self):
+        self._exercise_creator_reply(verify_intent_upgrade=True)
+
     def _exercise_creator_reply(
         self,
         *,
@@ -7099,6 +7109,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         autonomous_codex: bool = False,
         concerns: bool = False,
         neutral_mood: bool = False,
+        verify_intent_upgrade: bool = False,
         purpose: str | None = None,
         system_notification: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
@@ -8891,7 +8902,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.accepted_experiences),
                     (SELECT count(*) FROM armi.experience_evidence_links),
                     (SELECT count(*) FROM armi.action_intents),
-                    (SELECT count(*) FROM armi.action_intent_revisions),
                     (SELECT count(*) FROM armi.scene_timeline_items WHERE source_kind = 'subject_commit'),
                     (SELECT count(*) FROM armi.audit_events WHERE operation = 'cognition.subject.committed')
                 """
@@ -8904,7 +8914,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     1,
                     len(change_set.experiences),
                     sum(len(item.basis_ordinals) for item in change_set.experiences),
-                    len(change_set.action_choices),
                     len(change_set.action_choices),
                     1,
                     1,
@@ -9096,34 +9105,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 composition.close()
         with psycopg.connect(fixture.provisioner_dsn) as connection:
-            action_owner = connection.execute(
-                """
-                SELECT action_intent_id, current_revision_id, subject_id, scene_id,
-                       context_party_id, root_opportunity_id
-                FROM armi.action_intents
-                WHERE current_revision_id IS NOT NULL
-                ORDER BY created_at
-                LIMIT 1
-                """
-            ).fetchone()
-            assert action_owner is not None
-            foreign_action_id = _uuid7()
-            connection.execute(
-                """
-                INSERT INTO armi.action_intents (
-                    action_intent_id, subject_id, scene_id, context_party_id,
-                    root_opportunity_id, purpose, current_revision_id,
-                    action_kind, operation_ref) VALUES (%s, %s, %s, %s, %s, 'delegate_codex_work', NULL,
-                          'codex_delegation', %s)
-                """,
-                (foreign_action_id, *action_owner[2:], _uuid7()),
-            )
-            connection.commit()
-            with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            # The merged intent must be complete at insert time. There is no
+            # temporary head without payload and no revision pointer to retarget.
+            with self.assertRaises(psycopg.errors.NotNullViolation):
                 connection.execute(
-                    "UPDATE armi.action_intents SET current_revision_id = %s "
-                    "WHERE action_intent_id = %s",
-                    (action_owner[1], foreign_action_id),
+                    """
+                    INSERT INTO armi.action_intents (
+                        action_intent_id,subject_id,scene_id,context_party_id,
+                        root_opportunity_id,purpose,action_kind,operation_ref)
+                    SELECT uuidv7(),subject_id,scene_id,context_party_id,
+                           root_opportunity_id,purpose,action_kind,uuidv7()
+                    FROM armi.action_intents LIMIT 1
+                    """
                 )
             connection.rollback()
         with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -9154,6 +9147,158 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 1,
             ),
         )
+
+        if verify_intent_upgrade:
+            self._assert_intent_upgrade_preserves_reply(fixture)
+
+    def _assert_intent_upgrade_preserves_reply(self, fixture: DatabaseFixture) -> None:
+        """Round-trip only this test's synthetic reply through the actual v30 DDL."""
+        from zipfile import ZipFile
+
+        from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
+        from armi_postgresql_contract.schema_resources import schema_resource_root
+        from armi_postgresql_contract.table_policy import TABLE_OWNERSHIP
+        from armi_postgresql_contract.upgrades import apply_upgrade, upgrade_plan
+        from psycopg import sql
+
+        resource = schema_resource_root().parent / "upgrades"
+        tables = sorted(
+            set(TABLE_OWNERSHIP) - {"schema_baseline_identity", "capabilities"}
+        )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            records = {
+                table: [
+                    json.loads(row[0])
+                    for row in connection.execute(
+                        sql.SQL("SELECT to_jsonb(t)::text FROM armi.{} t").format(
+                            sql.Identifier(table)
+                        )
+                    ).fetchall()
+                ]
+                for table in tables
+            }
+        intents = records["action_intents"]
+        self.assertTrue(intents)
+        self.assertEqual(records["effects"][0]["status"], "completed")
+        legacy_revisions = {row["action_intent_id"]: str(uuid7()) for row in intents}
+        old = self.create_database()
+        source = upgrade_plan("armi.schema-baseline.v30")["source"]
+        with psycopg.connect(old.provisioner_dsn) as connection:
+            connection.execute("SET ROLE armi_owner")
+            connection.execute("CREATE SCHEMA armi AUTHORIZATION armi_owner")
+            connection.execute(
+                "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+            )
+            connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
+            with ZipFile(resource / "v30-source.zip") as archive:
+                for name in sorted(archive.namelist()):
+                    if name.startswith("baseline/") and name.endswith(".sql"):
+                        connection.execute(
+                            cast(LiteralString, archive.read(name).decode("utf-8")),
+                            prepare=False,
+                        )
+            connection.execute("RESET ROLE")
+            # Insert the already validated synthetic graph independently of FK order.
+            # Re-add and validate every FK below before exercising the real upgrade.
+            connection.execute("SET session_replication_role=replica")
+            legacy_records = {**records, "action_intent_revisions": []}
+            for row in intents:
+                legacy_records["action_intent_revisions"].append(
+                    {
+                        **row,
+                        "action_intent_revision_id": legacy_revisions[
+                            row["action_intent_id"]
+                        ],
+                        "revision_no": 1,
+                    }
+                )
+            for table, rows in legacy_records.items():
+                for row in rows:
+                    value = dict(row)
+                    if table == "action_intents":
+                        value["current_revision_id"] = legacy_revisions[
+                            value["action_intent_id"]
+                        ]
+                    elif table == "effects":
+                        value["action_intent_revision_id"] = legacy_revisions.get(
+                            value["action_intent_id"]
+                        )
+                    connection.execute(
+                        sql.SQL(
+                            "INSERT INTO armi.{} OVERRIDING SYSTEM VALUE SELECT * FROM json_populate_record(NULL::armi.{}, %s::json)"
+                        ).format(sql.Identifier(table), sql.Identifier(table)),
+                        (json.dumps(value),),
+                    )
+            connection.execute("SET session_replication_role=origin")
+            constraints = connection.execute(
+                """SELECT c.conrelid::regclass::text,c.conname,pg_get_constraintdef(c.oid)
+                   FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
+                   WHERE n.nspname='armi' AND c.contype='f'"""
+            ).fetchall()
+            for table, name, definition in constraints:
+                relation = sql.Identifier(*table.split("."))
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} DROP CONSTRAINT {}").format(
+                        relation, sql.Identifier(name)
+                    )
+                )
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} ADD CONSTRAINT {} {}").format(
+                        relation, sql.Identifier(name), sql.SQL(definition)
+                    )
+                )
+            connection.execute("SET ROLE armi_owner")
+            connection.execute(
+                "UPDATE armi.schema_baseline_identity SET resource_digest=%s,installed_catalog_digest=%s,role_policy_digest=%s",
+                (
+                    source["schema_digest"],
+                    database_catalog_digest(connection),
+                    source["role_policy_digest"],
+                ),
+            )
+            # A second historical revision must stop the merge, not silently vanish.
+            with (
+                self.assertRaisesRegex(
+                    psycopg.errors.RaiseException, "DB-UPGRADE-ACTION-INTENT-HISTORY"
+                ),
+                connection.transaction(),
+            ):
+                extra = {
+                    **legacy_records["action_intent_revisions"][0],
+                    "action_intent_revision_id": str(uuid7()),
+                    "revision_no": 2,
+                }
+                connection.execute(
+                    "INSERT INTO armi.action_intent_revisions SELECT * FROM json_populate_record(NULL::armi.action_intent_revisions,%s::json)",
+                    (json.dumps(extra),),
+                )
+                apply_upgrade(connection)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM armi.action_intent_revisions"
+                ).fetchone(),
+                (len(intents),),
+            )
+            self.assertEqual(apply_upgrade(connection)["state"], "upgraded")
+            self.assertEqual(apply_upgrade(connection)["state"], "current")
+            for table in (
+                "action_intents",
+                "effects",
+                "effect_attempts",
+                "effect_observations",
+                "effect_outbox_items",
+                "dialogue_decisions",
+                "artifacts",
+            ):
+                after = [
+                    json.loads(row[0])
+                    for row in connection.execute(
+                        sql.SQL("SELECT to_jsonb(t)::text FROM armi.{} t").format(
+                            sql.Identifier(table)
+                        )
+                    ).fetchall()
+                ]
+                self.assertCountEqual(after, records[table], table)
 
     def _verify_reply_interruption(
         self,

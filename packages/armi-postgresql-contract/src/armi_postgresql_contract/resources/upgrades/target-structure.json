@@ -1,5 +1,5 @@
 {
-  "baseline": "armi.schema-baseline.v30",
-  "schema_digest": "sha256:048b9170dd7d4bbfc62901896676418e3550469ba4b674dc63e9d737cdbb7a8e",
-  "structure_digest": "sha256:936d1372e3619903391ba7a282b2a2c31273b679609dae7286ddf49f01e0e589"
+  "baseline": "armi.schema-baseline.v31",
+  "schema_digest": "sha256:6051ea536418d528b4b4cb720fec7181d2e29b8e082f1a9cfd21a201acdd2732",
+  "structure_digest": "sha256:7f1da2f2242d6b77f030bb1412f68a0738d465095a60967c9e95f865aeb7c702"
 }

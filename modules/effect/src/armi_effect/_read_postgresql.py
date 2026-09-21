@@ -65,7 +65,7 @@ class PostgreSQLEffectOperationRead:
         row = await (
             await transaction.execute(
                 """
-                SELECT effect.effect_id, effect.action_intent_revision_id,
+                SELECT effect.effect_id,
                        effect.action_intent_id, effect.subject_id, effect.scene_id, effect.context_party_id,
                        effect.payload_artifact_id, effect.payload_digest,
                        effect.payload_bytes, effect.effect_kind,
@@ -94,33 +94,32 @@ class PostgreSQLEffectOperationRead:
             return None
         return EffectLedgerSnapshot(
             effect_id=row[0],
-            action_intent_revision_id=row[1],
-            action_intent_id=row[2],
-            subject_id=row[3],
-            scene_id=row[4],
-            context_party_id=row[5],
-            payload_artifact_id=row[6],
-            payload_digest=Digest(str(row[7])),
-            payload_bytes=int(row[8]),
-            effect_kind=str(row[9]),
-            capability_kind=str(row[10]),
-            status=EffectStatus(str(row[11])),
-            verification_status=EffectVerificationStatus(str(row[12])),
-            registered_at=Instant(row[13]),
-            cancelled_at=None if row[14] is None else Instant(row[14]),
-            settled_at=None if row[15] is None else Instant(row[15]),
-            attempt_count=int(row[16]),
+            action_intent_id=row[1],
+            subject_id=row[2],
+            scene_id=row[3],
+            context_party_id=row[4],
+            payload_artifact_id=row[5],
+            payload_digest=Digest(str(row[6])),
+            payload_bytes=int(row[7]),
+            effect_kind=str(row[8]),
+            capability_kind=str(row[9]),
+            status=EffectStatus(str(row[10])),
+            verification_status=EffectVerificationStatus(str(row[11])),
+            registered_at=Instant(row[12]),
+            cancelled_at=None if row[13] is None else Instant(row[13]),
+            settled_at=None if row[14] is None else Instant(row[14]),
+            attempt_count=int(row[15]),
             current_observation_kind=(
-                None if row[17] is None else EffectObservationKind(str(row[17]))
+                None if row[16] is None else EffectObservationKind(str(row[16]))
             ),
             current_observation_reliability=(
-                None if row[18] is None else EffectObservationReliability(str(row[18]))
+                None if row[17] is None else EffectObservationReliability(str(row[17]))
             ),
-            current_attempt_id=row[19],
-            current_attempt_no=None if row[20] is None else int(row[20]),
-            current_dispatch_state=None if row[21] is None else str(row[21]),
-            current_observation_id=row[22],
-            observation_conclusion=None if row[23] is None else str(row[23]),
-            observation_reason=None if row[24] is None else str(row[24]),
-            observation_evidence_kind=None if row[25] is None else str(row[25]),
+            current_attempt_id=row[18],
+            current_attempt_no=None if row[19] is None else int(row[19]),
+            current_dispatch_state=None if row[20] is None else str(row[20]),
+            current_observation_id=row[21],
+            observation_conclusion=None if row[22] is None else str(row[22]),
+            observation_reason=None if row[23] is None else str(row[23]),
+            observation_evidence_kind=None if row[24] is None else str(row[24]),
         )

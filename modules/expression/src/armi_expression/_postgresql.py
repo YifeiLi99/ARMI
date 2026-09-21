@@ -130,26 +130,8 @@ class PostgreSQLExpressionOwner:
                 and not self._relationship_policy.allows_snapshot_outreach(relationship)
             ):
                 raise ResponseViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
+        # DESIGN.md: committed intent is immutable; a changed action gets a new ID.
         action_id = uuid7()
-        revision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intents (
-                action_intent_id, subject_id, scene_id,
-                context_party_id, root_opportunity_id, purpose,
-                current_revision_id, action_kind, operation_ref) VALUES (
-                %s, %s, %s, %s, %s, 'respond_to_creator', NULL,
-                'party_response', %s)
-            """,
-            (
-                action_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                context.root_opportunity_id,
-                context.root_opportunity_id,
-            ),
-        )
         await self._finish_creator_response(
             unit_of_work,
             context=context,
@@ -157,7 +139,6 @@ class PostgreSQLExpressionOwner:
             reply=reply,
             response_artifact=response_artifact,
             action_id=action_id,
-            revision_id=revision_id,
         )
 
     async def commit_delegation(
@@ -168,14 +149,17 @@ class PostgreSQLExpressionOwner:
         draft: DelegatedActionIntentDraft,
     ) -> None:
         connection = unit_of_work.transaction
-        action_id, revision_id = uuid7(), uuid7()
+        action_id = uuid7()
         await connection.execute(
             """
             INSERT INTO armi.action_intents (
                 action_intent_id, subject_id, scene_id, context_party_id,
-                root_opportunity_id, purpose, action_kind,
-                current_revision_id, operation_ref) VALUES (
-                %s,%s,%s,%s,%s,'delegate_codex_work','codex_delegation',NULL,%s)
+                root_opportunity_id, operation_ref, action_kind,
+                capability_kind, operation_class, purpose,
+                candidate_validation_id, proposal_ref, subject_commit_id,
+                codex_task_source_id, task_manifest_digest) VALUES (
+                %s,%s,%s,%s,%s,%s,'codex_delegation','codex.delegated-work','execute','delegate_codex_work',
+                %s,%s,%s,%s,%s)
             """,
             (
                 action_id,
@@ -184,21 +168,6 @@ class PostgreSQLExpressionOwner:
                 draft.creator_party_id,
                 draft.root_opportunity_id,
                 draft.operation_ref,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intent_revisions (
-                action_intent_revision_id, action_intent_id, revision_no,
-                capability_kind, operation_class, purpose,
-                candidate_validation_id, proposal_ref, subject_commit_id,
-                codex_task_source_id, task_manifest_digest) VALUES (
-                %s,%s,1,'codex.delegated-work','execute','delegate_codex_work',
-                %s,%s,%s,%s,%s)
-            """,
-            (
-                revision_id,
-                action_id,
                 draft.validation_id,
                 draft.proposal_ref,
                 commit_id,
@@ -206,13 +175,8 @@ class PostgreSQLExpressionOwner:
                 draft.task_manifest_digest.value,
             ),
         )
-        await connection.execute(
-            "UPDATE armi.action_intents SET current_revision_id=%s "
-            "WHERE action_intent_id=%s",
-            (revision_id, action_id),
-        )
         await self._effect_registration.register_codex_delegation(
-            connection, CodexEffectDraft(action_id, revision_id, draft)
+            connection, CodexEffectDraft(action_id, draft)
         )
 
     async def record_terminal(
@@ -441,7 +405,6 @@ class PostgreSQLExpressionOwner:
         ):
             raise ResponseViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
         action_id = uuid7()
-        revision_id = uuid7()
         operation_ref = uuid7()
         capability_kind = (
             "external.group.message.send"
@@ -474,10 +437,12 @@ class PostgreSQLExpressionOwner:
             """
             INSERT INTO armi.action_intents (
                 action_intent_id, subject_id, scene_id, context_party_id,
-                root_opportunity_id, purpose, current_revision_id, action_kind,
-                operation_ref)
-            VALUES (%s, %s, %s, %s, %s, 'respond_to_other_human', NULL,
-                    'party_response', %s)
+                root_opportunity_id, operation_ref, action_kind, response_artifact_id, response_digest, response_bytes,
+                media_type, capability_kind, operation_class, audience_scope,
+                data_scope, purpose, candidate_validation_id, proposal_ref,
+                subject_commit_id) VALUES (
+                %s, %s, %s, %s, %s, %s, 'party_response', %s, %s, %s, 'text/plain', %s, 'send', %s,
+                'declared_party_response', 'respond_to_other_human', %s, %s, %s)
             """,
             (
                 action_id,
@@ -486,22 +451,6 @@ class PostgreSQLExpressionOwner:
                 context.other_party_id,
                 context.root_opportunity_id,
                 operation_ref,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intent_revisions (
-                action_intent_revision_id, action_intent_id,
-                revision_no, response_artifact_id, response_digest, response_bytes,
-                media_type, capability_kind, operation_class, audience_scope,
-                data_scope, purpose, candidate_validation_id, proposal_ref,
-                subject_commit_id) VALUES (
-                %s, %s, 1, %s, %s, %s, 'text/plain', %s, 'send', %s,
-                'declared_party_response', 'respond_to_other_human', %s, %s, %s)
-            """,
-            (
-                revision_id,
-                action_id,
                 response_artifact.artifact_id.value,
                 response_artifact.content_digest.value,
                 len(reply.content_bytes),
@@ -511,11 +460,6 @@ class PostgreSQLExpressionOwner:
                 reply.proposal_ref,
                 commit_id,
             ),
-        )
-        await connection.execute(
-            "UPDATE armi.action_intents SET current_revision_id = %s "
-            "WHERE action_intent_id = %s",
-            (revision_id, action_id),
         )
         await connection.execute(
             """
@@ -545,7 +489,6 @@ class PostgreSQLExpressionOwner:
         effect_id = await self._effect_registration.register_declared_response(
             connection,
             DeclaredResponseEffectDraft(
-                action_intent_revision_id=revision_id,
                 action_intent_id=action_id,
                 operation_ref=operation_ref,
                 subject_id=context.subject_id,
@@ -580,25 +523,29 @@ class PostgreSQLExpressionOwner:
         reply: CreatorReplyDraft,
         response_artifact: ArtifactRef,
         action_id: UUID,
-        revision_id: UUID,
     ) -> None:
         connection = unit_of_work.transaction
         decision_id = uuid7()
         await connection.execute(
             """
-            INSERT INTO armi.action_intent_revisions (
-                action_intent_revision_id, action_intent_id, revision_no,
+            INSERT INTO armi.action_intents (
+                action_intent_id, subject_id, scene_id, context_party_id,
+                root_opportunity_id, operation_ref, action_kind,
                 response_artifact_id, response_digest, response_bytes,
                 media_type, capability_kind, operation_class, audience_scope,
                 data_scope, purpose, candidate_validation_id, proposal_ref,
                 subject_commit_id) VALUES (
-                %s, %s, 1, %s, %s, %s, 'text/plain',
+                %s, %s, %s, %s, %s, %s, 'party_response', %s, %s, %s, 'text/plain',
                 'creator.scene.reply', 'send', 'creator',
                 'creator_visible_response', 'respond_to_creator', %s, %s, %s)
             """,
             (
-                revision_id,
                 action_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                context.root_opportunity_id,
+                context.root_opportunity_id,
                 response_artifact.artifact_id.value,
                 response_artifact.content_digest.value,
                 len(reply.content_bytes),
@@ -606,11 +553,6 @@ class PostgreSQLExpressionOwner:
                 reply.proposal_ref,
                 commit_id,
             ),
-        )
-        await connection.execute(
-            "UPDATE armi.action_intents SET current_revision_id = %s "
-            "WHERE action_intent_id = %s",
-            (revision_id, action_id),
         )
         await connection.execute(
             """
@@ -650,7 +592,6 @@ class PostgreSQLExpressionOwner:
         effect_id = await self._effect_registration.register_declared_response(
             connection,
             DeclaredResponseEffectDraft(
-                action_intent_revision_id=revision_id,
                 action_intent_id=action_id,
                 operation_ref=context.root_opportunity_id,
                 subject_id=context.subject_id,

@@ -25,7 +25,7 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract(
         "expression",
         ("effect",),
-        (("action_intent_revisions", "response_artifact_id", "objective"),),
+        (("action_intents", "response_artifact_id", "objective"),),
     ),
     _contract(
         "codex",

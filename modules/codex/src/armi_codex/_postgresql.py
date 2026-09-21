@@ -56,6 +56,7 @@ _BINDING = "armi.codex-runner.openai-python-sdk-v1"
 
 @dataclass(frozen=True, slots=True)
 class CodexDispatchSnapshot:
+    action_intent_id: UUID
     outbox_id: UUID
     effect_id: UUID
     attempt_id: UUID
@@ -360,6 +361,7 @@ class PostgreSQLCodexDelegationRepository:
             )
             return None
         return CodexDispatchSnapshot(
+            claim.action_intent_id,
             claim.outbox_id,
             claim.effect_id,
             claim.attempt_id,
@@ -526,8 +528,7 @@ def _effect_claim(snapshot: CodexDispatchSnapshot) -> EffectCodexClaim:
         snapshot.attempt_id,
         snapshot.claim_owner,
         snapshot.claim_token,
-        snapshot.task_source_id,
-        snapshot.task_source_id,
+        snapshot.action_intent_id,
         snapshot.subject_id,
         snapshot.scene_id,
         snapshot.creator_party_id,

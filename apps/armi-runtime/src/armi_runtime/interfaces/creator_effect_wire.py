@@ -13,7 +13,6 @@ def effect_wire(view: EffectView) -> dict[str, Any]:
         projection_version="creator-effect.v6",
         effect_id=str(view.effect_id.value),
         action_intent_ref=str(view.action_intent_ref),
-        action_intent_revision_ref=str(view.action_intent_revision_ref),
         capability_kind=view.capability_kind,
         effect_kind=view.effect_kind,
         status=view.status.value,

@@ -67,6 +67,8 @@ def test_baseline_contains_authoritative_schema() -> None:
         "permission_grants",
         "policy_decisions",
         "effect_registrations",
+        "action_intent_revisions",
+        "action_intent_revision_id",
         "capability_request_id",
         "permission_grant_id",
         "policy_decision_id",
@@ -129,7 +131,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v30" in (
+    assert "armi.schema-baseline.v31" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

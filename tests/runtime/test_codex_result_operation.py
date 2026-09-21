@@ -96,7 +96,7 @@ async def test_verified_execution_does_not_hide_pending_or_interrupted_result_co
         operation_snapshot=AsyncMock(
             side_effect=[
                 ExpressionOperationSnapshot(
-                    original, uuid7(), uuid7(), None, "codex_delegation", None, None
+                    original, uuid7(), None, "codex_delegation", None, None
                 ),
                 None,
             ]

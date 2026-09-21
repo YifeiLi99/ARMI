@@ -285,7 +285,6 @@ class EffectObservation:
 class EffectView:
     effect_id: EffectId
     action_intent_ref: UUID
-    action_intent_revision_ref: UUID
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: EffectStatus
     verification_status: EffectVerificationStatus
@@ -311,7 +310,6 @@ class EffectView:
 
     def __post_init__(self) -> None:
         _uuid7(self.action_intent_ref)
-        _uuid7(self.action_intent_revision_ref)
         if self.current_attempt_ref is not None:
             _uuid7(self.current_attempt_ref)
         if self.current_observation_ref is not None:
@@ -388,7 +386,6 @@ class EffectCodexArtifactPort(Protocol):
 @dataclass(frozen=True, slots=True)
 class EffectLedgerSnapshot:
     effect_id: UUID
-    action_intent_revision_id: UUID | None
     action_intent_id: UUID | None
     subject_id: UUID
     scene_id: UUID
@@ -423,7 +420,6 @@ class EffectCodexClaim:
     claim_owner: UUID
     claim_token: int
     action_intent_id: UUID
-    action_intent_revision_id: UUID
     subject_id: UUID
     scene_id: UUID
     context_party_id: UUID

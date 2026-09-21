@@ -28,7 +28,7 @@ class PostgreSQLEffectCodexLifecycle:
             await transaction.execute(
                 """
                 SELECT outbox.effect_outbox_item_id, effect.effect_id,
-                       effect.action_intent_id, effect.action_intent_revision_id,
+                       effect.action_intent_id,
                        effect.subject_id, effect.scene_id, effect.context_party_id,
                        effect.trace_id, outbox.claim_token,
                        outbox.dispatch_deadline
@@ -47,7 +47,7 @@ class PostgreSQLEffectCodexLifecycle:
         ).fetchone()
         if row is None:
             return None
-        attempt_id, token = uuid7(), int(row[8]) + 1
+        attempt_id, token = uuid7(), int(row[7]) + 1
         await transaction.execute(
             """
             UPDATE armi.effect_outbox_items SET status='claimed', claim_owner=%s,
@@ -84,9 +84,8 @@ class PostgreSQLEffectCodexLifecycle:
             row[3],
             row[4],
             row[5],
-            row[6],
-            TraceId(str(row[7])),
-            None if row[9] is None else Instant(row[9]),
+            TraceId(str(row[6])),
+            None if row[8] is None else Instant(row[8]),
         )
 
     async def mark_codex_dispatching(

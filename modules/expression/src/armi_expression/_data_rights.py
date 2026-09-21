@@ -21,13 +21,8 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("expression")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "action_intent_revisions",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.action_intent_revisions AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "action_intents",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -57,14 +52,12 @@ class PostgreSQLExpressionDataRightsParticipant:
     ) -> DataRightsDiscoveryContribution:
         rows = await (
             await transaction.execute(
-                """SELECT revision.response_artifact_id, count(*),
+                """SELECT intent.response_artifact_id, count(*),
                           count(*) FILTER (WHERE intent.context_party_id = %s)
-                   FROM armi.action_intent_revisions AS revision
-                   JOIN armi.action_intents AS intent
-                     ON intent.action_intent_id = revision.action_intent_id
-                   WHERE revision.response_artifact_id IS NOT NULL
-                   GROUP BY revision.response_artifact_id
-                   ORDER BY revision.response_artifact_id""",
+                   FROM armi.action_intents AS intent
+                   WHERE intent.response_artifact_id IS NOT NULL
+                   GROUP BY intent.response_artifact_id
+                   ORDER BY intent.response_artifact_id""",
                 (request.party_id,),
             )
         ).fetchall()

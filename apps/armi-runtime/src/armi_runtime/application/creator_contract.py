@@ -1065,7 +1065,6 @@ class EffectResponse(_StrictWireModel):
     projection_version: Literal["creator-effect.v6"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    action_intent_revision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[

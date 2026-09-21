@@ -127,7 +127,6 @@ async def test_creator_reply_registers_effect_in_subject_transaction(
         reply=reply,
         response_artifact=cast(Any, artifact),
         action_id=uuid7(),
-        revision_id=uuid7(),
     )
     registration.register_declared_response.assert_awaited_once()
     call = registration.register_declared_response.await_args
@@ -151,7 +150,6 @@ async def test_creator_reply_registers_effect_in_subject_transaction(
 def test_declared_response_effect_draft_freezes_the_cross_owner_contract() -> None:
     ids = tuple(uuid7() for _ in range(9))
     draft = DeclaredResponseEffectDraft(
-        action_intent_revision_id=ids[0],
         action_intent_id=ids[1],
         operation_ref=ids[2],
         subject_id=ids[3],

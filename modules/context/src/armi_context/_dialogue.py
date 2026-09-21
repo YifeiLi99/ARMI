@@ -158,10 +158,10 @@ class PostgreSQLContextDialogueRead:
             effect = await self._effects.by_effect_id(
                 unit.transaction, effect_id=turn.source_ref
             )
-            if effect is not None and effect.action_intent_revision_id is not None:
-                intent = await self._expression.revision_snapshot(
+            if effect is not None and effect.action_intent_id is not None:
+                intent = await self._expression.intent_snapshot(
                     unit.transaction,
-                    action_intent_revision_id=effect.action_intent_revision_id,
+                    action_intent_id=effect.action_intent_id,
                 )
                 artifact_id = intent.response_artifact_id
                 (

@@ -22,7 +22,6 @@ class EffectContractTests(unittest.TestCase):
         view = EffectView(
             effect_id=effect_id,
             action_intent_ref=uuid7(),
-            action_intent_revision_ref=uuid7(),
             effect_kind="creator_response",
             status=EffectStatus.REGISTERED,
             verification_status=EffectVerificationStatus.NOT_STARTED,
@@ -39,7 +38,6 @@ class EffectContractTests(unittest.TestCase):
             EffectView(
                 effect_id=EffectId(uuid7()),
                 action_intent_ref=uuid7(),
-                action_intent_revision_ref=uuid7(),
                 effect_kind="creator_response",
                 status=EffectStatus.CANCELLED,
                 verification_status=EffectVerificationStatus.NOT_STARTED,
@@ -57,7 +55,6 @@ class EffectContractTests(unittest.TestCase):
             EffectView(
                 effect_id=EffectId(uuid7()),
                 action_intent_ref=uuid7(),
-                action_intent_revision_ref=uuid7(),
                 effect_kind="creator_response",
                 status=EffectStatus.UNKNOWN,
                 verification_status=EffectVerificationStatus.INCONCLUSIVE,
@@ -106,7 +103,6 @@ class EffectContractTests(unittest.TestCase):
         view = EffectView(
             effect_id=EffectId(uuid7()),
             action_intent_ref=uuid7(),
-            action_intent_revision_ref=uuid7(),
             effect_kind="codex_delegation",
             status=EffectStatus.COMPLETED,
             verification_status=EffectVerificationStatus.VERIFIED,

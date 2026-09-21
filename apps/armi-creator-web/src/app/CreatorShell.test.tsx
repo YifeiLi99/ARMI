@@ -836,7 +836,6 @@ describe("Creator local connection shell", () => {
           projection_version: "creator-effect.v6",
           effect_id: EFFECT_ID,
           action_intent_ref: OPPORTUNITY_ID,
-          action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
           capability_kind: "creator.scene.reply",
           effect_kind: "creator_response",
           status: "completed",

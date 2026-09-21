@@ -243,7 +243,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "projection_version": "creator-effect.v6",
                     "effect_id": self.effect_id,
                     "action_intent_ref": self.opportunity_id,
-                    "action_intent_revision_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efe",
                     "capability_kind": "creator.scene.reply",
                     "effect_kind": "creator_response",
                     "status": "completed",

@@ -4,20 +4,19 @@
     "postgresql": "18.4",
     "vector": "0.8.6",
     "pg_trgm": "1.6",
-    "baseline": "armi.schema-baseline.v22",
-    "schema_digest": "sha256:9c82546a2952fd85af7c7e019ee1162263b3962af059adf041a745eb558d0f67",
-    "role_policy_digest": "sha256:f20f019d0a6c4c2311b5384d0c52be69e252a8defe20b877ccba4b76d6291f46"
+    "baseline": "armi.schema-baseline.v24",
+    "schema_digest": "sha256:71f87bdb6a2e59ece830366b7014ac9077a76ea0088e02fbf04b08ce60dbfaa3",
+    "role_policy_digest": "sha256:f884ef1827ef6eb01a8804fb75cbe46845580ebc7bb869bc304a786ddd11342d"
   },
-  "target_baseline": "armi.schema-baseline.v30",
+  "target_baseline": "armi.schema-baseline.v31",
   "steps": [
-    "../upgrades/v22-to-v23.sql",
-    "../upgrades/v23-to-v24.sql",
     "../upgrades/v24-to-v25.sql",
     "../upgrades/v25-to-v26.sql",
     "../upgrades/v26-to-v27.sql",
     "../upgrades/v27-to-v28.sql",
     "../upgrades/v28-to-v29.sql",
     "../upgrades/v29-to-v30.sql",
+    "../upgrades/v30-to-v31.sql",
     "baseline/99_privileges.sql"
   ]
 }

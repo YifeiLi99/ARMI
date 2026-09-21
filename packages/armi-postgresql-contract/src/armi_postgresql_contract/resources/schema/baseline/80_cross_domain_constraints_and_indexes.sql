@@ -17,26 +17,8 @@ ALTER TABLE ONLY armi.accepted_experiences
 ALTER TABLE ONLY armi.accepted_experiences
     ADD CONSTRAINT accepted_experiences_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
 
---
--- Name: action_intent_revisions action_intent_revisions_number_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_number_key UNIQUE (action_intent_id, revision_no);
 
---
--- Name: action_intent_revisions action_intent_revisions_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_owner_key UNIQUE (action_intent_revision_id, action_intent_id);
-
---
--- Name: action_intent_revisions action_intent_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_pkey PRIMARY KEY (action_intent_revision_id);
 
 --
 -- Name: action_intents action_intents_operation_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -738,12 +720,6 @@ ALTER TABLE ONLY armi.effects
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_live_voice_turn_id_key UNIQUE (live_voice_turn_id);
 
---
--- Name: effects effects_revision_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_revision_key UNIQUE (action_intent_revision_id);
 
 --
 -- Name: exact_life_query_intents exact_life_query_intents_execution_work_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2174,53 +2150,41 @@ ALTER TABLE ONLY armi.accepted_experiences
     ADD CONSTRAINT accepted_experiences_subject_commit_owner_fkey FOREIGN KEY (subject_commit_id, subject_id) REFERENCES armi.subject_commits(subject_commit_id, subject_id);
 
 --
--- Name: action_intent_revisions action_intent_revisions_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_artifact_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: action_intent_revisions action_intent_revisions_candidate_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_candidate_fkey FOREIGN KEY (candidate_validation_id, proposal_ref) REFERENCES armi.cognitive_candidate_validation_items(candidate_validation_id, proposal_ref);
-
---
--- Name: action_intent_revisions action_intent_revisions_codex_source_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_codex_source_fkey FOREIGN KEY (codex_task_source_id) REFERENCES armi.codex_task_sources(codex_task_source_id);
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_codex_source_key UNIQUE (codex_task_source_id);
-
---
--- Name: action_intent_revisions action_intent_revisions_commit_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
-
---
--- Name: action_intent_revisions action_intent_revisions_intent_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_intent_fkey FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id);
-
-
-
-
-
---
--- Name: action_intents action_intents_current_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: action_intents action_intents_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.action_intents
-    ADD CONSTRAINT action_intents_current_revision_fkey FOREIGN KEY (current_revision_id, action_intent_id) REFERENCES armi.action_intent_revisions(action_intent_revision_id, action_intent_id);
+    ADD CONSTRAINT action_intents_artifact_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: action_intents action_intents_candidate_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_candidate_fkey FOREIGN KEY (candidate_validation_id, proposal_ref) REFERENCES armi.cognitive_candidate_validation_items(candidate_validation_id, proposal_ref);
+
+--
+-- Name: action_intents action_intents_codex_source_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_codex_source_fkey FOREIGN KEY (codex_task_source_id) REFERENCES armi.codex_task_sources(codex_task_source_id);
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_codex_source_key UNIQUE (codex_task_source_id);
+
+--
+-- Name: action_intents action_intents_commit_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+
+
+
+
+
+
 
 --
 -- Name: action_intents action_intents_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3005,19 +2969,7 @@ ALTER TABLE ONLY armi.effects
 
 
 
---
--- Name: effects effects_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_revision_fkey FOREIGN KEY (action_intent_revision_id) REFERENCES armi.action_intent_revisions(action_intent_revision_id);
-
---
--- Name: effects effects_revision_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_revision_owner_fkey FOREIGN KEY (action_intent_revision_id, action_intent_id) REFERENCES armi.action_intent_revisions(action_intent_revision_id, action_intent_id);
 
 --
 -- Name: exact_life_query_intents exact_life_query_intents_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -4410,3 +4362,7 @@ ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_subject_fkey FOREI
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_admin_change_fkey FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 CREATE INDEX mind_revisions_payload_trgm_idx ON armi.mind_revisions USING gin ((semantic_payload::text) armi_extensions.gin_trgm_ops);
+
+-- One immutable intent registers at most one effect.
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_action_intent_key UNIQUE (action_intent_id);

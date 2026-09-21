@@ -2347,8 +2347,6 @@ export interface components {
     EffectResponse: {
       /** Action Intent Ref */
       action_intent_ref: string;
-      /** Action Intent Revision Ref */
-      action_intent_revision_ref: string;
       /** Attempt Count */
       attempt_count: number;
       /** Cancelled At */

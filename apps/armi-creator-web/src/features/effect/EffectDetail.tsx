@@ -80,10 +80,6 @@ export function EffectDetail({
               <dt>Action Intent</dt>
               <dd>{effect.data.action_intent_ref}</dd>
             </div>
-            <div>
-              <dt>Intent Revision</dt>
-              <dd>{effect.data.action_intent_revision_ref}</dd>
-            </div>
             {effect.data.observation_reason === "EFFECT-RUNTIME-INTERRUPTED" ? (
               <div>
                 <dt>对话已结束</dt>

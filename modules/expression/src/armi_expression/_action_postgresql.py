@@ -27,19 +27,15 @@ class PostgreSQLExpressionActionOwner:
             await transaction.execute(
                 """
                 SELECT intent.operation_ref, intent.action_intent_id,
-                       revision.action_intent_revision_id,
                        intent.root_opportunity_id, intent.subject_id,
                        intent.scene_id, intent.context_party_id,
-                       intent.action_kind, revision.capability_kind,
-                       revision.operation_class, revision.purpose,
-                       revision.response_artifact_id, revision.response_digest,
-                       revision.response_bytes, revision.codex_task_source_id,
-                       revision.task_manifest_digest
+                       intent.action_kind, intent.capability_kind,
+                       intent.operation_class, intent.purpose,
+                       intent.response_artifact_id, intent.response_digest,
+                       intent.response_bytes, intent.codex_task_source_id,
+                       intent.task_manifest_digest
                        , intent.created_at
                 FROM armi.action_intents AS intent
-                JOIN armi.action_intent_revisions AS revision
-                  ON revision.action_intent_revision_id=intent.current_revision_id
-                 AND revision.action_intent_id=intent.action_intent_id
                 WHERE intent.action_intent_id=%s
                 """,
                 (action_intent_id,),
@@ -50,23 +46,22 @@ class PostgreSQLExpressionActionOwner:
         return ExpressionIntentSnapshot(
             operation_ref=row[0],
             action_intent_id=row[1],
-            action_intent_revision_id=row[2],
-            root_opportunity_id=row[3],
-            subject_id=row[4],
-            scene_id=row[5],
-            context_party_id=row[6],
-            action_kind=str(row[7]),
-            capability_kind=str(row[8]),
-            operation_class=str(row[9]),
-            purpose=str(row[10]),
-            response_artifact_id=row[11],
-            response_digest=Digest(str(row[12])) if row[12] is not None else None,
-            response_bytes=int(row[13]) if row[13] is not None else None,
-            codex_task_source_id=row[14],
+            root_opportunity_id=row[2],
+            subject_id=row[3],
+            scene_id=row[4],
+            context_party_id=row[5],
+            action_kind=str(row[6]),
+            capability_kind=str(row[7]),
+            operation_class=str(row[8]),
+            purpose=str(row[9]),
+            response_artifact_id=row[10],
+            response_digest=Digest(str(row[11])) if row[11] is not None else None,
+            response_bytes=int(row[12]) if row[12] is not None else None,
+            codex_task_source_id=row[13],
             task_manifest_digest=(
-                Digest(str(row[15])) if row[15] is not None else None
+                Digest(str(row[14])) if row[14] is not None else None
             ),
-            created_at=row[16],
+            created_at=row[15],
         )
 
     async def operation_snapshot(
@@ -80,7 +75,7 @@ class PostgreSQLExpressionActionOwner:
                 """
                 SELECT COALESCE(intent.operation_ref, dialogue.operation_ref),
                        COALESCE(intent.action_intent_id, dialogue.action_intent_id),
-                       intent.current_revision_id, dialogue.dialogue_decision_id,
+                       dialogue.dialogue_decision_id,
                        intent.action_kind, dialogue.decision_kind,
                        dialogue.reason_class
                 FROM (SELECT %s::uuid AS operation_ref) AS requested
@@ -89,8 +84,6 @@ class PostgreSQLExpressionActionOwner:
                   OR intent.root_opportunity_id=requested.operation_ref
                 LEFT JOIN armi.dialogue_decisions AS dialogue
                   ON dialogue.operation_ref=requested.operation_ref
-                LEFT JOIN armi.action_intent_revisions AS revision
-                  ON revision.action_intent_revision_id=intent.current_revision_id
                 WHERE intent.operation_ref IS NOT NULL
                    OR dialogue.operation_ref IS NOT NULL
                 ORDER BY (intent.action_kind='party_response') DESC NULLS LAST,
@@ -105,29 +98,11 @@ class PostgreSQLExpressionActionOwner:
         return ExpressionOperationSnapshot(
             operation_ref=row[0],
             intent_id=row[1],
-            intent_revision_id=row[2],
-            dialogue_decision_id=row[3],
-            action_kind=str(row[4]) if row[4] is not None else None,
-            decision_kind=str(row[5]) if row[5] is not None else None,
-            reason_code=str(row[6]) if row[6] is not None else None,
+            dialogue_decision_id=row[2],
+            action_kind=str(row[3]) if row[3] is not None else None,
+            decision_kind=str(row[4]) if row[4] is not None else None,
+            reason_code=str(row[5]) if row[5] is not None else None,
         )
-
-    async def revision_snapshot(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_revision_id: UUID,
-    ) -> ExpressionIntentSnapshot:
-        row = await (
-            await transaction.execute(
-                """SELECT action_intent_id FROM armi.action_intent_revisions
-                   WHERE action_intent_revision_id=%s""",
-                (action_intent_revision_id,),
-            )
-        ).fetchone()
-        if row is None:
-            raise ResponseViolation("RESPONSE-WORK-STALE")
-        return await self.intent_snapshot(transaction, action_intent_id=row[0])
 
     async def delegation_for_commit(
         self,
@@ -140,10 +115,7 @@ class PostgreSQLExpressionActionOwner:
                 """
                 SELECT intent.action_intent_id
                 FROM armi.action_intents AS intent
-                JOIN armi.action_intent_revisions AS revision
-                  ON revision.action_intent_revision_id=intent.current_revision_id
-                 AND revision.action_intent_id=intent.action_intent_id
-                WHERE revision.subject_commit_id=%s
+                WHERE intent.subject_commit_id=%s
                   AND intent.action_kind='codex_delegation'
                 """,
                 (subject_commit_id,),

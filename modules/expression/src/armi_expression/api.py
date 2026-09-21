@@ -283,7 +283,6 @@ class ExpressionVoiceRoutePort(Protocol):
 class DeclaredResponseEffectDraft:
     """Effect-registration facts frozen by the expression owner."""
 
-    action_intent_revision_id: UUID
     action_intent_id: UUID
     operation_ref: UUID
     subject_id: UUID
@@ -305,7 +304,6 @@ class DeclaredResponseEffectDraft:
 
     def __post_init__(self) -> None:
         for value in (
-            self.action_intent_revision_id,
             self.action_intent_id,
             self.operation_ref,
             self.subject_id,
@@ -357,7 +355,6 @@ class DeclaredResponseEffectDraft:
 class ExpressionIntentSnapshot:
     operation_ref: UUID
     action_intent_id: UUID
-    action_intent_revision_id: UUID
     root_opportunity_id: UUID
     subject_id: UUID
     scene_id: UUID
@@ -378,7 +375,6 @@ class ExpressionIntentSnapshot:
 class ExpressionOperationSnapshot:
     operation_ref: UUID
     intent_id: UUID | None
-    intent_revision_id: UUID | None
     dialogue_decision_id: UUID | None
     action_kind: str | None
     decision_kind: str | None
@@ -404,7 +400,6 @@ class DelegatedActionIntentDraft:
 @dataclass(frozen=True, slots=True)
 class CodexEffectDraft:
     action_intent_id: UUID
-    action_intent_revision_id: UUID
     delegation: DelegatedActionIntentDraft
 
 
@@ -415,13 +410,6 @@ class ExpressionIntentReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         action_intent_id: UUID,
-    ) -> ExpressionIntentSnapshot: ...
-
-    async def revision_snapshot(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_revision_id: UUID,
     ) -> ExpressionIntentSnapshot: ...
 
     async def delegation_for_commit(

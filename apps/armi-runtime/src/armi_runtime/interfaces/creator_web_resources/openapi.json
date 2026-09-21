@@ -3748,11 +3748,6 @@
             "title": "Action Intent Ref",
             "type": "string"
           },
-          "action_intent_revision_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Action Intent Revision Ref",
-            "type": "string"
-          },
           "attempt_count": {
             "maximum": 2.0,
             "minimum": 0.0,
@@ -4010,7 +4005,6 @@
           "projection_version",
           "effect_id",
           "action_intent_ref",
-          "action_intent_revision_ref",
           "capability_kind",
           "effect_kind",
           "status",

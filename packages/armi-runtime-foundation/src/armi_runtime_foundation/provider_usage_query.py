@@ -98,8 +98,7 @@ def usage_statement(
                     JOIN armi.opportunities child ON child.opportunity_id = result.opportunity_id
                     JOIN armi.codex_verification_results verification ON verification.codex_verification_id = result.codex_verification_id
                     JOIN armi.effects effect ON effect.effect_id = verification.effect_id
-                    JOIN armi.action_intent_revisions revision ON revision.action_intent_revision_id = effect.action_intent_revision_id
-                    JOIN armi.action_intents intent ON intent.action_intent_id = revision.action_intent_id
+                    JOIN armi.action_intents intent ON intent.action_intent_id = effect.action_intent_id
                     UNION
                     SELECT child.root_opportunity_id, parent.root_opportunity_id
                     FROM armi.exact_life_query_intents query

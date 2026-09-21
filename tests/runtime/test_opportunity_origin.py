@@ -25,10 +25,8 @@ async def test_nested_codex_results_resolve_original_owner_facts(purpose):
         (original, None, purpose),
     ]
     evidence.snapshot.return_value = SimpleNamespace(codex_verification_id=uuid7())
-    effects.by_effect_id.return_value = SimpleNamespace(
-        action_intent_revision_id=uuid7()
-    )
-    expression.revision_snapshot.side_effect = [
+    effects.by_effect_id.return_value = SimpleNamespace(action_intent_id=uuid7())
+    expression.intent_snapshot.side_effect = [
         SimpleNamespace(root_opportunity_id=first_result),
         SimpleNamespace(root_opportunity_id=original),
     ]

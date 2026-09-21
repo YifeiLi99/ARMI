@@ -52,7 +52,7 @@ class PostgreSQLExpressionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         row = transaction.execute(
-            "SELECT count(*) FROM armi.action_intent_revisions WHERE response_artifact_id=%s",
+            "SELECT count(*) FROM armi.action_intents WHERE response_artifact_id=%s",
             (artifact_id,),
         ).fetchone()
         return 0 if row is None else int(cast(int, row[0]))
