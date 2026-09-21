@@ -129,13 +129,7 @@ try {
             foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
                 if ($currentBinding.database.$field -ne $currentBundle.database.$field) { $pendingDatabaseUpgrade = $true }
             }
-            $sameUpgradeTarget = $true
-            foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
-                if ($currentBundle.database.$field -ne $bundle.database.$field) { $sameUpgradeTarget = $false }
-            }
-            # A corrected package with the same target may finish the already-validated
-            # retained source upgrade after deployment; do not require the broken old code.
-            if ($pendingDatabaseUpgrade -and -not $sameUpgradeTarget) {
+            if ($pendingDatabaseUpgrade) {
                 # Reconcile a previous deployment/DB-commit gap using that installed package's own resources.
                 $resume = '{"action":"database_upgrade","upgrade_action":"apply"}' | & $alias cli setup --environment-root $environment | ConvertFrom-Json
                 if ($LASTEXITCODE -ne 0 -or $resume.status -ne 'succeeded') {
