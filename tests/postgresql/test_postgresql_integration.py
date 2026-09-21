@@ -1877,22 +1877,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         # Synthetic affect evidence, confined to this disposable
                         # database. Never injected into the installed subject.
                         await unit.transaction.execute(
-                            """INSERT INTO armi.mood_appraisal_events (
-                                mood_appraisal_event_id,subject_id,mood_revision_id,
-                                mood_episode_id,transition,event_phase,gist,basis_ordinals,
-                                appraisal_payload,importance,derived_vad,derived_components,
-                                derivation_version,dynamics_version,privacy_scope,
-                                appraisal_mapping_version,derived_appraisal_payload,occurred_at,
-                                affect_intensity,affect_half_life_seconds)
-                               SELECT %s,subject_id,mood_revision_id,%s,'new','ongoing',
-                                      '有件事还没弄明白',ARRAY[1]::smallint[],
-                                      '{"schema_version":"armi.mood-appraisal.v3"}'::jsonb,
-                                      60,'{"valence":0,"arousal":20,"dominance":0}'::jsonb,
-                                      %s::jsonb,'cpm-fuzzy.v4','recency-reappraisal.v1','private',
-                                      'semantic-anchors.v1',
-                                      '{"schema_version":"armi.mood-derived-appraisal.v3"}'::jsonb,
-                                      statement_timestamp()-interval '2 minutes',60,3600
-                               FROM armi.mood_revisions WHERE is_current AND subject_id=%s""",
+                            """UPDATE armi.mood_revisions SET
+                                mood_appraisal_event_id=%s,mood_episode_id=%s,
+                                transition='new',event_phase='ongoing',
+                                gist='有件事还没弄明白',basis_ordinals=ARRAY[1]::smallint[],
+                                appraisal_payload='{"schema_version":"armi.mood-appraisal.v3"}'::jsonb,
+                                importance=60,derived_vad='{"valence":0,"arousal":20,"dominance":0}'::jsonb,
+                                derived_components=%s::jsonb,derivation_version='cpm-fuzzy.v4',
+                                dynamics_version='recency-reappraisal.v1',
+                                appraisal_mapping_version='semantic-anchors.v1',
+                                derived_appraisal_payload='{"schema_version":"armi.mood-derived-appraisal.v3"}'::jsonb,
+                                occurred_at=statement_timestamp()-interval '2 minutes',
+                                affect_intensity=60,affect_half_life_seconds=3600
+                               WHERE is_current AND subject_id=%s""",
                             (
                                 uuid7(),
                                 uuid7(),
@@ -2457,6 +2454,115 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         self.assertTrue(removed.result["change"]["history_retained"])
                         self.assertEqual(removed.result["change"]["new_version"], 3)
+                        if owner == "relationship":
+                            order_id = uuid7()
+                            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                                rows = connection.execute(
+                                    "SELECT revision_no,is_current,relationship_created_at "
+                                    "FROM armi.relationship_revisions "
+                                    "WHERE relationship_id=%s ORDER BY revision_no",
+                                    (identity,),
+                                ).fetchall()
+                                self.assertEqual(
+                                    [(row[0], row[1]) for row in rows],
+                                    [(1, False), (2, False), (3, True)],
+                                )
+                                self.assertEqual(len({row[2] for row in rows}), 1)
+                                connection.execute(
+                                    "INSERT INTO armi.data_rights_orders "
+                                    "(deletion_order_id,requester_party_id,requester_kind,"
+                                    "order_kind,scope_kind,scope_party_id,reason_code,status,"
+                                    "execution_status,idempotency_key,request_digest,trace_id,completed_at) "
+                                    "VALUES (%s,%s,'creator','delete_related','party_local_data',"
+                                    "%s,'requester_exercised_local_right','effective','completed',"
+                                    "'relationship-erase',%s,%s,statement_timestamp())",
+                                    (
+                                        order_id,
+                                        manifest.creator_party_id,
+                                        manifest.creator_party_id,
+                                        Digest.from_bytes(b"relationship-erase").value,
+                                        uuid7().hex,
+                                    ),
+                                )
+
+                            async def erase_relationship(order_id: UUID) -> None:
+                                from armi_data_rights.api import (
+                                    DataRightsApplyRequest,
+                                    DataRightsDiscoveryRequest,
+                                )
+
+                                roster = compose_runtime_owner_roster(
+                                    data_rights=bootstrap_data_rights_core().participant,
+                                    mood_read=bootstrap_mood().read,
+                                    prompt_read=bootstrap_prompt().read,
+                                    subject_state_read=bootstrap_subject_state().read,
+                                    mind_read=bootstrap_mind().read,
+                                )
+                                participant = next(
+                                    item
+                                    for item in roster.data_rights
+                                    if item.owner_identity.value == "relationship"
+                                )
+                                factory = await self._new_uow_factory(fixture)
+                                try:
+                                    async with factory.unit_of_work() as unit:
+                                        discovery = await participant.discover(
+                                            unit.transaction,
+                                            DataRightsDiscoveryRequest(
+                                                order_id, manifest.creator_party_id, ()
+                                            ),
+                                        )
+                                        self.assertEqual(len(discovery.targets), 1)
+                                        await participant.apply(
+                                            unit.transaction,
+                                            DataRightsApplyRequest(
+                                                order_id,
+                                                manifest.creator_party_id,
+                                                "delete_related",
+                                                discovery.related_refs,
+                                                tuple(
+                                                    replace(
+                                                        item,
+                                                        responsible_owner="relationship",
+                                                    )
+                                                    for item in discovery.targets
+                                                ),
+                                                (),
+                                            ),
+                                        )
+                                finally:
+                                    await factory.close()
+
+                            asyncio.run(
+                                erase_relationship(order_id),
+                                loop_factory=lambda: asyncio.SelectorEventLoop(
+                                    selectors.SelectSelector()
+                                ),
+                            )
+                            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                                self.assertEqual(
+                                    connection.execute(
+                                        "SELECT count(*) FROM armi.relationship_revisions "
+                                        "WHERE relationship_id=%s AND tombstone_order_id=%s "
+                                        "AND data_rights_redacted_at IS NOT NULL "
+                                        "AND facts IS NULL AND interpretation IS NULL "
+                                        "AND boundaries IS NULL AND commitments IS NULL",
+                                        (identity, order_id),
+                                    ).fetchone(),
+                                    (3,),
+                                )
+                            blocked = composition.service.database(
+                                "content_write",
+                                request(
+                                    owner,
+                                    "update",
+                                    identity,
+                                    3,
+                                    revised,
+                                    "relationship-after-erasure",
+                                ),
+                            )
+                            self.assertEqual(blocked.status, "conflict")
                 with psycopg.connect(fixture.provisioner_dsn) as connection:
                     components = connection.execute(
                         "SELECT component_kind,component_version,semantic_payload FROM armi.subject_component_revisions WHERE subject_id=%s",
@@ -6052,7 +6158,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     subject_commit_id, candidate_validation_id, proposal_ref,
                     facts, interpretation, boundaries, commitments,
                     open_issues, relationship_status, mechanism_identity,
-                    privacy_scope
+                    privacy_scope,subject_id,subject_party_id,other_party_id,scope,is_current
                 )
                 SELECT revision_id, relationship_id, 1, uuidv7(), uuidv7(),
                        'proposal:1', '["known"]'::jsonb,
@@ -6060,18 +6166,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             THEN 'rare pulsar relationship marker'
                             ELSE 'ordinary relationship interpretation' END,
                        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'active',
-                       'armi.relationship.contextual-v1', 'private'
-                FROM relationship_plan_fixture
-                """
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.relationships (
-                    relationship_id, subject_id, subject_party_id, other_party_id, scope,
-                    current_revision_id, head_version
-                )
-                SELECT relationship_id, %s, subject_party_id,
-                       other_party_id, 'other_human_social', revision_id, 1
+                       'armi.relationship.contextual-v1', 'private',%s,subject_party_id,other_party_id,'other_human_social',true
                 FROM relationship_plan_fixture
                 """,
                 (subject_id,),
@@ -9075,7 +9170,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 core = connection.execute(
                     "SELECT affect_intensity,affect_half_life_seconds,derived_vad "
-                    "FROM armi.mood_appraisal_events"
+                    "FROM armi.mood_revisions WHERE mood_appraisal_event_id IS NOT NULL"
                 ).fetchone()
                 self.assertIsNotNone(core)
                 assert core is not None
@@ -9087,7 +9182,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if neutral_mood:
                     self.assertEqual(
                         connection.execute(
-                            "SELECT derived_components FROM armi.mood_appraisal_events"
+                            "SELECT derived_components FROM armi.mood_revisions WHERE mood_appraisal_event_id IS NOT NULL"
                         ).fetchall(),
                         [([],)],
                     )

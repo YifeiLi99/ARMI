@@ -61,9 +61,9 @@ class DatabaseTable:
                 "head_version",
                 ("create", "update", "delete"),
             ),
-            "relationships": (
+            "relationship_revisions": (
                 "relationship",
-                "head_version",
+                "revision_no",
                 ("create", "update", "delete"),
             ),
             "life_materials": (

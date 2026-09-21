@@ -69,6 +69,18 @@ CREATE TABLE armi.life_materials (
 --
 
 CREATE TABLE armi.relationship_revisions (
+    subject_id uuid NOT NULL,
+    subject_party_id uuid NOT NULL,
+    other_party_id uuid NOT NULL,
+    scope text NOT NULL,
+    is_current boolean DEFAULT true NOT NULL,
+    relationship_created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    tombstoned_at timestamp(6) with time zone,
+    tombstone_order_id uuid,
+    CONSTRAINT relationship_revisions_parties_check CHECK (subject_party_id <> other_party_id),
+    CONSTRAINT relationship_revisions_identity_check CHECK (uuid_extract_version(relationship_id) = 7),
+    CONSTRAINT relationship_revisions_scope_check CHECK (scope IN ('creator_social', 'other_human_social')),
+    CONSTRAINT relationship_revisions_tombstone_check CHECK ((tombstoned_at IS NULL) = (tombstone_order_id IS NULL)),
     source_experience_id uuid,
     source_link_kind text,
     CONSTRAINT relationship_revisions_source_check CHECK (
@@ -110,30 +122,6 @@ CREATE TABLE armi.relationship_revisions (
     CONSTRAINT relationship_revisions_relationship_status_check CHECK ((relationship_status = ANY (ARRAY['active'::text, 'ended'::text]))),
     CONSTRAINT relationship_revisions_revision_no_check CHECK ((revision_no > 0)),
     CONSTRAINT relationship_revisions_admin_provenance CHECK (((admin_change_id IS NOT NULL AND subject_commit_id IS NULL AND candidate_validation_id IS NULL AND proposal_ref IS NULL) OR (admin_change_id IS NULL AND subject_commit_id IS NOT NULL AND candidate_validation_id IS NOT NULL AND proposal_ref IS NOT NULL)))
-);
-
---
--- Name: relationships; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.relationships (
-    relationship_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    subject_party_id uuid NOT NULL,
-    other_party_id uuid NOT NULL,
-    scope text NOT NULL,
-    current_revision_id uuid NOT NULL,
-    head_version bigint NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    tombstoned_at timestamp(6) with time zone,
-    tombstone_order_id uuid,
-    CONSTRAINT relationships_check CHECK ((subject_party_id <> other_party_id)),
-    CONSTRAINT relationships_current_revision_id_check CHECK ((uuid_extract_version(current_revision_id) = 7)),
-    CONSTRAINT relationships_head_version_check CHECK ((head_version > 0)),
-    CONSTRAINT relationships_relationship_id_check CHECK ((uuid_extract_version(relationship_id) = 7)),
-    CONSTRAINT relationships_scope_check CHECK ((scope = ANY (ARRAY['creator_social'::text, 'other_human_social'::text]))),
-    CONSTRAINT relationships_tombstone_order_id_check CHECK (((tombstone_order_id IS NULL) OR (uuid_extract_version(tombstone_order_id) = 7))),
-    CONSTRAINT relationships_tombstone_pair_check CHECK (((tombstoned_at IS NULL) = (tombstone_order_id IS NULL)))
 );
 
 --

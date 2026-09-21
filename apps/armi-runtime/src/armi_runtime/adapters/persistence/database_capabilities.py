@@ -39,11 +39,11 @@ live_vision_observations
 
 live_voice_turns
  maintenance_sessions
-mood_appraisal_events mood_revisions
+ mood_revisions
 opportunities parties
 party_input_interactions
 prompt_revisions  relationship_revisions
-relationships runtime_instances
+ runtime_instances
 
 scene_timeline_items
 mind_revisions subject_component_revisions subjective_memories subjective_memory_revisions
@@ -71,9 +71,9 @@ external_evidence external_message_parts
 interaction_scenes life_material_revisions life_materials
 live_vision_observations
 
-live_voice_turns maintenance_sessions mood_appraisal_events
+live_voice_turns maintenance_sessions
 opportunities parties party_input_interactions
-  prompt_revisions relationship_revisions relationships
+  prompt_revisions relationship_revisions
 runtime_instances
  mind_revisions subject_component_revisions
 subjective_memories subjective_memory_revisions subjects

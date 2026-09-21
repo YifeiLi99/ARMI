@@ -290,7 +290,7 @@ class PostgreSQLMoodOwner:
             row = await (
                 await transaction.execute(
                     """SELECT mood_appraisal_event_id,appraisal_payload,transition
-                       FROM armi.mood_appraisal_events
+                       FROM armi.mood_revisions
                        WHERE subject_id=%s AND mood_episode_id=%s
                        ORDER BY occurred_at DESC,mood_appraisal_event_id DESC
                        LIMIT 1 FOR UPDATE""",
@@ -314,19 +314,17 @@ class PostgreSQLMoodOwner:
             for item in derived.components
         ]
         await transaction.execute(
-            """INSERT INTO armi.mood_appraisal_events
-               (mood_appraisal_event_id,subject_id,mood_revision_id,mood_episode_id,
-                previous_appraisal_event_id,transition,event_phase,gist,
-                basis_ordinals,appraisal_payload,appraisal_mapping_version,
-                derived_appraisal_payload,importance,derived_vad,derived_components,
-                derivation_version,dynamics_version,privacy_scope,
-                affect_intensity,affect_half_life_seconds)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,
-                       %s::jsonb,%s::jsonb,%s,'recency-reappraisal.v1','private',%s,%s)""",
+            """UPDATE armi.mood_revisions
+               SET mood_appraisal_event_id=%s,mood_episode_id=%s,
+                   previous_appraisal_event_id=%s,transition=%s,event_phase=%s,gist=%s,
+                   basis_ordinals=%s,appraisal_payload=%s::jsonb,appraisal_mapping_version=%s,
+                   derived_appraisal_payload=%s::jsonb,importance=%s,derived_vad=%s::jsonb,
+                   derived_components=%s::jsonb,derivation_version=%s,
+                   dynamics_version='recency-reappraisal.v1',affect_intensity=%s,
+                   affect_half_life_seconds=%s,occurred_at=created_at
+               WHERE mood_revision_id=%s AND subject_id=%s""",
             (
                 uuid7(),
-                subject_id,
-                revision_id,
                 episode_id,
                 predecessor_id,
                 event.transition.value,
@@ -348,6 +346,8 @@ class PostgreSQLMoodOwner:
                 derivation_version,
                 derived.core.intensity,
                 derived.core.half_life_seconds,
+                revision_id,
+                subject_id,
             ),
         )
 
@@ -377,8 +377,8 @@ class PostgreSQLMoodOwner:
         row = await (
             await transaction.execute(
                 """SELECT count(*),min(occurred_at),max(occurred_at)
-                   FROM armi.mood_appraisal_events
-                   WHERE subject_id=%s AND occurred_at >= %s
+                   FROM armi.mood_revisions
+                   WHERE subject_id=%s AND mood_appraisal_event_id IS NOT NULL AND occurred_at >= %s
                      AND occurred_at >= statement_timestamp() - interval '30 days'""",
                 (subject_id, last_change[0]),
             )

@@ -25,10 +25,15 @@ class PostgreSQLRelationshipAdmin:
         command: AdminContentCommand,
     ) -> dict[str, Any]:
         values = cast(dict[str, Any], command.values)
+        tx.execute(
+            "SELECT relationship_revision_id FROM armi.relationship_revisions "
+            "WHERE relationship_id=%s AND revision_no=1 FOR UPDATE",
+            (command.object_id,),
+        )
         row = cast(
             tuple[Any, ...] | None,
             tx.execute(
-                "SELECT h.current_revision_id,h.head_version,h.tombstoned_at,r.facts,r.interpretation,r.boundaries,r.commitments,r.open_issues,h.other_party_id FROM armi.relationships h JOIN armi.relationship_revisions r ON r.relationship_revision_id=h.current_revision_id WHERE h.relationship_id=%s AND h.subject_id=%s FOR UPDATE OF h",
+                "SELECT r.relationship_revision_id,r.revision_no,r.tombstoned_at,r.facts,r.interpretation,r.boundaries,r.commitments,r.open_issues,r.other_party_id,r.subject_party_id,r.scope,r.relationship_created_at FROM armi.relationship_revisions r WHERE r.relationship_id=%s AND r.subject_id=%s AND r.is_current FOR UPDATE OF r",
                 (command.object_id, context.subject_id),
             ).fetchone(),
         )
@@ -111,25 +116,33 @@ class PostgreSQLRelationshipAdmin:
             other = UUID(values["other_party_id"])
             if other == context.subject_party_id:
                 raise RelationshipViolation("RELATIONSHIP-ADMIN-PARTY")
-            tx.execute(
-                "INSERT INTO armi.relationships (relationship_id,subject_id,subject_party_id,other_party_id,scope,current_revision_id,head_version) VALUES (%s,%s,%s,%s,%s,%s,1)",
-                (
-                    command.object_id,
-                    context.subject_id,
-                    context.subject_party_id,
-                    other,
-                    "creator_social"
-                    if other == context.creator_party_id
-                    else "other_human_social",
-                    revision,
-                ),
+            scope = (
+                "creator_social"
+                if other == context.creator_party_id
+                else "other_human_social"
             )
+        else:
+            other = row[8]
+            scope = row[10]
+            result = tx.execute(
+                "UPDATE armi.relationship_revisions SET is_current=false "
+                "WHERE relationship_id=%s AND revision_no=%s "
+                "AND relationship_revision_id=%s AND is_current AND tombstoned_at IS NULL",
+                (command.object_id, command.expected_version, row[0]),
+            )
+            if result.rowcount != 1:
+                raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
         tx.execute(
-            "INSERT INTO armi.relationship_revisions (relationship_revision_id,relationship_id,"
+            "INSERT INTO armi.relationship_revisions (subject_id,subject_party_id,other_party_id,scope,relationship_created_at,relationship_revision_id,relationship_id,"
             "revision_no,previous_revision_id,admin_change_id,facts,interpretation,boundaries,"
             "commitments,open_issues,relationship_status,mechanism_identity,privacy_scope) "
-            "VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,'armi.relationship.admin-v1','private')",
+            "VALUES (%s,%s,%s,%s,COALESCE(%s,statement_timestamp()),%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,'armi.relationship.admin-v1','private')",
             (
+                context.subject_id,
+                context.subject_party_id if row is None else row[9],
+                other,
+                scope,
+                None if row is None else row[11],
                 revision,
                 command.object_id,
                 version,
@@ -143,20 +156,6 @@ class PostgreSQLRelationshipAdmin:
                 status,
             ),
         )
-        if row is not None:
-            result = tx.execute(
-                "UPDATE armi.relationships SET current_revision_id=%s,head_version=%s "
-                "WHERE relationship_id=%s AND head_version=%s AND current_revision_id=%s",
-                (
-                    revision,
-                    version,
-                    command.object_id,
-                    command.expected_version,
-                    row[0],
-                ),
-            )
-            if result.rowcount != 1:
-                raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
         return {
             "object_id": str(command.object_id),
             "revision_id": str(revision),

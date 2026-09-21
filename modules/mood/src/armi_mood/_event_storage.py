@@ -13,11 +13,11 @@ from ._domain import (
 )
 
 EVENT_QUERY = """SELECT e.mood_episode_id,e.transition,e.event_phase,e.gist,
-                          e.derived_components,e.occurred_at,r.subject_commit_id,e.mood_appraisal_event_id,
+                          e.derived_components,e.occurred_at,e.subject_commit_id,e.mood_appraisal_event_id,
                           e.derived_vad,e.affect_intensity,e.affect_half_life_seconds
-                   FROM armi.mood_appraisal_events e
-                   JOIN armi.mood_revisions r ON r.mood_revision_id=e.mood_revision_id
-                   WHERE (%s::uuid IS NULL OR e.subject_id=%s) AND occurred_at <= %s
+                   FROM armi.mood_revisions e
+                   WHERE e.mood_appraisal_event_id IS NOT NULL
+                     AND (%s::uuid IS NULL OR e.subject_id=%s) AND occurred_at <= %s
                      AND occurred_at >= %s - (%s * interval '1 day')
                    ORDER BY occurred_at,mood_appraisal_event_id"""
 

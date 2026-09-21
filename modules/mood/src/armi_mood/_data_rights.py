@@ -21,14 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("mood")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "mood_appraisal_events",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.mood_appraisal_events AS source
-           ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "mood_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -58,7 +52,7 @@ class PostgreSQLMoodDataRightsParticipant:
             return DataRightsDiscoveryContribution(_OWNER)
         rows = await (
             await transaction.execute(
-                """SELECT mood_appraisal_event_id FROM armi.mood_appraisal_events
+                """SELECT mood_appraisal_event_id FROM armi.mood_revisions
                    WHERE mood_episode_id=ANY(%s::uuid[])
                    ORDER BY mood_appraisal_event_id""",
                 (list(episodes),),
@@ -83,7 +77,7 @@ class PostgreSQLMoodDataRightsParticipant:
         )
         if request.order_kind == "delete_related" and event_ids:
             await transaction.execute(
-                """UPDATE armi.mood_appraisal_events
+                """UPDATE armi.mood_revisions
                    SET gist=NULL,appraisal_payload=NULL,derived_appraisal_payload=NULL,
                        data_rights_redacted_at=statement_timestamp()
                    WHERE mood_appraisal_event_id=ANY(%s::uuid[])

@@ -689,27 +689,14 @@ ALTER TABLE ONLY armi.maintenance_sessions
 
 
 --
--- Name: mood_appraisal_events mood_appraisal_events_identity_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: mood_revisions_appraisal mood_revisions_appraisal_identity_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.mood_appraisal_events
-    ADD CONSTRAINT mood_appraisal_events_identity_key UNIQUE (mood_appraisal_event_id, subject_id);
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_appraisal_identity_key UNIQUE (mood_appraisal_event_id, subject_id);
 
---
--- Name: mood_appraisal_events mood_appraisal_events_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_appraisal_events
-    ADD CONSTRAINT mood_appraisal_events_pkey PRIMARY KEY (mood_appraisal_event_id);
-
---
--- Name: mood_appraisal_events mood_appraisal_events_revision_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_appraisal_events
-    ADD CONSTRAINT mood_appraisal_events_revision_key UNIQUE (mood_revision_id, subject_id);
-
---
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_appraisal_event_key UNIQUE (mood_appraisal_event_id);
 
 --
 -- Name: mood_revisions mood_revisions_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -842,6 +829,17 @@ ALTER TABLE ONLY armi.prompt_revisions
 --
 
 
+-- Stable relationship identity stays with every revision; tombstones keep the slot.
+ALTER TABLE ONLY armi.relationship_revisions
+    ADD CONSTRAINT relationship_revisions_identity_key UNIQUE
+    (relationship_id, relationship_revision_id, subject_id, subject_party_id, other_party_id, scope, relationship_created_at);
+CREATE UNIQUE INDEX relationship_revisions_current_idx
+    ON armi.relationship_revisions (relationship_id) WHERE is_current;
+CREATE UNIQUE INDEX relationship_revisions_current_scope_idx
+    ON armi.relationship_revisions (subject_id, other_party_id, scope) WHERE is_current;
+CREATE UNIQUE INDEX relationship_revisions_origin_scope_idx
+    ON armi.relationship_revisions (subject_id, other_party_id, scope) WHERE revision_no = 1;
+
 --
 -- Name: relationship_revisions relationship_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -869,20 +867,6 @@ ALTER TABLE ONLY armi.relationship_revisions
 
 ALTER TABLE ONLY armi.relationship_revisions
     ADD CONSTRAINT relationship_revisions_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
-
---
--- Name: relationships relationships_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_pkey PRIMARY KEY (relationship_id);
-
---
--- Name: relationships relationships_subject_id_other_party_id_scope_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_subject_id_other_party_id_scope_key UNIQUE (subject_id, other_party_id, scope);
 
 
 --
@@ -1253,22 +1237,22 @@ CREATE UNIQUE INDEX maintenance_sessions_one_unfinished ON armi.maintenance_sess
 
 
 --
--- Name: mood_appraisal_events_episode_time_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: mood_revisions_appraisal_episode_time_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX mood_appraisal_events_episode_time_idx ON armi.mood_appraisal_events USING btree (subject_id, mood_episode_id, occurred_at DESC, mood_appraisal_event_id DESC);
+CREATE INDEX mood_revisions_appraisal_episode_time_idx ON armi.mood_revisions USING btree (subject_id, mood_episode_id, occurred_at DESC, mood_appraisal_event_id DESC);
 
 --
--- Name: mood_appraisal_events_previous_unique_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: mood_revisions_appraisal_previous_unique_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX mood_appraisal_events_previous_unique_idx ON armi.mood_appraisal_events USING btree (previous_appraisal_event_id) WHERE (previous_appraisal_event_id IS NOT NULL);
+CREATE UNIQUE INDEX mood_revisions_appraisal_previous_unique_idx ON armi.mood_revisions USING btree (previous_appraisal_event_id) WHERE (previous_appraisal_event_id IS NOT NULL);
 
 --
--- Name: mood_appraisal_events_subject_time_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: mood_revisions_appraisal_subject_time_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX mood_appraisal_events_subject_time_idx ON armi.mood_appraisal_events USING btree (subject_id, occurred_at DESC, mood_appraisal_event_id DESC);
+CREATE INDEX mood_revisions_appraisal_subject_time_idx ON armi.mood_revisions USING btree (subject_id, occurred_at DESC, mood_appraisal_event_id DESC);
 
 --
 -- Name: mood_revisions_subject_created_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1322,18 +1306,6 @@ CREATE INDEX relationship_revisions_interpretation_trgm_idx ON armi.relationship
 --
 
 CREATE INDEX relationship_revisions_relationship_idx ON armi.relationship_revisions USING btree (relationship_id, revision_no DESC);
-
---
--- Name: relationships_active_other_party_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX relationships_active_other_party_idx ON armi.relationships USING btree (other_party_id, scope) WHERE (tombstoned_at IS NULL);
-
---
--- Name: relationships_subject_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX relationships_subject_idx ON armi.relationships USING btree (subject_id, created_at DESC, relationship_id);
 
 
 --
@@ -2221,29 +2193,11 @@ ALTER TABLE ONLY armi.maintenance_sessions
 
 
 --
--- Name: mood_appraisal_events mood_appraisal_events_previous_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: mood_revisions_appraisal mood_revisions_appraisal_previous_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.mood_appraisal_events
-    ADD CONSTRAINT mood_appraisal_events_previous_fkey FOREIGN KEY (previous_appraisal_event_id, subject_id) REFERENCES armi.mood_appraisal_events(mood_appraisal_event_id, subject_id);
-
---
--- Name: mood_appraisal_events mood_appraisal_events_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_appraisal_events
-    ADD CONSTRAINT mood_appraisal_events_revision_fkey FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
-
---
--- Name: mood_appraisal_events mood_appraisal_events_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_appraisal_events
-    ADD CONSTRAINT mood_appraisal_events_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
-
---
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_appraisal_previous_fkey FOREIGN KEY (previous_appraisal_event_id, subject_id) REFERENCES armi.mood_revisions(mood_appraisal_event_id, subject_id);
 
 --
 -- Name: mood_revisions mood_revisions_previous_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2427,14 +2381,7 @@ ALTER TABLE ONLY armi.relationship_revisions
 --
 
 ALTER TABLE ONLY armi.relationship_revisions
-    ADD CONSTRAINT relationship_revisions_previous_fk FOREIGN KEY (relationship_id, previous_revision_id) REFERENCES armi.relationship_revisions(relationship_id, relationship_revision_id) DEFERRABLE INITIALLY DEFERRED;
-
---
--- Name: relationship_revisions relationship_revisions_relationship_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationship_revisions
-    ADD CONSTRAINT relationship_revisions_relationship_id_fkey FOREIGN KEY (relationship_id) REFERENCES armi.relationships(relationship_id);
+    ADD CONSTRAINT relationship_revisions_previous_fk FOREIGN KEY (relationship_id, previous_revision_id, subject_id, subject_party_id, other_party_id, scope, relationship_created_at) REFERENCES armi.relationship_revisions(relationship_id, relationship_revision_id, subject_id, subject_party_id, other_party_id, scope, relationship_created_at) DEFERRABLE INITIALLY DEFERRED;
 
 --
 -- Name: relationship_revisions relationship_revisions_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2443,41 +2390,6 @@ ALTER TABLE ONLY armi.relationship_revisions
 ALTER TABLE ONLY armi.relationship_revisions
     ADD CONSTRAINT relationship_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
---
--- Name: relationships relationships_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_current_revision_fk FOREIGN KEY (relationship_id, current_revision_id) REFERENCES armi.relationship_revisions(relationship_id, relationship_revision_id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: relationships relationships_other_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_other_party_id_fkey FOREIGN KEY (other_party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: relationships relationships_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: relationships relationships_subject_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_subject_party_id_fkey FOREIGN KEY (subject_party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: relationships relationships_tombstone_order_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_tombstone_order_id_fkey FOREIGN KEY (tombstone_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
 
 
@@ -2832,3 +2744,9 @@ CREATE TRIGGER cognition_scene_party_check
 CREATE TRIGGER effect_scene_party_check
     BEFORE INSERT OR UPDATE OF scene_id, subject_id, context_party_id ON armi.effects
     FOR EACH ROW EXECUTE FUNCTION armi.check_scene_party('context_party_id');
+
+ALTER TABLE ONLY armi.relationship_revisions
+    ADD CONSTRAINT relationship_revisions_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id),
+    ADD CONSTRAINT relationship_revisions_subject_party_fk FOREIGN KEY (subject_party_id) REFERENCES armi.parties(party_id),
+    ADD CONSTRAINT relationship_revisions_other_party_fk FOREIGN KEY (other_party_id) REFERENCES armi.parties(party_id),
+    ADD CONSTRAINT relationship_revisions_tombstone_fk FOREIGN KEY (tombstone_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);

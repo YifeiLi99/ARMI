@@ -21,17 +21,12 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("relationship")
-_VERSION = DataRightsContributionVersion(3)
+_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "relationship_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.relationship_revisions AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "relationships",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.relationships AS source ORDER BY to_jsonb(source)::text""",
     ),
 )
 
@@ -52,8 +47,8 @@ class PostgreSQLRelationshipDataRightsParticipant:
     ) -> DataRightsDiscoveryContribution:
         rows = await (
             await transaction.execute(
-                """SELECT relationship_id FROM armi.relationships
-                   WHERE other_party_id = %s AND tombstoned_at IS NULL
+                """SELECT relationship_id FROM armi.relationship_revisions
+                   WHERE is_current AND other_party_id = %s AND tombstoned_at IS NULL
                    ORDER BY relationship_id""",
                 (request.party_id,),
             )
@@ -77,8 +72,14 @@ class PostgreSQLRelationshipDataRightsParticipant:
             if item.kind == "relationship" and item.required_action == "tombstone"
         )
         for target in targets:
+            # Lock a stable row before taking the snapshot used to erase all revisions.
             await transaction.execute(
-                """UPDATE armi.relationships
+                "SELECT relationship_revision_id FROM armi.relationship_revisions "
+                "WHERE relationship_id=%s AND revision_no=1 FOR UPDATE",
+                (target.ref,),
+            )
+            await transaction.execute(
+                """UPDATE armi.relationship_revisions
                    SET tombstoned_at = statement_timestamp(), tombstone_order_id = %s
                    WHERE relationship_id = %s AND tombstoned_at IS NULL""",
                 (request.order_id, target.ref),

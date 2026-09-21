@@ -86,10 +86,10 @@ class PostgreSQLRelationshipOwner:
             rows = await (
                 await connection.execute(
                     """
-                    SELECT relationship.relationship_id,
-                           relationship.current_revision_id,
-                           relationship.head_version,
-                           relationship.created_at,
+                    SELECT revision.relationship_id,
+                           revision.relationship_revision_id,
+                           revision.revision_no,
+                           revision.relationship_created_at,
                            revision.relationship_revision_id,
                            revision.revision_no,
                            revision.facts,
@@ -101,13 +101,11 @@ class PostgreSQLRelationshipOwner:
                            revision.issue_resolution,
                            revision.relationship_status,
                            revision.created_at
-                    FROM armi.relationships AS relationship
-                    JOIN armi.relationship_revisions AS revision
-                      ON revision.relationship_revision_id = relationship.current_revision_id
-                    WHERE relationship.subject_id = %s
-                      AND relationship.other_party_id = %s
-                      AND relationship.scope = 'creator_social'
-                      AND relationship.tombstoned_at IS NULL
+                    FROM armi.relationship_revisions AS revision
+                    WHERE revision.is_current AND revision.subject_id = %s
+                      AND revision.other_party_id = %s
+                      AND revision.scope = 'creator_social'
+                      AND revision.tombstoned_at IS NULL
                     LIMIT 2
                     """,
                     (subject_id, self._creator_party_id),
@@ -155,8 +153,8 @@ class PostgreSQLRelationshipOwner:
             visible = await (
                 await connection.execute(
                     """
-                    SELECT 1 FROM armi.relationships
-                    WHERE relationship_id = %s AND subject_id = %s
+                    SELECT 1 FROM armi.relationship_revisions
+                    WHERE is_current AND relationship_id = %s AND subject_id = %s
                       AND other_party_id = %s AND scope = 'creator_social'
                       AND tombstoned_at IS NULL
                     """,
@@ -234,12 +232,12 @@ class PostgreSQLRelationshipOwner:
         row = await (
             await transaction.execute(
                 """
-                SELECT relationship.relationship_id,
-                       relationship.current_revision_id,
-                       relationship.head_version,
-                       relationship.subject_party_id,
-                       relationship.other_party_id,
-                       relationship.scope,
+                SELECT revision.relationship_id,
+                       revision.relationship_revision_id,
+                       revision.revision_no,
+                       revision.subject_party_id,
+                       revision.other_party_id,
+                       revision.scope,
                        revision.relationship_revision_id,
                        revision.revision_no,
                        revision.facts,
@@ -251,14 +249,12 @@ class PostgreSQLRelationshipOwner:
                        revision.issue_resolution,
                        revision.relationship_status,
                        revision.created_at
-                FROM armi.relationships AS relationship
-                JOIN armi.relationship_revisions AS revision
-                  ON revision.relationship_revision_id = relationship.current_revision_id
-                WHERE relationship.subject_id = %s
-                  AND relationship.other_party_id = %s
-                  AND relationship.scope = %s
-                  AND relationship.tombstoned_at IS NULL
-                  AND (%s::bigint IS NULL OR relationship.head_version = %s::bigint)
+                FROM armi.relationship_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id = %s
+                  AND revision.other_party_id = %s
+                  AND revision.scope = %s
+                  AND revision.tombstoned_at IS NULL
+                  AND (%s::bigint IS NULL OR revision.revision_no = %s::bigint)
                 LIMIT 2
                 """,
                 (
@@ -294,12 +290,12 @@ class PostgreSQLRelationshipOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT relationship.relationship_id,
-                       relationship.current_revision_id,
-                       relationship.head_version,
-                       relationship.subject_party_id,
-                       relationship.other_party_id,
-                       relationship.scope,
+                SELECT revision.relationship_id,
+                       revision.relationship_revision_id,
+                       revision.revision_no,
+                       revision.subject_party_id,
+                       revision.other_party_id,
+                       revision.scope,
                        revision.relationship_revision_id,
                        revision.revision_no,
                        revision.facts,
@@ -311,12 +307,10 @@ class PostgreSQLRelationshipOwner:
                        revision.issue_resolution,
                        revision.relationship_status,
                        revision.created_at
-                FROM armi.relationships AS relationship
-                JOIN armi.relationship_revisions AS revision
-                  ON revision.relationship_revision_id = relationship.current_revision_id
-                WHERE relationship.subject_id = %s
-                  AND relationship.tombstoned_at IS NULL
-                ORDER BY relationship.relationship_id
+                FROM armi.relationship_revisions AS revision
+                WHERE revision.is_current AND revision.subject_id = %s
+                  AND revision.tombstoned_at IS NULL
+                ORDER BY revision.relationship_id
                 """,
                 (subject_id,),
             )
@@ -441,11 +435,9 @@ class PostgreSQLRelationshipOwner:
                            revision.open_issues, revision.commitment_event,
                            revision.issue_resolution, revision.relationship_status,
                            revision.created_at
-                    FROM armi.relationships AS relationship
-                    JOIN armi.relationship_revisions AS revision
-                      ON revision.relationship_revision_id = relationship.current_revision_id
-                    WHERE relationship.other_party_id = %s
-                      AND relationship.tombstoned_at IS NULL
+                    FROM armi.relationship_revisions AS revision
+                    WHERE revision.is_current AND revision.other_party_id = %s
+                      AND revision.tombstoned_at IS NULL
                     LIMIT 2
                     """,
                     (party_id,),
@@ -524,8 +516,8 @@ async def _commit_one(
         existing = await (
             await connection.execute(
                 """
-                SELECT relationship_id FROM armi.relationships
-                WHERE subject_id = %s AND other_party_id = %s AND scope = %s
+                SELECT relationship_id FROM armi.relationship_revisions
+                WHERE is_current AND subject_id = %s AND other_party_id = %s AND scope = %s
                 FOR UPDATE
                 """,
                 (subject_id, relationship.other_party_id, relationship.scope),
@@ -533,38 +525,25 @@ async def _commit_one(
         ).fetchone()
         if existing is not None:
             raise RelationshipViolation("RELATIONSHIP-COMMIT-HEAD-STALE")
-        await connection.execute(
-            """
-            INSERT INTO armi.relationships (
-                relationship_id, subject_id,
-                subject_party_id, other_party_id, scope,
-                current_revision_id, head_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, 1)
-            """,
-            (
-                relationship.relationship_id,
-                subject_id,
-                relationship.subject_party_id,
-                relationship.other_party_id,
-                relationship.scope,
-                revision_id,
-            ),
-        )
     else:
+        # The first revision is the stable lock shared with Admin and privacy erasure.
+        await connection.execute(
+            "SELECT relationship_revision_id FROM armi.relationship_revisions "
+            "WHERE relationship_id = %s AND revision_no = 1 FOR UPDATE",
+            (relationship.relationship_id,),
+        )
         row = await (
             await connection.execute(
                 """
-                SELECT relationship.current_revision_id, relationship.head_version,
+                SELECT revision.relationship_revision_id, revision.revision_no,
                        revision.revision_no, revision.relationship_status,
-                       relationship.tombstoned_at, revision.interpretation,
+                       revision.tombstoned_at, revision.interpretation,
                        revision.boundaries, revision.open_issues,
                        revision.facts, revision.commitments
-                FROM armi.relationships AS relationship
-                JOIN armi.relationship_revisions AS revision
-                  ON revision.relationship_revision_id = relationship.current_revision_id
-                WHERE relationship.relationship_id = %s
-                  AND relationship.subject_id = %s
-                FOR UPDATE OF relationship
+                FROM armi.relationship_revisions AS revision
+                WHERE revision.is_current AND revision.relationship_id = %s
+                  AND revision.subject_id = %s
+                FOR UPDATE OF revision
                 """,
                 (relationship.relationship_id, subject_id),
             )
@@ -622,19 +601,49 @@ async def _commit_one(
         previous = relationship.current_revision_id
         revision_no = int(row[2]) + 1
 
+    if previous is not None:
+        updated = await (
+            await connection.execute(
+                """
+                UPDATE armi.relationship_revisions
+                SET is_current = false
+                WHERE relationship_id = %s AND relationship_revision_id = %s
+                  AND revision_no = %s AND is_current RETURNING relationship_id
+                """,
+                (
+                    relationship.relationship_id,
+                    previous,
+                    relationship.expected_head_version,
+                ),
+            )
+        ).fetchone()
+        if updated is None:
+            raise RelationshipViolation("RELATIONSHIP-COMMIT-HEAD-STALE")
+
     await connection.execute(
         """
         INSERT INTO armi.relationship_revisions (
+            subject_id, subject_party_id, other_party_id, scope,
+            relationship_created_at,
             relationship_revision_id, relationship_id, revision_no,
             previous_revision_id, subject_commit_id, candidate_validation_id,
             proposal_ref, facts, interpretation, boundaries, commitments,
             open_issues, commitment_event, issue_resolution,
             relationship_status, mechanism_identity, privacy_scope,
             source_experience_id, source_link_kind
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        ) VALUES (%s, %s, %s, %s,
+                  COALESCE((SELECT relationship_created_at
+                            FROM armi.relationship_revisions
+                            WHERE relationship_revision_id = %s), statement_timestamp()),
+                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                   %s, %s, %s, %s, 'private', %s, %s)
         """,
         (
+            subject_id,
+            relationship.subject_party_id,
+            relationship.other_party_id,
+            relationship.scope,
+            previous,
             revision_id,
             relationship.relationship_id,
             revision_no,
@@ -675,25 +684,6 @@ async def _commit_one(
             else "supports_relationship_change",
         ),
     )
-    if previous is not None:
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.relationships
-                SET current_revision_id = %s, head_version = head_version + 1
-                WHERE relationship_id = %s AND current_revision_id = %s
-                  AND head_version = %s RETURNING relationship_id
-                """,
-                (
-                    revision_id,
-                    relationship.relationship_id,
-                    previous,
-                    relationship.expected_head_version,
-                ),
-            )
-        ).fetchone()
-        if updated is None:
-            raise RelationshipViolation("RELATIONSHIP-COMMIT-HEAD-STALE")
 
 
 def _revision(row: tuple[Any, ...]) -> CreatorRelationshipRevision:

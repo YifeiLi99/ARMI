@@ -73,12 +73,10 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "prompt_revisions": TableOwnership("prompt", maintenance_writable=True),
     "mind_revisions": TableOwnership("mind", maintenance_writable=True),
     "mood_revisions": TableOwnership("mood", maintenance_writable=True),
-    "mood_appraisal_events": TableOwnership("mood", maintenance_writable=True),
     # Life facts.
     "subjective_memories": TableOwnership("memory", maintenance_writable=True),
     "subjective_memory_revisions": TableOwnership("memory", maintenance_writable=True),
     "relationship_revisions": TableOwnership("relationship", maintenance_writable=True),
-    "relationships": TableOwnership("relationship", maintenance_writable=True),
     "life_material_revisions": TableOwnership("material", maintenance_writable=True),
     "life_materials": TableOwnership("material", maintenance_writable=True),
     "activities": TableOwnership("activity", maintenance_writable=True),
