@@ -21,7 +21,7 @@ from ._domain import (
     derive_effective_state,
     derive_semantic_appraisal,
     initial_state,
-    parse_historical_semantic_appraisal,
+    parse_semantic_appraisal,
     parse_state_bytes,
     semantic_appraisal_to_wire,
     semantic_features_to_wire,
@@ -55,13 +55,11 @@ class PostgreSQLMoodOwner:
     ) -> MoodBirthContinuity:
         if subject_id is None:
             row = transaction.execute(
-                "SELECT (SELECT count(*) FROM armi.mood_heads),"
-                "(SELECT count(*) FROM armi.mood_revisions)"
+                """SELECT (SELECT count(*) FROM armi.mood_revisions WHERE is_current ),(SELECT count(*) FROM armi.mood_revisions)"""
             ).fetchone()
         else:
             row = transaction.execute(
-                "SELECT (SELECT count(*) FROM armi.mood_heads WHERE subject_id=%s),"
-                "(SELECT count(*) FROM armi.mood_revisions WHERE subject_id=%s)",
+                """SELECT (SELECT count(*) FROM armi.mood_revisions WHERE is_current AND subject_id=%s),(SELECT count(*) FROM armi.mood_revisions WHERE subject_id=%s)""",
                 (subject_id, subject_id),
             ).fetchone()
         if row is None:
@@ -79,12 +77,9 @@ class PostgreSQLMoodOwner:
     ) -> MoodHead:
         row = await (
             await transaction.execute(
-                """SELECT head.current_revision_id, head.mood_version,
-                          revision.semantic_payload
-                   FROM armi.mood_heads AS head
-                   JOIN armi.mood_revisions AS revision
-                     ON revision.mood_revision_id=head.current_revision_id
-                   WHERE head.subject_id=%s""",
+                """SELECT head.mood_revision_id, head.mood_version,
+                          head.semantic_payload
+                   FROM armi.mood_revisions AS head WHERE head.is_current AND head.subject_id=%s""",
                 (subject_id,),
             )
         ).fetchone()
@@ -163,7 +158,7 @@ class PostgreSQLMoodOwner:
     ) -> int:
         row = await (
             await transaction.execute(
-                "SELECT count(*) FROM armi.mood_heads WHERE subject_id=%s",
+                """SELECT count(*) FROM armi.mood_revisions WHERE is_current AND subject_id=%s""",
                 (subject_id,),
             )
         ).fetchone()
@@ -182,7 +177,7 @@ class PostgreSQLMoodOwner:
             return True
         row = await (
             await transaction.execute(
-                "SELECT mood_version FROM armi.mood_heads WHERE subject_id=%s FOR UPDATE",
+                """SELECT mood_version FROM armi.mood_revisions WHERE is_current AND subject_id=%s FOR UPDATE""",
                 (subject_id,),
             )
         ).fetchone()
@@ -203,12 +198,9 @@ class PostgreSQLMoodOwner:
         draft = drafts[0]
         head = await (
             await transaction.execute(
-                """SELECT head.current_revision_id,head.mood_version,
-                          revision.semantic_payload
-                   FROM armi.mood_heads AS head
-                   JOIN armi.mood_revisions AS revision
-                     ON revision.mood_revision_id=head.current_revision_id
-                   WHERE head.subject_id=%s""",
+                """SELECT head.mood_revision_id,head.mood_version,
+                          head.semantic_payload
+                   FROM armi.mood_revisions AS head WHERE head.is_current AND head.subject_id=%s""",
                 (subject_id,),
             )
         ).fetchone()
@@ -255,10 +247,21 @@ class PostgreSQLMoodOwner:
             )
         updated = await (
             await transaction.execute(
-                """UPDATE armi.mood_heads
-                   SET current_revision_id=%s,mood_version=%s
-                   WHERE subject_id=%s AND current_revision_id=%s AND mood_version=%s
-                   RETURNING subject_id""",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.mood_revision_id
+                    FROM armi.mood_revisions AS candidate, input
+                    WHERE candidate.mood_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.mood_version=input.new_version AND NOT candidate.is_current
+                ), retired AS (
+                    UPDATE armi.mood_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.mood_revision_id=input.old_id
+                      AND previous.mood_version=input.old_version AND previous.is_current
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.mood_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.mood_revision_id=target.mood_revision_id RETURNING current.subject_id""",
                 (revision_id, version, subject_id, head[0], draft.expected_version),
             )
         ).fetchone()
@@ -297,7 +300,7 @@ class PostgreSQLMoodOwner:
             if row is None or row[2] == AppraisalTransition.RESOLVE.value:
                 raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
             predecessor_id = row[0]
-            previous = parse_historical_semantic_appraisal(cast(object, row[1]))
+            previous = parse_semantic_appraisal(cast(object, row[1]))
             episode_id = event.previous_episode_id
         if type(event) is not SemanticAppraisalEvent:
             raise MoodViolation("MOOD-CANDIDATE")
@@ -443,8 +446,7 @@ class PostgreSQLMoodOwner:
             (revision_id, subject_id, subject_id, _INITIAL.decode("utf-8")),
         )
         await transaction.execute(
-            """INSERT INTO armi.mood_heads
-               (subject_id,current_revision_id,mood_version) VALUES (%s,%s,1)""",
+            """UPDATE armi.mood_revisions SET is_current=true WHERE subject_id=%s AND mood_revision_id=%s AND mood_version=1 AND NOT is_current""",
             (subject_id, revision_id),
         )
 

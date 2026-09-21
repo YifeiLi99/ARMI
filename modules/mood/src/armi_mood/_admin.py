@@ -104,12 +104,9 @@ class PostgreSQLMoodAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MoodAdminComponent | None:
         statement = (
-            "SELECT head.mood_version,revision.privacy_scope,revision.semantic_payload "
-            "FROM armi.mood_heads AS head JOIN armi.mood_revisions AS revision "
-            "ON revision.mood_revision_id=head.current_revision_id"
+            """SELECT head.mood_version,head.privacy_scope,head.semantic_payload FROM armi.mood_revisions AS head WHERE head.is_current """
             if private
-            else "SELECT head.mood_version,revision.privacy_scope FROM armi.mood_heads AS head "
-            "JOIN armi.mood_revisions AS revision ON revision.mood_revision_id=head.current_revision_id"
+            else """SELECT head.mood_version,head.privacy_scope FROM armi.mood_revisions AS head WHERE head.is_current """
         )
         row = transaction.execute(statement).fetchone()
         if row is None:
@@ -129,11 +126,8 @@ class PostgreSQLMoodAdmin:
         self._require_kind(kind)
         suffix = " FOR UPDATE OF head" if for_update else ""
         row = transaction.execute(
-            "SELECT head.current_revision_id,head.mood_version,revision.semantic_payload,"
-            "(SELECT max(candidate.mood_version) FROM armi.mood_revisions AS candidate "
-            "WHERE candidate.subject_id=head.subject_id) FROM armi.mood_heads AS head "
-            "JOIN armi.mood_revisions AS revision ON revision.mood_revision_id=head.current_revision_id "
-            "WHERE head.subject_id=%s" + suffix,
+            """SELECT head.mood_revision_id,head.mood_version,head.semantic_payload,(SELECT max(candidate.mood_version) FROM armi.mood_revisions AS candidate WHERE candidate.subject_id=head.subject_id) FROM armi.mood_revisions AS head WHERE head.is_current AND head.subject_id=%s"""
+            + suffix,
             (subject_id,),
         ).fetchone()
         return (
@@ -191,8 +185,21 @@ class PostgreSQLMoodAdmin:
         )
         return (
             transaction.execute(
-                "UPDATE armi.mood_heads SET current_revision_id=%s,mood_version=%s "
-                "WHERE subject_id=%s AND current_revision_id=%s AND mood_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.mood_revision_id
+                    FROM armi.mood_revisions AS candidate, input
+                    WHERE candidate.mood_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.mood_version=input.new_version AND NOT candidate.is_current
+                ), retired AS (
+                    UPDATE armi.mood_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.mood_revision_id=input.old_id
+                      AND previous.mood_version=input.old_version AND previous.is_current
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.mood_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.mood_revision_id=target.mood_revision_id""",
                 (revision_id, version, subject_id, previous_revision_id, version - 1),
             ).rowcount
             == 1
@@ -210,10 +217,32 @@ class PostgreSQLMoodAdmin:
         target_version: int,
     ) -> bool:
         self._require_kind(kind)
+        if current_revision_id == target_revision_id:
+            return (
+                current_version == target_version
+                and transaction.execute(
+                    "SELECT 1 FROM armi.mood_revisions WHERE subject_id=%s AND mood_revision_id=%s AND mood_version=%s AND is_current FOR UPDATE",
+                    (subject_id, current_revision_id, current_version),
+                ).fetchone()
+                is not None
+            )
         return (
             transaction.execute(
-                "UPDATE armi.mood_heads SET current_revision_id=%s,mood_version=%s "
-                "WHERE subject_id=%s AND current_revision_id=%s AND mood_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.mood_revision_id
+                    FROM armi.mood_revisions AS candidate, input
+                    WHERE candidate.mood_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.mood_version=input.new_version AND NOT candidate.is_current
+                ), retired AS (
+                    UPDATE armi.mood_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.mood_revision_id=input.old_id
+                      AND previous.mood_version=input.old_version AND previous.is_current
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.mood_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.mood_revision_id=target.mood_revision_id""",
                 (
                     target_revision_id,
                     target_version,
@@ -230,7 +259,7 @@ class PostgreSQLMoodAdmin:
     ) -> tuple[UUID, int] | None:
         self._require_kind(kind)
         row = transaction.execute(
-            "SELECT current_revision_id,mood_version FROM armi.mood_heads"
+            """SELECT mood_revision_id,mood_version FROM armi.mood_revisions WHERE is_current """
         ).fetchone()
         return None if row is None else (cast(UUID, row[0]), int(cast(int, row[1])))
 

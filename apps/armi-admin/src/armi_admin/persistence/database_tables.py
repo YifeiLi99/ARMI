@@ -77,13 +77,13 @@ class DatabaseTable:
                 "revision_no in prompt_revisions; 0 for an empty document",
                 ("create", "update", "delete"),
             ),
-            "mind_heads": ("mind", "mind_version", ("update",)),
-            "subject_component_heads": (
+            "mind_revisions": ("mind", "mind_version", ("update",)),
+            "subject_component_revisions": (
                 "subject_state",
                 "component_version",
                 ("update",),
             ),
-            "mood_heads": ("mood", "mood_version", ("update",)),
+            "mood_revisions": ("mood", "mood_version", ("update",)),
         }.get(self.name)
         return {
             "table": self.name,

@@ -41,7 +41,6 @@ def probe_continuity(
     mind: MindBirthPort,
     mood: MoodBirthPort,
     prompts: PromptBirthPort,
-    historical_birth_contract_digests: frozenset[str] = frozenset(),
 ) -> ContinuityState:
     try:
         with psycopg.connect(conninfo, autocommit=True) as connection:
@@ -93,10 +92,7 @@ def probe_continuity(
     if len(rows) != 1:
         return ContinuityState.INVALID
     row = rows[0]
-    if (
-        str(row[1]) != birth_contract_digest.value
-        and str(row[1]) not in historical_birth_contract_digests
-    ):
+    if str(row[1]) != birth_contract_digest.value:
         return ContinuityState.INVALID
     if (
         interaction_counts.party_count != 2

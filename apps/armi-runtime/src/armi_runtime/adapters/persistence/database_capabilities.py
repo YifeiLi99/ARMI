@@ -39,19 +39,20 @@ live_vision_observations live_vision_sessions
 live_voice_sessions
 live_voice_turns
 maintenance_session_revisions maintenance_sessions memory_relations
-mood_appraisal_events mood_heads mood_revisions
+mood_appraisal_events mood_revisions
 opportunities parties
 party_input_interactions prompt_documents
 prompt_revisions relationship_experience_links relationship_revisions
 relationships runtime_instances
 scene_participants
-scene_timeline_items subject_commits mind_heads subject_component_heads
+scene_timeline_items subject_commits
 mind_revisions subject_component_revisions subjective_memories subjective_memory_revisions
 subjects
 
 """
 
 _RUNTIME_UPDATE = """
+mood_revisions
 codex_task_sources
 maintenance_session_revisions
 autonomy_plans
@@ -70,11 +71,11 @@ external_evidence external_message_parts
 interaction_scenes life_material_revisions life_materials live_vision_observation_frames
 live_vision_observations live_vision_sessions
 live_voice_sessions
-live_voice_turns maintenance_sessions mood_appraisal_events mood_heads
+live_voice_turns maintenance_sessions mood_appraisal_events
 opportunities parties party_input_interactions
   prompt_documents relationship_revisions relationships
 runtime_instances
-scene_participants mind_heads subject_component_heads mind_revisions subject_component_revisions
+scene_participants mind_revisions subject_component_revisions
 subjective_memories subjective_memory_revisions subjects
 
 """
@@ -87,8 +88,9 @@ artifact_object_deletions artifact_objects artifact_publications artifacts
 """
 
 _ADMIN_UPDATE = """
-durable_work effects mood_heads runtime_instances
-mind_heads subject_component_heads subjects artifact_object_deletions artifact_objects
+mind_revisions mood_revisions subject_component_revisions
+durable_work effects runtime_instances
+subjects artifact_object_deletions artifact_objects
 artifact_publications artifacts
 """
 

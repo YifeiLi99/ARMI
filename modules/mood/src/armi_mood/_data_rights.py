@@ -21,18 +21,13 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("mood")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "mood_appraisal_events",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.mood_appraisal_events AS source
            ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "mood_heads",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.mood_heads AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "mood_revisions",

@@ -421,19 +421,6 @@ def _round_to_five(value: float) -> int:
     return max(5, min(100, int((value + 2.5) // 5) * 5))
 
 
-def parse_historical_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
-    """Read preserved facts for trajectory comparison; never an execution decoder."""
-    if type(value) is dict:
-        raw = cast(dict[str, Any], value)
-        if raw.get("schema_version") == "armi.mood-appraisal.v2":
-            value = {
-                **raw,
-                "schema_version": "armi.mood-appraisal.v3",
-                "appraisal": {**raw["appraisal"], "engagement": "unknown"},
-            }
-    return parse_semantic_appraisal(cast(object, value))
-
-
 def _positive(value: float) -> float:
     return max(0.0, value)
 

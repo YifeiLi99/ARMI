@@ -825,11 +825,6 @@ ALTER TABLE ONLY armi.mood_appraisal_events
     ADD CONSTRAINT mood_appraisal_events_revision_key UNIQUE (mood_revision_id, subject_id);
 
 --
--- Name: mood_heads mood_heads_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_heads
-    ADD CONSTRAINT mood_heads_pkey PRIMARY KEY (subject_id);
 
 --
 -- Name: mood_revisions mood_revisions_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1115,11 +1110,6 @@ ALTER TABLE ONLY armi.subject_commits
     ADD CONSTRAINT subject_commits_subject_id_new_subject_version_key UNIQUE (subject_id, new_subject_version);
 
 --
--- Name: subject_component_heads subject_component_heads_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subject_component_heads
-    ADD CONSTRAINT subject_component_heads_pkey PRIMARY KEY (subject_id, component_kind);
 
 --
 -- Name: subject_component_revisions subject_component_revisions_component_revision_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2582,18 +2572,8 @@ ALTER TABLE ONLY armi.mood_appraisal_events
     ADD CONSTRAINT mood_appraisal_events_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
--- Name: mood_heads mood_heads_current_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_heads
-    ADD CONSTRAINT mood_heads_current_owner_fkey FOREIGN KEY (current_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
 
 --
--- Name: mood_heads mood_heads_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_heads
-    ADD CONSTRAINT mood_heads_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: mood_revisions mood_revisions_previous_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2944,18 +2924,8 @@ ALTER TABLE ONLY armi.subject_commits
     ADD CONSTRAINT subject_commits_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
--- Name: subject_component_heads subject_component_heads_current_revision_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subject_component_heads
-    ADD CONSTRAINT subject_component_heads_current_revision_owner_fkey FOREIGN KEY (current_revision_id, subject_id, component_kind) REFERENCES armi.subject_component_revisions(component_revision_id, subject_id, component_kind);
 
 --
--- Name: subject_component_heads subject_component_heads_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.subject_component_heads
-    ADD CONSTRAINT subject_component_heads_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: subject_component_revisions subject_component_revisions_commit_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3081,9 +3051,6 @@ ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_admin_chan
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_pkey PRIMARY KEY (mind_revision_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_owner_key UNIQUE (mind_revision_id,subject_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_version_key UNIQUE (subject_id,mind_version);
-ALTER TABLE armi.mind_heads ADD CONSTRAINT mind_heads_pkey PRIMARY KEY (subject_id);
-ALTER TABLE armi.mind_heads ADD CONSTRAINT mind_heads_revision_fkey FOREIGN KEY (current_revision_id,subject_id) REFERENCES armi.mind_revisions(mind_revision_id,subject_id);
-ALTER TABLE armi.mind_heads ADD CONSTRAINT mind_heads_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_previous_fkey FOREIGN KEY (previous_revision_id,subject_id) REFERENCES armi.mind_revisions(mind_revision_id,subject_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
@@ -3144,3 +3111,9 @@ ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_dialogue_owner_key UNIQUE (effect_id, operation_ref, subject_id);
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_dialogue_effect_fkey FOREIGN KEY (dialogue_effect_id, dialogue_operation_ref, subject_id) REFERENCES armi.effects(effect_id, operation_ref, subject_id);
+
+CREATE UNIQUE INDEX mind_revisions_current_key ON armi.mind_revisions (subject_id) WHERE is_current;
+
+CREATE UNIQUE INDEX mood_revisions_current_key ON armi.mood_revisions (subject_id) WHERE is_current;
+
+CREATE UNIQUE INDEX subject_component_revisions_current_key ON armi.subject_component_revisions (subject_id, component_kind) WHERE is_current;

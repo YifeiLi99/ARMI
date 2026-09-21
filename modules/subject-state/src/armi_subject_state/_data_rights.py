@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("subject-state")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "subject_component_heads",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.subject_component_heads AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "subject_component_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -106,39 +101,36 @@ class PostgreSQLSubjectStateDataRightsParticipant:
                        ON revision.subject_id=affected.subject_id
                       AND revision.component_kind=affected.component_kind
                       AND revision.component_version=affected.first_version-1
-                   ), inserted AS (
+                   ), retired AS (
+                     UPDATE armi.subject_component_revisions AS head SET is_current=false
+                     FROM safe WHERE head.subject_id=safe.subject_id AND head.component_kind=safe.component_kind
+                       AND head.is_current
+                     RETURNING head.*
+                   )
                      INSERT INTO armi.subject_component_revisions (
                        component_revision_id,subject_id,component_kind,component_version,
                        previous_revision_id,origin_kind,origin_ref,semantic_payload,
-                       privacy_scope
+                       privacy_scope,is_current
                      ) SELECT uuidv7(),head.subject_id,head.component_kind,
-                              head.component_version+1,head.current_revision_id,
+                              head.component_version+1,head.component_revision_id,
                               'data_rights',%s,
                               CASE WHEN head.component_kind='life_mode' THEN
                                 jsonb_set(
-                                  current_revision.semantic_payload,
+                                  head.semantic_payload,
                                   '{active_activities}',
                                   COALESCE((
                                     SELECT jsonb_agg(value)
                                     FROM jsonb_array_elements_text(
-                                      current_revision.semantic_payload->'active_activities'
+                                      head.semantic_payload->'active_activities'
                                     ) AS value
                                     WHERE value::uuid<>ALL(%s::uuid[])
                                   ),'[]'::jsonb)
                                 )
                               ELSE safe.semantic_payload END,
-                              'private'
-                       FROM armi.subject_component_heads AS head
+                              'private',true
+                       FROM retired AS head
                        JOIN safe ON safe.subject_id=head.subject_id
-                                AND safe.component_kind=head.component_kind
-                       JOIN armi.subject_component_revisions AS current_revision
-                         ON current_revision.component_revision_id=head.current_revision_id
-                     RETURNING subject_id,component_kind,component_revision_id
-                   ) UPDATE armi.subject_component_heads AS head
-                     SET current_revision_id=inserted.component_revision_id,
-                         component_version=head.component_version+1
-                     FROM inserted WHERE head.subject_id=inserted.subject_id
-                       AND head.component_kind=inserted.component_kind""",
+                                AND safe.component_kind=head.component_kind""",
                 (list(revision_ids), request.order_id, list(activity_ids)),
             )
             await transaction.execute(

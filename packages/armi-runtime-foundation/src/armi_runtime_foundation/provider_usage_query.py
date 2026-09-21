@@ -10,11 +10,11 @@ from .admin_transactions import PostgreSQLAdminParameter
 _BASE = """
 WITH calls AS (
     SELECT owner, attempt_id::text, operation_id::text, reference_kind,
-           reference_id::text, business_result, legacy, receipt
+           reference_id::text, business_result, receipt
     FROM armi.provider_usage_calls
     UNION ALL
     SELECT 'admin', verification_id, NULL, 'credential_verification',
-           verification_id, NULL, false, call
+           verification_id, NULL, call
     FROM jsonb_to_recordset(%s::jsonb)
         AS r(verification_id text, call jsonb)
 ), filtered AS (
@@ -44,15 +44,14 @@ jsonb_build_object(
         OR jsonb_array_length(COALESCE(receipt->'cost'->'missing_usage', '[]'::jsonb)) > 0)),
     'unpriced_calls', count(*) FILTER (WHERE billable AND (
         cost_status = 'unpriced' OR jsonb_array_length(COALESCE(
-            receipt->'cost'->'missing_prices', '[]'::jsonb)) > 0)),
-    'historical_incomplete_calls', count(*) FILTER (WHERE legacy)
+            receipt->'cost'->'missing_prices', '[]'::jsonb)) > 0))
 )
 """
 
 _ROW = """jsonb_build_object(
     'owner', owner, 'attempt_id', attempt_id, 'operation_id', operation_id,
     'reference_kind', reference_kind, 'reference_id', reference_id,
-    'business_result', business_result, 'historical_incomplete', legacy, 'receipt', receipt)"""
+    'business_result', business_result, 'receipt', receipt)"""
 
 
 def usage_statement(
@@ -91,7 +90,7 @@ def usage_statement(
                     LEFT JOIN armi.opportunities vo ON vo.opportunity_id = ve.opportunity_id
                     UNION
                     SELECT child.root_opportunity_id, effect.root_opportunity_id
-                    FROM armi.codex_verification_results verification
+                    FROM armi.codex_task_sources verification
                     JOIN armi.opportunities child ON child.opportunity_id = verification.opportunity_id
                     JOIN armi.effects effect ON effect.effect_id = verification.effect_id
                     UNION
@@ -147,7 +146,7 @@ def usage_statement(
     SELECT jsonb_build_object(
         'currency', 'CNY', 'price_label', 'official_list_price_estimate',
         'timezone', 'Asia/Shanghai',
-        'coverage', 'owner_calls_and_admin_checks;legacy_records_incomplete;codex_subscription_excluded',
+        'coverage', 'owner_calls_and_admin_checks;codex_subscription_excluded',
         'totals', (SELECT {_TOTALS} FROM filtered),
         'units', ({units}),
         'daily', COALESCE((

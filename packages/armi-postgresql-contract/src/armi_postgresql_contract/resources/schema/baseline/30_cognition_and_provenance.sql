@@ -67,7 +67,7 @@ CREATE TABLE armi.cognitive_attempts (
     prepared_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     dispatched_at timestamp(6) with time zone,
     settled_at timestamp(6) with time zone,
-    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version IN (0, 1)),
+    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version = 1),
     provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
     CONSTRAINT cognitive_attempts_attempt_no_check CHECK ((attempt_no >= 1)),
     CONSTRAINT cognitive_attempts_cached_input_tokens_check CHECK (((cached_input_tokens IS NULL) OR (cached_input_tokens >= 0))),
@@ -438,7 +438,7 @@ CREATE TABLE armi.mood_appraisal_events (
     data_rights_redacted_at timestamp(6) with time zone,
     CONSTRAINT mood_appraisal_events_appraisal_payload_check CHECK (((data_rights_redacted_at IS NOT NULL) OR (jsonb_typeof(appraisal_payload) = 'object'::text))),
     CONSTRAINT mood_appraisal_events_basis_ordinals_check CHECK (((cardinality(basis_ordinals) >= 1) AND (cardinality(basis_ordinals) <= 8))),
-    CONSTRAINT mood_appraisal_events_derivation_version_check CHECK ((derivation_version IN ('cpm-fuzzy.v2'::text, 'cpm-fuzzy.v4'::text))),
+    CONSTRAINT mood_appraisal_events_derivation_version_check CHECK ((derivation_version = 'cpm-fuzzy.v4'::text)),
     CONSTRAINT mood_appraisal_events_derived_components_check CHECK (((jsonb_typeof(derived_components) = 'array'::text) AND ((jsonb_array_length(derived_components) >= 0) AND (jsonb_array_length(derived_components) <= 3)))),
     CONSTRAINT mood_appraisal_events_derived_vad_check CHECK ((jsonb_typeof(derived_vad) = 'object'::text)),
     CONSTRAINT mood_appraisal_events_dynamics_version_check CHECK ((dynamics_version = 'recency-reappraisal.v1'::text)),
@@ -448,27 +448,18 @@ CREATE TABLE armi.mood_appraisal_events (
     CONSTRAINT mood_appraisal_events_mood_appraisal_event_id_check CHECK ((uuid_extract_version(mood_appraisal_event_id) = 7)),
     CONSTRAINT mood_appraisal_events_mood_episode_id_check CHECK ((uuid_extract_version(mood_episode_id) = 7)),
     CONSTRAINT mood_appraisal_events_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
-    CONSTRAINT mood_appraisal_events_semantic_version_check CHECK ((((data_rights_redacted_at IS NOT NULL) OR ((appraisal_payload ->> 'schema_version'::text) = 'armi.mood-appraisal.v2'::text AND appraisal_mapping_version = 'semantic-anchors.v1'::text AND (derived_appraisal_payload ->> 'schema_version'::text) = 'armi.mood-derived-appraisal.v2'::text AND derivation_version = 'cpm-fuzzy.v2'::text))) OR (((data_rights_redacted_at IS NOT NULL) OR ((appraisal_payload ->> 'schema_version'::text) = 'armi.mood-appraisal.v3'::text AND appraisal_mapping_version = 'semantic-anchors.v1'::text AND (derived_appraisal_payload ->> 'schema_version'::text) = 'armi.mood-derived-appraisal.v3'::text AND derivation_version = 'cpm-fuzzy.v4'::text)))),
+    CONSTRAINT mood_appraisal_events_semantic_version_check CHECK ((((data_rights_redacted_at IS NOT NULL) OR ((appraisal_payload ->> 'schema_version'::text) = 'armi.mood-appraisal.v3'::text AND appraisal_mapping_version = 'semantic-anchors.v1'::text AND (derived_appraisal_payload ->> 'schema_version'::text) = 'armi.mood-derived-appraisal.v3'::text AND derivation_version = 'cpm-fuzzy.v4'::text)))),
     CONSTRAINT mood_appraisal_events_transition_check CHECK ((transition = ANY (ARRAY['new'::text, 'reinforce'::text, 'reappraise'::text, 'resolve'::text]))),
     CONSTRAINT mood_appraisal_events_transition_shape_check CHECK ((((transition = 'new'::text) AND (previous_appraisal_event_id IS NULL)) OR ((transition <> 'new'::text) AND (previous_appraisal_event_id IS NOT NULL))))
 );
 
---
--- Name: mood_heads; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.mood_heads (
-    subject_id uuid NOT NULL,
-    current_revision_id uuid NOT NULL,
-    mood_version bigint NOT NULL,
-    CONSTRAINT mood_heads_mood_version_check CHECK ((mood_version > 0))
-);
 
 --
 -- Name: mood_revisions; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.mood_revisions (
+    is_current boolean DEFAULT false NOT NULL,
     mood_revision_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     mood_version bigint NOT NULL,
@@ -484,10 +475,10 @@ CREATE TABLE armi.mood_revisions (
     CONSTRAINT mood_revisions_id_check CHECK ((uuid_extract_version(mood_revision_id) = 7)),
     CONSTRAINT mood_revisions_mood_version_check CHECK ((mood_version > 0)),
     CONSTRAINT mood_revisions_admin_provenance CHECK (admin_change_id IS NULL OR origin_kind='admin_correction'),
-    CONSTRAINT mood_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (mood_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'module_migration'::text) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL) AND (((mood_version = 1) AND (previous_revision_id IS NULL)) OR ((mood_version > 1) AND (previous_revision_id IS NOT NULL)))) OR ((origin_kind = 'subject_commit'::text) AND (mood_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = 'admin_correction'::text) AND (mood_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
-    CONSTRAINT mood_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'module_migration'::text, 'subject_commit'::text, 'admin_correction'::text]))),
+    CONSTRAINT mood_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (mood_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (mood_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = 'admin_correction'::text) AND (mood_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
+    CONSTRAINT mood_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text]))),
     CONSTRAINT mood_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
-    CONSTRAINT mood_revisions_payload_check CHECK ((((semantic_payload ->> 'schema_version'::text) = 'armi.mood.v3'::text AND (semantic_payload ?& ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) AND (semantic_payload - ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) = '{}'::jsonb AND (semantic_payload ->> 'dynamics_version'::text) = 'recency-reappraisal.v1'::text AND (semantic_payload ->> 'derivation_version'::text) = 'cpm-fuzzy.v2'::text AND jsonb_typeof(semantic_payload -> 'home_base'::text) = 'object'::text AND (semantic_payload -> 'home_base'::text) ?& ARRAY['valence'::text, 'arousal'::text, 'dominance'::text] AND ((semantic_payload -> 'home_base'::text) - ARRAY['valence'::text, 'arousal'::text, 'dominance'::text]) = '{}'::jsonb AND (((semantic_payload -> 'home_base'::text) ->> 'valence'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'arousal'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'dominance'::text)::integer BETWEEN -100 AND 100))) OR (((semantic_payload ->> 'schema_version'::text) = 'armi.mood.v5'::text AND (semantic_payload ?& ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) AND (semantic_payload - ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) = '{}'::jsonb AND (semantic_payload ->> 'dynamics_version'::text) = 'recency-reappraisal.v1'::text AND (semantic_payload ->> 'derivation_version'::text) = 'cpm-fuzzy.v4'::text AND jsonb_typeof(semantic_payload -> 'home_base'::text) = 'object'::text AND (semantic_payload -> 'home_base'::text) ?& ARRAY['valence'::text, 'arousal'::text, 'dominance'::text] AND ((semantic_payload -> 'home_base'::text) - ARRAY['valence'::text, 'arousal'::text, 'dominance'::text]) = '{}'::jsonb AND (((semantic_payload -> 'home_base'::text) ->> 'valence'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'arousal'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'dominance'::text)::integer BETWEEN -100 AND 100)))),
+    CONSTRAINT mood_revisions_payload_check CHECK ((((semantic_payload ->> 'schema_version'::text) = 'armi.mood.v5'::text AND (semantic_payload ?& ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) AND (semantic_payload - ARRAY['dynamics_version'::text, 'derivation_version'::text, 'home_base'::text, 'schema_version'::text]) = '{}'::jsonb AND (semantic_payload ->> 'dynamics_version'::text) = 'recency-reappraisal.v1'::text AND (semantic_payload ->> 'derivation_version'::text) = 'cpm-fuzzy.v4'::text AND jsonb_typeof(semantic_payload -> 'home_base'::text) = 'object'::text AND (semantic_payload -> 'home_base'::text) ?& ARRAY['valence'::text, 'arousal'::text, 'dominance'::text] AND ((semantic_payload -> 'home_base'::text) - ARRAY['valence'::text, 'arousal'::text, 'dominance'::text]) = '{}'::jsonb AND (((semantic_payload -> 'home_base'::text) ->> 'valence'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'arousal'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'dominance'::text)::integer BETWEEN -100 AND 100)))),
     CONSTRAINT mood_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT mood_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
     CONSTRAINT mood_revisions_semantic_payload_check CHECK ((jsonb_typeof(semantic_payload) = 'object'::text))

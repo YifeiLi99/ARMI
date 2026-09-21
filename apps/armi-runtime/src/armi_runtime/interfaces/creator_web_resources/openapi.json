@@ -6380,10 +6380,6 @@
             ],
             "title": "Business Result"
           },
-          "historical_incomplete": {
-            "title": "记录来自旧口径",
-            "type": "boolean"
-          },
           "operation_id": {
             "anyOf": [
               {
@@ -6418,7 +6414,6 @@
           "reference_kind",
           "reference_id",
           "business_result",
-          "historical_incomplete",
           "receipt"
         ],
         "title": "UsageCall",
@@ -6953,10 +6948,6 @@
             "title": "Billable Calls",
             "type": "integer"
           },
-          "historical_incomplete_calls": {
-            "title": "旧口径记录数",
-            "type": "integer"
-          },
           "incomplete_calls": {
             "title": "Incomplete Calls",
             "type": "integer"
@@ -6987,8 +6978,7 @@
           "known_microyuan",
           "incomplete_calls",
           "usage_unconfirmed_calls",
-          "unpriced_calls",
-          "historical_incomplete_calls"
+          "unpriced_calls"
         ],
         "title": "UsageTotals",
         "type": "object"

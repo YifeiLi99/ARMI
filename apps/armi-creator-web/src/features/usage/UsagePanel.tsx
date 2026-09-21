@@ -126,17 +126,12 @@ function CallDetail({
         <dt>错误原因</dt>
         <dd>{receipt.error_code ?? "无已记录错误"}</dd>
         <dt>价格快照</dt>
-        <dd>
-          {receipt.price?.snapshot_id ??
-            (call.historical_incomplete
-              ? "保留历史原估算，旧记录不完整"
-              : "没有匹配单价")}
-        </dd>
+        <dd>{receipt.price?.snapshot_id ?? "没有匹配单价"}</dd>
         <dt>舍入规则</dt>
         <dd>
           {receipt.cost.rounding === "ceil_microyuan_per_component"
             ? "各分项向上取整到 0.000001 元"
-            : "历史口径"}
+            : "未记录舍入规则"}
         </dd>
       </dl>
       {receipt.price && (
@@ -465,12 +460,6 @@ export function UsagePanel({
               <p role="status">
                 这里只是已知费用，另有 {data.totals.incomplete_calls}{" "}
                 项未完整确认。
-              </p>
-            )}
-            {data.totals.historical_incomplete_calls > 0 && (
-              <p>
-                包含 {data.totals.historical_incomplete_calls}{" "}
-                项旧口径记录。历史覆盖不完整，未补造缺失调用，也未重算历史价格。
               </p>
             )}
             {data.totals.billable_calls === 0 ? (

@@ -21,13 +21,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("mind")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "mind_heads",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.mind_heads AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "mind_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -102,26 +97,23 @@ class PostgreSQLMindDataRightsParticipant:
                      JOIN armi.mind_revisions AS revision
                        ON revision.subject_id=affected.subject_id
                       AND revision.mind_version=affected.first_version-1
-                   ), inserted AS (
+                   ), retired AS (
+                     UPDATE armi.mind_revisions AS head SET is_current=false
+                     FROM safe WHERE head.subject_id=safe.subject_id
+                       AND head.is_current
+                     RETURNING head.*
+                   )
                      INSERT INTO armi.mind_revisions (
                        mind_revision_id,subject_id,mind_version,
                        previous_revision_id,origin_kind,origin_ref,semantic_payload,
-                       privacy_scope
+                       privacy_scope,is_current
                      ) SELECT uuidv7(),head.subject_id,
-                              head.mind_version+1,head.current_revision_id,
+                              head.mind_version+1,head.mind_revision_id,
                               'data_rights',%s,
-                              jsonb_set(safe.semantic_payload,'{schema_version}','"armi.mind.v4"'::jsonb)
-                                || jsonb_build_object('concerns',COALESCE(safe.semantic_payload->'concerns','[]'::jsonb),
-                                    'motivation_states',COALESCE(safe.semantic_payload->'motivation_states','[]'::jsonb)),
-                              'private'
-                       FROM armi.mind_heads AS head
-                       JOIN safe ON safe.subject_id=head.subject_id
-                     RETURNING subject_id,mind_revision_id
-                   ) UPDATE armi.mind_heads AS head
-                     SET current_revision_id=inserted.mind_revision_id,
-                         mind_version=head.mind_version+1
-                     FROM inserted WHERE head.subject_id=inserted.subject_id
-                       """,
+                              safe.semantic_payload,
+                              'private',true
+                       FROM retired AS head
+                       JOIN safe ON safe.subject_id=head.subject_id""",
                 (list(revision_ids), request.order_id),
             )
             await transaction.execute(

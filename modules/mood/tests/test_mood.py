@@ -17,7 +17,9 @@ from armi_mood._domain import (
     derive_effective_snapshot,
     derive_effective_state,
     derive_semantic_appraisal,
+    parse_semantic_appraisal,
     parse_state,
+    semantic_appraisal_to_wire,
     state_to_wire,
 )
 from armi_mood.api import (
@@ -1037,7 +1039,7 @@ def test_home_base_moves_at_most_two_points_per_axis() -> None:
     assert clamp_home_base(VAD(0, 0, 0), VAD(100, -100, 1)) == VAD(2, -2, 1)
 
 
-def test_state_contract_is_v3_and_rejects_extra_fields() -> None:
+def test_state_contract_is_current_and_rejects_extra_fields() -> None:
     state = parse_state(
         {
             "schema_version": "armi.mood.v5",
@@ -1085,3 +1087,15 @@ def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias(
     assert tuple(item[0] for item in episodes) == episode_ids
     assert len(gists) == 2
     assert sum(map(len, gists)) == 128
+
+
+def test_old_appraisal_contract_is_rejected_without_filling_fields() -> None:
+    current = semantic_appraisal_to_wire(_semantic_event())
+    previous = {**current, "schema_version": "armi.mood-appraisal.v2"}
+    appraisal = current["appraisal"]
+    assert isinstance(appraisal, dict)
+    previous["appraisal"] = {
+        key: value for key, value in appraisal.items() if key != "engagement"
+    }
+    with pytest.raises(MoodViolation):
+        parse_semantic_appraisal(previous)

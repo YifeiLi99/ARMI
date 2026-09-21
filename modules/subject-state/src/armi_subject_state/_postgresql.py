@@ -53,14 +53,11 @@ class PostgreSQLSubjectStateOwner:
     ) -> SubjectStateBirthContinuity:
         if subject_id is None:
             row = transaction.execute(
-                "SELECT (SELECT count(*) FROM armi.subject_component_heads),"
-                "(SELECT count(*) FROM armi.subject_component_revisions)"
+                """SELECT (SELECT count(*) FROM armi.subject_component_revisions WHERE is_current ),(SELECT count(*) FROM armi.subject_component_revisions)"""
             ).fetchone()
         else:
             row = transaction.execute(
-                "SELECT (SELECT count(*) FROM armi.subject_component_heads "
-                "WHERE subject_id=%s),(SELECT count(*) FROM "
-                "armi.subject_component_revisions WHERE subject_id=%s)",
+                """SELECT (SELECT count(*) FROM armi.subject_component_revisions WHERE is_current AND subject_id=%s),(SELECT count(*) FROM armi.subject_component_revisions WHERE subject_id=%s)""",
                 (subject_id, subject_id),
             ).fetchone()
         if row is None:
@@ -88,12 +85,9 @@ class PostgreSQLSubjectStateOwner:
         rows = await (
             await transaction.execute(
                 """
-            SELECT head.component_kind, revision.component_revision_id,
-                   head.component_version, revision.semantic_payload
-            FROM armi.subject_component_heads AS head
-            JOIN armi.subject_component_revisions AS revision
-              ON revision.component_revision_id = head.current_revision_id
-            WHERE head.subject_id = %s
+            SELECT head.component_kind, head.component_revision_id,
+                   head.component_version, head.semantic_payload
+            FROM armi.subject_component_revisions AS head WHERE head.is_current AND head.subject_id = %s
             ORDER BY CASE head.component_kind WHEN 'self' THEN 1 WHEN 'life_mode' THEN 2 END
         """,
                 (subject_id,),
@@ -117,10 +111,8 @@ class PostgreSQLSubjectStateOwner:
         row = await (
             await transaction.execute(
                 """
-            SELECT head.current_revision_id, head.component_version, revision.semantic_payload
-            FROM armi.subject_component_heads AS head
-            JOIN armi.subject_component_revisions AS revision ON revision.component_revision_id = head.current_revision_id
-            WHERE head.subject_id = %s AND head.component_kind = 'life_mode'
+            SELECT head.component_revision_id, head.component_version, head.semantic_payload
+            FROM armi.subject_component_revisions AS head WHERE head.is_current AND head.subject_id = %s AND head.component_kind = 'life_mode'
         """,
                 (subject_id,),
             )
@@ -183,7 +175,7 @@ class PostgreSQLSubjectStateOwner:
     ) -> int:
         row = await (
             await transaction.execute(
-                "SELECT count(*) FROM armi.subject_component_heads WHERE subject_id = %s AND component_kind IN ('self','life_mode')",
+                """SELECT count(*) FROM armi.subject_component_revisions WHERE is_current AND subject_id = %s AND component_kind IN ('self','life_mode')""",
                 (subject_id,),
             )
         ).fetchone()
@@ -204,7 +196,7 @@ class PostgreSQLSubjectStateOwner:
         for draft in sorted(self._drafts(drafts), key=lambda item: item.kind.value):
             row = await (
                 await transaction.execute(
-                    "SELECT component_version FROM armi.subject_component_heads WHERE subject_id = %s AND component_kind = %s FOR UPDATE",
+                    """SELECT component_version FROM armi.subject_component_revisions WHERE is_current AND subject_id = %s AND component_kind = %s FOR UPDATE""",
                     (subject_id, draft.kind.value),
                 )
             ).fetchone()
@@ -224,7 +216,7 @@ class PostgreSQLSubjectStateOwner:
         for draft in sorted(self._drafts(drafts), key=lambda item: item.kind.value):
             head = await (
                 await transaction.execute(
-                    "SELECT current_revision_id, component_version FROM armi.subject_component_heads WHERE subject_id = %s AND component_kind = %s",
+                    """SELECT component_revision_id, component_version FROM armi.subject_component_revisions WHERE is_current AND subject_id = %s AND component_kind = %s""",
                     (subject_id, draft.kind.value),
                 )
             ).fetchone()
@@ -248,7 +240,21 @@ class PostgreSQLSubjectStateOwner:
             )
             updated = await (
                 await transaction.execute(
-                    "UPDATE armi.subject_component_heads SET current_revision_id=%s, component_version=%s WHERE subject_id=%s AND component_kind=%s AND current_revision_id=%s AND component_version=%s RETURNING subject_id",
+                    """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::text AS component_kind, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.component_revision_id
+                    FROM armi.subject_component_revisions AS candidate, input
+                    WHERE candidate.component_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.component_version=input.new_version AND NOT candidate.is_current AND candidate.component_kind=input.component_kind
+                ), retired AS (
+                    UPDATE armi.subject_component_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.component_revision_id=input.old_id
+                      AND previous.component_version=input.old_version AND previous.is_current AND previous.component_kind=input.component_kind
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.subject_component_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.component_revision_id=target.component_revision_id RETURNING current.subject_id""",
                     (
                         revision_id,
                         draft.expected_version + 1,
@@ -275,7 +281,7 @@ class PostgreSQLSubjectStateOwner:
     ) -> None:
         head = await (
             await transaction.execute(
-                """SELECT head.current_revision_id, head.component_version, revision.semantic_payload FROM armi.subject_component_heads AS head JOIN armi.subject_component_revisions AS revision ON revision.component_revision_id=head.current_revision_id WHERE head.subject_id=%s AND head.component_kind='life_mode' FOR UPDATE OF head""",
+                """SELECT head.component_revision_id, head.component_version, head.semantic_payload FROM armi.subject_component_revisions AS head WHERE head.is_current AND head.subject_id=%s AND head.component_kind='life_mode' FOR UPDATE OF head""",
                 (subject_id,),
             )
         ).fetchone()
@@ -302,7 +308,21 @@ class PostgreSQLSubjectStateOwner:
         )
         updated = await (
             await transaction.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id=%s, component_version=component_version+1 WHERE subject_id=%s AND component_kind='life_mode' AND current_revision_id=%s AND component_version=%s RETURNING subject_id",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.component_revision_id
+                    FROM armi.subject_component_revisions AS candidate, input
+                    WHERE candidate.component_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.component_version=input.old_version+1 AND NOT candidate.is_current AND candidate.component_kind='life_mode'
+                ), retired AS (
+                    UPDATE armi.subject_component_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.component_revision_id=input.old_id
+                      AND previous.component_version=input.old_version AND previous.is_current AND previous.component_kind='life_mode'
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.subject_component_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.component_revision_id=target.component_revision_id RETURNING current.subject_id""",
                 (revision_id, subject_id, head[0], int(head[1])),
             )
         ).fetchone()
@@ -325,7 +345,7 @@ class PostgreSQLSubjectStateOwner:
                 ),
             )
             await transaction.execute(
-                "INSERT INTO armi.subject_component_heads (subject_id,component_kind,current_revision_id,component_version) VALUES (%s,%s,%s,1)",
+                """UPDATE armi.subject_component_revisions SET is_current=true WHERE subject_id=%s AND component_kind=%s AND component_revision_id=%s AND component_version=1 AND NOT is_current""",
                 (subject_id, kind.value, revision_id),
             )
 

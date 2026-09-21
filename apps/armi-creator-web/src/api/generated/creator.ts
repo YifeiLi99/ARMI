@@ -3423,8 +3423,6 @@ export interface components {
       auxiliary_requests?: components["schemas"]["UsageReceipt"][];
       /** Business Result */
       business_result: string | null;
-      /** 记录来自旧口径 */
-      historical_incomplete: boolean;
       /** Operation Id */
       operation_id: string | null;
       /** Owner */
@@ -3610,8 +3608,6 @@ export interface components {
       auxiliary_requests: number;
       /** Billable Calls */
       billable_calls: number;
-      /** 旧口径记录数 */
-      historical_incomplete_calls: number;
       /** Incomplete Calls */
       incomplete_calls: number;
       /** Known Microyuan */

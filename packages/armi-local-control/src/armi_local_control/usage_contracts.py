@@ -16,7 +16,6 @@ class UsageTotals(UsageResponse):
     incomplete_calls: int
     usage_unconfirmed_calls: int
     unpriced_calls: int
-    historical_incomplete_calls: int = Field(title="旧口径记录数")
 
 
 class UsageDay(UsageResponse):
@@ -50,7 +49,6 @@ class UsageCall(UsageResponse):
     reference_kind: str
     reference_id: str
     business_result: str | None
-    historical_incomplete: bool = Field(title="记录来自旧口径")
     receipt: UsageReceipt
     auxiliary_requests: list[UsageReceipt] = Field(
         default_factory=lambda: list[UsageReceipt]()

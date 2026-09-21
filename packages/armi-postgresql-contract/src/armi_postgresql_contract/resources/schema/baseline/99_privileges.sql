@@ -101,8 +101,6 @@ GRANT SELECT ON TABLE armi.maintenance_sessions TO armi_runtime;
 GRANT SELECT ON TABLE armi.memory_relations TO armi_runtime;
 GRANT SELECT ON TABLE armi.mood_appraisal_events TO armi_admin;
 GRANT SELECT ON TABLE armi.mood_appraisal_events TO armi_runtime;
-GRANT SELECT ON TABLE armi.mood_heads TO armi_admin;
-GRANT SELECT ON TABLE armi.mood_heads TO armi_runtime;
 GRANT SELECT ON TABLE armi.mood_revisions TO armi_admin;
 GRANT SELECT ON TABLE armi.mood_revisions TO armi_runtime;
 GRANT SELECT ON TABLE armi.opportunities TO armi_admin;
@@ -133,8 +131,6 @@ GRANT SELECT ON TABLE armi.schema_baseline_identity TO armi_migrator;
 GRANT SELECT ON TABLE armi.schema_baseline_identity TO armi_runtime;
 GRANT SELECT ON TABLE armi.subject_commits TO armi_admin;
 GRANT SELECT ON TABLE armi.subject_commits TO armi_runtime;
-GRANT SELECT ON TABLE armi.subject_component_heads TO armi_admin;
-GRANT SELECT ON TABLE armi.subject_component_heads TO armi_runtime;
 GRANT SELECT ON TABLE armi.subject_component_revisions TO armi_admin;
 GRANT SELECT ON TABLE armi.subject_component_revisions TO armi_runtime;
 GRANT SELECT ON TABLE armi.subjective_memories TO armi_runtime;
@@ -144,7 +140,7 @@ GRANT SELECT ON TABLE armi.subjects TO armi_runtime;
 
 GRANT DELETE ON TABLE armi.artifacts, armi.audit_events, armi.external_evidence, armi.external_message_parts, armi.opportunities, armi.party_input_interactions, armi.scene_timeline_items TO armi_admin;
 GRANT INSERT ON TABLE armi.deployment_environments, armi.durable_work, armi.effect_observations, armi.mood_revisions, armi.subject_component_revisions TO armi_admin;
-GRANT UPDATE ON TABLE armi.durable_work, armi.effects, armi.mood_heads, armi.runtime_instances, armi.subject_component_heads, armi.subjects TO armi_admin;
+GRANT UPDATE ON TABLE armi.durable_work, armi.effects, armi.runtime_instances, armi.subjects TO armi_admin;
 GRANT INSERT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
 GRANT UPDATE ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
 GRANT DELETE ON TABLE armi.context_embedding_projections TO armi_runtime;
@@ -161,8 +157,8 @@ GRANT INSERT ON TABLE armi.managed_data_snapshot_parties TO armi_runtime;
 GRANT USAGE, SELECT ON SEQUENCE armi.accepted_experiences_acceptance_ordinal_seq TO armi_runtime;
 
 
-GRANT INSERT ON TABLE armi.accepted_experiences, armi.activities, armi.activity_revisions, armi.artifacts, armi.audit_events, armi.codex_task_sources, armi.cognition_maintenance_batch_sources, armi.cognition_maintenance_batches, armi.cognition_maintenance_cursors, armi.cognitive_attempts, armi.cognitive_context_items, armi.cognitive_episodes, armi.context_embedding_coverage, armi.context_embedding_projections, armi.creator_exports, armi.data_rights_order_items, armi.data_rights_orders, armi.data_rights_party_fences, armi.durable_work, armi.effect_attempts, armi.effect_observations, armi.effects, armi.exact_life_query_intents, armi.experience_evidence_links, armi.external_channel_bindings, armi.external_evidence, armi.external_message_parts, armi.interaction_scenes, armi.life_material_revisions, armi.life_materials, armi.live_vision_observation_frames, armi.live_vision_observations, armi.live_vision_sessions, armi.live_voice_sessions, armi.live_voice_turns, armi.maintenance_session_revisions, armi.maintenance_sessions, armi.memory_relations, armi.mood_appraisal_events, armi.mood_heads, armi.mood_revisions, armi.opportunities, armi.parties, armi.party_input_interactions, armi.prompt_documents, armi.prompt_revisions, armi.relationship_experience_links, armi.relationship_revisions, armi.relationships, armi.runtime_instances, armi.scene_participants, armi.scene_timeline_items, armi.subject_commits, armi.subject_component_heads, armi.subject_component_revisions, armi.subjective_memories, armi.subjective_memory_revisions, armi.subjects TO armi_runtime;
-GRANT UPDATE ON TABLE armi.codex_task_sources, armi.activities, armi.artifacts, armi.cognition_maintenance_batch_sources, armi.cognition_maintenance_batches, armi.cognition_maintenance_cursors, armi.cognitive_attempts, armi.cognitive_episodes, armi.context_embedding_coverage, armi.creator_exports, armi.data_rights_order_items, armi.data_rights_orders, armi.durable_work, armi.effect_attempts, armi.effects, armi.exact_life_query_intents, armi.external_channel_bindings, armi.external_evidence, armi.external_message_parts, armi.interaction_scenes, armi.life_materials, armi.live_vision_observation_frames, armi.live_vision_observations, armi.live_vision_sessions, armi.live_voice_sessions, armi.live_voice_turns, armi.maintenance_sessions, armi.mood_heads, armi.opportunities, armi.parties, armi.party_input_interactions, armi.prompt_documents, armi.relationships, armi.runtime_instances, armi.scene_participants, armi.subject_component_heads, armi.subjective_memories, armi.subjects TO armi_runtime;
+GRANT INSERT ON TABLE armi.accepted_experiences, armi.activities, armi.activity_revisions, armi.artifacts, armi.audit_events, armi.codex_task_sources, armi.cognition_maintenance_batch_sources, armi.cognition_maintenance_batches, armi.cognition_maintenance_cursors, armi.cognitive_attempts, armi.cognitive_context_items, armi.cognitive_episodes, armi.context_embedding_coverage, armi.context_embedding_projections, armi.creator_exports, armi.data_rights_order_items, armi.data_rights_orders, armi.data_rights_party_fences, armi.durable_work, armi.effect_attempts, armi.effect_observations, armi.effects, armi.exact_life_query_intents, armi.experience_evidence_links, armi.external_channel_bindings, armi.external_evidence, armi.external_message_parts, armi.interaction_scenes, armi.life_material_revisions, armi.life_materials, armi.live_vision_observation_frames, armi.live_vision_observations, armi.live_vision_sessions, armi.live_voice_sessions, armi.live_voice_turns, armi.maintenance_session_revisions, armi.maintenance_sessions, armi.memory_relations, armi.mood_appraisal_events, armi.mood_revisions, armi.opportunities, armi.parties, armi.party_input_interactions, armi.prompt_documents, armi.prompt_revisions, armi.relationship_experience_links, armi.relationship_revisions, armi.relationships, armi.runtime_instances, armi.scene_participants, armi.scene_timeline_items, armi.subject_commits, armi.subject_component_revisions, armi.subjective_memories, armi.subjective_memory_revisions, armi.subjects TO armi_runtime;
+GRANT UPDATE ON TABLE armi.codex_task_sources, armi.activities, armi.artifacts, armi.cognition_maintenance_batch_sources, armi.cognition_maintenance_batches, armi.cognition_maintenance_cursors, armi.cognitive_attempts, armi.cognitive_episodes, armi.context_embedding_coverage, armi.creator_exports, armi.data_rights_order_items, armi.data_rights_orders, armi.durable_work, armi.effect_attempts, armi.effects, armi.exact_life_query_intents, armi.external_channel_bindings, armi.external_evidence, armi.external_message_parts, armi.interaction_scenes, armi.life_materials, armi.live_vision_observation_frames, armi.live_vision_observations, armi.live_vision_sessions, armi.live_voice_sessions, armi.live_voice_turns, armi.maintenance_sessions, armi.opportunities, armi.parties, armi.party_input_interactions, armi.prompt_documents, armi.relationships, armi.runtime_instances, armi.scene_participants, armi.subjective_memories, armi.subjects TO armi_runtime;
 
 GRANT DELETE ON TABLE armi.accepted_experiences TO armi_admin;
 
@@ -402,9 +398,7 @@ GRANT INSERT ON TABLE armi.mood_appraisal_events TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.mood_appraisal_events TO armi_admin;
 
-GRANT DELETE ON TABLE armi.mood_heads TO armi_admin;
 
-GRANT INSERT ON TABLE armi.mood_heads TO armi_admin;
 
 GRANT DELETE ON TABLE armi.mood_revisions TO armi_admin;
 
@@ -473,9 +467,7 @@ GRANT UPDATE ON TABLE armi.scene_timeline_items TO armi_admin;
 
 
 
-GRANT DELETE ON TABLE armi.subject_component_heads TO armi_admin;
 
-GRANT INSERT ON TABLE armi.subject_component_heads TO armi_admin;
 
 GRANT DELETE ON TABLE armi.subject_component_revisions TO armi_admin;
 
@@ -513,18 +505,15 @@ GRANT SELECT ON TABLE armi.admin_data_changes TO armi_runtime;
 
 GRANT SELECT ON TABLE armi.provider_usage_calls TO armi_runtime, armi_admin;
 
-GRANT SELECT ON TABLE armi.mind_heads TO armi_admin;
-GRANT SELECT ON TABLE armi.mind_heads TO armi_runtime;
 GRANT SELECT ON TABLE armi.mind_revisions TO armi_admin;
 GRANT SELECT ON TABLE armi.mind_revisions TO armi_runtime;
 GRANT INSERT ON TABLE armi.mind_revisions TO armi_admin;
-GRANT UPDATE ON TABLE armi.mind_heads TO armi_admin;
 GRANT UPDATE ON TABLE armi.mind_revisions TO armi_runtime;
-GRANT INSERT ON TABLE armi.mind_heads, armi.mind_revisions TO armi_runtime;
-GRANT UPDATE ON TABLE armi.mind_heads TO armi_runtime;
-GRANT DELETE ON TABLE armi.mind_heads TO armi_admin;
-GRANT INSERT ON TABLE armi.mind_heads TO armi_admin;
+GRANT INSERT ON TABLE armi.mind_revisions TO armi_runtime;
 GRANT DELETE ON TABLE armi.mind_revisions TO armi_admin;
 GRANT UPDATE ON TABLE armi.mind_revisions TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.maintenance_session_revisions TO armi_runtime;
+
+GRANT UPDATE ON TABLE armi.mood_revisions TO armi_runtime;
+GRANT UPDATE ON TABLE armi.mind_revisions, armi.mood_revisions, armi.subject_component_revisions TO armi_admin;

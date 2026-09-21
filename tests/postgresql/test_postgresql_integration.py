@@ -1556,7 +1556,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 derivation_version,dynamics_version,privacy_scope,
                                 appraisal_mapping_version,derived_appraisal_payload,occurred_at,
                                 affect_intensity,affect_half_life_seconds)
-                               SELECT %s,subject_id,current_revision_id,%s,'new','ongoing',
+                               SELECT %s,subject_id,mood_revision_id,%s,'new','ongoing',
                                       '有件事还没弄明白',ARRAY[1]::smallint[],
                                       '{"schema_version":"armi.mood-appraisal.v3"}'::jsonb,
                                       60,'{"valence":0,"arousal":20,"dominance":0}'::jsonb,
@@ -1564,7 +1564,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                       'semantic-anchors.v1',
                                       '{"schema_version":"armi.mood-derived-appraisal.v3"}'::jsonb,
                                       statement_timestamp()-interval '2 minutes',60,3600
-                               FROM armi.mood_heads WHERE subject_id=%s""",
+                               FROM armi.mood_revisions WHERE is_current AND subject_id=%s""",
                             (
                                 uuid7(),
                                 uuid7(),
@@ -5096,8 +5096,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 component_heads = connection.execute(
                     """
-                    SELECT component_kind, current_revision_id
-                    FROM armi.subject_component_heads
+                    SELECT component_kind, component_revision_id
+                    FROM armi.subject_component_revisions WHERE is_current
                     ORDER BY component_kind
                     LIMIT 2
                     """
@@ -5106,11 +5106,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 with self.assertRaises(psycopg.errors.IntegrityError):
                     connection.execute(
                         """
-                        UPDATE armi.subject_component_heads
-                        SET current_revision_id = %s
-                        WHERE component_kind = %s
+                        INSERT INTO armi.subject_component_revisions (
+                            component_revision_id,subject_id,component_kind,component_version,
+                            previous_revision_id,origin_kind,origin_ref,semantic_payload,privacy_scope,is_current)
+                        SELECT %s,subject_id,component_kind,component_version+1,
+                               component_revision_id,'admin_correction',%s,semantic_payload,'private',true
+                        FROM armi.subject_component_revisions WHERE component_revision_id=%s
                         """,
-                        (component_heads[1][1], component_heads[0][0]),
+                        (uuid7(), uuid7(), component_heads[0][1]),
                     )
                 connection.rollback()
                 with self.assertRaises(psycopg.errors.IntegrityError):
@@ -5323,11 +5326,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (0, 1),
                 )
                 head = runtime.execute(
-                    "SELECT head.mind_version, revision.origin_kind, "
-                    "revision.semantic_payload, revision.previous_revision_id "
-                    "FROM armi.mind_heads head "
-                    "JOIN armi.mind_revisions revision "
-                    "ON revision.mind_revision_id = head.current_revision_id"
+                    """SELECT head.mind_version, head.origin_kind, head.semantic_payload, head.previous_revision_id FROM armi.mind_revisions AS head WHERE head.is_current """
                 ).fetchone()
                 assert head is not None
                 self.assertEqual(head[0:2], (2, "admin_correction"))
@@ -6535,9 +6534,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.parties),
                     (SELECT count(*) FROM armi.prompt_documents),
                     (SELECT count(*) FROM armi.prompt_revisions),
-                    (SELECT count(*) FROM armi.subject_component_heads),
+                    (SELECT count(*) FROM armi.subject_component_revisions WHERE is_current ),
                     (SELECT count(*) FROM armi.subject_component_revisions),
-                    (SELECT count(*) FROM armi.mind_heads),
+                    (SELECT count(*) FROM armi.mind_revisions WHERE is_current ),
                     (SELECT count(*) FROM armi.mind_revisions),
                     (SELECT count(*) FROM armi.interaction_scenes),
                     (SELECT count(*) FROM armi.artifacts),
@@ -7374,8 +7373,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 mind = connection.execute(
-                    "SELECT r.semantic_payload FROM armi.mind_heads h JOIN armi.mind_revisions r "
-                    "ON r.mind_revision_id=h.current_revision_id WHERE h.subject_id=%s",
+                    """SELECT h.semantic_payload FROM armi.mind_revisions AS h WHERE h.is_current AND h.subject_id=%s""",
                     (born.subject_id,),
                 ).fetchone()
             assert mind is not None

@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v58'::text
+        baseline_identity = 'armi.schema-baseline.v59'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v58');
+VALUES ('armi.schema-baseline.v59');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -163,24 +163,13 @@ CREATE TABLE armi.subject_commits (
     CONSTRAINT subject_commits_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
 );
 
---
--- Name: subject_component_heads; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.subject_component_heads (
-    subject_id uuid NOT NULL,
-    component_kind text NOT NULL,
-    current_revision_id uuid NOT NULL,
-    component_version bigint NOT NULL,
-    CONSTRAINT subject_component_heads_component_kind_check CHECK ((component_kind = ANY (ARRAY['self'::text, 'life_mode'::text]))),
-    CONSTRAINT subject_component_heads_component_version_check CHECK ((component_version > 0))
-);
 
 --
 -- Name: subject_component_revisions; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.subject_component_revisions (
+    is_current boolean DEFAULT false NOT NULL,
     component_revision_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     component_kind text NOT NULL,
@@ -199,8 +188,8 @@ CREATE TABLE armi.subject_component_revisions (
     CONSTRAINT subject_component_revisions_component_revision_id_check CHECK ((uuid_extract_version(component_revision_id) = 7)),
     CONSTRAINT subject_component_revisions_component_version_check CHECK ((component_version > 0)),
     CONSTRAINT subject_component_revisions_admin_provenance CHECK (admin_change_id IS NULL OR origin_kind='admin_correction'),
-    CONSTRAINT subject_component_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (component_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'module_migration'::text,'data_rights'::text])) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
-    CONSTRAINT subject_component_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text, 'module_migration'::text, 'data_rights'::text]))),
+    CONSTRAINT subject_component_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (component_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'data_rights'::text])) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
+    CONSTRAINT subject_component_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text,  'data_rights'::text]))),
     CONSTRAINT subject_component_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
     CONSTRAINT subject_component_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT subject_component_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
@@ -236,14 +225,9 @@ CREATE TABLE armi.subjects (
     CONSTRAINT subjects_subject_version_check CHECK ((subject_version >= 0))
 );
 
-CREATE TABLE armi.mind_heads (
-    subject_id uuid NOT NULL,
-    current_revision_id uuid NOT NULL,
-    mind_version bigint NOT NULL,
-    CONSTRAINT mind_heads_mind_version_check CHECK ((mind_version > 0))
-);
 
 CREATE TABLE armi.mind_revisions (
+    is_current boolean DEFAULT false NOT NULL,
     mind_revision_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     mind_version bigint NOT NULL,
@@ -260,8 +244,8 @@ CREATE TABLE armi.mind_revisions (
     CONSTRAINT mind_revisions_mind_revision_id_check CHECK ((uuid_extract_version(mind_revision_id) = 7)),
     CONSTRAINT mind_revisions_mind_version_check CHECK ((mind_version > 0)),
     CONSTRAINT mind_revisions_admin_provenance CHECK (admin_change_id IS NULL OR origin_kind='admin_correction'),
-    CONSTRAINT mind_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (mind_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (mind_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'module_migration'::text,'data_rights'::text])) AND (mind_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
-    CONSTRAINT mind_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text, 'module_migration'::text, 'data_rights'::text]))),
+    CONSTRAINT mind_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (mind_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (mind_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'data_rights'::text])) AND (mind_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
+    CONSTRAINT mind_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text,  'data_rights'::text]))),
     CONSTRAINT mind_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
     CONSTRAINT mind_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT mind_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),

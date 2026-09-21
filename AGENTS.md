@@ -56,7 +56,7 @@
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 Alembic revision、autogenerate 或 downgrade。只维护最新数据库，不保留历史 schema 快照、升级资源或升级入口；已有数据库合同不匹配时停止。普通启动不升级，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
-- 同一内部合同族只保留一个当前数字版本。升级同步生产者、消费者、DDL、配置、OpenAPI、生成代码、工具和测试，删除旧解析器、字段、双读双写及缺字段补默认值。第三方协议遵守其自身合同。
+- ARMI 持续演进，只支持当前内部合同，不提供旧合同兼容。合同标识只用于核验当前格式，不能据此保留多代 ARMI、旧格式分支或历史版本运行模式。变更同步生产者、消费者、DDL、配置、OpenAPI、生成代码、工具和测试，删除旧解析器、字段、旧格式容纳约束、双读双写及缺字段补默认值；不兼容时明确拒绝，不自动迁移或降级。第三方协议遵守其自身合同。
 - 人工业务/部署配置集中在 `configs/`，环境配置也使用严格 YAML；Codex MCP TOML、OpenAPI、JSON Schema、lock 与 wire 保留要求的格式。Runtime 按仓库默认 → `environment.yaml` → 登记的 `ARMI_*` 合并，拒绝 unknown/extra、错误类型和敏感明文。Secret 只用 scoped locator。
 - 接线由 Python composition root 定义，不维护重复清单或把接线摘要当成主体连续性。JSON 使用 UTF-8、2 空格、末尾换行；只在真实消费者需要时使用摘要或 RFC 8785。
 

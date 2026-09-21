@@ -49,8 +49,7 @@ class PostgreSQLMindOwner:
     ) -> MindHead:
         row = await (
             await transaction.execute(
-                "SELECT h.current_revision_id,h.mind_version,r.semantic_payload FROM armi.mind_heads h "
-                "JOIN armi.mind_revisions r ON r.mind_revision_id=h.current_revision_id WHERE h.subject_id=%s",
+                """SELECT h.mind_revision_id,h.mind_version,h.semantic_payload FROM armi.mind_revisions AS h WHERE h.is_current AND h.subject_id=%s""",
                 (subject_id,),
             )
         ).fetchone()
@@ -63,7 +62,7 @@ class PostgreSQLMindOwner:
     ) -> int:
         row = await (
             await transaction.execute(
-                "SELECT count(*) FROM armi.mind_heads WHERE subject_id=%s",
+                """SELECT count(*) FROM armi.mind_revisions WHERE is_current AND subject_id=%s""",
                 (subject_id,),
             )
         ).fetchone()
@@ -112,9 +111,8 @@ class PostgreSQLMindOwner:
         row = await (
             await transaction.execute(
                 """SELECT EXISTS (
-                 SELECT 1 FROM armi.mind_heads h JOIN armi.mind_revisions r
-                   ON r.mind_revision_id=h.current_revision_id AND r.subject_id=h.subject_id
-                 WHERE h.subject_id=%s AND h.mind_version=r.mind_version
+                 SELECT 1 FROM armi.mind_revisions AS h
+                 WHERE h.is_current AND h.subject_id=%s
                ) AND NOT EXISTS (
                  SELECT 1 FROM armi.mind_revisions r
                  LEFT JOIN armi.mind_revisions p ON p.mind_revision_id=r.previous_revision_id
@@ -168,8 +166,7 @@ class PostgreSQLMindOwner:
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
     ) -> MindBirthContinuity:
         row = transaction.execute(
-            "SELECT (SELECT count(*) FROM armi.mind_heads WHERE %s::uuid IS NULL OR subject_id=%s),"
-            "(SELECT count(*) FROM armi.mind_revisions WHERE %s::uuid IS NULL OR subject_id=%s)",
+            """SELECT (SELECT count(*) FROM armi.mind_revisions WHERE is_current AND (%s::uuid IS NULL OR subject_id=%s)),(SELECT count(*) FROM armi.mind_revisions WHERE (%s::uuid IS NULL OR subject_id=%s))""",
             (subject_id, subject_id, subject_id, subject_id),
         ).fetchone()
         if row is None:
@@ -189,7 +186,7 @@ class PostgreSQLMindOwner:
             return True
         row = await (
             await transaction.execute(
-                "SELECT mind_version FROM armi.mind_heads WHERE subject_id=%s FOR UPDATE",
+                """SELECT mind_version FROM armi.mind_revisions WHERE is_current AND subject_id=%s FOR UPDATE""",
                 (subject_id,),
             )
         ).fetchone()
@@ -232,8 +229,21 @@ class PostgreSQLMindOwner:
                 ),
             )
             result = await transaction.execute(
-                "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=%s "
-                "WHERE subject_id=%s AND current_revision_id=%s AND mind_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.mind_revision_id
+                    FROM armi.mind_revisions AS candidate, input
+                    WHERE candidate.mind_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.mind_version=input.new_version AND NOT candidate.is_current
+                ), retired AS (
+                    UPDATE armi.mind_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.mind_revision_id=input.old_id
+                      AND previous.mind_version=input.old_version AND previous.is_current
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.mind_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.mind_revision_id=target.mind_revision_id""",
                 (
                     revision_id,
                     head.version + 1,
@@ -255,7 +265,7 @@ class PostgreSQLMindOwner:
             (revision_id, subject_id, subject_id, initial_mind_state().decode()),
         )
         await transaction.execute(
-            "INSERT INTO armi.mind_heads (subject_id,current_revision_id,mind_version) VALUES (%s,%s,1)",
+            """UPDATE armi.mind_revisions SET is_current=true WHERE subject_id=%s AND mind_revision_id=%s AND mind_version=1 AND NOT is_current""",
             (subject_id, revision_id),
         )
 

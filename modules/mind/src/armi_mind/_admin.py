@@ -86,9 +86,9 @@ class PostgreSQLMindAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MindAdminState:
         row = transaction.execute(
-            "SELECT h.mind_version,r.privacy_scope,r.semantic_payload FROM armi.mind_heads h JOIN armi.mind_revisions r ON r.mind_revision_id=h.current_revision_id"
+            """SELECT h.mind_version,h.privacy_scope,h.semantic_payload FROM armi.mind_revisions AS h WHERE h.is_current """
             if private
-            else "SELECT h.mind_version,r.privacy_scope FROM armi.mind_heads h JOIN armi.mind_revisions r ON r.mind_revision_id=h.current_revision_id"
+            else """SELECT h.mind_version,h.privacy_scope FROM armi.mind_revisions AS h WHERE h.is_current """
         ).fetchone()
         if row is None:
             raise MindViolation("MIND-MISSING")
@@ -106,9 +106,7 @@ class PostgreSQLMindAdmin:
     ) -> MindCorrectionHead | None:
         _kind(kind)
         row = transaction.execute(
-            "SELECT h.current_revision_id,h.mind_version,r.semantic_payload,"
-            "(SELECT max(mind_version) FROM armi.mind_revisions WHERE subject_id=h.subject_id) "
-            "FROM armi.mind_heads h JOIN armi.mind_revisions r ON r.mind_revision_id=h.current_revision_id WHERE h.subject_id=%s"
+            """SELECT h.mind_revision_id,h.mind_version,h.semantic_payload,(SELECT max(mind_version) FROM armi.mind_revisions WHERE subject_id=h.subject_id) FROM armi.mind_revisions AS h WHERE h.is_current AND h.subject_id=%s"""
             + (" FOR UPDATE OF h" if for_update else ""),
             (subject_id,),
         ).fetchone()
@@ -178,7 +176,21 @@ class PostgreSQLMindAdmin:
         )
         return (
             transaction.execute(
-                "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=%s WHERE subject_id=%s AND current_revision_id=%s AND mind_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.mind_revision_id
+                    FROM armi.mind_revisions AS candidate, input
+                    WHERE candidate.mind_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.mind_version=input.new_version AND NOT candidate.is_current
+                ), retired AS (
+                    UPDATE armi.mind_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.mind_revision_id=input.old_id
+                      AND previous.mind_version=input.old_version AND previous.is_current
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.mind_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.mind_revision_id=target.mind_revision_id""",
                 (revision_id, version, subject_id, previous_revision_id, version - 1),
             ).rowcount
             == 1
@@ -213,9 +225,32 @@ class PostgreSQLMindAdmin:
             or current.get("motivation_states") != target.get("motivation_states")
         ):
             raise MindViolation("MIND-CONCERN-REPLACEMENT")
+        if current_revision_id == target_revision_id:
+            return (
+                current_version == target_version
+                and transaction.execute(
+                    "SELECT 1 FROM armi.mind_revisions WHERE subject_id=%s AND mind_revision_id=%s AND mind_version=%s AND is_current FOR UPDATE",
+                    (subject_id, current_revision_id, current_version),
+                ).fetchone()
+                is not None
+            )
         return (
             transaction.execute(
-                "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=%s WHERE subject_id=%s AND current_revision_id=%s AND mind_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.mind_revision_id
+                    FROM armi.mind_revisions AS candidate, input
+                    WHERE candidate.mind_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.mind_version=input.new_version AND NOT candidate.is_current
+                ), retired AS (
+                    UPDATE armi.mind_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.mind_revision_id=input.old_id
+                      AND previous.mind_version=input.old_version AND previous.is_current
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.mind_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.mind_revision_id=target.mind_revision_id""",
                 (
                     target_revision_id,
                     target_version,
@@ -232,7 +267,7 @@ class PostgreSQLMindAdmin:
     ) -> tuple[UUID, int] | None:
         _kind(kind)
         row = transaction.execute(
-            "SELECT current_revision_id,mind_version FROM armi.mind_heads"
+            """SELECT mind_revision_id,mind_version FROM armi.mind_revisions WHERE is_current """
         ).fetchone()
         return None if row is None else (cast(UUID, row[0]), int(cast(int, row[1])))
 

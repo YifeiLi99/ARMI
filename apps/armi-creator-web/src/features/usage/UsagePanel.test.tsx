@@ -12,7 +12,6 @@ const totals = {
   incomplete_calls: 0,
   usage_unconfirmed_calls: 0,
   unpriced_calls: 0,
-  historical_incomplete_calls: 0,
 };
 function response(value: object, status = 200) {
   return new Response(JSON.stringify(value), {

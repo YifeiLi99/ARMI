@@ -95,15 +95,9 @@ class PostgreSQLSubjectStateAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> tuple[SubjectStateAdminComponent, ...]:
         statement = (
-            "SELECT head.component_kind,head.component_version,revision.privacy_scope,"
-            "revision.semantic_payload FROM armi.subject_component_heads AS head JOIN "
-            "armi.subject_component_revisions AS revision ON revision.component_revision_id="
-            "head.current_revision_id ORDER BY head.component_kind"
+            """SELECT head.component_kind,head.component_version,head.privacy_scope,head.semantic_payload FROM armi.subject_component_revisions AS head WHERE head.is_current  ORDER BY head.component_kind"""
             if private
-            else "SELECT head.component_kind,head.component_version,revision.privacy_scope "
-            "FROM armi.subject_component_heads AS head JOIN armi.subject_component_revisions "
-            "AS revision ON revision.component_revision_id=head.current_revision_id "
-            "ORDER BY head.component_kind"
+            else """SELECT head.component_kind,head.component_version,head.privacy_scope FROM armi.subject_component_revisions AS head WHERE head.is_current  ORDER BY head.component_kind"""
         )
         rows = transaction.execute(statement).fetchall()
         return tuple(
@@ -126,12 +120,7 @@ class PostgreSQLSubjectStateAdmin:
     ) -> SubjectStateCorrectionHead | None:
         suffix = " FOR UPDATE OF head" if for_update else ""
         row = transaction.execute(
-            "SELECT head.current_revision_id,head.component_version,revision.semantic_payload,"
-            "(SELECT max(candidate.component_version) FROM armi.subject_component_revisions "
-            "AS candidate WHERE candidate.subject_id=head.subject_id AND candidate.component_kind="
-            "head.component_kind) FROM armi.subject_component_heads AS head JOIN "
-            "armi.subject_component_revisions AS revision ON revision.component_revision_id="
-            "head.current_revision_id WHERE head.subject_id=%s AND head.component_kind=%s"
+            """SELECT head.component_revision_id,head.component_version,head.semantic_payload,(SELECT max(candidate.component_version) FROM armi.subject_component_revisions AS candidate WHERE candidate.subject_id=head.subject_id AND candidate.component_kind=head.component_kind) FROM armi.subject_component_revisions AS head WHERE head.is_current AND head.subject_id=%s AND head.component_kind=%s"""
             + suffix,
             (subject_id, kind),
         ).fetchone()
@@ -191,9 +180,21 @@ class PostgreSQLSubjectStateAdmin:
         )
         return (
             transaction.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id=%s,"
-                "component_version=%s WHERE subject_id=%s AND component_kind=%s "
-                "AND current_revision_id=%s AND component_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::text AS component_kind, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.component_revision_id
+                    FROM armi.subject_component_revisions AS candidate, input
+                    WHERE candidate.component_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.component_version=input.new_version AND NOT candidate.is_current AND candidate.component_kind=input.component_kind
+                ), retired AS (
+                    UPDATE armi.subject_component_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.component_revision_id=input.old_id
+                      AND previous.component_version=input.old_version AND previous.is_current AND previous.component_kind=input.component_kind
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.subject_component_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.component_revision_id=target.component_revision_id""",
                 (
                     revision_id,
                     version,
@@ -217,11 +218,32 @@ class PostgreSQLSubjectStateAdmin:
         target_revision_id: str,
         target_version: int,
     ) -> bool:
+        if current_revision_id == target_revision_id:
+            return (
+                current_version == target_version
+                and transaction.execute(
+                    "SELECT 1 FROM armi.subject_component_revisions WHERE subject_id=%s AND component_revision_id=%s AND component_version=%s AND is_current AND component_kind=%s FOR UPDATE",
+                    (subject_id, current_revision_id, current_version, kind),
+                ).fetchone()
+                is not None
+            )
         return (
             transaction.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id=%s,"
-                "component_version=%s WHERE subject_id=%s AND component_kind=%s "
-                "AND current_revision_id=%s AND component_version=%s",
+                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::text AS component_kind, %s::uuid AS old_id, %s::bigint AS old_version),
+                target AS (
+                    SELECT candidate.component_revision_id
+                    FROM armi.subject_component_revisions AS candidate, input
+                    WHERE candidate.component_revision_id=input.new_id AND candidate.subject_id=input.subject_id
+                      AND candidate.component_version=input.new_version AND NOT candidate.is_current AND candidate.component_kind=input.component_kind
+                ), retired AS (
+                    UPDATE armi.subject_component_revisions AS previous SET is_current=false FROM input
+                    WHERE previous.subject_id=input.subject_id AND previous.component_revision_id=input.old_id
+                      AND previous.component_version=input.old_version AND previous.is_current AND previous.component_kind=input.component_kind
+                      AND EXISTS (SELECT 1 FROM target)
+                    RETURNING previous.subject_id
+                )
+                UPDATE armi.subject_component_revisions AS current SET is_current=true
+                FROM target, retired WHERE current.component_revision_id=target.component_revision_id""",
                 (
                     target_revision_id,
                     target_version,
@@ -238,10 +260,7 @@ class PostgreSQLSubjectStateAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, kind: str
     ) -> tuple[UUID, int] | None:
         row = transaction.execute(
-            "SELECT head.current_revision_id,head.component_version FROM "
-            "armi.subject_component_heads AS head JOIN armi.subject_component_revisions "
-            "AS revision ON revision.component_revision_id=head.current_revision_id "
-            "WHERE head.component_kind=%s",
+            """SELECT head.component_revision_id,head.component_version FROM armi.subject_component_revisions AS head WHERE head.is_current AND head.component_kind=%s""",
             (kind,),
         ).fetchone()
         return None if row is None else (cast(UUID, row[0]), int(cast(int, row[1])))
