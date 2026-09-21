@@ -784,11 +784,11 @@ ALTER TABLE ONLY armi.maintenance_sessions
     ADD CONSTRAINT maintenance_sessions_pkey PRIMARY KEY (maintenance_session_id);
 
 --
--- Name: maintenance_sessions maintenance_sessions_sleep_decision_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: maintenance_sessions maintenance_sessions_sleep_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.maintenance_sessions
-    ADD CONSTRAINT maintenance_sessions_sleep_decision_id_key UNIQUE (sleep_decision_id);
+    ADD CONSTRAINT maintenance_sessions_sleep_episode_id_key UNIQUE (sleep_episode_id);
 
 --
 -- Name: maintenance_sessions maintenance_sessions_subject_cycle_anchor_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1089,40 +1089,10 @@ ALTER TABLE ONLY armi.scene_timeline_items
 ALTER TABLE ONLY armi.scene_timeline_items
     ADD CONSTRAINT scene_timeline_items_scene_id_source_kind_source_ref_source_key UNIQUE (scene_id, source_kind, source_ref, source_event_no);
 
---
--- Name: sleep_decisions sleep_decisions_candidate_application_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_candidate_application_id_key UNIQUE (candidate_application_id);
 
---
--- Name: sleep_decisions sleep_decisions_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_candidate_validation_id_key UNIQUE (candidate_validation_id);
 
---
--- Name: sleep_decisions sleep_decisions_cognitive_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
-
---
--- Name: sleep_decisions sleep_decisions_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_opportunity_id_key UNIQUE (opportunity_id);
-
---
--- Name: sleep_decisions sleep_decisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_pkey PRIMARY KEY (sleep_decision_id);
 
 --
 -- Name: subject_commits subject_commits_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2607,11 +2577,11 @@ ALTER TABLE ONLY armi.maintenance_sessions
     ADD CONSTRAINT maintenance_sessions_origin_opportunity_id_fkey FOREIGN KEY (origin_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 --
--- Name: maintenance_sessions maintenance_sessions_sleep_decision_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: maintenance_sessions maintenance_sessions_sleep_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.maintenance_sessions
-    ADD CONSTRAINT maintenance_sessions_sleep_decision_id_fkey FOREIGN KEY (sleep_decision_id) REFERENCES armi.sleep_decisions(sleep_decision_id);
+    ADD CONSTRAINT maintenance_sessions_sleep_episode_id_fkey FOREIGN KEY (sleep_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 --
 -- Name: maintenance_sessions maintenance_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2996,41 +2966,11 @@ ALTER TABLE ONLY armi.scene_participants
 ALTER TABLE ONLY armi.scene_timeline_items
     ADD CONSTRAINT scene_timeline_items_scene_id_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
 
---
--- Name: sleep_decisions sleep_decisions_candidate_application_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
-
---
--- Name: sleep_decisions sleep_decisions_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
-
---
--- Name: sleep_decisions sleep_decisions_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 
---
--- Name: sleep_decisions sleep_decisions_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_opportunity_id_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
---
--- Name: sleep_decisions sleep_decisions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: subject_commits subject_commits_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

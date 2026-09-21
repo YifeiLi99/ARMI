@@ -27,6 +27,7 @@ from armi_codex.bootstrap import (
 from armi_cognition.bootstrap import (
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
+    bootstrap_sleep_decision_record,
     build_candidate_schema,
     build_model_request_bytes,
     check_model_request,
@@ -163,6 +164,7 @@ __all__ = (
     "bootstrap_relationship_cognition",
     "bootstrap_sleep",
     "bootstrap_sleep_cognition",
+    "bootstrap_sleep_decision_record",
     "bootstrap_subject_state",
     "bootstrap_subject_state_cognition",
     "build_request_bytes",

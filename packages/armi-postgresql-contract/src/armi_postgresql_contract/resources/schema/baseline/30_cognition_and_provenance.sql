@@ -164,6 +164,18 @@ CREATE TABLE armi.cognitive_episodes (
     subject_commit_id uuid UNIQUE,
     successor_opportunity_id uuid UNIQUE,
     observed_subject_version bigint,
+    sleep_decision_kind text,
+    sleep_cycle_anchor_ref uuid,
+    sleep_review_not_before timestamp(6) with time zone,
+    CONSTRAINT cognitive_episodes_sleep_decision_check CHECK (
+        (sleep_decision_kind IS NULL AND sleep_cycle_anchor_ref IS NULL AND sleep_review_not_before IS NULL)
+        OR (sleep_decision_kind IS NOT NULL
+            AND sleep_decision_kind IN ('sleep','stay_awake','defer','need_information')
+            AND purpose='consider_sleep' AND candidate_application_id IS NOT NULL
+            AND sleep_cycle_anchor_ref IS NOT NULL
+            AND uuid_extract_version(sleep_cycle_anchor_ref)=7
+            AND ((sleep_decision_kind='defer') = (sleep_review_not_before IS NOT NULL)))
+    ),
     CONSTRAINT cognitive_episodes_validation_result_check CHECK (
         (validation_status IS NULL AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND change_set_artifact_id IS NULL)
         OR (validation_status IS NOT NULL AND validation_status='rejected' AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND change_set_artifact_id IS NULL AND validated_at IS NOT NULL)

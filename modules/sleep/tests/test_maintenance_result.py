@@ -52,7 +52,7 @@ async def test_phase_result_requires_an_unfinished_target(target_exists: bool) -
     transaction.execute.return_value.fetchone.return_value = (
         (revision_id,) if target_exists else None
     )
-    commit = PostgreSQLSleepCommit(SleepApplication())
+    commit = PostgreSQLSleepCommit(SleepApplication(), AsyncMock())
     pending = commit.commit(
         cast(PostgreSQLTransaction, transaction),
         context=context,

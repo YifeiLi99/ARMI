@@ -38,7 +38,7 @@ from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
 )
-from armi_sleep.api import SleepCognitionPort, SleepReadPort
+from armi_sleep.api import SleepCognitionPort, SleepDecisionRecordPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
 from ._admin import PostgreSQLCognitionAdmin
@@ -132,6 +132,10 @@ def bootstrap_cognition_admin() -> CognitionAdminPort:
 
 def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
     return PostgreSQLCognitionExactLifeQuery()
+
+
+def bootstrap_sleep_decision_record() -> SleepDecisionRecordPort:
+    return PostgreSQLCognitionSubjectCommit()
 
 
 def bootstrap_cognition_subject_commit() -> CognitionSubjectCommitPort:
@@ -294,6 +298,7 @@ __all__ = (
     "bootstrap_cognition_recovery",
     "bootstrap_cognition_subject_commit",
     "bootstrap_cognition_validator",
+    "bootstrap_sleep_decision_record",
     "build_candidate_schema",
     "build_model_request_bytes",
     "check_model_request",

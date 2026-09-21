@@ -22,6 +22,7 @@ from .api import (
     SleepAdminReadPort,
     SleepCognitionPort,
     SleepCommitPort,
+    SleepDecisionRecordPort,
     SleepMaintenancePort,
     SleepOpportunityPort,
     SleepReadPort,
@@ -57,6 +58,7 @@ def bootstrap_sleep(
     cursor_key: bytes,
     runtime_facts: SleepRuntimeFactsPort,
     opportunities: SleepOpportunityPort,
+    decisions: SleepDecisionRecordPort,
 ) -> SleepModule:
     cognition = SleepApplication()
     query = PostgreSQLSleepRead(
@@ -69,7 +71,7 @@ def bootstrap_sleep(
     return SleepModule(
         query,
         cognition,
-        PostgreSQLSleepCommit(cognition),
+        PostgreSQLSleepCommit(cognition, decisions),
         PostgreSQLMaintenanceRepository(runtime_facts, opportunities),
         query,
     )

@@ -177,7 +177,7 @@ CREATE TABLE armi.maintenance_sessions (
     consideration_at timestamp(6) with time zone NOT NULL,
     deadline_at timestamp(6) with time zone NOT NULL,
     trigger_kind text NOT NULL,
-    sleep_decision_id uuid,
+    sleep_episode_id uuid,
     started_subject_version bigint NOT NULL,
     started_state_epoch bigint NOT NULL,
     current_revision_id uuid,
@@ -190,7 +190,7 @@ CREATE TABLE armi.maintenance_sessions (
     wake_source_ref uuid,
     quiet_until timestamp(6) with time zone,
     CONSTRAINT maintenance_sessions_check CHECK ((consideration_at < deadline_at)),
-    CONSTRAINT maintenance_sessions_check1 CHECK (((trigger_kind = 'subject_choice'::text) = (sleep_decision_id IS NOT NULL))),
+    CONSTRAINT maintenance_sessions_check1 CHECK (((trigger_kind = 'subject_choice'::text) = (sleep_episode_id IS NOT NULL))),
     CONSTRAINT maintenance_sessions_current_revision_required CHECK ((current_revision_id IS NOT NULL)),
     CONSTRAINT maintenance_sessions_cycle_anchor_kind_check CHECK ((cycle_anchor_kind = ANY (ARRAY['subject_birth'::text, 'maintenance_session'::text]))),
     CONSTRAINT maintenance_sessions_cycle_anchor_ref_check CHECK ((uuid_extract_version(cycle_anchor_ref) = 7)),
@@ -204,25 +204,4 @@ CREATE TABLE armi.maintenance_sessions (
     CONSTRAINT maintenance_sessions_wake_request_shape CHECK (((wake_request_id IS NULL) = (wake_requested_at IS NULL) AND (wake_requested_at IS NULL) = (wake_source_kind IS NULL) AND (wake_source_kind IS NULL) = (wake_source_ref IS NULL))),
     CONSTRAINT maintenance_sessions_wake_source_kind_check CHECK (((wake_source_kind IS NULL) OR (wake_source_kind = ANY (ARRAY['creator_request'::text, 'creator_input'::text])))),
     CONSTRAINT maintenance_sessions_wake_source_ref_check CHECK (((wake_source_ref IS NULL) OR (uuid_extract_version(wake_source_ref) = 7)))
-);
-
---
--- Name: sleep_decisions; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.sleep_decisions (
-    sleep_decision_id uuid NOT NULL,
-    opportunity_id uuid NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    candidate_application_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    cycle_anchor_ref uuid NOT NULL,
-    decision_kind text NOT NULL,
-    review_not_before timestamp(6) with time zone,
-    decided_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT sleep_decisions_check CHECK (((decision_kind = 'defer'::text) = (review_not_before IS NOT NULL))),
-    CONSTRAINT sleep_decisions_cycle_anchor_ref_check CHECK ((uuid_extract_version(cycle_anchor_ref) = 7)),
-    CONSTRAINT sleep_decisions_decision_kind_check CHECK ((decision_kind = ANY (ARRAY['sleep'::text, 'stay_awake'::text, 'defer'::text, 'need_information'::text]))),
-    CONSTRAINT sleep_decisions_sleep_decision_id_check CHECK ((uuid_extract_version(sleep_decision_id) = 7))
 );

@@ -254,6 +254,7 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_relationship_cognition,
     bootstrap_sleep,
     bootstrap_sleep_cognition,
+    bootstrap_sleep_decision_record,
     bootstrap_subject_state,
     bootstrap_subject_state_cognition,
     build_request_bytes,
@@ -263,7 +264,12 @@ from armi_runtime.composition.postgresql_test import (
 )
 from armi_runtime.composition.subject_commit_pipeline import SubjectCommitPipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
-from armi_sleep.api import CreatorMaintenanceViolation
+from armi_sleep.api import (
+    CandidateSleepDecisionDraft,
+    CreatorMaintenanceViolation,
+    SleepCommitContext,
+    SleepDecisionKind,
+)
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from playwright.sync_api import sync_playwright
@@ -491,7 +497,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("life_material_revisions", "body_digest"),
     ("relationship_revisions", "semantic_digest"),
     ("maintenance_sessions", "schedule_digest"),
-    ("sleep_decisions", "source_digest"),
     ("effect_attempts", "request_digest"),
     ("effects", "settlement_digest"),
     ("dialogue_decisions", "basis_digest"),
@@ -3935,6 +3940,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await material_module.open()
             sleep_module = bootstrap_sleep(
                 factories[0],
+                decisions=bootstrap_sleep_decision_record(),
                 subject_id=record.fence.subject_id,
                 creator_party_id=manifest.creator_party_id,
                 environment_id=fixture.environment_id,
@@ -4267,7 +4273,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         maintenance_session_id, subject_id,
                         origin_opportunity_id, cycle_anchor_kind,
                         cycle_anchor_ref, consideration_at, deadline_at,
-                        trigger_kind, sleep_decision_id,
+                        trigger_kind, sleep_episode_id,
                         started_subject_version, started_state_epoch,
                         current_revision_id, head_version
                     ) VALUES (
@@ -4349,6 +4355,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await material_module.open()
             sleep_module = bootstrap_sleep(
                 maintenance_factory,
+                decisions=bootstrap_sleep_decision_record(),
                 subject_id=record.fence.subject_id,
                 creator_party_id=creator_party_id,
                 environment_id=fixture.environment_id,
@@ -6711,6 +6718,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             interruption_stage="rollback", concerns=True, neutral_mood=True
         )
 
+    @pytest.mark.test_group("sleep", "cognition")
+    def test_sleep_decision_is_stored_on_episode_and_only_sleep_starts_session(
+        self,
+    ) -> None:
+        self._exercise_creator_reply(check_sleep_decisions=True)
+
     def _exercise_creator_reply(
         self,
         *,
@@ -6719,6 +6732,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         autonomous_codex: bool = False,
         concerns: bool = False,
         neutral_mood: bool = False,
+        check_sleep_decisions: bool = False,
         purpose: str | None = None,
         technical_failure: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
@@ -7858,6 +7872,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             sleep_module = bootstrap_sleep(
                 factory,
+                decisions=bootstrap_sleep_decision_record(),
                 subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
                 environment_id=fixture.environment_id,
@@ -8586,6 +8601,105 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         effect_id=dispatch_snapshot.request.effect_id.value,
                         occurred_at=receipt.received_at,
                     )
+                if check_sleep_decisions:
+                    sleep = bootstrap_sleep(
+                        response_factory,
+                        subject_id=born.subject_id,
+                        creator_party_id=creator_party_id,
+                        environment_id=fixture.environment_id,
+                        cursor_key=hashlib.sha256(b"sleep-decisions").digest(),
+                        runtime_facts=RuntimeSleepFacts(
+                            cognition=bootstrap_cognition_operation(),
+                            effects=bootstrap_effect_operation_read(),
+                        ),
+                        opportunities=bootstrap_opportunity_sleep(),
+                        decisions=bootstrap_sleep_decision_record(),
+                    )
+                    for kind in SleepDecisionKind:
+                        async with response_factory.unit_of_work() as unit:
+                            await unit.transaction.execute("SAVEPOINT sleep_choice")
+                            # Reuse the accepted episode fixture to exercise the owner boundary.
+                            row = await (
+                                await unit.transaction.execute(
+                                    """UPDATE armi.cognitive_episodes
+                                   SET purpose='consider_sleep', scene_id=NULL, context_party_id=NULL
+                                   WHERE cognitive_episode_id=%s
+                                   RETURNING candidate_validation_id,candidate_application_id""",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone()
+                            assert row is not None
+                            now = datetime.now(UTC)
+                            context = SleepCommitContext(
+                                row[0],
+                                ids["episode"],
+                                ids["opportunity"],
+                                ids["opportunity"],
+                                0,
+                                born.subject_id,
+                                "consider_sleep",
+                                "maintenance_window",
+                                born.subject_id,
+                                1,
+                                0,
+                                now,
+                                now + timedelta(hours=1),
+                            )
+                            await sleep.commit.commit(
+                                unit.transaction,
+                                context=context,
+                                application_id=row[1],
+                                commit_id=None,
+                                resulting_subject_version=1,
+                                drafts=(
+                                    CandidateSleepDecisionDraft(
+                                        "proposal:1",
+                                        "group:1",
+                                        (1,),
+                                        kind,
+                                        born.subject_id,
+                                    ),
+                                ),
+                            )
+                            stored = await (
+                                await unit.transaction.execute(
+                                    """SELECT sleep_decision_kind,sleep_cycle_anchor_ref,sleep_review_not_before
+                                   FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s""",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone()
+                            assert stored is not None
+                            self.assertEqual(stored[:2], (kind.value, born.subject_id))
+                            if kind is SleepDecisionKind.DEFER:
+                                self.assertGreaterEqual(
+                                    stored[2], now + timedelta(hours=1)
+                                )
+                            else:
+                                self.assertIsNone(stored[2])
+                            sessions = await sleep.commit.affected_session_ids(
+                                unit.transaction, row[0]
+                            )
+                            self.assertEqual(
+                                len(sessions), int(kind is SleepDecisionKind.SLEEP)
+                            )
+                            if sessions:
+                                origin = await (
+                                    await unit.transaction.execute(
+                                        "SELECT sleep_episode_id FROM armi.maintenance_sessions WHERE maintenance_session_id=%s",
+                                        (sessions[0],),
+                                    )
+                                ).fetchone()
+                                self.assertEqual(origin, (ids["episode"],))
+                            await unit.transaction.execute(
+                                "ROLLBACK TO SAVEPOINT sleep_choice"
+                            )
+                            original = await (
+                                await unit.transaction.execute(
+                                    "SELECT sleep_decision_kind FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone()
+                            self.assertEqual(original, (None,))
             finally:
                 await response_factory.close()
 

@@ -70,6 +70,7 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
     bootstrap_cognition_operation,
+    bootstrap_sleep_decision_record,
 )
 from armi_context.api import (
     ContextCognitionReadPort,
@@ -981,6 +982,7 @@ def compose_sleep_module(
 
     return bootstrap_sleep(
         unit_of_work_factory,
+        decisions=bootstrap_sleep_decision_record(),
         subject_id=subject_id,
         creator_party_id=creator_party_id,
         environment_id=environment_id,

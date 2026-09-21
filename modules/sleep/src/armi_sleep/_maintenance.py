@@ -87,7 +87,7 @@ class PostgreSQLMaintenanceRepository:
                         maintenance_session_id, subject_id,
                         origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
                         consideration_at, deadline_at,
-                        trigger_kind, sleep_decision_id, started_subject_version,
+                        trigger_kind, sleep_episode_id, started_subject_version,
                         started_state_epoch, current_revision_id) VALUES (
                         %s, %s, NULL, %s, %s, %s, %s,
                         'system_deadline', NULL, %s, %s, %s)

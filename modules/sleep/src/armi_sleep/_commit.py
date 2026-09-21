@@ -13,15 +13,19 @@ from .api import (
     CandidateSleepDecisionDraft,
     SleepCommitContext,
     SleepDecisionKind,
+    SleepDecisionRecordPort,
     SleepViolation,
 )
 
 
 class PostgreSQLSleepCommit:
-    __slots__ = ("_cognition",)
+    __slots__ = ("_cognition", "_decisions")
 
-    def __init__(self, cognition: SleepApplication) -> None:
+    def __init__(
+        self, cognition: SleepApplication, decisions: SleepDecisionRecordPort
+    ) -> None:
         self._cognition = cognition
+        self._decisions = decisions
 
     async def heads_match(
         self,
@@ -94,21 +98,22 @@ class PostgreSQLSleepCommit:
     async def affected_session_ids(
         self, transaction: PostgreSQLTransaction, validation_id: UUID
     ) -> tuple[UUID, ...]:
+        episode_id = await self._decisions.sleep_episode_for_validation(
+            transaction, validation_id
+        )
         rows = await (
             await transaction.execute(
                 """
                 SELECT session.maintenance_session_id
-                FROM armi.sleep_decisions AS decision
-                JOIN armi.maintenance_sessions AS session
-                  ON session.sleep_decision_id = decision.sleep_decision_id
-                WHERE decision.candidate_validation_id = %s
+                FROM armi.maintenance_sessions AS session
+                WHERE session.sleep_episode_id = %s
                 UNION
                 SELECT maintenance_session_id
                 FROM armi.maintenance_session_revisions
                 WHERE candidate_validation_id = %s
                 ORDER BY maintenance_session_id
                 """,
-                (validation_id, validation_id),
+                (episode_id, validation_id),
             )
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
@@ -214,8 +219,8 @@ class PostgreSQLSleepCommit:
         ).fetchone()
         return row is not None
 
-    @staticmethod
     async def _insert_sleep_decision(
+        self,
         transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
@@ -223,31 +228,17 @@ class PostgreSQLSleepCommit:
         decision: CandidateSleepDecisionDraft,
         resulting_subject_version: int,
     ) -> None:
-        decision_id = uuid7()
         review_at = (
             datetime.now(UTC) + timedelta(hours=1)
             if decision.decision_kind is SleepDecisionKind.DEFER
             else None
         )
-        await transaction.execute(
-            """
-            INSERT INTO armi.sleep_decisions (
-                sleep_decision_id, opportunity_id, cognitive_episode_id,
-                candidate_validation_id, candidate_application_id, subject_id, cycle_anchor_ref,
-                decision_kind, review_not_before) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                decision_id,
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                application_id,
-                context.subject_id,
-                decision.cycle_anchor_ref,
-                decision.decision_kind.value,
-                review_at,
-            ),
+        await self._decisions.record_sleep_decision(
+            transaction,
+            context=context,
+            application_id=application_id,
+            decision=decision,
+            review_not_before=review_at,
         )
         if decision.decision_kind is not SleepDecisionKind.SLEEP:
             return
@@ -260,7 +251,7 @@ class PostgreSQLSleepCommit:
                 maintenance_session_id, subject_id,
                 origin_opportunity_id, cycle_anchor_kind, cycle_anchor_ref,
                 consideration_at, deadline_at, trigger_kind,
-                sleep_decision_id, started_subject_version, started_state_epoch,
+                sleep_episode_id, started_subject_version, started_state_epoch,
                 current_revision_id) VALUES (%s, %s, %s, %s, %s, %s, %s,
                       'subject_choice', %s, %s, %s, %s)
             """,
@@ -274,7 +265,7 @@ class PostgreSQLSleepCommit:
                 decision.cycle_anchor_ref,
                 context.opportunity_available_after,
                 context.opportunity_expires_at,
-                decision_id,
+                context.episode_id,
                 resulting_subject_version,
                 context.base_state_epoch,
                 revision_id,

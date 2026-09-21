@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from armi_kernel.application import (
@@ -12,6 +13,11 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import PostgreSQLTransaction
+from armi_sleep.api import (
+    CandidateSleepDecisionDraft,
+    SleepCommitContext,
+    SleepViolation,
+)
 
 from .api import (
     CognitionAcceptedCandidate,
@@ -25,6 +31,51 @@ from .api import (
 
 
 class PostgreSQLCognitionSubjectCommit:
+    async def record_sleep_decision(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        context: SleepCommitContext,
+        application_id: UUID,
+        decision: CandidateSleepDecisionDraft,
+        review_not_before: datetime | None,
+    ) -> None:
+        # The accepted choice belongs to its episode; Sleep owns progress (DESIGN.md).
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes
+               SET sleep_decision_kind=%s, sleep_cycle_anchor_ref=%s,
+                   sleep_review_not_before=%s
+               WHERE cognitive_episode_id=%s AND subject_id=%s
+                 AND candidate_validation_id=%s AND candidate_application_id=%s
+                 AND purpose='consider_sleep' AND sleep_decision_kind IS NULL
+               RETURNING cognitive_episode_id""",
+                (
+                    decision.decision_kind.value,
+                    decision.cycle_anchor_ref,
+                    review_not_before,
+                    context.episode_id,
+                    context.subject_id,
+                    context.validation_id,
+                    application_id,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise SleepViolation("SLEEP-DECISION-STALE")
+
+    async def sleep_episode_for_validation(
+        self, transaction: PostgreSQLTransaction, validation_id: UUID
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                """SELECT cognitive_episode_id FROM armi.cognitive_episodes
+               WHERE candidate_validation_id=%s AND sleep_decision_kind='sleep'""",
+                (validation_id,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
     async def autonomous_commit_ids(
         self,
         transaction: PostgreSQLTransaction,

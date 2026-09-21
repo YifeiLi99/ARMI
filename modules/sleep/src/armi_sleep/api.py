@@ -366,6 +366,23 @@ class SleepCognitionPort(Protocol):
 
 
 @runtime_checkable
+class SleepDecisionRecordPort(Protocol):
+    async def record_sleep_decision(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        context: SleepCommitContext,
+        application_id: UUID,
+        decision: CandidateSleepDecisionDraft,
+        review_not_before: datetime | None,
+    ) -> None: ...
+
+    async def sleep_episode_for_validation(
+        self, transaction: PostgreSQLTransaction, validation_id: UUID
+    ) -> UUID | None: ...
+
+
+@runtime_checkable
 class SleepCommitPort(Protocol):
     async def heads_match(
         self,
@@ -696,6 +713,7 @@ __all__ = (
     "SleepCommitContext",
     "SleepCommitPort",
     "SleepDecisionKind",
+    "SleepDecisionRecordPort",
     "SleepMaintenancePort",
     "SleepMaintenanceSnapshot",
     "SleepOpportunityDraft",
