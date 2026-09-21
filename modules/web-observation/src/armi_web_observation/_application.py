@@ -81,7 +81,7 @@ from ._observation_postgresql import (
     WebObservationSnapshot,
 )
 from ._research_contract import WebResearchViolation
-from .api import WebArtifactCatalogPort, WebArtifactStorePort
+from .api import WebArtifactCatalogPort, WebArtifactStorePort, WebToolCallDiagnostic
 
 _WORK_KIND = WorkType.WEB_SEARCH_INVOKE
 _LEASE_SECONDS = 30
@@ -114,6 +114,7 @@ class WebSearchPipeline:
         "_repository",
         "_stop",
         "_storage",
+        "_tool_diagnostic",
         "_work",
     )
 
@@ -132,6 +133,7 @@ class WebSearchPipeline:
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
         diagnostic: Diagnostic | None = None,
+        tool_diagnostic: Callable[[WebToolCallDiagnostic], None] | None = None,
         failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
@@ -150,6 +152,7 @@ class WebSearchPipeline:
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
+        self._tool_diagnostic = tool_diagnostic
 
     async def open(self) -> None:
         try:
@@ -345,6 +348,13 @@ class WebSearchPipeline:
                 ProviderMeterScope(save, self._prices, "web_research")
             ):
                 result, lease = await self._invoke_with_renewal(request_bytes, lease)
+            if self._tool_diagnostic is not None:
+                for ordinal, action in enumerate(result.tool_actions, start=1):
+                    self._tool_diagnostic(
+                        WebToolCallDiagnostic(
+                            str(attempt_id.value), ordinal, action.value
+                        )
+                    )
             await self._settle(lease, snapshot, attempt_id, result)
             return True
         except WebObservationViolation as error:

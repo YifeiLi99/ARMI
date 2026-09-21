@@ -28,7 +28,6 @@ from ._observation_contract import (
     WebObservationRequestId,
     WebObservationRequestStatus,
     WebObservationResultStatus,
-    WebObservationToolCallId,
     WebObservationUsage,
     WebObservationViolation,
 )
@@ -78,7 +77,7 @@ class PostgreSQLWebObservationRepository:
         if result.rowcount != 1:
             raise WebObservationViolation("WEB-ATTEMPT-STATE")
 
-    """Own fixed SQL for request, attempt, tool-call, and result custody."""
+    """Own fixed SQL for request, attempt, and result custody."""
 
     __slots__ = ("_catalog",)
 
@@ -384,21 +383,6 @@ class PostgreSQLWebObservationRepository:
             raise WebObservationViolation("WEB-RESULT")
         connection = unit_of_work.transaction
         await self._assert_work(unit_of_work, lease, snapshot.request_id)
-        for ordinal, action in enumerate(result.tool_actions, start=1):
-            await connection.execute(
-                """
-                INSERT INTO armi.observation_tool_calls (
-                    observation_tool_call_id, observation_attempt_id, call_no,
-                    action_type, completion_status
-                ) VALUES (%s, %s, %s, %s, 'completed')
-                """,
-                (
-                    WebObservationToolCallId(uuid7()).value,
-                    attempt_id.value,
-                    ordinal,
-                    action.value,
-                ),
-            )
         usage = cast(WebObservationUsage, result.usage)
         updated = await (
             await connection.execute(

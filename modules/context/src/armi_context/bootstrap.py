@@ -60,6 +60,7 @@ from .api import (
     ContextSelectionPort,
     ContextVoiceResponseReadPort,
     ContextWakeupPort,
+    EmbeddingAttemptSink,
     EmbeddingFailureSink,
     EmbeddingPort,
 )
@@ -167,6 +168,7 @@ def bootstrap_context_embedding(
     memories: MemoryProjectionPort,
     materials: MaterialProjectionPort,
     failure_diagnostic: EmbeddingFailureSink | None = None,
+    attempt_diagnostic: EmbeddingAttemptSink | None = None,
 ) -> ContextEmbeddingRuntimePort:
     return ContextEmbeddingPipeline(
         factory=factory,
@@ -177,6 +179,7 @@ def bootstrap_context_embedding(
         memories=memories,
         materials=materials,
         failure_diagnostic=failure_diagnostic,
+        attempt_diagnostic=attempt_diagnostic,
     )
 
 

@@ -44,6 +44,7 @@ from .api import (
     WebObservationRuntimePort,
     WebResearchCommitPort,
     WebResearchRuntimePort,
+    WebToolCallDiagnostic,
 )
 
 
@@ -84,6 +85,7 @@ def bootstrap_web_observation(
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
     diagnostic: Diagnostic | None = None,
+    tool_diagnostic: Callable[[WebToolCallDiagnostic], None] | None = None,
     failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> WebObservationRuntimePort:
     return WebSearchPipeline(
@@ -100,6 +102,7 @@ def bootstrap_web_observation(
         evidence=evidence,
         opportunity=opportunity,
         diagnostic=diagnostic,
+        tool_diagnostic=tool_diagnostic,
     )
 
 

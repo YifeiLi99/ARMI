@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import TextIO
 
 from armi_artifact_store.api import ArtifactDeletionDiagnostic
-from armi_context.api import EmbeddingFailureDiagnostic
+from armi_context.api import EmbeddingAttemptDiagnostic, EmbeddingFailureDiagnostic
 from armi_kernel.contracts import Instant
 from armi_local_control.runtime_errors import RuntimeViolation
+from armi_web_observation.api import WebToolCallDiagnostic
 
 _EVENT = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$", re.ASCII)
 _RESULT = re.compile(r"^[A-Z][A-Z0-9_-]{2,127}$", re.ASCII)
@@ -330,6 +331,12 @@ class StructuredDiagnosticLog:
             else logging.WARNING,
             details=asdict(attempt),
         )
+
+    def web_tool_call(self, step: WebToolCallDiagnostic) -> None:
+        self.emit("web.observation.tool_call", details=asdict(step))
+
+    def embedding_attempt(self, attempt: EmbeddingAttemptDiagnostic) -> None:
+        self.emit("context.embedding.attempt", details=asdict(attempt))
 
     def embedding_failure(self, failure: EmbeddingFailureDiagnostic) -> None:
         self.emit(

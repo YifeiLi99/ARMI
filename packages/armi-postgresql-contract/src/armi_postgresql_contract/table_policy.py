@@ -24,7 +24,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "life_generations": TableOwnership("runtime", maintenance_writable=False),
     "runtime_bundle_activations": TableOwnership("runtime", maintenance_writable=False),
     "runtime_instances": TableOwnership("runtime", maintenance_writable=False),
-    "runtime_recovery_runs": TableOwnership("runtime", maintenance_writable=True),
     "schema_baseline_identity": TableOwnership("runtime", maintenance_writable=False),
     "subject_commits": TableOwnership("runtime", maintenance_writable=False),
     "subjects": TableOwnership("runtime", maintenance_writable=False),
@@ -80,7 +79,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
         "context", maintenance_writable=True
     ),
     "cognitive_context_items": TableOwnership("context", maintenance_writable=True),
-    "context_embedding_attempts": TableOwnership("context", maintenance_writable=True),
     "context_embedding_coverage": TableOwnership("context", maintenance_writable=True),
     "context_embedding_projections": TableOwnership(
         "context", maintenance_writable=True
@@ -158,9 +156,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Web, Codex, and Data Rights.
     "observation_attempts": TableOwnership(
         "web-observation", maintenance_writable=False
-    ),
-    "observation_tool_calls": TableOwnership(
-        "web-observation", maintenance_writable=True
     ),
     "web_evidence_sources": TableOwnership(
         "web-observation", maintenance_writable=True

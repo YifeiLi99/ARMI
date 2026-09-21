@@ -305,41 +305,6 @@ CREATE TABLE armi.cognitive_episodes (
 );
 
 --
--- Name: context_embedding_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.context_embedding_attempts (
-    context_embedding_attempt_id uuid CONSTRAINT context_embedding_attempts_context_embedding_attempt_i_not_null NOT NULL,
-    subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
-    source_kind text NOT NULL,
-    source_ref uuid NOT NULL,
-    source_version bigint NOT NULL,
-    chunk_ordinal integer NOT NULL,
-    model_binding text NOT NULL,
-    provider_model text NOT NULL,
-    input_digest text NOT NULL,
-    status text NOT NULL,
-    provider_request_id text,
-    input_tokens bigint,
-    error_code text,
-    prepared_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    dispatched_at timestamp(6) with time zone,
-    settled_at timestamp(6) with time zone,
-    CONSTRAINT context_embedding_attempts_binding_model_check CHECK ((((model_binding = 'armi.embedding.volcengine-ark-doubao-vision-250615-v1'::text) AND (provider_model = 'doubao-embedding-vision-250615'::text)) OR ((model_binding = 'armi.embedding.qwen3-0_6b-q8_0-local-1024.v1'::text) AND (provider_model = 'Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0'::text)))),
-    CONSTRAINT context_embedding_attempts_chunk_ordinal_check CHECK ((chunk_ordinal >= 0)),
-    CONSTRAINT context_embedding_attempts_error_check CHECK (((status = 'failed'::text) = (error_code IS NOT NULL))),
-    CONSTRAINT context_embedding_attempts_id_check CHECK ((uuid_extract_version(context_embedding_attempt_id) = 7)),
-    CONSTRAINT context_embedding_attempts_input_digest_check CHECK ((input_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT context_embedding_attempts_input_tokens_check CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
-    CONSTRAINT context_embedding_attempts_settlement_check CHECK (((status = ANY (ARRAY['succeeded'::text, 'failed'::text])) = (settled_at IS NOT NULL))),
-    CONSTRAINT context_embedding_attempts_source_kind_check CHECK ((source_kind = ANY (ARRAY['subjective_memory'::text, 'life_material'::text]))),
-    CONSTRAINT context_embedding_attempts_source_ref_check CHECK ((uuid_extract_version(source_ref) = 7)),
-    CONSTRAINT context_embedding_attempts_source_version_check CHECK ((source_version > 0)),
-    CONSTRAINT context_embedding_attempts_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'succeeded'::text, 'failed'::text])))
-);
-
---
 -- Name: context_embedding_coverage; Type: TABLE; Schema: armi; Owner: -
 --
 
@@ -366,7 +331,6 @@ CREATE TABLE armi.context_embedding_coverage (
 
 CREATE TABLE armi.context_embedding_projections (
     context_embedding_projection_id uuid CONSTRAINT context_embedding_projectio_context_embedding_projecti_not_null NOT NULL,
-    context_embedding_attempt_id uuid CONSTRAINT context_embedding_projectio_context_embedding_attempt__not_null NOT NULL,
     subject_id uuid NOT NULL,
     life_generation_id uuid NOT NULL,
     source_kind text NOT NULL,

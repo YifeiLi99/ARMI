@@ -45,6 +45,24 @@ class EmbeddingFailureDiagnostic:
 EmbeddingFailureSink = Callable[[EmbeddingFailureDiagnostic], None]
 
 
+@dataclass(frozen=True, slots=True)
+class EmbeddingAttemptDiagnostic:
+    """Technical call observation; no source text or durable attempt identity."""
+
+    work_id: str
+    source_kind: str
+    source_ref: str
+    source_version: int
+    chunk_ordinal: int
+    status: str
+    provider_request_id: str | None = None
+    input_tokens: int | None = None
+    error_code: str | None = None
+
+
+EmbeddingAttemptSink = Callable[[EmbeddingAttemptDiagnostic], None]
+
+
 class ContextViolation(RuntimeError):
     """Expose one stable Context failure without source content or adapter detail."""
 
@@ -725,6 +743,8 @@ __all__ = (
     "ContextViolation",
     "ContextVoiceResponseReadPort",
     "ContextWakeupPort",
+    "EmbeddingAttemptDiagnostic",
+    "EmbeddingAttemptSink",
     "EmbeddingBinding",
     "EmbeddingFailureDiagnostic",
     "EmbeddingFailureSink",

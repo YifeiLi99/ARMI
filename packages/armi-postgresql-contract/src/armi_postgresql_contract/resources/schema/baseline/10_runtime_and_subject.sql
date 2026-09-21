@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v37'::text
+        baseline_identity = 'armi.schema-baseline.v38'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v37');
+VALUES ('armi.schema-baseline.v38');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -157,36 +157,27 @@ CREATE TABLE armi.runtime_instances (
     last_heartbeat_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     lease_expires_at timestamp(6) with time zone NOT NULL,
     stopped_at timestamp(6) with time zone,
+    recovery_status text,
+    recovery_started_at timestamp(6) with time zone,
+    recovery_completed_at timestamp(6) with time zone,
+    recovery_blocker_count integer DEFAULT 0 NOT NULL,
+    CONSTRAINT runtime_instances_recovery_status_check CHECK (recovery_status IN ('running', 'safe', 'blocked', 'abandoned')),
+    CONSTRAINT runtime_instances_recovery_state_check CHECK (
+        (recovery_status IS NULL AND recovery_started_at IS NULL AND recovery_completed_at IS NULL AND recovery_blocker_count = 0)
+        OR (recovery_status IS NOT NULL AND recovery_started_at IS NOT NULL
+            AND ((recovery_status = 'running' AND recovery_completed_at IS NULL)
+                 OR (recovery_status <> 'running' AND recovery_completed_at IS NOT NULL)))
+    ),
+    CONSTRAINT runtime_instances_recovery_blockers_check CHECK (
+        recovery_blocker_count >= 0 AND (recovery_status <> 'safe' OR recovery_blocker_count = 0)
+        AND (recovery_status <> 'blocked' OR recovery_blocker_count > 0)
+    ),
     CONSTRAINT runtime_instances_check CHECK ((lease_expires_at > last_heartbeat_at)),
     CONSTRAINT runtime_instances_check1 CHECK ((((status = 'active'::text) AND (stopped_at IS NULL)) OR ((status = ANY (ARRAY['fenced'::text, 'stopped'::text])) AND (stopped_at IS NOT NULL)))),
     CONSTRAINT runtime_instances_fence_token_check CHECK ((fence_token > 0)),
     CONSTRAINT runtime_instances_process_identity_check CHECK (((status <> 'active'::text) OR ((process_pid IS NOT NULL) AND (process_pid > 0) AND (process_created_at_microseconds IS NOT NULL) AND (process_created_at_microseconds > 0) AND (process_executable_identity IS NOT NULL) AND (process_executable_identity <> ''::text) AND (process_command_identity IS NOT NULL) AND (process_command_identity ~ '^sha256:[0-9a-f]{64}$'::text) AND (environment_id IS NOT NULL) AND (uuid_extract_version(environment_id) = 7) AND (process_incarnation IS NOT NULL) AND (process_incarnation > 0)))),
     CONSTRAINT runtime_instances_runtime_instance_id_check CHECK ((uuid_extract_version(runtime_instance_id) = 7)),
     CONSTRAINT runtime_instances_status_check CHECK ((status = ANY (ARRAY['active'::text, 'fenced'::text, 'stopped'::text])))
-);
-
---
--- Name: runtime_recovery_runs; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.runtime_recovery_runs (
-    recovery_run_id uuid NOT NULL,
-    runtime_instance_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
-    bundle_activation_id uuid NOT NULL,
-    fence_token bigint NOT NULL,
-    status text NOT NULL,
-    started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    completed_at timestamp(6) with time zone,
-    blocker_count integer DEFAULT 0 NOT NULL,
-    CONSTRAINT runtime_recovery_runs_blocker_count_check CHECK ((blocker_count >= 0)),
-    CONSTRAINT runtime_recovery_runs_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['safe'::text, 'blocked'::text, 'abandoned'::text])) AND (completed_at IS NOT NULL)))),
-    CONSTRAINT runtime_recovery_runs_check1 CHECK (((status <> 'safe'::text) OR (blocker_count = 0))),
-    CONSTRAINT runtime_recovery_runs_check2 CHECK (((status <> 'blocked'::text) OR (blocker_count > 0))),
-    CONSTRAINT runtime_recovery_runs_fence_token_check CHECK ((fence_token > 0)),
-    CONSTRAINT runtime_recovery_runs_recovery_run_id_check CHECK ((uuid_extract_version(recovery_run_id) = 7)),
-    CONSTRAINT runtime_recovery_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'safe'::text, 'blocked'::text, 'abandoned'::text])))
 );
 
 --

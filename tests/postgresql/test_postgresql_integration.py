@@ -486,7 +486,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("deployment_environments", "database_identity_digest"),
     ("runtime_bundle_activations", "fixed_prompt_set_digest"),
     ("runtime_bundle_activations", "creator_asset_digest"),
-    ("runtime_recovery_runs", "summary_digest"),
     ("subject_commits", "change_set_digest"),
     ("subject_commits", "commit_digest"),
     ("subject_component_revisions", "semantic_digest"),
@@ -525,8 +524,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("data_rights_order_items", "execution_digest"),
     ("observation_attempts", "result_digest"),
     ("observation_attempts", "provider_request_digest"),
-    ("observation_tool_calls", "action_digest"),
-    ("observation_tool_calls", "provider_identity_digest"),
     ("web_evidence_sources", "title_digest"),
     ("web_evidence_sources", "citation_digest"),
     ("web_observation_requests", "result_digest"),
@@ -3352,38 +3349,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         subject_id = _uuid7()
         generation_id = _uuid7()
         memory_id = _uuid7()
-        attempt_id = _uuid7()
         vector = "[1," + ",".join("0" for _ in range(1023)) + "]"
         with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
             connection.execute("SET session_replication_role = replica")
             connection.execute(
-                """INSERT INTO armi.context_embedding_attempts (
-                     context_embedding_attempt_id,subject_id,life_generation_id,
-                     source_kind,source_ref,source_version,chunk_ordinal,
-                     model_binding,provider_model,input_digest,status,settled_at)
-                   VALUES (%s,%s,%s,'subjective_memory',%s,1,0,%s,
-                     'Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0',%s,'succeeded',
-                     statement_timestamp())""",
-                (
-                    attempt_id,
-                    subject_id,
-                    generation_id,
-                    memory_id,
-                    EMBEDDING_BINDING_ID,
-                    "sha256:" + "a" * 64,
-                ),
-            )
-            connection.execute(
                 """INSERT INTO armi.context_embedding_projections (
-                     context_embedding_projection_id,context_embedding_attempt_id,
+                     context_embedding_projection_id,
                      subject_id,life_generation_id,source_kind,source_ref,
                      source_version,chunk_ordinal,chunk_text,retrieval_text,
                      model_binding,embedding)
-                   VALUES (%s,%s,%s,%s,'subjective_memory',%s,1,0,%s,%s,%s,
+                   VALUES (%s,%s,%s,'subjective_memory',%s,1,0,%s,%s,%s,
                            %s::armi_extensions.vector)""",
                 (
                     _uuid7(),
-                    attempt_id,
                     subject_id,
                     generation_id,
                     memory_id,
@@ -5267,7 +5245,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 pool_timeout_seconds=2,
             )
+            tool_events = []
             pipeline = bootstrap_web_observation(
+                tool_diagnostic=tool_events.append,
                 prices=PriceCatalog(()),
                 factory=web_factory,
                 storage=_publishing_artifact_store(
@@ -5422,7 +5402,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             request.last_error_code, attempt.error_code,
                             (SELECT count(*) FROM armi.web_observation_requests),
                             (SELECT count(*) FROM armi.observation_attempts),
-                            (SELECT count(*) FROM armi.observation_tool_calls),
                             (SELECT count(*) FROM armi.durable_work
                              WHERE work_kind = 'web.search.invoke'
                                AND status = 'completed')
@@ -5450,8 +5429,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "attempt_error_code": str(row[11]) if row[11] else None,
                     "request_count": int(row[12]),
                     "attempt_count": int(row[13]),
-                    "tool_call_count": int(row[14]),
-                    "completed_work_count": int(row[15]),
+                    "tool_call_count": len(tool_events),
+                    "completed_work_count": int(row[14]),
                 }
 
         with tempfile.TemporaryDirectory(dir=Path(".tmp")) as temporary:
@@ -10097,12 +10076,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(requeued_work, 1)
         self.assertEqual(
             operations,
-            ("runtime.recovery.started", "runtime.recovery.safe"),
+            (),
         )
         with psycopg.connect(fixture.runtime_dsn) as connection:
             self.assertEqual(
                 connection.execute(
-                    "SELECT status, blocker_count FROM armi.runtime_recovery_runs"
+                    "SELECT recovery_status, recovery_blocker_count FROM armi.runtime_instances WHERE recovery_status IS NOT NULL"
                 ).fetchone(),
                 ("safe", 0),
             )
@@ -10121,14 +10100,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ("leased", 7, True, True, True, "WORK-RUNTIME-HANDOFF"),
             )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                connection.execute("DELETE FROM armi.runtime_recovery_runs")
+                connection.execute("DELETE FROM armi.runtime_instances")
         with psycopg.connect(fixture.admin_role_dsn) as connection:
-            connection.execute("SELECT * FROM armi.runtime_recovery_runs").fetchall()
+            connection.execute(
+                "SELECT recovery_status FROM armi.runtime_instances"
+            ).fetchall()
         with (
             psycopg.connect(fixture.migrator_dsn) as connection,
             self.assertRaises(psycopg.errors.InsufficientPrivilege),
         ):
-            connection.execute("SELECT * FROM armi.runtime_recovery_runs")
+            connection.execute("SELECT recovery_status FROM armi.runtime_instances")
 
     def _prepare_s011_schema(self, fixture: DatabaseFixture) -> None:
         self._install_current(

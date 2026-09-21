@@ -1321,6 +1321,7 @@ async def _serve(
                             memory_projection=memory_module.projection,
                             material_projection=material_module.projection,
                             failure_diagnostic=diagnostic.embedding_failure,
+                            attempt_diagnostic=diagnostic.embedding_attempt,
                         )
                         await context_embedding_pipeline.open()
                 except ModelViolation:
@@ -1387,6 +1388,7 @@ async def _serve(
                                 opportunity=opportunity_admission,
                                 catalog=artifact_catalog,
                                 custody=execution_custody,
+                                tool_diagnostic=diagnostic.web_tool_call,
                                 diagnostic=lambda event: diagnostic.emit(
                                     event,
                                     result_code="WEB_SEARCH_CUSTODY",

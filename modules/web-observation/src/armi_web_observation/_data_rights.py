@@ -31,11 +31,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            FROM armi.observation_attempts AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "observation_tool_calls",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.observation_tool_calls AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "web_evidence_sources",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.web_evidence_sources AS source ORDER BY to_jsonb(source)::text""",

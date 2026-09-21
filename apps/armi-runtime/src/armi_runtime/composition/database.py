@@ -260,6 +260,7 @@ from armi_web_observation.api import (
     WebObservationRuntimePort,
     WebObservationViolation,
     WebResearchRuntimePort,
+    WebToolCallDiagnostic,
 )
 from armi_web_observation.bootstrap import (
     bootstrap_web_context_read,
@@ -1642,6 +1643,7 @@ def compose_web_search_pipeline(
     catalog: ArtifactCatalogPort,
     custody: ExecutionCustodyPort,
     diagnostic: Callable[[str], None] | None = None,
+    tool_diagnostic: Callable[[WebToolCallDiagnostic], None] | None = None,
     voice: LiveVoiceRuntimePort | None = None,
 ) -> WebObservationRuntimePort:
     """Resolve the fixed database and Ark credentials for S033 custody."""
@@ -1673,6 +1675,7 @@ def compose_web_search_pipeline(
         evidence=evidence,
         opportunity=opportunity,
         diagnostic=diagnostic,
+        tool_diagnostic=tool_diagnostic,
     )
 
 

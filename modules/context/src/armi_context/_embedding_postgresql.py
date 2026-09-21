@@ -37,7 +37,6 @@ from armi_runtime_foundation import (
 
 from ._embedding import (
     EMBEDDING_BINDING_ID,
-    EMBEDDING_MODEL_ID,
     LIFE_MATERIAL_CHUNK_OVERLAP,
     RECALL_CANDIDATE_LIMIT,
     RECALL_DENSE_ANN_LIMIT,
@@ -373,55 +372,6 @@ class PostgreSQLContextEmbeddingRepository:
             material_source=source,
         )
 
-    async def prepare_attempt(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        source: EmbeddingProjectionSource,
-        chunk_ordinal: int,
-        text: str,
-    ) -> UUID:
-        attempt_id = uuid7()
-        connection = unit_of_work.transaction
-        await connection.execute(
-            """
-            UPDATE armi.context_embedding_attempts
-            SET status='failed', error_code='MODEL-EMBEDDING-OUTCOME-UNKNOWN',
-                settled_at=statement_timestamp()
-            WHERE source_kind=%s AND source_ref=%s AND source_version=%s
-              AND chunk_ordinal=%s AND model_binding=%s
-              AND status='dispatched'
-            """,
-            (
-                source.source_kind,
-                source.source_ref,
-                source.source_version,
-                chunk_ordinal,
-                EMBEDDING_BINDING_ID,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.context_embedding_attempts (
-              context_embedding_attempt_id, subject_id, life_generation_id,
-              source_kind, source_ref, source_version, chunk_ordinal,
-              model_binding, provider_model, input_digest, status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'prepared')
-            """,
-            (
-                attempt_id,
-                source.subject_id,
-                source.life_generation_id,
-                source.source_kind,
-                source.source_ref,
-                source.source_version,
-                chunk_ordinal,
-                EMBEDDING_BINDING_ID,
-                EMBEDDING_MODEL_ID,
-                Digest.from_bytes(text.encode()).value,
-            ),
-        )
-        return attempt_id
-
     async def prepare_source_set(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -557,24 +507,10 @@ class PostgreSQLContextEmbeddingRepository:
             ),
         )
 
-    async def mark_dispatched(
-        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, attempt_id: UUID
-    ) -> None:
-        connection = unit_of_work.transaction
-        await connection.execute(
-            """
-            UPDATE armi.context_embedding_attempts
-            SET status='dispatched', dispatched_at=statement_timestamp()
-            WHERE context_embedding_attempt_id=%s AND status='prepared'
-            """,
-            (attempt_id,),
-        )
-
-    async def settle_success(
+    async def store_projection(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
-        attempt_id: UUID,
         source: EmbeddingProjectionSource,
         chunk_ordinal: int,
         display_text: str,
@@ -601,36 +537,23 @@ class PostgreSQLContextEmbeddingRepository:
                 ),
             )
         if not current:
-            await self.settle_failure(
-                unit_of_work, attempt_id, "MODEL-EMBEDDING-SOURCE-STALE"
-            )
             return None
         projection_id = uuid7()
         vector = "[" + ",".join(format(item, ".17g") for item in response.vector) + "]"
         await connection.execute(
             """
-            UPDATE armi.context_embedding_attempts
-            SET status='succeeded', provider_request_id=%s, input_tokens=%s,
-                settled_at=statement_timestamp()
-            WHERE context_embedding_attempt_id=%s AND status='dispatched'
-            """,
-            (response.provider_request_id, response.input_tokens, attempt_id),
-        )
-        await connection.execute(
-            """
             INSERT INTO armi.context_embedding_projections (
-              context_embedding_projection_id, context_embedding_attempt_id,
+              context_embedding_projection_id,
               subject_id, life_generation_id, source_kind, source_ref,
               source_version, chunk_ordinal, chunk_text, retrieval_text,
               model_binding, embedding)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s::armi_extensions.vector)
             ON CONFLICT (source_kind, source_ref, source_version,
                          chunk_ordinal, model_binding) DO NOTHING
             """,
             (
                 projection_id,
-                attempt_id,
                 source.subject_id,
                 source.life_generation_id,
                 source.source_kind,
@@ -644,22 +567,6 @@ class PostgreSQLContextEmbeddingRepository:
             ),
         )
         return projection_id
-
-    async def settle_failure(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        attempt_id: UUID,
-        error_code: str,
-    ) -> None:
-        connection = unit_of_work.transaction
-        await connection.execute(
-            """
-            UPDATE armi.context_embedding_attempts
-            SET status='failed', error_code=%s, settled_at=statement_timestamp()
-            WHERE context_embedding_attempt_id=%s AND status IN ('prepared','dispatched')
-            """,
-            (error_code, attempt_id),
-        )
 
     async def recall_parallel(
         self,

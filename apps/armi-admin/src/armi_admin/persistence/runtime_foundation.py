@@ -177,7 +177,7 @@ class RuntimeFoundationAdminAdapter:
             "SELECT status,count(*),count(*) FILTER (WHERE lease_expires_at < clock_timestamp()),count(*) FILTER (WHERE deadline_at < clock_timestamp()) FROM armi.durable_work GROUP BY status ORDER BY status"
         ).fetchall()
         recovery = transaction.execute(
-            "SELECT recovery_run_id,status,blocker_count,started_at,completed_at FROM armi.runtime_recovery_runs ORDER BY started_at DESC,recovery_run_id DESC LIMIT 1"
+            "SELECT runtime_instance_id,recovery_status,recovery_blocker_count,recovery_started_at,recovery_completed_at FROM armi.runtime_instances WHERE recovery_status IS NOT NULL ORDER BY recovery_started_at DESC,runtime_instance_id DESC LIMIT 1"
         ).fetchone()
         leases = transaction.execute(
             "SELECT runtime_instance_id,status,lease_expires_at,last_heartbeat_at FROM armi.runtime_instances WHERE status='active' ORDER BY runtime_instance_id LIMIT 2"

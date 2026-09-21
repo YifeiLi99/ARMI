@@ -32,7 +32,6 @@ from ._observation_contract import (
     WebObservationRequestStatus,
     WebObservationResultStatus,
     WebObservationToolAction,
-    WebObservationToolCallId,
     WebObservationUsage,
     WebObservationViolation,
 )
@@ -50,6 +49,15 @@ from ._research_contract import (
     WebResearchViolation,
     WebSourceReference,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class WebToolCallDiagnostic:
+    """Provider-reported tool step, for diagnostics only."""
+
+    attempt_id: str
+    call_no: int
+    action_type: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +186,6 @@ __all__ = (
     "WebObservationResultStatus",
     "WebObservationRuntimePort",
     "WebObservationToolAction",
-    "WebObservationToolCallId",
     "WebObservationUsage",
     "WebObservationViolation",
     "WebResearchCommitContext",
@@ -191,4 +198,5 @@ __all__ = (
     "WebResearchRuntimePort",
     "WebResearchViolation",
     "WebSourceReference",
+    "WebToolCallDiagnostic",
 )

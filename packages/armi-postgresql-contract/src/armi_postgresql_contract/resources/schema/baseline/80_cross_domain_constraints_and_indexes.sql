@@ -438,32 +438,11 @@ ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_pkey PRIMARY KEY (cognitive_episode_id);
 
 --
--- Name: context_embedding_attempts context_embedding_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_attempts
-    ADD CONSTRAINT context_embedding_attempts_pkey PRIMARY KEY (context_embedding_attempt_id);
-
---
--- Name: context_embedding_attempts context_embedding_attempts_source_kind_source_ref_source_ve_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_attempts
-    ADD CONSTRAINT context_embedding_attempts_source_kind_source_ref_source_ve_key UNIQUE (source_kind, source_ref, source_version, chunk_ordinal, model_binding, context_embedding_attempt_id);
-
---
 -- Name: context_embedding_coverage context_embedding_coverage_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.context_embedding_coverage
     ADD CONSTRAINT context_embedding_coverage_pkey PRIMARY KEY (model_binding);
-
---
--- Name: context_embedding_projections context_embedding_projections_context_embedding_attempt_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_projections
-    ADD CONSTRAINT context_embedding_projections_context_embedding_attempt_id_key UNIQUE (context_embedding_attempt_id);
 
 --
 -- Name: context_embedding_projections context_embedding_projections_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1128,20 +1107,6 @@ ALTER TABLE ONLY armi.observation_attempts
     ADD CONSTRAINT observation_attempts_web_observation_request_id_work_attemp_key UNIQUE (web_observation_request_id, work_attempt_id);
 
 --
--- Name: observation_tool_calls observation_tool_calls_observation_attempt_id_call_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_tool_calls
-    ADD CONSTRAINT observation_tool_calls_observation_attempt_id_call_no_key UNIQUE (observation_attempt_id, call_no);
-
---
--- Name: observation_tool_calls observation_tool_calls_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_tool_calls
-    ADD CONSTRAINT observation_tool_calls_pkey PRIMARY KEY (observation_tool_call_id);
-
---
 -- Name: opportunities opportunities_episode_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -1337,20 +1302,6 @@ ALTER TABLE ONLY armi.runtime_instances
 
 ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_pkey PRIMARY KEY (runtime_instance_id);
-
---
--- Name: runtime_recovery_runs runtime_recovery_runs_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_runs
-    ADD CONSTRAINT runtime_recovery_runs_pkey PRIMARY KEY (recovery_run_id);
-
---
--- Name: runtime_recovery_runs runtime_recovery_runs_runtime_instance_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_runs
-    ADD CONSTRAINT runtime_recovery_runs_runtime_instance_id_key UNIQUE (runtime_instance_id);
 
 --
 -- Name: scene_participants scene_participants_identity_unique; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1985,12 +1936,6 @@ CREATE UNIQUE INDEX runtime_bundle_one_current_idx ON armi.runtime_bundle_activa
 CREATE UNIQUE INDEX runtime_instances_one_active_generation_idx ON armi.runtime_instances USING btree (life_generation_id) WHERE (status = 'active'::text);
 
 --
--- Name: runtime_recovery_runs_status_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX runtime_recovery_runs_status_idx ON armi.runtime_recovery_runs USING btree (status, started_at, recovery_run_id);
-
---
 -- Name: scene_timeline_items_page_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
@@ -2578,27 +2523,6 @@ ALTER TABLE ONLY armi.cognitive_episodes
 
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: context_embedding_attempts context_embedding_attempts_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_attempts
-    ADD CONSTRAINT context_embedding_attempts_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
-
---
--- Name: context_embedding_attempts context_embedding_attempts_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_attempts
-    ADD CONSTRAINT context_embedding_attempts_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: context_embedding_projections context_embedding_projections_context_embedding_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.context_embedding_projections
-    ADD CONSTRAINT context_embedding_projections_context_embedding_attempt_id_fkey FOREIGN KEY (context_embedding_attempt_id) REFERENCES armi.context_embedding_attempts(context_embedding_attempt_id);
 
 --
 -- Name: context_embedding_projections context_embedding_projections_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3506,13 +3430,6 @@ ALTER TABLE ONLY armi.observation_attempts
     ADD CONSTRAINT observation_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
 --
--- Name: observation_tool_calls observation_tool_calls_observation_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_tool_calls
-    ADD CONSTRAINT observation_tool_calls_observation_attempt_id_fkey FOREIGN KEY (observation_attempt_id) REFERENCES armi.observation_attempts(observation_attempt_id);
-
---
 -- Name: opportunities opportunities_activity_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3796,34 +3713,6 @@ ALTER TABLE ONLY armi.runtime_instances
 
 ALTER TABLE ONLY armi.runtime_instances
     ADD CONSTRAINT runtime_instances_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: runtime_recovery_runs runtime_recovery_runs_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_runs
-    ADD CONSTRAINT runtime_recovery_runs_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.runtime_bundle_activations(bundle_activation_id);
-
---
--- Name: runtime_recovery_runs runtime_recovery_runs_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_runs
-    ADD CONSTRAINT runtime_recovery_runs_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
-
---
--- Name: runtime_recovery_runs runtime_recovery_runs_runtime_instance_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_runs
-    ADD CONSTRAINT runtime_recovery_runs_runtime_instance_id_fkey FOREIGN KEY (runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
-
---
--- Name: runtime_recovery_runs runtime_recovery_runs_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_recovery_runs
-    ADD CONSTRAINT runtime_recovery_runs_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: scene_participants scene_participants_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

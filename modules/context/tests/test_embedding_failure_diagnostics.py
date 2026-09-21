@@ -6,7 +6,85 @@ from uuid import uuid7
 
 import pytest
 from armi_context._embedding_application import ContextEmbeddingPipeline
+from armi_context.api import EmbeddingResponse
 from armi_context.bootstrap import bootstrap_context_recovery
+from armi_kernel.application import ModelViolation
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "failed", "stale"])
+async def test_projection_keeps_work_and_source_checks_without_attempt_rows(outcome):
+    events = []
+    lease = object()
+    unit = SimpleNamespace(
+        work=SimpleNamespace(validate_lease=AsyncMock(), complete=AsyncMock()),
+        add_before_commit=lambda callback: None,
+    )
+
+    class Transaction:
+        async def __aenter__(self):
+            return unit
+
+        async def __aexit__(self, *args):
+            return None
+
+    repository = SimpleNamespace(
+        prepare_source_set=AsyncMock(),
+        store_projection=AsyncMock(
+            return_value=None if outcome == "stale" else uuid7()
+        ),
+        mark_source_set_stale=AsyncMock(),
+        complete_source_set=AsyncMock(return_value=True),
+        note_projection_work_settled=AsyncMock(),
+    )
+    pipeline = ContextEmbeddingPipeline.__new__(ContextEmbeddingPipeline)
+    pipeline._factory = cast(Any, SimpleNamespace(unit_of_work=Transaction))
+    pipeline._repository = cast(Any, repository)
+    pipeline._attempt_diagnostic = events.append
+    pipeline._work = cast(
+        Any, SimpleNamespace(renew=AsyncMock(return_value=lease), release=AsyncMock())
+    )
+    source = SimpleNamespace(
+        source_kind="life_material", source_ref=uuid7(), source_version=3
+    )
+    record = SimpleNamespace(
+        attempt_count=1,
+        draft=SimpleNamespace(max_attempts=3, work_id=SimpleNamespace(value=uuid7())),
+    )
+    invoke = AsyncMock(
+        return_value=(EmbeddingResponse((0.0,) * 1024, "local-call", 8),)
+    )
+    if outcome == "failed":
+        invoke.side_effect = ModelViolation("MODEL-UNAVAILABLE")
+    with (
+        patch.object(
+            ContextEmbeddingPipeline,
+            "_source_chunks",
+            AsyncMock(return_value=(("私密正文", "检索正文"),)),
+        ),
+        patch.object(ContextEmbeddingPipeline, "_embed_with_renewal", invoke),
+    ):
+        assert await pipeline._project_source(
+            cast(Any, record), cast(Any, lease), cast(Any, source)
+        )
+    assert [event.status for event in events] == [
+        "dispatched",
+        "failed" if outcome == "failed" else "returned",
+    ]
+    assert all(event.source_ref == str(source.source_ref) for event in events)
+    assert "正文" not in repr(events)
+    if outcome == "failed":
+        pipeline._work.release.assert_awaited_once()
+        repository.store_projection.assert_not_awaited()
+        unit.work.complete.assert_not_awaited()
+    else:
+        repository.store_projection.assert_awaited_once()
+        unit.work.complete.assert_awaited_once()
+        if outcome == "stale":
+            repository.mark_source_set_stale.assert_awaited_once()
+            repository.complete_source_set.assert_not_awaited()
+        else:
+            repository.complete_source_set.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -266,22 +266,6 @@ CREATE TABLE armi.observation_attempts (
 );
 
 --
--- Name: observation_tool_calls; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.observation_tool_calls (
-    observation_tool_call_id uuid NOT NULL,
-    observation_attempt_id uuid NOT NULL,
-    call_no smallint NOT NULL,
-    action_type text NOT NULL,
-    completion_status text NOT NULL,
-    CONSTRAINT observation_tool_calls_action_type_check CHECK ((action_type = ANY (ARRAY['search'::text, 'open_page'::text, 'find_in_page'::text]))),
-    CONSTRAINT observation_tool_calls_call_no_check CHECK (((call_no >= 1) AND (call_no <= 8))),
-    CONSTRAINT observation_tool_calls_completion_status_check CHECK ((completion_status = 'completed'::text)),
-    CONSTRAINT observation_tool_calls_observation_tool_call_id_check CHECK ((uuid_extract_version(observation_tool_call_id) = 7))
-);
-
---
 -- Name: web_evidence_sources; Type: TABLE; Schema: armi; Owner: -
 --
 

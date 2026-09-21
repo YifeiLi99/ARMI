@@ -240,9 +240,6 @@ class PostgreSQLRuntimeRecovery:
             for contribution in contributions:
                 for audit in contribution.audits:
                     await unit.audit.append(_owner_audit(fence, audit))
-            await unit.audit.append(
-                _runtime_audit(fence, "runtime.recovery.started", run_id)
-            )
             await self._verify_fence(transaction, fence)
             return run_id, tuple(contributions), tuple(refs)
 
@@ -469,18 +466,15 @@ class PostgreSQLRuntimeRecovery:
                 )
             result = await transaction.execute(
                 """
-                UPDATE armi.runtime_recovery_runs
-                SET status = %s, completed_at = statement_timestamp(),
-                    blocker_count = %s
-                WHERE recovery_run_id = %s AND status = 'running'
+                UPDATE armi.runtime_instances
+                SET recovery_status = %s, recovery_completed_at = statement_timestamp(),
+                    recovery_blocker_count = %s
+                WHERE runtime_instance_id = %s AND recovery_status = 'running'
                 """,
                 (status.value, blockers, run_id),
             )
             if result.rowcount != 1:
                 raise RecoveryViolation("REC-RUN-STALE")
-            await unit.audit.append(
-                _runtime_audit(fence, f"runtime.recovery.{status.value}", run_id)
-            )
         return RecoverySummary(
             RecoveryRunId(run_id),
             status,
@@ -502,14 +496,12 @@ class PostgreSQLRuntimeRecovery:
     ) -> None:
         await transaction.execute(
             """
-            UPDATE armi.runtime_recovery_runs AS run
-            SET status = 'abandoned', completed_at = statement_timestamp(),
-                blocker_count = 1
-            FROM armi.runtime_instances AS instance
-            WHERE instance.runtime_instance_id = run.runtime_instance_id
-              AND run.status = 'running'
-              AND run.runtime_instance_id <> %s
-              AND instance.status IN ('fenced', 'stopped')
+            UPDATE armi.runtime_instances
+            SET recovery_status = 'abandoned',
+                recovery_completed_at = statement_timestamp(),
+                recovery_blocker_count = 1
+            WHERE recovery_status = 'running'
+              AND runtime_instance_id <> %s AND status IN ('fenced', 'stopped')
             """,
             (fence.runtime_instance_id.value,),
         )
@@ -519,35 +511,25 @@ class PostgreSQLRuntimeRecovery:
     ) -> UUID:
         row = await (
             await transaction.execute(
-                """
-                SELECT recovery_run_id, status FROM armi.runtime_recovery_runs
-                WHERE runtime_instance_id = %s FOR UPDATE
-                """,
+                """SELECT recovery_status FROM armi.runtime_instances
+                   WHERE runtime_instance_id=%s FOR UPDATE""",
                 (fence.runtime_instance_id.value,),
             )
         ).fetchone()
-        if row is not None:
-            if str(row[1]) != "running":
+        if row is None:
+            raise RecoveryViolation("REC-RUN-STALE")
+        if row[0] is not None:
+            if str(row[0]) != "running":
                 raise RecoveryViolation("REC-ALREADY-COMPLETED")
-            return row[0]
-        run_id = uuid7()
+            return fence.runtime_instance_id.value
         await transaction.execute(
-            """
-            INSERT INTO armi.runtime_recovery_runs (
-                recovery_run_id, runtime_instance_id, subject_id,
-                life_generation_id, bundle_activation_id, fence_token, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'running')
-            """,
-            (
-                run_id,
-                fence.runtime_instance_id.value,
-                fence.subject_id,
-                fence.life_generation_id,
-                fence.bundle_activation_id,
-                fence.fence_token,
-            ),
+            """UPDATE armi.runtime_instances
+               SET recovery_status='running',recovery_started_at=statement_timestamp()
+               WHERE runtime_instance_id=%s""",
+            (fence.runtime_instance_id.value,),
         )
-        return run_id
+        # One recovery per Runtime; its identity is the existing instance identity.
+        return fence.runtime_instance_id.value
 
     async def _verify_fence(
         self, transaction: PostgreSQLTransaction, fence: RuntimeFence
@@ -596,20 +578,6 @@ def _metric(kind: str, value: int) -> RecoveryMetricContribution:
 
 def _artifact_id(value: UUID) -> ArtifactId:
     return ArtifactId(value)
-
-
-def _runtime_audit(fence: RuntimeFence, operation: str, target: UUID) -> AuditDraft:
-    return AuditDraft(
-        AuditEventId(uuid7()),
-        AuditReference("runtime", fence.runtime_instance_id.value),
-        Purpose("runtime.recovery"),
-        operation,
-        AuditReference("recovery", target),
-        AuditResultStatus.COMPLETED,
-        TraceId(fence.runtime_instance_id.value.hex),
-        AuditSensitivity.PRIVATE,
-        subject_id=SubjectId(fence.subject_id),
-    )
 
 
 def _owner_audit(fence: RuntimeFence, value: RecoveryAuditContribution) -> AuditDraft:

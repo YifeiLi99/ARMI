@@ -83,14 +83,6 @@ class WebObservationAttemptId:
 
 
 @dataclass(frozen=True, slots=True)
-class WebObservationToolCallId:
-    value: UUID
-
-    def __post_init__(self) -> None:
-        _uuid7(self.value, "WEB-TOOL-CALL-ID")
-
-
-@dataclass(frozen=True, slots=True)
 class WebObservationDraft:
     request_id: WebObservationRequestId
     subject_id: SubjectId
@@ -249,7 +241,6 @@ __all__ = (
     "WebObservationRequestStatus",
     "WebObservationResultStatus",
     "WebObservationToolAction",
-    "WebObservationToolCallId",
     "WebObservationUsage",
     "WebObservationViolation",
 )

@@ -55,6 +55,8 @@ from ._embedding_postgresql import (
     PostgreSQLContextEmbeddingRepository,
 )
 from .api import (
+    EmbeddingAttemptDiagnostic,
+    EmbeddingAttemptSink,
     EmbeddingFailureDiagnostic,
     EmbeddingFailureSink,
     EmbeddingPort,
@@ -67,6 +69,7 @@ _WORK_KIND = WorkType.CONTEXT_EMBEDDING_PROJECT
 class ContextEmbeddingPipeline:
     __slots__ = (
         "_adapter",
+        "_attempt_diagnostic",
         "_custody",
         "_factory",
         "_failure_diagnostic",
@@ -88,8 +91,10 @@ class ContextEmbeddingPipeline:
         memories: MemoryProjectionPort,
         materials: MaterialProjectionPort,
         failure_diagnostic: EmbeddingFailureSink | None = None,
+        attempt_diagnostic: EmbeddingAttemptSink | None = None,
     ) -> None:
         self._failure_diagnostic = failure_diagnostic
+        self._attempt_diagnostic = attempt_diagnostic
         self._factory = factory
         self._custody = custody
         self._storage = storage
@@ -187,6 +192,33 @@ class ContextEmbeddingPipeline:
         except ExecutionCustodyViolation:
             return True
 
+    def _log_attempt(
+        self,
+        record: WorkRecord,
+        source: EmbeddingProjectionSource,
+        ordinal: int,
+        status: str,
+        response: EmbeddingResponse | None = None,
+        *,
+        error_code: str | None = None,
+    ) -> None:
+        if self._attempt_diagnostic is not None:
+            self._attempt_diagnostic(
+                EmbeddingAttemptDiagnostic(
+                    work_id=str(record.draft.work_id.value),
+                    source_kind=source.source_kind,
+                    source_ref=str(source.source_ref),
+                    source_version=source.source_version,
+                    chunk_ordinal=ordinal,
+                    status=status,
+                    provider_request_id=None
+                    if response is None
+                    else response.provider_request_id,
+                    input_tokens=None if response is None else response.input_tokens,
+                    error_code=error_code,
+                )
+            )
+
     async def _project_source(
         self,
         record: WorkRecord,
@@ -228,17 +260,11 @@ class ContextEmbeddingPipeline:
         last_projection: UUID | None = None
         for batch_start in range(0, len(chunks), DOCUMENT_BATCH_SIZE):
             batch = chunks[batch_start : batch_start + DOCUMENT_BATCH_SIZE]
-            attempts: list[UUID] = []
-            for offset, (_display_text, retrieval_text) in enumerate(batch):
-                lease = await self._work.renew(lease, lease_seconds=30)
-                ordinal = batch_start + offset
-                async with self._factory.unit_of_work() as unit_of_work:
-                    await _guard_lease(unit_of_work, lease)
-                    attempt_id = await self._repository.prepare_attempt(
-                        unit_of_work, source, ordinal, retrieval_text
-                    )
-                    await self._repository.mark_dispatched(unit_of_work, attempt_id)
-                attempts.append(attempt_id)
+            lease = await self._work.renew(lease, lease_seconds=30)
+            async with self._factory.unit_of_work() as unit_of_work:
+                await _guard_lease(unit_of_work, lease)
+            for offset in range(len(batch)):
+                self._log_attempt(record, source, batch_start + offset, "dispatched")
             lease_box: list[WorkLease] = [lease]
             try:
                 responses = await self._embed_with_renewal(
@@ -247,12 +273,14 @@ class ContextEmbeddingPipeline:
                 lease = lease_box[0]
             except ModelViolation as error:
                 lease = lease_box[0]
-                async with self._factory.unit_of_work() as unit_of_work:
-                    await _guard_lease(unit_of_work, lease)
-                    for attempt_id in attempts:
-                        await self._repository.settle_failure(
-                            unit_of_work, attempt_id, error.code
-                        )
+                for offset in range(len(batch)):
+                    self._log_attempt(
+                        record,
+                        source,
+                        batch_start + offset,
+                        "failed",
+                        error_code=error.code,
+                    )
                 if record.attempt_count < record.draft.max_attempts:
                     await self._work.release(
                         lease,
@@ -264,15 +292,16 @@ class ContextEmbeddingPipeline:
                         record, lease, source, error.code, deterministic=False
                     )
                 return True
-            for offset, (attempt_id, response) in enumerate(
-                zip(attempts, responses, strict=True)
+            for offset, ((display_text, retrieval_text), response) in enumerate(
+                zip(batch, responses, strict=True)
             ):
-                display_text, retrieval_text = batch[offset]
+                self._log_attempt(
+                    record, source, batch_start + offset, "returned", response
+                )
                 async with self._factory.unit_of_work() as unit_of_work:
                     await _guard_lease(unit_of_work, lease)
-                    projection = await self._repository.settle_success(
+                    projection = await self._repository.store_projection(
                         unit_of_work,
-                        attempt_id=attempt_id,
                         source=source,
                         chunk_ordinal=batch_start + offset,
                         display_text=display_text,
@@ -283,12 +312,6 @@ class ContextEmbeddingPipeline:
                         await self._repository.mark_source_set_stale(
                             unit_of_work, source=source
                         )
-                        for pending_attempt in attempts[offset + 1 :]:
-                            await self._repository.settle_failure(
-                                unit_of_work,
-                                pending_attempt,
-                                "MODEL-EMBEDDING-SOURCE-STALE",
-                            )
                         await unit_of_work.work.complete(
                             lease,
                             WorkResultRef(
