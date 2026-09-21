@@ -633,4 +633,13 @@ __all__ = (
     "EffectWakeupPort",
     "FrozenEffectRequest",
     "response_delivery_activity",
+    "response_intent_ids",
 )
+
+
+async def response_intent_ids(
+    transaction: PostgreSQLTransaction, *, subject_id: UUID
+) -> tuple[UUID, ...]:
+    from ._intent_autonomy import response_intent_ids as read
+
+    return await read(transaction, subject_id=subject_id)

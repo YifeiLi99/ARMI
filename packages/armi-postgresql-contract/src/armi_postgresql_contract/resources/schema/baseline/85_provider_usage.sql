@@ -2,7 +2,7 @@
 CREATE OR REPLACE VIEW armi.provider_usage_calls AS
 WITH parents AS (
     SELECT 'cognition'::text AS owner, a.model_attempt_id AS attempt_id,
-           COALESCE(codex_origin.root_opportunity_id,o.root_opportunity_id) AS operation_id, 'episode'::text AS reference_kind,
+           COALESCE(effect.root_opportunity_id,o.root_opportunity_id) AS operation_id, 'episode'::text AS reference_kind,
            a.cognitive_episode_id AS reference_id, a.result_status AS business_result,
            a.settled_at, a.provider_calls, a.usage_contract_version,
            a.provider, a.model_id AS model, 'generation'::text AS service, e.purpose,
@@ -17,7 +17,6 @@ WITH parents AS (
     LEFT JOIN armi.codex_verification_results verification
       ON verification.codex_verification_id=evidence.codex_verification_id
     LEFT JOIN armi.effects effect ON effect.effect_id=verification.effect_id
-    LEFT JOIN armi.action_intents codex_origin ON codex_origin.action_intent_id=effect.action_intent_id
     WHERE e.purpose <> 'reflect_mood'
     UNION ALL
     SELECT 'interaction', p.external_message_part_id, origin.operation_id, 'interaction',

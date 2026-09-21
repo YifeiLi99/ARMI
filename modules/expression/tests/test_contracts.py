@@ -150,6 +150,10 @@ def test_declared_response_effect_draft_freezes_the_cross_owner_contract() -> No
     ids = tuple(uuid7() for _ in range(9))
     draft = DeclaredResponseEffectDraft(
         action_intent_id=ids[1],
+        root_opportunity_id=uuid7(),
+        candidate_validation_id=uuid7(),
+        proposal_ref="proposal:1",
+        subject_commit_id=uuid7(),
         operation_ref=ids[2],
         subject_id=ids[3],
         scene_id=ids[4],

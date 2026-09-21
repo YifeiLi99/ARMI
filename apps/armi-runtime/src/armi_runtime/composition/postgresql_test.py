@@ -39,6 +39,7 @@ from armi_context.bootstrap import bootstrap_context_candidate_read
 from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
+    bootstrap_effect_intent_read,
     bootstrap_effect_operation_read,
     bootstrap_effect_recovery,
     bootstrap_effect_runtime,
@@ -131,6 +132,7 @@ __all__ = (
     "bootstrap_context_candidate_read",
     "bootstrap_data_rights_core",
     "bootstrap_effect_codex_lifecycle",
+    "bootstrap_effect_intent_read",
     "bootstrap_effect_operation_read",
     "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",

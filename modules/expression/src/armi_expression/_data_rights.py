@@ -7,7 +7,6 @@ from typing import LiteralString
 from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
-    DataRightsArtifactUsage,
     DataRightsCanonicalRecord,
     DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
@@ -17,17 +16,11 @@ from armi_data_rights.api import (
     DataRightsOwnerIdentity,
     DataRightsTupleRecordStream,
 )
-from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("expression")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "action_intents",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.action_intents AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "dialogue_decisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -50,24 +43,8 @@ class PostgreSQLExpressionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        rows = await (
-            await transaction.execute(
-                """SELECT intent.response_artifact_id, count(*),
-                          count(*) FILTER (WHERE intent.context_party_id = %s)
-                   FROM armi.action_intents AS intent
-                   WHERE intent.response_artifact_id IS NOT NULL
-                   GROUP BY intent.response_artifact_id
-                   ORDER BY intent.response_artifact_id""",
-                (request.party_id,),
-            )
-        ).fetchall()
-        return DataRightsDiscoveryContribution(
-            _OWNER,
-            artifact_usages=tuple(
-                DataRightsArtifactUsage(ArtifactId(row[0]), int(row[1]), int(row[2]))
-                for row in rows
-            ),
-        )
+        del transaction, request
+        return DataRightsDiscoveryContribution(_OWNER)
 
     async def apply(
         self,

@@ -149,33 +149,8 @@ class PostgreSQLExpressionOwner:
     ) -> None:
         connection = unit_of_work.transaction
         action_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intents (
-                action_intent_id, subject_id, scene_id, context_party_id,
-                root_opportunity_id, operation_ref, action_kind,
-                capability_kind, operation_class, purpose,
-                candidate_validation_id, proposal_ref, subject_commit_id,
-                codex_task_source_id, task_manifest_digest) VALUES (
-                %s,%s,%s,%s,%s,%s,'codex_delegation','codex.delegated-work','execute','delegate_codex_work',
-                %s,%s,%s,%s,%s)
-            """,
-            (
-                action_id,
-                draft.subject_id,
-                draft.scene_id,
-                draft.creator_party_id,
-                draft.root_opportunity_id,
-                draft.operation_ref,
-                draft.validation_id,
-                draft.proposal_ref,
-                commit_id,
-                draft.task_source_id,
-                draft.task_manifest_digest.value,
-            ),
-        )
         await self._effect_registration.register_codex_delegation(
-            connection, CodexEffectDraft(action_id, draft)
+            connection, CodexEffectDraft(action_id, draft, commit_id)
         )
 
     async def record_terminal(
@@ -431,63 +406,14 @@ class PostgreSQLExpressionOwner:
             if private_route
             else "other_human_inbox"
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intents (
-                action_intent_id, subject_id, scene_id, context_party_id,
-                root_opportunity_id, operation_ref, action_kind, response_artifact_id, response_digest, response_bytes,
-                media_type, capability_kind, operation_class, audience_scope,
-                data_scope, purpose, candidate_validation_id, proposal_ref,
-                subject_commit_id) VALUES (
-                %s, %s, %s, %s, %s, %s, 'party_response', %s, %s, %s, 'text/plain', %s, 'send', %s,
-                'declared_party_response', 'respond_to_other_human', %s, %s, %s)
-            """,
-            (
-                action_id,
-                context.subject_id,
-                context.scene_id,
-                context.other_party_id,
-                context.root_opportunity_id,
-                operation_ref,
-                response_artifact.artifact_id.value,
-                response_artifact.content_digest.value,
-                len(reply.content_bytes),
-                capability_kind,
-                audience_scope,
-                context.validation_id,
-                reply.proposal_ref,
-                commit_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                subject_commit_id, subject_id, scene_id, context_party_id,
-                proposal_ref, decision_kind, action_intent_id, effect_id,
-                operation_ref) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s)
-            """,
-            (
-                decision_id,
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                commit_id,
-                context.subject_id,
-                context.scene_id,
-                context.other_party_id,
-                reply.proposal_ref,
-                reply.decision_kind,
-                action_id,
-                operation_ref,
-            ),
-        )
         effect_id = await self._effect_registration.register_declared_response(
             connection,
             DeclaredResponseEffectDraft(
                 action_intent_id=action_id,
+                root_opportunity_id=context.root_opportunity_id,
+                candidate_validation_id=context.validation_id,
+                proposal_ref=reply.proposal_ref,
+                subject_commit_id=commit_id,
                 operation_ref=operation_ref,
                 subject_id=context.subject_id,
                 scene_id=context.scene_id,
@@ -507,9 +433,30 @@ class PostgreSQLExpressionOwner:
             ),
         )
         await connection.execute(
-            "UPDATE armi.dialogue_decisions SET effect_id = %s "
-            "WHERE dialogue_decision_id = %s AND effect_id IS NULL",
-            (effect_id, decision_id),
+            """
+            INSERT INTO armi.dialogue_decisions (
+                dialogue_decision_id, opportunity_id,
+                cognitive_episode_id, candidate_validation_id,
+                subject_commit_id, subject_id, scene_id, context_party_id,
+                proposal_ref, decision_kind, action_intent_id, effect_id,
+                operation_ref) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                decision_id,
+                context.opportunity_id,
+                context.episode_id,
+                context.validation_id,
+                commit_id,
+                context.subject_id,
+                context.scene_id,
+                context.other_party_id,
+                reply.proposal_ref,
+                reply.decision_kind,
+                action_id,
+                effect_id,
+                operation_ref,
+            ),
         )
 
     async def _finish_creator_response(
@@ -524,58 +471,6 @@ class PostgreSQLExpressionOwner:
     ) -> None:
         connection = unit_of_work.transaction
         decision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intents (
-                action_intent_id, subject_id, scene_id, context_party_id,
-                root_opportunity_id, operation_ref, action_kind,
-                response_artifact_id, response_digest, response_bytes,
-                media_type, capability_kind, operation_class, audience_scope,
-                data_scope, purpose, candidate_validation_id, proposal_ref,
-                subject_commit_id) VALUES (
-                %s, %s, %s, %s, %s, %s, 'party_response', %s, %s, %s, 'text/plain',
-                'creator.scene.reply', 'send', 'creator',
-                'creator_visible_response', 'respond_to_creator', %s, %s, %s)
-            """,
-            (
-                action_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                context.root_opportunity_id,
-                context.root_opportunity_id,
-                response_artifact.artifact_id.value,
-                response_artifact.content_digest.value,
-                len(reply.content_bytes),
-                context.validation_id,
-                reply.proposal_ref,
-                commit_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id, cognitive_episode_id,
-                candidate_validation_id, subject_commit_id, subject_id, scene_id,
-                context_party_id, proposal_ref, decision_kind, action_intent_id,
-                operation_ref)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                decision_id,
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                commit_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                reply.proposal_ref,
-                reply.decision_kind,
-                action_id,
-                context.root_opportunity_id,
-            ),
-        )
         turn_id = await self._voice.turn_for_opportunity(
             connection, opportunity_id=context.root_opportunity_id
         )
@@ -591,6 +486,10 @@ class PostgreSQLExpressionOwner:
             connection,
             DeclaredResponseEffectDraft(
                 action_intent_id=action_id,
+                root_opportunity_id=context.root_opportunity_id,
+                candidate_validation_id=context.validation_id,
+                proposal_ref=reply.proposal_ref,
+                subject_commit_id=commit_id,
                 operation_ref=context.root_opportunity_id,
                 subject_id=context.subject_id,
                 scene_id=reply.scene_id,
@@ -617,8 +516,29 @@ class PostgreSQLExpressionOwner:
             ),
         )
         await connection.execute(
-            "UPDATE armi.dialogue_decisions SET effect_id=%s WHERE dialogue_decision_id=%s",
-            (effect_id, decision_id),
+            """
+            INSERT INTO armi.dialogue_decisions (
+                dialogue_decision_id, opportunity_id, cognitive_episode_id,
+                candidate_validation_id, subject_commit_id, subject_id, scene_id,
+                context_party_id, proposal_ref, decision_kind, action_intent_id,
+                operation_ref, effect_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                decision_id,
+                context.opportunity_id,
+                context.episode_id,
+                context.validation_id,
+                commit_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                reply.proposal_ref,
+                reply.decision_kind,
+                action_id,
+                context.root_opportunity_id,
+                effect_id,
+            ),
         )
         await unit_of_work.audit.append(
             _audit(

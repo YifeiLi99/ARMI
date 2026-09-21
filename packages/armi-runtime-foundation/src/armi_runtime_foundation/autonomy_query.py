@@ -96,10 +96,9 @@ def autonomy_statement(
           WHERE opportunity_id=o.opportunity_id ORDER BY created_at DESC LIMIT 1
         ) e ON true
         LEFT JOIN LATERAL (
-          SELECT effect.effect_id,effect.status FROM armi.action_intents intent
-          JOIN armi.effects effect USING(action_intent_id)
-          WHERE o.purpose='consider_autonomous_life' AND intent.root_opportunity_id=o.root_opportunity_id
-            AND intent.action_kind='party_response'
+          SELECT effect.effect_id,effect.status FROM armi.effects effect
+          WHERE o.purpose='consider_autonomous_life' AND effect.root_opportunity_id=o.root_opportunity_id
+            AND effect.effect_kind <> 'codex_delegation'
           ORDER BY effect.registered_at DESC,effect.effect_id DESC LIMIT 1
         ) delivery ON true
         WHERE o.source_kind='autonomy_plan'

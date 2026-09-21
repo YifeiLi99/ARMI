@@ -10,6 +10,7 @@ from armi_data_rights.api import (
     DataRightsParticipant,
 )
 from armi_expression.api import (
+    ExpressionAdminPort,
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
 )
@@ -33,6 +34,8 @@ from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
 from ._data_rights import PostgreSQLEffectDataRightsParticipant
 from ._dispatch import PostgreSQLEffectDispatchRepository
 from ._inbox import PostgreSQLLocalInbox
+from ._intent_admin import PostgreSQLExpressionAdmin
+from ._intent_read import PostgreSQLEffectIntentRead
 from ._ledger import (
     PostgreSQLDeclaredResponseEffectRegistration,
     PostgreSQLEffectLedgerRepository,
@@ -49,6 +52,14 @@ from .api import (
     EffectRuntimePort,
     EffectTimelinePort,
 )
+
+
+def bootstrap_effect_intent_read() -> ExpressionIntentReadPort:
+    return PostgreSQLEffectIntentRead()
+
+
+def bootstrap_expression_admin() -> ExpressionAdminPort:
+    return PostgreSQLExpressionAdmin()
 
 
 def bootstrap_effect_admin() -> EffectAdminPort:
@@ -130,9 +141,11 @@ __all__ = (
     "bootstrap_effect_admin",
     "bootstrap_effect_codex_lifecycle",
     "bootstrap_effect_data_rights",
+    "bootstrap_effect_intent_read",
     "bootstrap_effect_operation_read",
     "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",
+    "bootstrap_expression_admin",
     "bootstrap_expression_effect_registration",
     "compose_effect_dispatch_repository",
     "compose_effect_ledger_repository",

@@ -101,8 +101,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         subject_id: UUID,
     ) -> bool:
         from armi_attention.api import human_opportunity_pending
-        from armi_effect.api import response_delivery_activity
-        from armi_expression.api import response_intent_ids
+        from armi_effect.api import response_delivery_activity, response_intent_ids
         from armi_interaction.api import human_input_activity
         from armi_live_voice.api import voice_activity
 

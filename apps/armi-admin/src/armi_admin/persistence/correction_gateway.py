@@ -997,9 +997,6 @@ class AdminCorrectionGateway:
                 self._cognition.artifact_reference_count(
                     connection, artifact_id=artifact_uuid
                 ),
-                self._expression.artifact_reference_count(
-                    connection, artifact_id=artifact_uuid
-                ),
                 self._effects.artifact_reference_count(
                     connection, artifact_id=artifact_uuid
                 ),

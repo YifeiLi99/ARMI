@@ -50,10 +50,8 @@ WITH task AS (
       ON commit.cognitive_episode_id=first_episode.cognitive_episode_id
 ), effect AS (
     SELECT effect.effect_id,effect.status FROM task
-    JOIN armi.action_intents AS intent
-      ON intent.codex_task_source_id=task.codex_task_source_id
     JOIN armi.effects AS effect
-      ON effect.action_intent_id=intent.action_intent_id
+      ON effect.codex_task_source_id=task.codex_task_source_id
     ORDER BY effect.registered_at,effect.effect_id LIMIT 1
 ), verification AS (
     SELECT result.codex_verification_id,result.execution_status,result.evidence_id FROM effect

@@ -10,8 +10,8 @@ async def response_intent_ids(
 ) -> tuple[UUID, ...]:
     rows = await (
         await transaction.execute(
-            """SELECT action_intent_id FROM armi.action_intents
-           WHERE subject_id=%s AND action_kind='party_response'""",
+            """SELECT action_intent_id FROM armi.effects
+           WHERE subject_id=%s AND effect_kind <> 'codex_delegation'""",
             (subject_id,),
         )
     ).fetchall()

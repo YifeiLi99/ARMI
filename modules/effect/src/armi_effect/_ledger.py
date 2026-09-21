@@ -36,6 +36,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
     async def register_codex_delegation(
         self, transaction: PostgreSQLTransaction, draft: CodexEffectDraft
     ) -> UUID:
+        # Immutable intent and mutable delivery state share one row; see DESIGN.md.
         task = draft.delegation
         effect_id = uuid7()
         digest = Digest.from_bytes(
@@ -50,16 +51,23 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         await transaction.execute(
             """INSERT INTO armi.effects (
                 effect_id,action_intent_id,
+                root_opportunity_id,operation_ref,candidate_validation_id,proposal_ref,subject_commit_id,codex_task_source_id,
                 subject_id,scene_id,context_party_id,payload_artifact_id,
                 payload_digest,payload_bytes,effect_kind,capability_kind,
                 operation_class,purpose,authorization_basis,destination_kind,
                 destination_party_id,registration_digest,trace_id,status,verification_status)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'codex_delegation',
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'codex_delegation',
                  'codex.delegated-work','execute','delegate_codex_work',
                  'runtime_configuration','codex_workspace',%s,%s,%s,'registered','not_started')""",
             (
                 effect_id,
                 draft.action_intent_id,
+                task.root_opportunity_id,
+                task.operation_ref,
+                task.validation_id,
+                task.proposal_ref,
+                draft.subject_commit_id,
+                task.task_source_id,
                 task.subject_id,
                 task.scene_id,
                 task.creator_party_id,
@@ -106,6 +114,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
             """
             INSERT INTO armi.effects (
                 effect_id, action_intent_id,
+                root_opportunity_id,operation_ref,candidate_validation_id,proposal_ref,subject_commit_id,
                 subject_id, scene_id, context_party_id, payload_artifact_id,
                 payload_digest, payload_bytes,
                 effect_kind, capability_kind, operation_class, audience_scope,
@@ -114,6 +123,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 live_voice_turn_id, status, verification_status,
                 registration_digest, trace_id) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
                 %s, %s, 'send', %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, 'registered', 'not_started', %s, %s)
@@ -121,6 +131,11 @@ class PostgreSQLDeclaredResponseEffectRegistration:
             (
                 effect_id,
                 draft.action_intent_id,
+                draft.root_opportunity_id,
+                draft.operation_ref,
+                draft.candidate_validation_id,
+                draft.proposal_ref,
+                draft.subject_commit_id,
                 draft.subject_id,
                 draft.scene_id,
                 draft.context_party_id,

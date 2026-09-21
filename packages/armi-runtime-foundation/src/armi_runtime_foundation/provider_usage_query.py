@@ -90,11 +90,10 @@ def usage_statement(
                     LEFT JOIN armi.cognitive_episodes ve ON ve.cognitive_episode_id = v.origin_episode_id
                     LEFT JOIN armi.opportunities vo ON vo.opportunity_id = ve.opportunity_id
                     UNION
-                    SELECT child.root_opportunity_id, intent.root_opportunity_id
+                    SELECT child.root_opportunity_id, effect.root_opportunity_id
                     FROM armi.codex_verification_results verification
                     JOIN armi.opportunities child ON child.opportunity_id = verification.opportunity_id
                     JOIN armi.effects effect ON effect.effect_id = verification.effect_id
-                    JOIN armi.action_intents intent ON intent.action_intent_id = effect.action_intent_id
                     UNION
                     SELECT child.root_opportunity_id, parent.root_opportunity_id
                     FROM armi.exact_life_query_intents query

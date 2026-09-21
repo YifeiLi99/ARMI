@@ -36,9 +36,6 @@ class ExpressionAdminPort(Protocol):
     def inspect_ids(
         self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
     ) -> tuple[UUID, ...]: ...
-    def artifact_reference_count(
-        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
-    ) -> int: ...
 
 
 _CODE = re.compile(
@@ -282,6 +279,10 @@ class DeclaredResponseEffectDraft:
     """Effect-registration facts frozen by the expression owner."""
 
     action_intent_id: UUID
+    root_opportunity_id: UUID
+    candidate_validation_id: UUID
+    proposal_ref: str
+    subject_commit_id: UUID
     operation_ref: UUID
     subject_id: UUID
     scene_id: UUID
@@ -399,6 +400,7 @@ class DelegatedActionIntentDraft:
 class CodexEffectDraft:
     action_intent_id: UUID
     delegation: DelegatedActionIntentDraft
+    subject_commit_id: UUID
 
 
 @runtime_checkable
@@ -506,14 +508,6 @@ def _uuid7(value: UUID, code: str) -> None:
         raise ResponseViolation(code)
 
 
-async def response_intent_ids(
-    transaction: PostgreSQLTransaction, *, subject_id: UUID
-) -> tuple[UUID, ...]:
-    from ._autonomy_read import response_intent_ids as read
-
-    return await read(transaction, subject_id=subject_id)
-
-
 __all__ = (
     "ActionIntentId",
     "CodexEffectDraft",
@@ -539,5 +533,4 @@ __all__ = (
     "OtherHumanReplyDraft",
     "ResponseChoiceDraft",
     "ResponseViolation",
-    "response_intent_ids",
 )

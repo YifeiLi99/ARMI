@@ -226,6 +226,7 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_cognition_subject_commit,
     bootstrap_data_rights_core,
     bootstrap_effect_codex_lifecycle,
+    bootstrap_effect_intent_read,
     bootstrap_effect_operation_read,
     bootstrap_evidence,
     bootstrap_experience_owner,
@@ -4488,7 +4489,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     identity=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
                     opportunity=bootstrap_opportunity_admission(),
                     effect=bootstrap_effect_codex_lifecycle(),
-                    expression=bootstrap_expression_action_ports().intents,
+                    expression=bootstrap_expression_action_ports(
+                        bootstrap_effect_intent_read()
+                    ).intents,
                     sources=bootstrap_codex_read_ports().task_sources,
                     custody=custody,
                     data_rights=data_rights.gate,
@@ -7821,7 +7824,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         for table in (
                             "effects",
                             "effect_outbox_items",
-                            "action_intents",
                             "subject_commits",
                         ):
                             self.assertEqual(
@@ -7909,6 +7911,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 interaction_actions.routes,
                 interaction_actions.scenes,
                 bootstrap_live_voice_context_read(),
+                bootstrap_effect_intent_read(),
             )
             evidence_module = bootstrap_evidence()
             data_rights_core = bootstrap_data_rights_core()
@@ -8204,11 +8207,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute("""
                     SELECT (SELECT subject_version FROM armi.subjects),
                            (SELECT count(*) FROM armi.subject_commits),
-                           (SELECT count(*) FROM armi.action_intents),
                            (SELECT count(*) FROM armi.effects),
                            (SELECT count(*) FROM armi.effect_outbox_items)
                 """).fetchone(),
-                    (0, 0, 0, 0, 0),
+                    (0, 0, 0, 0),
                 )
                 if autonomous_codex:
                     self.assertEqual(
@@ -8394,13 +8396,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 self.assertEqual(
                     connection.execute(
-                        "SELECT action_kind,count(*) FROM armi.action_intents GROUP BY action_kind ORDER BY action_kind"
+                        "SELECT effect_kind,count(*) FROM armi.effects GROUP BY effect_kind ORDER BY effect_kind"
                     ).fetchall(),
-                    [("codex_delegation", 1), ("party_response", 1)],
+                    [("codex_delegation", 1), ("creator_response", 1)],
                 )
                 self.assertEqual(
                     connection.execute(
-                        "SELECT count(DISTINCT operation_ref),count(DISTINCT root_opportunity_id) FROM armi.action_intents"
+                        "SELECT count(DISTINCT operation_ref),count(DISTINCT root_opportunity_id) FROM armi.effects"
                     ).fetchone(),
                     (2, 1),
                 )
@@ -8440,7 +8442,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.subject_commits),
                     (SELECT count(*) FROM armi.accepted_experiences),
                     (SELECT count(*) FROM armi.experience_evidence_links),
-                    (SELECT count(*) FROM armi.action_intents),
+                    (SELECT count(*) FROM armi.effects),
                     (SELECT count(*) FROM armi.scene_timeline_items WHERE source_kind = 'subject_commit'),
                     (SELECT count(*) FROM armi.audit_events WHERE operation = 'cognition.subject.committed')
                 """
@@ -8490,6 +8492,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         claim_owner=ids["runtime"],
                     )
                 assert dispatch_snapshot is not None
+                intent_reader = bootstrap_effect_intent_read()
+                async with response_factory.unit_of_work(read_only=True) as unit:
+                    registered = await bootstrap_effect_operation_read().by_effect_id(
+                        unit.transaction,
+                        effect_id=dispatch_snapshot.request.effect_id.value,
+                    )
+                    assert registered is not None
+                    assert registered.action_intent_id is not None
+                    original_intent = await intent_reader.intent_snapshot(
+                        unit.transaction, action_intent_id=registered.action_intent_id
+                    )
+                    self.assertEqual(
+                        original_intent.root_opportunity_id, ids["opportunity"]
+                    )
+                    self.assertEqual(
+                        original_intent.response_digest,
+                        Digest.from_bytes(payloads["reply"]),
+                    )
                 async with response_factory.unit_of_work() as unit_of_work:
                     await dispatch_repository.mark_dispatching(
                         unit_of_work,
@@ -8562,6 +8582,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         dispatch_snapshot,
                         receipt,
                     )
+                    settled_intent = await intent_reader.intent_snapshot(
+                        unit_of_work.transaction,
+                        action_intent_id=original_intent.action_intent_id,
+                    )
+                    self.assertEqual(settled_intent, original_intent)
                     await response_timeline.record_party_response(
                         unit_of_work.transaction,
                         scene_id=dispatch_snapshot.request.scene_id,
@@ -8657,12 +8682,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.assertRaises(psycopg.errors.NotNullViolation):
                 connection.execute(
                     """
-                    INSERT INTO armi.action_intents (
+                    INSERT INTO armi.effects (
                         action_intent_id,subject_id,scene_id,context_party_id,
-                        root_opportunity_id,purpose,action_kind,operation_ref)
+                        root_opportunity_id,purpose,effect_kind,operation_ref)
                     SELECT uuidv7(),subject_id,scene_id,context_party_id,
-                           root_opportunity_id,purpose,action_kind,uuidv7()
-                    FROM armi.action_intents LIMIT 1
+                           root_opportunity_id,purpose,effect_kind,uuidv7()
+                    FROM armi.effects LIMIT 1
                     """
                 )
             connection.rollback()
@@ -8723,7 +8748,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 bootstrap_evidence().write,
                 bootstrap_opportunity_admission(),
                 codex_effect,
-                bootstrap_expression_action_ports().intents,
+                bootstrap_expression_action_ports(
+                    bootstrap_effect_intent_read()
+                ).intents,
                 ArtifactCatalogRepository(),
                 bootstrap_codex_read_ports().task_sources,
                 bootstrap_evidence().read,

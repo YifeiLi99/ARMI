@@ -11,22 +11,16 @@ from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._action_postgresql import PostgreSQLExpressionActionOwner
-from ._admin import PostgreSQLExpressionAdmin
 from ._data_rights import PostgreSQLExpressionDataRightsParticipant
 from ._postgresql import PostgreSQLExpressionOwner
 from ._recovery import ExpressionRecoveryParticipant
 from .api import (
-    ExpressionAdminPort,
     ExpressionCommitPort,
     ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
     ExpressionVoiceRoutePort,
 )
-
-
-def bootstrap_expression_admin() -> ExpressionAdminPort:
-    return PostgreSQLExpressionAdmin()
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,8 +36,10 @@ class ExpressionActionPorts:
     effect_links: ExpressionEffectLinkPort
 
 
-def bootstrap_expression_action_ports() -> ExpressionActionPorts:
-    owner = PostgreSQLExpressionActionOwner()
+def bootstrap_expression_action_ports(
+    intents: ExpressionIntentReadPort,
+) -> ExpressionActionPorts:
+    owner = PostgreSQLExpressionActionOwner(intents)
     return ExpressionActionPorts(owner, owner)
 
 
@@ -54,8 +50,9 @@ def bootstrap_expression(
     interaction_routes: InteractionEffectRoutePort,
     interaction_scenes: InteractionSceneTransitionPort,
     voice: ExpressionVoiceRoutePort,
+    intents: ExpressionIntentReadPort,
 ) -> ExpressionModule:
-    actions = bootstrap_expression_action_ports()
+    actions = bootstrap_expression_action_ports(intents)
     return ExpressionModule(
         commit=PostgreSQLExpressionOwner(
             relationships,
@@ -83,7 +80,6 @@ __all__ = (
     "ExpressionModule",
     "bootstrap_expression",
     "bootstrap_expression_action_ports",
-    "bootstrap_expression_admin",
     "bootstrap_expression_data_rights",
     "bootstrap_expression_recovery",
 )

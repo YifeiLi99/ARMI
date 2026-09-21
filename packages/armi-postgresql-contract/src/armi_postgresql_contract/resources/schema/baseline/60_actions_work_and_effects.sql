@@ -1,43 +1,6 @@
 -- Current ARMI schema tables owned by this baseline module.
 
 
---
--- Name: action_intents; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.action_intents (
-    action_intent_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    context_party_id uuid NOT NULL,
-    root_opportunity_id uuid NOT NULL,
-    purpose text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    action_kind text NOT NULL,
-    operation_ref uuid NOT NULL,
-    response_artifact_id uuid,
-    response_digest text,
-    response_bytes integer,
-    media_type text,
-    capability_kind text NOT NULL,
-    operation_class text NOT NULL,
-    audience_scope text,
-    data_scope text,
-    candidate_validation_id uuid NOT NULL,
-    proposal_ref text NOT NULL,
-    subject_commit_id uuid NOT NULL,
-    codex_task_source_id uuid,
-    task_manifest_digest text,
-    CONSTRAINT action_intents_bytes_check CHECK (((response_bytes IS NULL) OR ((response_bytes >= 1) AND (response_bytes <= 65536)))),
-    CONSTRAINT action_intents_digest_check CHECK (((response_digest IS NULL) OR (response_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT action_intents_family_check CHECK ((((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL)) OR ((response_artifact_id IS NULL) AND (response_digest IS NULL) AND (response_bytes IS NULL) AND (media_type IS NULL) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (codex_task_source_id IS NOT NULL) AND (task_manifest_digest IS NOT NULL) AND (task_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)))),
-    CONSTRAINT action_intents_response_shape_check CHECK ((((response_artifact_id IS NULL) = (response_digest IS NULL)) AND ((response_digest IS NULL) = (response_bytes IS NULL)) AND ((response_bytes IS NULL) = (media_type IS NULL)))),
-    CONSTRAINT action_intents_id_check CHECK ((uuid_extract_version(action_intent_id) = 7)),
-    CONSTRAINT action_intents_kind_check CHECK ((action_kind = ANY (ARRAY['party_response'::text, 'codex_delegation'::text]))),
-    CONSTRAINT action_intents_operation_ref_check CHECK ((uuid_extract_version(operation_ref) = 7)),
-    CONSTRAINT action_intents_purpose_check CHECK ((purpose = ANY (ARRAY['respond_to_creator'::text, 'respond_to_other_human'::text, 'delegate_codex_work'::text]))),
-    CONSTRAINT action_intents_shape_check CHECK ((((action_kind = 'party_response'::text) AND (purpose = ANY (ARRAY['respond_to_creator'::text, 'respond_to_other_human'::text]))) OR ((action_kind = 'codex_delegation'::text) AND (purpose = 'delegate_codex_work'::text))))
-);
 
 -- Expression owns the complete outcome of one response-admission responsibility.
 
@@ -281,6 +244,15 @@ CREATE TABLE armi.effects (
     current_observation_id uuid,
     settled_at timestamp(6) with time zone,
     action_intent_id uuid NOT NULL,
+    root_opportunity_id uuid NOT NULL,
+    operation_ref uuid NOT NULL,
+    candidate_validation_id uuid NOT NULL,
+    proposal_ref text NOT NULL,
+    subject_commit_id uuid NOT NULL,
+    codex_task_source_id uuid,
+    CONSTRAINT effects_intent_id_check CHECK (uuid_extract_version(action_intent_id) = 7),
+    CONSTRAINT effects_operation_ref_check CHECK (uuid_extract_version(operation_ref) = 7),
+    CONSTRAINT effects_codex_source_check CHECK ((effect_kind = 'codex_delegation') = (codex_task_source_id IS NOT NULL)),
     destination_binding_id uuid,
     live_voice_turn_id uuid,
     local_delivery_id uuid UNIQUE,

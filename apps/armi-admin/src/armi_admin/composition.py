@@ -20,9 +20,8 @@ from armi_attention.bootstrap import bootstrap_opportunity_admin
 from armi_codex.bootstrap import bootstrap_codex_admin
 from armi_cognition.bootstrap import bootstrap_cognition_admin
 from armi_data_rights.bootstrap import bootstrap_data_rights_admin_content_guard
-from armi_effect.bootstrap import bootstrap_effect_admin
+from armi_effect.bootstrap import bootstrap_effect_admin, bootstrap_expression_admin
 from armi_evidence.bootstrap import bootstrap_evidence_admin
-from armi_expression.bootstrap import bootstrap_expression_admin
 from armi_interaction.bootstrap import bootstrap_interaction_admin
 from armi_kernel.application import CredentialPurpose
 from armi_live_vision.bootstrap import bootstrap_live_vision_admin
