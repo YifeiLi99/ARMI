@@ -165,6 +165,7 @@ from armi_interaction.bootstrap import (
     bootstrap_interaction_birth,
     bootstrap_interaction_failure_notifications,
     bootstrap_interaction_identity,
+    bootstrap_interaction_party_catalog,
 )
 from armi_kernel.application import (
     CreatorProjectionNotifier,
@@ -274,6 +275,9 @@ from armi_runtime.adapters.persistence.birth import (
     probe_continuity,
 )
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
+from armi_runtime.adapters.persistence.environment_identity import (
+    PostgreSQLEnvironmentIdentity,
+)
 from armi_runtime.adapters.persistence.execution_custody import (
     PostgreSQLExecutionCustody,
 )
@@ -1212,12 +1216,13 @@ def compose_data_rights_module(
         participants=participants,
         owner_contracts=DATA_RIGHTS_OWNER_CONTRACTS,
         identity_key=identity_key,
+        identity_binding=PostgreSQLEnvironmentIdentity(),
         notifier=notifier,
     )
 
 
 def compose_data_rights_core() -> DataRightsCore:
-    return bootstrap_data_rights_core()
+    return bootstrap_data_rights_core(parties=bootstrap_interaction_party_catalog())
 
 
 def compose_context_projection_invalidation() -> ContextProjectionInvalidationPort:

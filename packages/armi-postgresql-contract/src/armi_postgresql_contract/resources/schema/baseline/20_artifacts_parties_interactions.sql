@@ -396,6 +396,9 @@ CREATE TABLE armi.parties (
     creator_role text,
     status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    rights_contact_generation bigint DEFAULT 1 NOT NULL CHECK (rights_contact_generation>0),
+    rights_use_generation bigint DEFAULT 1 NOT NULL CHECK (rights_use_generation>0),
+    rights_updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     declared_identity_key text,
     identity_match_token text,
     CONSTRAINT parties_display_label_check CHECK ((((party_kind = ANY (ARRAY['subject'::text, 'creator'::text])) AND (display_label IS NULL)) OR ((party_kind = ANY (ARRAY['other_human'::text, 'social_group'::text])) AND ((length(btrim(display_label)) >= 1) AND (length(btrim(display_label)) <= 256))))),
@@ -403,26 +406,6 @@ CREATE TABLE armi.parties (
     CONSTRAINT parties_party_kind_check CHECK ((party_kind = ANY (ARRAY['subject'::text, 'creator'::text, 'other_human'::text, 'social_group'::text]))),
     CONSTRAINT parties_role_shape_check CHECK ((((party_kind = 'subject'::text) AND (represented_subject_id IS NOT NULL) AND (creator_role IS NULL) AND (declared_identity_key IS NULL) AND (identity_match_token IS NULL)) OR ((party_kind = 'creator'::text) AND (represented_subject_id IS NULL) AND (creator_role = 'unique_primary_creator'::text) AND (declared_identity_key IS NULL)) OR ((party_kind = ANY (ARRAY['other_human'::text, 'social_group'::text])) AND (represented_subject_id IS NULL) AND (creator_role IS NULL) AND (identity_match_token ~ '^hmac-sha256:v1:[0-9a-f]{64}$'::text) AND (((status = 'active'::text) AND (declared_identity_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)) OR ((status = 'rights_only'::text) AND (declared_identity_key IS NULL)))))),
     CONSTRAINT parties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'rights_only'::text])))
-);
-
-CREATE TABLE armi.data_rights_identity_keys (
-    singleton_key smallint DEFAULT 1 NOT NULL,
-    key_identity text NOT NULL,
-    bound_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT data_rights_identity_keys_pkey PRIMARY KEY (singleton_key),
-    CONSTRAINT data_rights_identity_keys_singleton_check CHECK ((singleton_key = 1)),
-    CONSTRAINT data_rights_identity_keys_identity_check CHECK ((key_identity ~ '^sha256:[0-9a-f]{64}$'::text))
-);
-
--- Monotonic party fences captured by every party-bound slow operation.
-CREATE TABLE armi.data_rights_party_fences (
-    party_id uuid NOT NULL,
-    contact_generation bigint DEFAULT 1 NOT NULL,
-    use_generation bigint DEFAULT 1 NOT NULL,
-    updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT data_rights_party_fences_pkey PRIMARY KEY (party_id),
-    CONSTRAINT data_rights_party_fences_contact_generation_check CHECK ((contact_generation > 0)),
-    CONSTRAINT data_rights_party_fences_use_generation_check CHECK ((use_generation > 0))
 );
 
 --

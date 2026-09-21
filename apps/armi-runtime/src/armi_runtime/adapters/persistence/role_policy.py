@@ -10,7 +10,10 @@ import psycopg
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
 
-from .database_capabilities import CURRENT_DML_CAPABILITIES
+from .database_capabilities import (
+    CURRENT_COLUMN_DML_CAPABILITIES,
+    CURRENT_DML_CAPABILITIES,
+)
 
 _ROLE_CLASSES: Final = frozenset({"runtime", "admin", "migrator"})
 _SEARCH_PATH: Final = "pg_catalog, armi"
@@ -400,7 +403,8 @@ class PostgreSQLRolePolicyGateway:
             ).fetchall()
             column_row = connection.execute(
                 """
-                SELECT count(*)
+                SELECT grantee.rolname, relation.relname,
+                       privilege.privilege_type, attribute.attname
                 FROM pg_catalog.pg_attribute AS attribute
                 JOIN pg_catalog.pg_class AS relation
                   ON relation.oid = attribute.attrelid
@@ -418,7 +422,7 @@ class PostgreSQLRolePolicyGateway:
                   AND grantee.rolname IN ('armi_runtime', 'armi_admin')
                   AND privilege.privilege_type IN ('INSERT', 'UPDATE')
                 """
-            ).fetchone()
+            ).fetchall()
         except psycopg.Error:
             raise DatabaseViolation(
                 "DB-ROLE-GRANT",
@@ -428,7 +432,10 @@ class PostgreSQLRolePolicyGateway:
             (str(role), str(table), str(operation))
             for role, table, operation in table_rows
         )
-        if actual != CURRENT_DML_CAPABILITIES or column_row != (0,):
+        if (
+            actual != CURRENT_DML_CAPABILITIES
+            or frozenset(column_row) != CURRENT_COLUMN_DML_CAPABILITIES
+        ):
             raise DatabaseViolation(
                 "DB-ROLE-GRANT",
                 "database data-modification grants have drifted",

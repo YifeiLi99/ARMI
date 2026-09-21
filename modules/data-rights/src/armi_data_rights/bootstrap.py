@@ -25,6 +25,7 @@ from .api import (
     DataRightsCognitionGate,
     DataRightsEffectGate,
     DataRightsFencePort,
+    DataRightsIdentityBindingPort,
     DataRightsInteractionGate,
     DataRightsOrderPort,
     DataRightsOwnerContract,
@@ -40,8 +41,8 @@ from .api import (
 class DataRightsCore:
     __slots__ = ("_gate", "_participant", "_sealed")
 
-    def __init__(self) -> None:
-        self._gate = DataRightsOrderRepository()
+    def __init__(self, parties: DataRightsPartyRosterPort) -> None:
+        self._gate = DataRightsOrderRepository(parties)
         self._participant = PostgreSQLDataRightsParticipant()
         self._sealed = False
 
@@ -109,8 +110,8 @@ class DataRightsModule:
         self._orders.stop()
 
 
-def bootstrap_data_rights_core() -> DataRightsCore:
-    return DataRightsCore()
+def bootstrap_data_rights_core(*, parties: DataRightsPartyRosterPort) -> DataRightsCore:
+    return DataRightsCore(parties)
 
 
 def bootstrap_data_rights(
@@ -128,10 +129,12 @@ def bootstrap_data_rights(
     participants: tuple[DataRightsParticipant, ...],
     owner_contracts: tuple[DataRightsOwnerContract, ...],
     identity_key: str,
+    identity_binding: DataRightsIdentityBindingPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     gate = core.seal()
     deletion = LocalDataDeletionExecutor(
+        fences=gate,
         repository=LocalDataDeletionRepository(
             catalog,
             lifecycle,
@@ -152,6 +155,7 @@ def bootstrap_data_rights(
         participants=participants,
         owner_contracts=owner_contracts,
         identity_key=identity_key,
+        identity_binding=identity_binding,
         data_root=data_root,
     )
     exports = CreatorExportService(

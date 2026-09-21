@@ -170,6 +170,7 @@ from armi_runtime.adapters.persistence.birth import (
     probe_continuity,
 )
 from armi_runtime.adapters.persistence.database_capabilities import (
+    CURRENT_COLUMN_DML_CAPABILITIES,
     CURRENT_DML_CAPABILITIES,
 )
 from armi_runtime.adapters.persistence.durable_work import (
@@ -1055,6 +1056,134 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     selectors.SelectSelector()
                 ),
             )
+
+    @pytest.mark.test_group("data-rights", "interaction")
+    def test_data_rights_guards_live_on_party_and_environment(self) -> None:
+        from armi_data_rights._postgresql import DataRightsOrderRepository
+        from armi_data_rights.api import DataRightsOrderKind, DataRightsViolation
+        from armi_interaction.bootstrap import bootstrap_interaction_party_catalog
+        from armi_runtime.adapters.persistence.environment_identity import (
+            PostgreSQLEnvironmentIdentity,
+        )
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        party_id = uuid7()
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "INSERT INTO armi.parties(party_id,party_kind,creator_role) VALUES (%s,'creator','unique_primary_creator')",
+                (party_id,),
+            )
+        with (
+            psycopg.connect(fixture.runtime_dsn) as connection,
+            self.assertRaises(psycopg.errors.InsufficientPrivilege),
+        ):
+            connection.execute(
+                "UPDATE armi.deployment_environments SET identity_key_digest=NULL,environment_kind='active'"
+            )
+
+        async def exercise() -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await factory.open()
+            try:
+                parties = bootstrap_interaction_party_catalog()
+                repository = DataRightsOrderRepository(parties)
+                identity = PostgreSQLEnvironmentIdentity()
+                key = Digest.from_bytes(b"identity-key").value
+                async with factory.unit_of_work() as unit:
+                    self.assertFalse(
+                        await identity.bind_identity_key(
+                            unit.transaction, key_identity=key
+                        )
+                    )
+                with psycopg.connect(fixture.provisioner_dsn) as connection:
+                    connection.execute(
+                        "INSERT INTO armi.deployment_environments (environment_id,environment_kind,incarnation,resettable,test_controls_enabled) VALUES (%s,'system_test',1,true,true)",
+                        (fixture.environment_id,),
+                    )
+                async with factory.unit_of_work() as unit:
+                    self.assertTrue(
+                        await identity.bind_identity_key(
+                            unit.transaction, key_identity=key
+                        )
+                    )
+                async with factory.unit_of_work() as unit:
+                    self.assertTrue(
+                        await identity.bind_identity_key(
+                            unit.transaction, key_identity=key
+                        )
+                    )
+                    self.assertFalse(
+                        await identity.bind_identity_key(
+                            unit.transaction,
+                            key_identity=Digest.from_bytes(b"other-key").value,
+                        )
+                    )
+                    before = await repository.capture(
+                        unit.transaction, party_id=party_id
+                    )
+                    self.assertEqual(
+                        (before.contact_generation, before.use_generation), (1, 1)
+                    )
+                    contact = await repository.advance_fence(
+                        unit.transaction,
+                        party_id=party_id,
+                        order_kind=DataRightsOrderKind.STOP_CONTACT,
+                    )
+                    self.assertEqual(
+                        (contact.contact_generation, contact.use_generation), (2, 1)
+                    )
+                    await repository.validate(
+                        unit.transaction,
+                        before,
+                        require_contact=False,
+                        require_use=True,
+                    )
+                    with self.assertRaises(DataRightsViolation):
+                        await repository.validate(
+                            unit.transaction,
+                            before,
+                            require_contact=True,
+                            require_use=False,
+                        )
+                    stopped = await repository.advance_fence(
+                        unit.transaction,
+                        party_id=party_id,
+                        order_kind=DataRightsOrderKind.STOP_USE,
+                    )
+                    self.assertEqual(
+                        (stopped.contact_generation, stopped.use_generation), (3, 2)
+                    )
+                    with self.assertRaises(DataRightsViolation):
+                        await repository.validate(
+                            unit.transaction,
+                            contact,
+                            require_contact=False,
+                            require_use=True,
+                        )
+                    self.assertEqual(
+                        await parties.all_party_fences(unit.transaction),
+                        ((party_id, 3, 2),),
+                    )
+                    with self.assertRaises(DataRightsViolation):
+                        await repository.capture(unit.transaction, party_id=uuid7())
+            finally:
+                await factory.close()
+
+        asyncio.run(
+            exercise(),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
 
     @pytest.mark.test_group("data-rights")
     def test_export_file_state_and_party_links_share_export_record(self) -> None:
@@ -2471,7 +2600,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchall()
             column_dml = connection.execute(
                 """
-                SELECT count(*)
+                SELECT grantee.rolname, relation.relname,
+                       privilege.privilege_type, attribute.attname
                 FROM pg_catalog.pg_attribute AS attribute
                 CROSS JOIN LATERAL pg_catalog.aclexplode(
                     attribute.attacl
@@ -2486,7 +2616,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                   AND grantee.rolname IN ('armi_runtime', 'armi_admin')
                   AND privilege.privilege_type IN ('INSERT', 'UPDATE')
                 """
-            ).fetchone()
+            ).fetchall()
             separated = connection.execute(
                 """
                 SELECT has_table_privilege(%s, 'armi.effect_observations', 'INSERT'),
@@ -2503,7 +2633,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(extension, ("0.8.6", "armi_extensions", True))
         self.assertEqual(frozenset(table_dml), CURRENT_DML_CAPABILITIES)
-        self.assertEqual(column_dml, (0,))
+        self.assertEqual(frozenset(column_dml), CURRENT_COLUMN_DML_CAPABILITIES)
         self.assertEqual(separated, (True, False, False, True))
         with self.assertRaises(DatabaseViolation) as repeated:
             self._install_current(
@@ -3280,7 +3410,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         unit.transaction, part_id=part_id
                     )
                     await unit.transaction.execute(
-                        "UPDATE armi.data_rights_party_fences SET use_generation=use_generation+1 WHERE party_id=%s",
+                        "UPDATE armi.parties SET rights_use_generation=rights_use_generation+1 WHERE party_id=%s",
                         (party_id,),
                     )
                     await fence_owner.validate(

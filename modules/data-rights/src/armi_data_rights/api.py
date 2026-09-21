@@ -178,6 +178,18 @@ class DataRightsPartyRosterPort(Protocol):
         self, transaction: PostgreSQLTransaction
     ) -> tuple[UUID, ...]: ...
 
+    async def rights_fence(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID
+    ) -> tuple[int, int] | None: ...
+
+    async def advance_rights_fence(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID, use_increment: int
+    ) -> tuple[int, int] | None: ...
+
+    async def all_party_fences(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[tuple[UUID, int, int], ...]: ...
+
 
 @runtime_checkable
 class DataRightsUnitOfWorkFactory(Protocol):
@@ -193,6 +205,13 @@ class DataRightsUnitOfWorkFactory(Protocol):
         isolation: TransactionIsolation = TransactionIsolation.READ_COMMITTED,
         read_only: bool = False,
     ) -> AbstractAsyncContextManager[PostgreSQLRuntimeUnitOfWork]: ...
+
+
+@runtime_checkable
+class DataRightsIdentityBindingPort(Protocol):
+    async def bind_identity_key(
+        self, transaction: PostgreSQLTransaction, *, key_identity: str
+    ) -> bool: ...
 
 
 __all__ = (
@@ -224,6 +243,7 @@ __all__ = (
     "DataRightsExportSegment",
     "DataRightsFence",
     "DataRightsFencePort",
+    "DataRightsIdentityBindingPort",
     "DataRightsInteractionGate",
     "DataRightsItemStatus",
     "DataRightsOrderCommand",

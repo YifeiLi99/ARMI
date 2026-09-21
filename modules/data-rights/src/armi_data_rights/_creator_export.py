@@ -375,19 +375,7 @@ class CreatorExportService(CreatorExportPort):
                 if snapshot_row is None:
                     raise CreatorExportViolation("CREATOR-EXPORT-SNAPSHOT")
                 snapshot_at = str(snapshot_row[0])
-                party_ids = await self._party_roster.all_party_ids(connection)
-                party_rows = await (
-                    await connection.execute(
-                        """SELECT requested.party_id,
-                                  COALESCE(fence.contact_generation,1),
-                                  COALESCE(fence.use_generation,1)
-                           FROM unnest(%s::uuid[]) AS requested(party_id)
-                           LEFT JOIN armi.data_rights_party_fences AS fence
-                             ON fence.party_id=requested.party_id
-                           ORDER BY requested.party_id""",
-                        (list(party_ids),),
-                    )
-                ).fetchall()
+                party_rows = await self._party_roster.all_party_fences(connection)
                 scope = DataRightsExportScope(self._creator_party_id)
                 for participant in self._participants:
                     owner = participant.owner_identity

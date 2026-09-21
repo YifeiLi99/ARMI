@@ -12,6 +12,7 @@ from pathlib import Path
 
 from armi_postgresql_contract.table_policy import TABLE_OWNERSHIP, TableOwnership
 from armi_runtime.adapters.persistence.database_capabilities import (
+    CURRENT_COLUMN_DML_CAPABILITIES,
     CURRENT_DML_CAPABILITIES,
 )
 
@@ -44,6 +45,7 @@ class DatabaseDmlAccess:
     role: str
     table: str
     operation: str
+    columns: tuple[str, ...] = ()
 
 
 def schema_tables_at_head(schema_root: Path) -> frozenset[str]:
@@ -192,6 +194,20 @@ def scan_source_dml_accesses(
                     role=role,
                     table=match.group("table").lower(),
                     operation=operation,
+                    columns=tuple(
+                        re.findall(
+                            r"(?:\bSET|,)\s*([a-z][a-z0-9_]*)\s*=",
+                            re.split(
+                                r"\bWHERE\b|\bRETURNING\b|;",
+                                node.value[match.end() :],
+                                maxsplit=1,
+                                flags=re.IGNORECASE,
+                            )[0],
+                            flags=re.IGNORECASE,
+                        )
+                    )
+                    if operation == "UPDATE"
+                    else (),
                 )
             )
     return tuple(sorted(accesses))
@@ -225,7 +241,11 @@ def database_capability_errors(root: Path) -> tuple[str, ...]:
     errors = []
     for access in scan_repository_dml_accesses(root):
         capability = (access.role, access.table, access.operation)
-        if capability not in CURRENT_DML_CAPABILITIES:
+        column_allowed = bool(access.columns) and all(
+            (*capability, column.lower()) in CURRENT_COLUMN_DML_CAPABILITIES
+            for column in access.columns
+        )
+        if capability not in CURRENT_DML_CAPABILITIES and not column_allowed:
             errors.append(
                 f"{access.path}:{access.line}: missing {access.role} "
                 f"{access.operation} capability for armi.{access.table}"

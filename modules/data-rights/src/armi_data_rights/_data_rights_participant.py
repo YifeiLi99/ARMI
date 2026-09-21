@@ -22,24 +22,12 @@ from .api import (
 )
 
 _OWNER = DataRightsOwnerIdentity("data-rights")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "creator_exports",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.creator_exports AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "data_rights_party_fences",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.data_rights_party_fences AS source
-           ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "data_rights_identity_keys",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.data_rights_identity_keys AS source
-           ORDER BY to_jsonb(source)::text""",
     ),
     (
         "data_rights_order_items",

@@ -2892,8 +2892,6 @@ ALTER TABLE ONLY armi.subjective_memory_revisions
 
 
 -- F02 execution custody and current-state fence ownership.
-ALTER TABLE ONLY armi.data_rights_party_fences
-    ADD CONSTRAINT data_rights_party_fences_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
 
 
 ALTER TABLE ONLY armi.managed_data_snapshot_parties

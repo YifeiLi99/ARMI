@@ -112,12 +112,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "managed_data_snapshot_parties": TableOwnership(
         "data-rights", maintenance_writable=False
     ),
-    "data_rights_party_fences": TableOwnership(
-        "data-rights", maintenance_writable=False
-    ),
-    "data_rights_identity_keys": TableOwnership(
-        "data-rights", maintenance_writable=False
-    ),
     "data_rights_order_items": TableOwnership(
         "data-rights", maintenance_writable=False
     ),

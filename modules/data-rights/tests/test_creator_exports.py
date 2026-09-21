@@ -70,6 +70,9 @@ class _Custody:
 
 
 class _PartyRoster:
+    async def all_party_fences(self, _transaction):
+        return ()
+
     async def all_party_ids(self, _transaction):
         return ()
 

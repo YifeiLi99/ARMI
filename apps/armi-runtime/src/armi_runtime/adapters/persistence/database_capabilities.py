@@ -28,7 +28,7 @@ cognitive_context_items cognitive_episodes
 context_embedding_coverage
 context_embedding_projections context_embedding_source_sets creator_exports managed_data_snapshot_parties
 data_rights_order_items
-data_rights_identity_keys data_rights_party_fences data_rights_order_retry_attempts data_rights_orders
+data_rights_order_retry_attempts data_rights_orders
 durable_work effect_attempts effect_observations
  effects
 experience_evidence_links
@@ -64,7 +64,7 @@ artifact_object_deletions artifact_objects artifact_publications artifacts
 cognitive_episodes
 context_embedding_coverage context_embedding_source_sets creator_exports
 
-data_rights_party_fences data_rights_order_items data_rights_orders durable_work effect_attempts
+data_rights_order_items data_rights_orders durable_work effect_attempts
  effects
 external_channel_bindings
 external_evidence external_message_parts
@@ -117,7 +117,13 @@ CURRENT_DML_CAPABILITIES: Final[frozenset[DatabaseDmlCapability]] = frozenset[
     ),
 )
 
+CURRENT_COLUMN_DML_CAPABILITIES: Final = frozenset(
+    ("armi_runtime", "deployment_environments", "UPDATE", column)
+    for column in ("identity_key_digest", "identity_key_bound_at")
+)
+
 __all__ = (
+    "CURRENT_COLUMN_DML_CAPABILITIES",
     "CURRENT_DML_CAPABILITIES",
     "DatabaseDmlCapability",
     "DatabaseOperation",

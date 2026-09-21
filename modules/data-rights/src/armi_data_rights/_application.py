@@ -38,6 +38,7 @@ from .api import (
     DataRightsArtifactLifecyclePort,
     DataRightsDeletionPreview,
     DataRightsExecutionStatus,
+    DataRightsIdentityBindingPort,
     DataRightsItemStatus,
     DataRightsOrderCommand,
     DataRightsOrderDetail,
@@ -63,6 +64,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         "_custody",
         "_data_root",
         "_deletion",
+        "_identity_binding",
         "_identity_key",
         "_lifecycle",
         "_notifier",
@@ -87,6 +89,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         participants: tuple[DataRightsParticipant, ...],
         owner_contracts: tuple[DataRightsOwnerContract, ...],
         identity_key: str,
+        identity_binding: DataRightsIdentityBindingPort,
         data_root: Path,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
@@ -96,6 +99,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self._custody = custody
         self._deletion = deletion
         self._identity_key = identity_key
+        self._identity_binding = identity_binding
         self._data_root = data_root
         self._lifecycle = lifecycle
         self._repository = repository
@@ -116,19 +120,9 @@ class DataRightsOrderService(DataRightsOrderPort):
                 isolation=TransactionIsolation.SERIALIZABLE
             ) as unit:
                 await self._validate_owner_contracts(unit)
-                await unit.transaction.execute(
-                    """INSERT INTO armi.data_rights_identity_keys
-                       (singleton_key,key_identity) VALUES (1,%s)
-                       ON CONFLICT (singleton_key) DO NOTHING""",
-                    (self._identity_key,),
-                )
-                row = await (
-                    await unit.transaction.execute(
-                        """SELECT key_identity FROM armi.data_rights_identity_keys
-                           WHERE singleton_key=1"""
-                    )
-                ).fetchone()
-                if row is None or str(row[0]) != self._identity_key:
+                if not await self._identity_binding.bind_identity_key(
+                    unit.transaction, key_identity=self._identity_key
+                ):
                     raise DataRightsViolation("DATA-RIGHTS-IDENTITY-KEY-MISMATCH")
             await self._deletion.resume_pending()
         except RuntimeTransactionFailure:

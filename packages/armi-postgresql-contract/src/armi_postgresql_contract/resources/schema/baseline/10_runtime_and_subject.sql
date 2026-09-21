@@ -10,7 +10,7 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v61'::text
+        baseline_identity = 'armi.schema-baseline.v62'::text
     ),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
         resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
@@ -24,7 +24,7 @@ CREATE TABLE armi.schema_baseline_identity (
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v61');
+VALUES ('armi.schema-baseline.v62');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
@@ -37,6 +37,10 @@ CREATE TABLE armi.deployment_environments (
     incarnation bigint NOT NULL,
     resettable boolean NOT NULL,
     test_controls_enabled boolean NOT NULL,
+    identity_key_digest text,
+    identity_key_bound_at timestamp(6) with time zone,
+    CONSTRAINT deployment_environments_identity_key_pair CHECK ((identity_key_digest IS NULL) = (identity_key_bound_at IS NULL)),
+    CONSTRAINT deployment_environments_identity_key_digest CHECK (identity_key_digest IS NULL OR identity_key_digest ~ '^sha256:[0-9a-f]{64}$'),
     registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     CONSTRAINT deployment_environments_check CHECK (((environment_kind = ANY (ARRAY['development'::text, 'system_test'::text, 'acceptance'::text])) OR ((NOT resettable) AND (NOT test_controls_enabled)))),
     CONSTRAINT deployment_environments_check1 CHECK (((NOT test_controls_enabled) OR (environment_kind = ANY (ARRAY['system_test'::text, 'acceptance'::text])))),

@@ -441,6 +441,18 @@ class InteractionPartyCatalogPort(Protocol):
         self, transaction: PostgreSQLTransaction
     ) -> tuple[UUID, ...]: ...
 
+    async def rights_fence(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID
+    ) -> tuple[int, int] | None: ...
+
+    async def advance_rights_fence(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID, use_increment: int
+    ) -> tuple[int, int] | None: ...
+
+    async def all_party_fences(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[tuple[UUID, int, int], ...]: ...
+
 
 @runtime_checkable
 class InteractionBirthPort(Protocol):

@@ -18,6 +18,7 @@ from ._deletion_postgresql import LocalDataDeletionRepository
 from .api import (
     DataRightsArtifactLifecyclePort,
     DataRightsDeletionPreview,
+    DataRightsFencePort,
     DataRightsTargetRef,
     DataRightsUnitOfWorkFactory,
     DataRightsViolation,
@@ -25,16 +26,24 @@ from .api import (
 
 
 class LocalDataDeletionExecutor:
-    __slots__ = ("_execution_lock", "_lifecycle", "_repository", "_uow_factory")
+    __slots__ = (
+        "_execution_lock",
+        "_fences",
+        "_lifecycle",
+        "_repository",
+        "_uow_factory",
+    )
 
     def __init__(
         self,
         *,
         repository: LocalDataDeletionRepository,
+        fences: DataRightsFencePort,
         lifecycle: DataRightsArtifactLifecyclePort,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
     ) -> None:
         self._repository = repository
+        self._fences = fences
         self._lifecycle = lifecycle
         self._uow_factory = unit_of_work_factory
         self._execution_lock = asyncio.Lock()
@@ -123,15 +132,10 @@ class LocalDataDeletionExecutor:
         ordered = tuple(
             sorted(targets.values(), key=lambda item: (item.kind, str(item.ref)))
         )
-        fence = await (
-            await unit.transaction.execute(
-                "SELECT contact_generation,use_generation FROM armi.data_rights_party_fences WHERE party_id=%s",
-                (party_id,),
-            )
-        ).fetchone()
+        fence = await self._fences.capture(unit.transaction, party_id=party_id)
         scope = {
             "party_id": str(party_id),
-            "fence": None if fence is None else [int(fence[0]), int(fence[1])],
+            "fence": [fence.contact_generation, fence.use_generation],
             "related": [[item.kind, str(item.ref)] for item in related],
             "targets": [
                 [

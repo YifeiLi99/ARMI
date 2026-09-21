@@ -88,6 +88,7 @@ async def test_deletion_retries_only_rolled_back_settlement_without_repeating_ph
     )
     lifecycle = SimpleNamespace(run_once=AsyncMock())
     executor = LocalDataDeletionExecutor(
+        fences=cast(Any, None),
         repository=cast(Any, repository),
         lifecycle=cast(Any, lifecycle),
         unit_of_work_factory=cast(Any, SimpleNamespace(unit_of_work=unit_of_work)),
@@ -105,7 +106,7 @@ async def test_deletion_retries_only_rolled_back_settlement_without_repeating_ph
 
 
 def test_data_rights_core_seals_exactly_once() -> None:
-    core = bootstrap_data_rights_core()
+    core = bootstrap_data_rights_core(parties=cast(Any, None))
     gate = core.gate
 
     assert core.seal() is gate
@@ -271,7 +272,7 @@ def test_deletion_item_retry_only_updates_a_granted_settlement_column() -> None:
 @pytest.mark.parametrize("blocked", [False, True])
 def test_effective_order_guard_controls_new_interactions(blocked: bool) -> None:
     connection = _Connection(blocked)
-    repository = DataRightsOrderRepository()
+    repository = DataRightsOrderRepository(cast(Any, None))
     observed = asyncio.run(
         repository.blocks_new_interaction(
             cast(PostgreSQLRuntimeUnitOfWork, _UnitOfWork(connection)),

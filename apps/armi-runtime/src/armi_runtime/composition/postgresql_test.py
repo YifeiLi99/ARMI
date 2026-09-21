@@ -38,7 +38,6 @@ from armi_cognition.bootstrap import (
     parse_model_candidate,
 )
 from armi_context.bootstrap import bootstrap_context_candidate_read
-from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
     bootstrap_effect_intent_read,
@@ -82,6 +81,10 @@ from armi_sleep.bootstrap import bootstrap_sleep, bootstrap_sleep_cognition
 from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
     bootstrap_subject_state_cognition,
+)
+
+from armi_runtime.composition.database import (
+    compose_data_rights_core as bootstrap_data_rights_core,
 )
 
 ArtifactCatalogRepository = bootstrap_artifact_catalog
