@@ -3461,8 +3461,6 @@ ALTER TABLE ONLY armi.managed_data_snapshot_parties
 CREATE INDEX managed_data_snapshot_parties_party_active_idx
     ON armi.managed_data_snapshot_parties USING btree (party_id,managed_snapshot_id);
 
-ALTER TABLE ONLY armi.cognitive_context_dependencies
-    ADD CONSTRAINT cognitive_context_dependencies_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 -- Administrative revision receipts remain outside cognition provenance.
 ALTER TABLE armi.subjective_memory_revisions ADD CONSTRAINT subjective_memory_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;

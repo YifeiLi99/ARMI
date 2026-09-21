@@ -20,14 +20,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("context")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "cognitive_context_dependencies",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognitive_context_dependencies AS source
-           ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "cognitive_context_items",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

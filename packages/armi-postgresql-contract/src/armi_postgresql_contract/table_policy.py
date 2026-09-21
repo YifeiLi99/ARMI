@@ -65,9 +65,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Attention and context.
     "opportunities": TableOwnership("attention", maintenance_writable=True),
     "autonomy_plans": TableOwnership("attention", maintenance_writable=False),
-    "cognitive_context_dependencies": TableOwnership(
-        "context", maintenance_writable=True
-    ),
     "cognitive_context_items": TableOwnership("context", maintenance_writable=True),
     "context_embedding_coverage": TableOwnership("context", maintenance_writable=True),
     "context_embedding_projections": TableOwnership(
