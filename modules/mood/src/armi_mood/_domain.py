@@ -1131,6 +1131,116 @@ _TENDENCY_BY_FAMILY = {
 }
 
 
+@dataclass(slots=True)
+class _AffectTrace:
+    event: StoredAffectiveEvent
+    intensity: float
+    half_life_seconds: int
+    anchor: datetime
+    vad: VAD
+    component: EmotionComponent | None = None
+
+    def strength_at(self, at: datetime) -> float:
+        return self.intensity * math.pow(
+            2.0, -(at - self.anchor).total_seconds() / self.half_life_seconds
+        )
+
+
+def _affect_channels(
+    event: StoredAffectiveEvent,
+) -> dict[EmotionFamily | None, tuple[int, int, VAD, EmotionComponent | None]]:
+    return {
+        None: (
+            event.core.intensity,
+            event.core.half_life_seconds,
+            event.core.vad,
+            None,
+        ),
+        **{
+            stored.component.family: (
+                stored.component.intensity,
+                stored.half_life_seconds,
+                stored.component.vad,
+                stored.component,
+            )
+            for stored in event.components
+        },
+    }
+
+
+def _affect_traces(events: tuple[StoredAffectiveEvent, ...]) -> list[_AffectTrace]:
+    traces: list[_AffectTrace] = []
+    previous: dict[UUID, StoredAffectiveEvent] = {}
+    for event in events:
+        prior = previous.get(event.episode_id) if event.episode_id is not None else None
+        channels = _affect_channels(event)
+        if prior is None or event.transition in {
+            AppraisalTransition.NEW,
+            AppraisalTransition.REINFORCE,
+        }:
+            traces.extend(
+                _AffectTrace(
+                    event, strength, half_life, event.occurred_at, vad, component
+                )
+                for strength, half_life, vad, component in channels.values()
+                if strength > 0
+            )
+        else:
+            old_channels = _affect_channels(prior)
+            # DESIGN.md §8: revising an interpretation updates the existing affect;
+            # it must not add a second full stimulus or restart unchanged decay.
+            for trace in traces:
+                if trace.event.episode_id != event.episode_id:
+                    continue
+                key = trace.component.family if trace.component is not None else None
+                old_strength = old_channels[key][0] if key in old_channels else 0
+                updated = channels.get(key)
+                trace.event = event
+                if updated is not None and updated[0] > 0:
+                    if old_strength > 0:
+                        if (
+                            updated[0] != old_strength
+                            or updated[1] != trace.half_life_seconds
+                        ):
+                            trace.intensity = (
+                                trace.strength_at(event.occurred_at)
+                                * updated[0]
+                                / old_strength
+                            )
+                            trace.anchor = event.occurred_at
+                            trace.half_life_seconds = updated[1]
+                        trace.vad, trace.component = updated[2:]
+                    else:
+                        # A returning feeling replaces its residual, not adds to it.
+                        trace.intensity = 0.0
+                elif old_strength > 0:
+                    trace.intensity = trace.strength_at(event.occurred_at)
+                    trace.anchor = event.occurred_at
+                    factor = (
+                        0.25 if event.transition is AppraisalTransition.RESOLVE else 0.5
+                    )
+                    trace.half_life_seconds = max(
+                        1, round(trace.half_life_seconds * factor)
+                    )
+            for key, (strength, half_life, vad, component) in channels.items():
+                if strength > 0 and (
+                    key not in old_channels or old_channels[key][0] == 0
+                ):
+                    traces.append(
+                        _AffectTrace(
+                            event,
+                            strength,
+                            half_life,
+                            event.occurred_at,
+                            vad,
+                            component,
+                        )
+                    )
+        if event.episode_id is not None:
+            previous[event.episode_id] = event
+    return traces
+
+
 def derive_effective_snapshot(
     home_base: VAD,
     events: tuple[StoredAffectiveEvent, ...],
@@ -1151,59 +1261,32 @@ def derive_effective_snapshot(
     weighted: list[
         tuple[float, EmotionComponent, datetime, UUID | None, str, AppraisalEventPhase]
     ] = []
-    core_weights: list[tuple[float, StoredAffectiveEvent]] = []
-    for index, event in enumerate(ordered):
-        elapsed = max(0.0, (as_of - event.occurred_at).total_seconds())
-        transition = next(
-            (
-                later
-                for later in ordered[index + 1 :]
-                if event.episode_id is not None
-                and later.episode_id == event.episode_id
-                and later.occurred_at <= as_of
-                and later.transition
-                in {AppraisalTransition.REAPPRAISE, AppraisalTransition.RESOLVE}
-            ),
-            None,
-        )
-
-        decay_elapsed = elapsed
-        if transition is not None:
-            before = max(
-                0.0, (transition.occurred_at - event.occurred_at).total_seconds()
-            )
-            after = max(0.0, (as_of - transition.occurred_at).total_seconds())
-            factor = (
-                0.25 if transition.transition is AppraisalTransition.RESOLVE else 0.5
-            )
-            decay_elapsed = before + after / factor
-        core_intensity = event.core.intensity * math.pow(
-            2.0, -decay_elapsed / event.core.half_life_seconds
-        )
-        if core_intensity >= 1.0:
-            core_weights.append((core_intensity, event))
-        for stored in event.components:
-            intensity = stored.component.intensity * math.pow(
-                2.0, -decay_elapsed / stored.half_life_seconds
-            )
-            if intensity >= 1.0:
-                weighted.append(
-                    (
-                        intensity,
-                        stored.component,
-                        event.occurred_at,
-                        event.episode_id,
-                        event.gist,
-                        event.phase,
-                    )
+    core_weights: list[tuple[float, _AffectTrace]] = []
+    for trace in _affect_traces(ordered):
+        intensity = trace.strength_at(as_of)
+        if intensity < 1.0:
+            continue
+        event = trace.event
+        if trace.component is None:
+            core_weights.append((intensity, trace))
+        else:
+            weighted.append(
+                (
+                    intensity,
+                    trace.component,
+                    event.occurred_at,
+                    event.episode_id,
+                    event.gist,
+                    event.phase,
                 )
+            )
 
     def axis(name: str) -> int:
         base = cast(int, getattr(home_base, name))
         numerator = _BASE_WEIGHT * base
         denominator = _BASE_WEIGHT
-        for weight, event in core_weights:
-            numerator += weight * cast(int, getattr(event.core.vad, name))
+        for weight, trace in core_weights:
+            numerator += weight * cast(int, getattr(trace.vad, name))
             denominator += weight
         return max(-100, min(100, round(numerator / denominator)))
 
@@ -1235,7 +1318,8 @@ def derive_effective_snapshot(
     episode_strengths: dict[
         UUID, list[tuple[float, datetime, str, AppraisalEventPhase]]
     ] = defaultdict(list)
-    for intensity, event in core_weights:
+    for intensity, trace in core_weights:
+        event = trace.event
         if event.episode_id is not None:
             episode_strengths[event.episode_id].append(
                 (intensity, event.occurred_at, event.gist, event.phase)

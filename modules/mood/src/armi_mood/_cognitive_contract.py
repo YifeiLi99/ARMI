@@ -22,6 +22,7 @@ MOOD_APPRAISAL_INSTRUCTIONS = """## 评价对象与尺度
 - engagement 是活动是否提供所需投入。想投入却重复且无收获可为 understimulated;自愿休息、安静等待或持续进展不因此判为该项。
 - expectedness 只允许 expected/somewhat_unexpected/expectation_broken/unknown;轻微意外也用 somewhat_unexpected,不另造同义枚举值。
 - transition=new 时不填写 episode_ref 或 change_from_previous;reinforce/reappraise/resolve 必须同时填写已有事件的 episode_ref 和 change_from_previous。即使没有变化,后者也要明确写 unchanged,不能省略。
+- reinforce 表示同一事件受到有依据的新刺激,例如再次受到指责;仅重复描述旧事或再次思考不能作为新刺激。对旧事的理解、归因或应对能力变化用 reappraise,事情结束用 resolve。事情和理解均未变化时可不提交评价;若仍需重评则用 reappraise,不要用 new/reinforce 刷新感受。
 
 ## 准则、归因与不确定性
 - standards 只评价有依据的个人准则或社会规范。偏好落空、暂无进展、休息或独处本身不是准则冲突。无相关准则用 not_applicable,资料不足用 unknown。

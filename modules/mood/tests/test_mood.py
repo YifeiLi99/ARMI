@@ -700,6 +700,210 @@ def test_same_as_of_is_independent_of_poll_slices() -> None:
     assert derive_effective_state(VAD(0, 0, 0), events, as_of=target) == direct
 
 
+@pytest.mark.parametrize("minutes", [10, 60, 360, 1440])
+def test_unchanged_reappraisal_preserves_decay_even_when_repeated(minutes: int) -> None:
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    event = StoredAffectiveEvent(
+        now,
+        (
+            StoredEmotionComponent(
+                _component(EmotionFamily.SADNESS, intensity=85), 21600
+            ),
+        ),
+        uuid7(),
+        core=StoredCoreAffect(VAD(-70, 20, -85), 85, 21600),
+    )
+    reappraisals = tuple(
+        replace(
+            event,
+            occurred_at=now + timedelta(minutes=minute),
+            transition=AppraisalTransition.REAPPRAISE,
+        )
+        for minute in [10, 20, 30]
+    )
+    at = now + timedelta(minutes=minutes)
+    assert derive_effective_snapshot(
+        VAD(0, 0, 0), (event, *reappraisals), as_of=at
+    ) == (derive_effective_snapshot(VAD(0, 0, 0), (event,), as_of=at))
+
+
+def test_coping_reappraisal_changes_control_without_adding_sadness() -> None:
+    loss = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        quality=AppraisalQuality.UNPLEASANT,
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.NONE,
+            AppraisalPowerBalance.OVERMATCHED,
+            AppraisalAdjustment.DIFFICULT,
+        ),
+    )
+    _, stored, _ = _event_snapshot(loss)
+    changed = replace(
+        loss,
+        transition=AppraisalTransition.REAPPRAISE,
+        previous_episode_id=stored.episode_id,
+        change_from_previous=AppraisalTrajectory.UNCHANGED,
+        appraisal=replace(
+            loss.appraisal,
+            coping=AppraisalCoping(
+                AppraisalResponseAccess.DIRECT,
+                AppraisalPowerBalance.BALANCED,
+                AppraisalAdjustment.EASY,
+            ),
+        ),
+    )
+    derived = derive_semantic_appraisal(changed, previous=loss)
+    later = replace(
+        stored,
+        occurred_at=stored.occurred_at + timedelta(minutes=10),
+        transition=changed.transition,
+        core=derived.core,
+        components=derived.components,
+    )
+    before = derive_effective_snapshot(VAD(0, 0, 0), (stored,), as_of=later.occurred_at)
+    after = derive_effective_snapshot(
+        VAD(0, 0, 0), (stored, later), as_of=later.occurred_at
+    )
+    assert after[0].dominance > before[0].dominance
+    assert after[0].valence == before[0].valence
+    assert after[1] == before[1]
+    assert after[2] == before[2]
+
+
+@pytest.mark.parametrize("separate_episode", [False, True])
+def test_new_stimulus_can_still_increase_affect(separate_episode: bool) -> None:
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    event = StoredAffectiveEvent(
+        now,
+        (StoredEmotionComponent(_component(intensity=30), 3600),),
+        uuid7(),
+        core=StoredCoreAffect(VAD(60, 20, 0), 30, 3600),
+    )
+    later = replace(
+        event,
+        occurred_at=now + timedelta(minutes=10),
+        episode_id=uuid7() if separate_episode else event.episode_id,
+        transition=AppraisalTransition.NEW
+        if separate_episode
+        else AppraisalTransition.REINFORCE,
+    )
+    baseline = derive_effective_snapshot(
+        VAD(0, 0, 0), (event,), as_of=later.occurred_at
+    )
+    actual = derive_effective_snapshot(
+        VAD(0, 0, 0), (event, later), as_of=later.occurred_at
+    )
+    assert actual[0].valence > baseline[0].valence
+    assert actual[1][0].intensity > baseline[1][0].intensity
+    assert len(actual[2]) == (2 if separate_episode else 1)
+
+
+def test_reappraisal_leaves_fading_anger_without_duplicating_unchanged_sadness() -> (
+    None
+):
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    sadness = StoredEmotionComponent(
+        _component(EmotionFamily.SADNESS, intensity=50), 3600
+    )
+    anger = StoredEmotionComponent(_component(EmotionFamily.ANGER, intensity=40), 3600)
+    event = StoredAffectiveEvent(
+        now, (sadness, anger), uuid7(), core=StoredCoreAffect(VAD(-60, 20, 0), 60, 3600)
+    )
+    clarified = replace(
+        event,
+        occurred_at=now + timedelta(minutes=10),
+        components=(sadness,),
+        transition=AppraisalTransition.REAPPRAISE,
+    )
+    at = clarified.occurred_at
+    baseline = derive_effective_state(VAD(0, 0, 0), (event,), as_of=at)
+    assert (
+        derive_effective_state(VAD(0, 0, 0), (event, clarified), as_of=at) == baseline
+    )
+    at += timedelta(minutes=30)
+    before = {
+        e.family: e.intensity
+        for e in derive_effective_state(VAD(0, 0, 0), (event,), as_of=at)[1]
+    }
+    after = {
+        e.family: e.intensity
+        for e in derive_effective_state(VAD(0, 0, 0), (event, clarified), as_of=at)[1]
+    }
+    assert after[EmotionFamily.SADNESS] == before[EmotionFamily.SADNESS]
+    assert 0 < after[EmotionFamily.ANGER] < before[EmotionFamily.ANGER]
+
+
+def test_returning_emotion_replaces_its_residual_and_leaves_other_episode_alone() -> (
+    None
+):
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    anger = StoredEmotionComponent(_component(EmotionFamily.ANGER, intensity=40), 3600)
+    event = StoredAffectiveEvent(
+        now, (anger,), uuid7(), core=StoredCoreAffect(VAD(-60, 20, 0), 60, 3600)
+    )
+    other = replace(
+        event,
+        episode_id=uuid7(),
+        components=(
+            StoredEmotionComponent(_component(EmotionFamily.JOY, intensity=25), 3600),
+        ),
+    )
+    cleared = replace(
+        event,
+        occurred_at=now + timedelta(minutes=10),
+        components=(),
+        transition=AppraisalTransition.REAPPRAISE,
+        core=StoredCoreAffect(VAD(0, 0, 0), 0, 3600),
+    )
+    returned = replace(
+        event,
+        occurred_at=now + timedelta(minutes=20),
+        transition=AppraisalTransition.REAPPRAISE,
+    )
+    history = (event, other, cleared, returned)
+    actual = derive_effective_snapshot(
+        VAD(0, 0, 0), history, as_of=returned.occurred_at
+    )
+    fresh = derive_effective_snapshot(
+        VAD(0, 0, 0), (other, returned), as_of=returned.occurred_at
+    )
+    assert actual == fresh
+    assert {e.family: e.intensity for e in actual[1]}[EmotionFamily.ANGER] == 40
+
+
+@pytest.mark.parametrize("revised_strength,expected", [(30, 15), (90, 45)])
+def test_reappraisal_changes_existing_strength_without_refreshing_elapsed_time(
+    revised_strength: int, expected: int
+) -> None:
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    original = StoredAffectiveEvent(
+        now,
+        (StoredEmotionComponent(_component(intensity=60), 3600),),
+        uuid7(),
+        core=StoredCoreAffect(VAD(60, 20, 0), 60, 3600),
+    )
+    revised = replace(
+        original,
+        occurred_at=now + timedelta(hours=1),
+        transition=AppraisalTransition.REAPPRAISE,
+        core=replace(original.core, intensity=revised_strength),
+        components=(
+            StoredEmotionComponent(_component(intensity=revised_strength), 3600),
+        ),
+    )
+    result = derive_effective_snapshot(
+        VAD(0, 0, 0), (original, revised), as_of=revised.occurred_at
+    )
+    assert result[1][0].intensity == expected
+    assert result[2][0].intensity == expected
+
+
 def _event_snapshot(event: SemanticAppraisalEvent):
     derived = derive_semantic_appraisal(event)
     now = datetime(2026, 9, 21, tzinfo=UTC)
