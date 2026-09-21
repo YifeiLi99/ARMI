@@ -15,7 +15,6 @@ _PURPOSES = {
     "consider_codex_result": "理解受托工作结果,回应原问题或决定必要的后续行动",
     "consider_codex_task": "判断是否执行这份 Codex 委托",
     "consider_life_query_result": "根据生活查询结果继续处理原问题",
-    "consider_web_evidence": "理解本轮网页资料并决定如何采纳",
     "consider_visual_observation": "理解本轮视觉观察",
     "consider_autonomous_life": "根据当前处境决定自主活动或表达,也可以继续沉默",
     "consider_sleep": "决定是否进入睡眠",
@@ -57,7 +56,6 @@ _SECTION_BY_KIND = {
     "resource_snapshot": "当前状态",
     "recent_scene_turn": "历史对话",
     "capability_catalog": "可用能力",
-    "web_search_availability": "可用能力",
 }
 
 
@@ -86,7 +84,7 @@ def context_messages(document: dict[str, Any]) -> list[dict[str, str]]:
     # Only expose submission fields actually consumed by the current contract.
     contract = document.get("output_contract", {}).get("schema_version", "")
     submission: dict[str, Any] = {}
-    if contract == "armi.cognition-candidate.v17":
+    if contract == "armi.cognition-candidate.v18":
         submission["candidate_base"] = document["candidate_base"]
     items = [item for layer in compiled["layers"] for item in layer["items"]]
     if not any(item["item_kind"] == "current_purpose" for item in items):
@@ -178,7 +176,6 @@ _KINDS = {
     "current_memory": "相关记忆",
     "current_material": "相关资料",
     "recall_status": "记忆检索情况",
-    "web_search_availability": "网页搜索可用性",
     "active_affective_episode": "仍在影响我的情绪事件",
 }
 _LABELS = {

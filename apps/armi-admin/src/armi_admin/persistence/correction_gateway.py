@@ -31,7 +31,6 @@ from armi_runtime_foundation import (
     PostgreSQLAdminUnitOfWorkFactory,
 )
 from armi_subject_state.api import SubjectStateAdminCorrectionPort
-from armi_web_observation.api import WebObservationAdminPort
 
 from .role_session import AdminCommitUnknownError, AdminRoleSessionError
 from .runtime_foundation import RuntimeFoundationAdminAdapter
@@ -80,7 +79,6 @@ class AdminCorrectionGateway:
         "_prompts",
         "_runtime",
         "_subject_state",
-        "_web",
     )
 
     def __init__(
@@ -98,7 +96,6 @@ class AdminCorrectionGateway:
         live_vision: LiveVisionAdminPort,
         material: MaterialAdminReadPort,
         opportunity: OpportunityAdminPort,
-        web: WebObservationAdminPort,
         environment_id: str,
         incarnation: int,
         mood: MoodAdminCorrectionPort,
@@ -118,7 +115,6 @@ class AdminCorrectionGateway:
         self._live_vision = live_vision
         self._material = material
         self._opportunity = opportunity
-        self._web = web
         self._environment_id = environment_id
         self._incarnation = incarnation
         self._mood = mood
@@ -517,9 +513,6 @@ class AdminCorrectionGateway:
             )
             is not None
             or self._cognition.opportunity_consumed(
-                connection, opportunity_id=opportunity.opportunity_id
-            )
-            or self._web.opportunity_consumed(
                 connection, opportunity_id=opportunity.opportunity_id
             )
         ):
@@ -1033,9 +1026,6 @@ class AdminCorrectionGateway:
                     connection, artifact_id=artifact_uuid
                 ),
                 self._effects.artifact_reference_count(
-                    connection, artifact_id=artifact_uuid
-                ),
-                self._web.artifact_reference_count(
                     connection, artifact_id=artifact_uuid
                 ),
                 self._codex.artifact_reference_count(

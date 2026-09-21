@@ -124,7 +124,6 @@ from armi_subject_state.api import (
     SubjectStateCognitionPort,
     SubjectStateKind,
 )
-from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import BaseModel, ValidationError
 
 from . import _creator_cognitive_act_contract as creator_act
@@ -143,7 +142,6 @@ from ._autonomous_activity_contract import (
     AutonomousTerminalDecision,
     AutonomousVisualObservationDecision,
     AutonomousWaitDecision,
-    AutonomousWebResearchDecision,
     StartActivityDecision,
 )
 from ._creator_changes import translate_creator_changes
@@ -180,8 +178,6 @@ from ._model_contract import (
     SelfState,
     VisualObservationRequestPayload,
     VisualObservationRequestProposal,
-    WebResearchRequestPayload,
-    WebResearchRequestProposal,
     parse_candidate,
 )
 from ._other_human_contract import (
@@ -352,7 +348,6 @@ class CandidateValidationContext:
     creator_party_id: UUID | None
     current_components: tuple[tuple[CandidateOwner, int, bytes], ...]
     purpose: str = "consider_creator_input"
-    web_search_active: bool = False
     codex_active: bool = False
     codex_task_sources: tuple[tuple[UUID, Digest], ...] = ()
     opportunity_id: UUID | None = None
@@ -785,7 +780,6 @@ class DeterministicCandidateValidator:
                 AutonomousCodexDecision,
                 AutonomousTerminalDecision,
                 AutonomousVisualObservationDecision,
-                AutonomousWebResearchDecision,
                 AutonomousLifeQueryDecision,
             ),
         ):
@@ -887,7 +881,6 @@ class DeterministicCandidateValidator:
             | CandidateOwnerDraft
             | CreatorReplyDraft
             | FormalNoActionDraft
-            | WebResearchRequestDraft
             | VisualObservationRequestDraft
             | CodexDelegationDraft,
         ] = {}
@@ -902,9 +895,7 @@ class DeterministicCandidateValidator:
             if failure is None and owner is CandidateOwner.EXPERIENCE:
                 experience = cast(ExperienceProposal, proposal)
                 expected_perspective = (
-                    "web_claim"
-                    if self._context.purpose == "consider_web_evidence"
-                    else "codex_observation"
+                    "codex_observation"
                     if self._context.purpose == "consider_codex_result"
                     else "creator_claim"
                 )
@@ -1052,25 +1043,6 @@ class DeterministicCandidateValidator:
                         tuple(basis.ordinal for basis in proposal_bases),
                         FormalNoActionKind(action.payload.decision),
                         FormalNoActionReason(action.payload.reason_class),
-                    )
-                    continue
-            if failure is None and owner is CandidateOwner.WEB_RESEARCH:
-                research = cast(WebResearchRequestProposal, proposal)
-                failure = _web_research_failure(
-                    research,
-                    proposal_bases,
-                    active=self._context.web_search_active,
-                    purpose=self._context.purpose,
-                )
-                if failure is None:
-                    query_bytes = research.payload.query.encode(
-                        "utf-8", errors="strict"
-                    )
-                    accepted[proposal.proposal_ref] = WebResearchRequestDraft(
-                        proposal.proposal_ref,
-                        proposal.atomic_group_ref,
-                        tuple(basis.ordinal for basis in proposal_bases),
-                        query_bytes,
                     )
                     continue
             if failure is None and owner is CandidateOwner.VISUAL_OBSERVATION:
@@ -1266,11 +1238,6 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, (CreatorReplyDraft, FormalNoActionDraft))
         )
-        web_research_requests = tuple(
-            value
-            for _, value in sorted(accepted.items())
-            if isinstance(value, WebResearchRequestDraft)
-        )
         visual_observation_requests = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1298,9 +1265,6 @@ class DeterministicCandidateValidator:
             "disposition": disposition.value,
             "experiences": [_experience_wire(item) for item in experiences],
             "action_choices": [_action_wire(item) for item in action_choices],
-            "web_research_requests": [
-                _web_research_wire(item) for item in web_research_requests
-            ],
             "visual_observation_requests": [
                 _visual_observation_request_wire(item)
                 for item in visual_observation_requests
@@ -1328,7 +1292,6 @@ class DeterministicCandidateValidator:
             disposition,
             experiences,
             action_choices,
-            web_research_requests,
             rejections,
             visual_observation_requests=visual_observation_requests,
             codex_delegations=codex_delegations,
@@ -1416,7 +1379,6 @@ class DeterministicCandidateValidator:
             "disposition": disposition.value,
             "experiences": [] if experience is None else [_experience_wire(experience)],
             "action_choices": [],
-            "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
@@ -1436,7 +1398,6 @@ class DeterministicCandidateValidator:
             disposition=disposition,
             experiences=() if experience is None else (experience,),
             action_choices=(),
-            web_research_requests=(),
             rejections=(),
             owner_drafts=owner_drafts,
         )
@@ -1619,7 +1580,6 @@ class DeterministicCandidateValidator:
             "disposition": disposition.value,
             "experiences": [] if experience is None else [_experience_wire(experience)],
             "action_choices": [_action_wire(item) for item in action_choices],
-            "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [
@@ -1650,7 +1610,6 @@ class DeterministicCandidateValidator:
             disposition=disposition,
             experiences=() if experience is None else (experience,),
             action_choices=action_choices,
-            web_research_requests=(),
             rejections=(),
             owner_drafts=(
                 *(
@@ -1680,7 +1639,6 @@ class DeterministicCandidateValidator:
             | AutonomousCodexDecision
             | AutonomousTerminalDecision
             | AutonomousVisualObservationDecision
-            | AutonomousWebResearchDecision
             | AutonomousLifeQueryDecision
         ),
         *,
@@ -1723,7 +1681,6 @@ class DeterministicCandidateValidator:
                 ),
             )
         visual_requests: tuple[VisualObservationRequestDraft, ...] = ()
-        web_requests: tuple[WebResearchRequestDraft, ...] = ()
         codex_delegations: tuple[CodexDelegationDraft, ...] = ()
         exact_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
         if isinstance(candidate, AutonomousCodexDecision):
@@ -1740,23 +1697,7 @@ class DeterministicCandidateValidator:
                     basis_ordinals=(source.ordinal,),
                 ),
             )
-        if isinstance(candidate, AutonomousWebResearchDecision):
-            if not self._context.web_search_active:
-                return _rejected("CANDIDATE-WEB-NOT-ACTIVE")
-            if (
-                "http://" in candidate.query.casefold()
-                or "https://" in candidate.query.casefold()
-            ):
-                return _rejected("CANDIDATE-WEB-URL-FORBIDDEN")
-            web_requests = (
-                WebResearchRequestDraft(
-                    "proposal:1",
-                    "group:1",
-                    (source.ordinal,),
-                    candidate.query.encode("utf-8"),
-                ),
-            )
-        elif isinstance(candidate, AutonomousLifeQueryDecision):
+        if isinstance(candidate, AutonomousLifeQueryDecision):
             exact_queries = (
                 CandidateExactLifeQueryDraft(
                     "proposal:1",
@@ -1781,7 +1722,6 @@ class DeterministicCandidateValidator:
         disposition = {
             "start_activity": CandidateDisposition.CHANGE,
             "visual_observation": CandidateDisposition.CHANGE,
-            "web_research": CandidateDisposition.CHANGE,
             "exact_life_query": CandidateDisposition.CHANGE,
             "codex_delegation": CandidateDisposition.CHANGE,
             "no_activity": CandidateDisposition.NO_CHANGE,
@@ -1814,7 +1754,6 @@ class DeterministicCandidateValidator:
                     "proposal:2"
                     if activities
                     or visual_requests
-                    or web_requests
                     or exact_queries
                     or codex_delegations
                     else "proposal:1"
@@ -1842,9 +1781,6 @@ class DeterministicCandidateValidator:
             "disposition": disposition.value,
             "experiences": [],
             "action_choices": [_action_wire(item) for item in expressions],
-            "web_research_requests": [
-                _web_research_wire(item) for item in web_requests
-            ],
             "visual_observation_requests": [
                 _visual_observation_request_wire(item) for item in visual_requests
             ],
@@ -1858,7 +1794,6 @@ class DeterministicCandidateValidator:
             "rejections": [],
             "autonomy_acted": bool(
                 expressions
-                or web_requests
                 or visual_requests
                 or codex_delegations
                 or exact_queries
@@ -1879,7 +1814,6 @@ class DeterministicCandidateValidator:
             disposition,
             experiences=(),
             action_choices=expressions,
-            web_research_requests=web_requests,
             codex_delegations=codex_delegations,
             exact_life_queries=exact_queries,
             rejections=(),
@@ -1887,7 +1821,6 @@ class DeterministicCandidateValidator:
             owner_drafts=tuple(owner_drafts),
             autonomy_acted=bool(
                 expressions
-                or web_requests
                 or visual_requests
                 or codex_delegations
                 or exact_queries
@@ -1901,7 +1834,6 @@ class DeterministicCandidateValidator:
             len(owner_drafts)
             + len(visual_requests)
             + len(expressions)
-            + len(web_requests)
             + len(exact_queries)
             + len(codex_delegations),
             0,
@@ -1963,7 +1895,6 @@ class DeterministicCandidateValidator:
             "disposition": disposition.value,
             "experiences": [],
             "action_choices": [],
-            "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
@@ -1982,12 +1913,9 @@ class DeterministicCandidateValidator:
             context.bundle_activation_id,
             context.context_digest,
             disposition,
-            (),
-            (),
-            (),
-            (),
-            (),
-            (),
+            experiences=(),
+            action_choices=(),
+            rejections=(),
             owner_drafts=(owner_draft,),
         )
         return CandidateValidationResult(
@@ -2152,7 +2080,6 @@ class DeterministicCandidateValidator:
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
             "action_choices": [_action_wire(item) for item in expressions],
-            "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
@@ -2174,7 +2101,6 @@ class DeterministicCandidateValidator:
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
             action_choices=expressions,
-            web_research_requests=(),
             rejections=(),
             owner_drafts=tuple(owner_drafts),
             autonomy_acted=autonomy_acted,
@@ -2377,7 +2303,6 @@ class DeterministicCandidateValidator:
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
             "action_choices": [],
-            "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in all_owner_drafts],
@@ -2397,7 +2322,6 @@ class DeterministicCandidateValidator:
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
             action_choices=(),
-            web_research_requests=(),
             rejections=(),
             owner_drafts=all_owner_drafts,
         )
@@ -2531,7 +2455,6 @@ class DeterministicCandidateValidator:
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
             "action_choices": [],
-            "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
@@ -2552,7 +2475,6 @@ class DeterministicCandidateValidator:
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
             action_choices=(),
-            web_research_requests=(),
             rejections=(),
             owner_drafts=owner_drafts,
         )
@@ -2628,7 +2550,6 @@ def _expand_creator_cognitive_act(
         "defer": "Creator dialogue defer selected.",
         "need_information": "Creator dialogue needs information.",
         "codex_delegation": "Creator dialogue delegated work to Codex.",
-        "web_research": "Creator dialogue selected public Web research.",
         "exact_life_query": "ARMI selected an exact life-record query.",
         "visual_observation": "ARMI selected a visual observation.",
     }[decision.kind]
@@ -2639,7 +2560,6 @@ def _expand_creator_cognitive_act(
     component_changes: list[ComponentChangeProposal] = []
     memory_changes: list[MemoryChangeProposal] = []
     action_choices: list[dict[str, Any]] = []
-    web_requests: list[dict[str, Any]] = []
     visual_requests: list[dict[str, Any]] = []
     exact_query: CandidateExactLifeQueryDraft | None = None
     codex_delegation: CodexDelegationDraft | None = None
@@ -2727,48 +2647,6 @@ def _expand_creator_cognitive_act(
             basis_ordinals=(evidence.ordinal,),
         )
         disposition = "change"
-    elif isinstance(decision, creator_act.WebResearchDecision):
-        purpose = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "current_purpose" and item.trust_class == "policy"
-            ),
-            None,
-        )
-        availability = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "web_search_availability"
-                and item.trust_class == "policy"
-            ),
-            None,
-        )
-        if purpose is None:
-            return None, None, "CANDIDATE-WEB-PURPOSE-BASIS"
-        if availability is None:
-            return None, None, "CANDIDATE-WEB-AVAILABILITY-BASIS"
-        understanding_basis_refs = (
-            evidence_ref,
-            f"ctx:{purpose.ordinal}",
-            f"ctx:{availability.ordinal}",
-        )
-        disposition = "change"
-        web_requests.append(
-            {
-                "proposal_ref": "proposal:1",
-                "atomic_group_ref": "group:1",
-                "basis_refs": understanding_basis_refs,
-                "payload": {
-                    "proposal_kind": "web_research_requests",
-                    "fact_class": "subjective_understanding",
-                    "purpose": "public_web_research",
-                    "operation_class": "search_read_public",
-                    "query": decision.query,
-                },
-            }
-        )
     elif isinstance(decision, creator_act.VisualObservationDecision):
         purpose = next(
             (
@@ -2796,13 +2674,7 @@ def _expand_creator_cognitive_act(
             }
         )
     proposal_no = (
-        2
-        if action_choices
-        or web_requests
-        or visual_requests
-        or exact_query
-        or codex_delegation
-        else 1
+        2 if action_choices or visual_requests or exact_query or codex_delegation else 1
     )
     material_events = tuple(
         item for item in source.changes if item.op.startswith("material.")
@@ -2922,7 +2794,7 @@ def _expand_creator_cognitive_act(
         disposition = "change"
     return (
         CognitionCandidate.model_construct(
-            schema_version="armi.cognition-candidate.v17",
+            schema_version="armi.cognition-candidate.v18",
             base=CandidateBase.model_construct(
                 subject_version=context.base_subject_version,
                 state_epoch=context.base_state_epoch,
@@ -2949,12 +2821,6 @@ def _expand_creator_cognitive_act(
                     item,
                 )
                 for item in action_choices
-            ),
-            web_research_requests=tuple(
-                _translated_proposal(
-                    WebResearchRequestProposal, WebResearchRequestPayload, item
-                )
-                for item in web_requests
             ),
             visual_observation_requests=tuple(
                 _translated_proposal(
@@ -3746,10 +3612,6 @@ def _all_proposals(
             for item in candidate.action_choices
         ),
         *(
-            (CandidateOwner.WEB_RESEARCH, item)
-            for item in getattr(candidate, "web_research_requests", ())
-        ),
-        *(
             (CandidateOwner.VISUAL_OBSERVATION, item)
             for item in getattr(candidate, "visual_observation_requests", ())
         ),
@@ -3886,40 +3748,6 @@ def _action_failure(
     )
 
 
-def _web_research_failure(
-    proposal: WebResearchRequestProposal,
-    bases: tuple[CandidateBasis, ...],
-    *,
-    active: bool,
-    purpose: str,
-) -> str | None:
-    if not active:
-        return "CANDIDATE-WEB-NOT-ACTIVE"
-    if purpose != "consider_creator_input":
-        return "CANDIDATE-WEB-RECURSION-FORBIDDEN"
-    if proposal.payload.fact_class not in {"subjective_understanding", "inference"}:
-        return "CANDIDATE-WEB-FACT"
-    if not any(
-        basis.item_kind == "current_evidence" and basis.trust_class == "external_claim"
-        for basis in bases
-    ):
-        return "CANDIDATE-WEB-EVIDENCE-BASIS"
-    if not any(
-        basis.item_kind == "current_purpose" and basis.trust_class == "policy"
-        for basis in bases
-    ):
-        return "CANDIDATE-WEB-PURPOSE-BASIS"
-    if not any(
-        basis.item_kind == "web_search_availability" and basis.trust_class == "policy"
-        for basis in bases
-    ):
-        return "CANDIDATE-WEB-AVAILABILITY-BASIS"
-    lowered = proposal.payload.query.casefold()
-    if "http://" in lowered or "https://" in lowered:
-        return "CANDIDATE-WEB-URL-FORBIDDEN"
-    return None
-
-
 def _visual_observation_request_failure(
     proposal: VisualObservationRequestProposal,
     bases: tuple[CandidateBasis, ...],
@@ -4016,7 +3844,6 @@ def _proposal_path(
             "relationship_changes",
             "activity_changes",
             "action_choices",
-            "web_research_requests",
             "visual_observation_requests",
         ):
             for index, proposal in enumerate(getattr(candidate, field)):
@@ -4029,7 +3856,6 @@ def _proposal_path(
             "memory": "experience",
             "mood": "appraisal",
             "action": "decision",
-            "web_research": "decision",
             "visual_observation": "decision",
         }.get(owner, "changes")
         if candidate.schema_version == creator_act.CREATOR_VOICE_ACT_VERSION:
@@ -4054,7 +3880,6 @@ def _draft_owner(
     | CandidateOwnerDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
-    | WebResearchRequestDraft
     | VisualObservationRequestDraft
     | CodexDelegationDraft,
 ) -> CandidateOwner:
@@ -4072,8 +3897,6 @@ def _draft_owner(
         return CandidateOwner.EXACT_LIFE_QUERY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
         return CandidateOwner.ACTION
-    if isinstance(draft, WebResearchRequestDraft):
-        return CandidateOwner.WEB_RESEARCH
     if isinstance(draft, VisualObservationRequestDraft):
         return CandidateOwner.VISUAL_OBSERVATION
     if isinstance(draft, CodexDelegationDraft):
@@ -4092,7 +3915,6 @@ def _draft_fact_class(
     | CandidateOwnerDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
-    | WebResearchRequestDraft
     | VisualObservationRequestDraft
     | CodexDelegationDraft,
 ) -> CandidateFactClass:
@@ -4100,7 +3922,7 @@ def _draft_fact_class(
         return CandidateFactClass.INFERENCE
     if isinstance(
         draft,
-        (WebResearchRequestDraft, VisualObservationRequestDraft, CodexDelegationDraft),
+        (VisualObservationRequestDraft, CodexDelegationDraft),
     ):
         return CandidateFactClass.INFERENCE
     if isinstance(draft, CandidateLifeMaterialDraft):
@@ -4143,7 +3965,6 @@ def _memory_source_kind(
     if fact_class is CandidateFactClass.UNKNOWN:
         return MemorySourceKind.UNKNOWN
     if purpose in {
-        "consider_web_evidence",
         "consider_codex_result",
         "consider_life_query_result",
     }:
@@ -4151,17 +3972,6 @@ def _memory_source_kind(
     if fact_class is CandidateFactClass.EXTERNAL_CLAIM:
         return MemorySourceKind.REPORTED
     return MemorySourceKind.EXPERIENCED
-
-
-def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "purpose": value.purpose,
-        "operation_class": value.operation_class,
-        "query": value.query_bytes.decode("utf-8", errors="strict"),
-    }
 
 
 def _visual_observation_request_wire(

@@ -1257,7 +1257,6 @@ class DataRightsOrderItemResponse(_StrictWireModel):
         "mood",
         "prompt",
         "effect",
-        "web_research",
         "codex_task",
         "managed_snapshot",
         "artifact",

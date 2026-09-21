@@ -244,7 +244,6 @@ def concern_signals(
                 and event_purpose
                 in {
                     "consider_codex_result",
-                    "consider_web_evidence",
                     "consider_life_query_result",
                     "consider_requested_visual_observation",
                     "consider_visual_observation",

@@ -1,4 +1,4 @@
-schema_version: armi.runtime-config.v5
+schema_version: armi.runtime-config.v6
 
 environment: {}
 
@@ -20,10 +20,6 @@ model:
 
 codex:
   enabled: false
-
-web:
-  enabled: false
-  concurrency: 1
 
 creator:
   bind_host: 127.0.0.1

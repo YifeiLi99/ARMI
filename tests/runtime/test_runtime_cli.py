@@ -168,7 +168,6 @@ class RuntimeCliTests(unittest.TestCase):
             "model.request.qwen": "model.qwen_api_key",
             "model.request.deepseek": "model.deepseek_api_key",
             "speech.recognition": "speech.volc_credentials",
-            "web.search": "model.ark_api_key",
             "codex.runner.auth": "codex.auth_json",
             "channel.qq.napcat.api": "channel.qq.napcat_access_token",
             "channel.qq.napcat.events": "channel.qq.napcat_event_secret",

@@ -19,7 +19,7 @@ async def test_nested_codex_results_resolve_original_owner_facts(purpose):
         AsyncMock() for _ in range(5)
     )
     opportunities.origin_snapshot.side_effect = [
-        (second_result, None, "consider_web_evidence"),
+        (second_result, None, "consider_codex_result"),
         (second_result, uuid7(), "consider_codex_result"),
         (first_result, uuid7(), "consider_codex_result"),
         (original, None, purpose),

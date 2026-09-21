@@ -247,11 +247,6 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
                     ("perception", "perception", "armi_perception"),
                     ("prompt", "prompt", "armi_prompt"),
                     ("subject-state", "subject-state", "armi_subject_state"),
-                    (
-                        "web-observation",
-                        "web-observation",
-                        "armi_web_observation",
-                    ),
                 )
             },
         }

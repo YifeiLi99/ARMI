@@ -19,7 +19,7 @@ _DOCUMENTS = (
     "40_life_memory_relationships.sql",
     "50_activities_and_maintenance.sql",
     "60_actions_work_and_effects.sql",
-    "70_web_codex_audit_data_rights.sql",
+    "70_codex_audit_data_rights.sql",
     "75_admin_management.sql",
     "80_cross_domain_constraints_and_indexes.sql",
     "85_provider_usage.sql",

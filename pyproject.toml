@@ -44,7 +44,6 @@ members = [
     "modules/context",
     "modules/expression",
     "modules/effect",
-    "modules/web-observation",
     "modules/codex",
     "modules/data-rights",
     "modules/experience",

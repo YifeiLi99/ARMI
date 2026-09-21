@@ -49,7 +49,6 @@ _PURPOSE_KINDS = {
     "reflect_prompt": "no_change",
     "consider_codex_result": "no_change",
     "consider_codex_task": "no_change",
-    "consider_web_evidence": "no_change",
 }
 
 
@@ -69,7 +68,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         jsonschema.validate(value, candidate_schema(version))
         assert parse_autonomy_check(value).engage is False
         return
-    if version == "armi.creator-cognitive-act-candidate.v7":
+    if version == "armi.creator-cognitive-act-candidate.v8":
         value = {
             "decision": {**value, "content": None},
             "experience": None,
@@ -115,7 +114,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         if purpose == "consider_autonomous_life":
             value["expression"] = None
             value["mind_change"] = None
-    elif version == "armi.cognition-candidate.v17":
+    elif version == "armi.cognition-candidate.v18":
         value = {
             "schema_version": version,
             "base": {
@@ -140,7 +139,6 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
                     "activity_changes",
                     "action_choices",
                     "uncertainties",
-                    "web_research_requests",
                     "visual_observation_requests",
                 )
             },
@@ -150,7 +148,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     if "concern_changes" in schema["properties"]["candidate"].get(
         "properties", {}
     ) or version in {
-        "armi.autonomous-activity-candidate.v11",
+        "armi.autonomous-activity-candidate.v12",
         "armi.visual-observation-candidate.v4",
     }:
         value["concern_changes"] = []
@@ -264,7 +262,7 @@ def test_provider_selects_action_before_generating_branch_payload():
     # Canonical storage sorts keys, so source declaration order does not survive.
     source = json.loads(
         json.dumps(
-            candidate_schema("armi.creator-cognitive-act-candidate.v7"), sort_keys=True
+            candidate_schema("armi.creator-cognitive-act-candidate.v8"), sort_keys=True
         )
     )
     schema = _provider_output_schema(source, available_refs=("ctx:1",))
@@ -282,14 +280,14 @@ def test_creator_schema_is_smaller_without_repeating_the_complete_object():
     # No existing concern, activity or emotional episode is present in this Context.
     schema = _provider_output_schema(
         bind_context_schema(
-            candidate_schema("armi.creator-cognitive-act-candidate.v7"),
+            candidate_schema("armi.creator-cognitive-act-candidate.v8"),
             ({"ref": "ctx:1", "item_kind": "current_evidence"},),
         ),
         available_refs=("ctx:1",),
     )
     encoded = json.dumps(schema, ensure_ascii=False, separators=(",", ":")).encode()
     original = json.dumps(
-        candidate_schema("armi.creator-cognitive-act-candidate.v7"),
+        candidate_schema("armi.creator-cognitive-act-candidate.v8"),
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode()
@@ -397,7 +395,7 @@ def test_reply_memory_shape_is_visible_to_provider(invalid):
         "appraisal": None,
         "changes": [],
     }
-    schema = _schema("armi.creator-cognitive-act-candidate.v7")
+    schema = _schema("armi.creator-cognitive-act-candidate.v8")
     if invalid:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({"candidate": value}, schema)
@@ -465,7 +463,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
         "mind_appraisals": [],
         "changes": [],
     }
-    version = "armi.creator-cognitive-act-candidate.v7"
+    version = "armi.creator-cognitive-act-candidate.v8"
     schema = _schema(version)
     jsonschema.validate({"candidate": value}, schema)
     parse_candidate(
@@ -496,7 +494,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
 def test_returned_output_is_saved_before_local_rejection(output, provider_status):
     binding = replace(
         load_active_binding(),
-        response_contract_version="armi.creator-cognitive-act-candidate.v7",
+        response_contract_version="armi.creator-cognitive-act-candidate.v8",
     )
     adapter = create_model_adapter(
         binding=binding,

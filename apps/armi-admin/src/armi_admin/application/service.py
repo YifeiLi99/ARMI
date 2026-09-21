@@ -1072,7 +1072,6 @@ class AdminToolService:
                     "runtime": "environment.yaml",
                     "model-bindings": "configs/model-bindings.yaml",
                     "provider-pricing": "configs/provider-pricing.yaml",
-                    "web-search": "configs/web-search.yaml",
                     "qq": "channels/qq-napcat.yaml",
                     "mood-display": "devices/mood-display.yaml",
                 }[refs.configuration_target]
@@ -1249,7 +1248,6 @@ class AdminToolService:
         for target in (
             "model-bindings",
             "provider-pricing",
-            "web-search",
             "qq",
             "mood-display",
         ):

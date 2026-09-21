@@ -37,8 +37,6 @@ class WorkType(StrEnum):
 
     COGNITION_CONTEXT_PREPARE = "cognition.context.prepare"
     COGNITION_EXECUTE = "cognition.execute"
-    WEB_OBSERVATION_ADMIT = "web.observation.admit"
-    WEB_SEARCH_INVOKE = "web.search.invoke"
     EXTERNAL_CONTENT_RECOGNIZE = "external.content.recognize"
     EXTERNAL_CONTENT_FINALIZE = "external.content.finalize"
     LIFE_QUERY_EXECUTE = "life.query.execute"
@@ -66,12 +64,6 @@ RESPONSIBILITY_BINDINGS: tuple[ResponsibilityBinding, ...] = (
         "cognitive_episode", WorkType.COGNITION_CONTEXT_PREPARE, "cognition"
     ),
     ResponsibilityBinding("cognitive_episode", WorkType.COGNITION_EXECUTE, "cognition"),
-    ResponsibilityBinding(
-        "web_research_intent", WorkType.WEB_OBSERVATION_ADMIT, "web-observation"
-    ),
-    ResponsibilityBinding(
-        "web_observation", WorkType.WEB_SEARCH_INVOKE, "web-observation"
-    ),
     ResponsibilityBinding(
         "external_message", WorkType.EXTERNAL_CONTENT_RECOGNIZE, "perception"
     ),

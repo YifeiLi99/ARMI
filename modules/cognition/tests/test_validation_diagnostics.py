@@ -79,7 +79,6 @@ def test_accepted_proposals_keep_ordered_context_basis_without_storage():
         owner_drafts=(),
         exact_life_queries=(),
         action_choices=(),
-        web_research_requests=(),
         visual_observation_requests=(),
         codex_delegations=(),
         rejections=(),
@@ -112,7 +111,7 @@ def test_invalid_json_is_distinguished_from_wrong_field_type():
         parse_candidate(
             {"decision": {"kind": "reply", "content": 42}},
             allowed_context_refs=frozenset(),
-            expected_version="armi.creator-cognitive-act-candidate.v7",
+            expected_version="armi.creator-cognitive-act-candidate.v8",
         )
     result = contract_rejection(caught_model.value)
     assert result.diagnostics[0].stage == "structure"

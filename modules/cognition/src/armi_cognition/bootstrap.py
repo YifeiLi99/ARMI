@@ -165,7 +165,6 @@ def bootstrap_cognition_model(
     adapter_factory: CognitionModelAdapterFactory,
     binding_path: Path,
     prices: PriceCatalog,
-    web_search_active: bool = False,
     wakeups: CognitionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
     failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
@@ -183,7 +182,6 @@ def bootstrap_cognition_model(
         failure_notification=failure_notification,
         binding_path=binding_path,
         prices=prices,
-        web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )
@@ -223,7 +221,6 @@ def bootstrap_cognition_candidate(
     mind_cognition: MindCognitionPort,
     subject_state_read: SubjectStateReadPort,
     mind_read: MindReadPort,
-    web_search_active: bool = False,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
     validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
@@ -264,7 +261,6 @@ def bootstrap_cognition_candidate(
         mind_cognition=mind_cognition,
         subject_state_read=subject_state_read,
         mind_read=mind_read,
-        web_search_active=web_search_active,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
         validation_diagnostic=validation_diagnostic,

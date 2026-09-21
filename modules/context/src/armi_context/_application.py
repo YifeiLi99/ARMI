@@ -182,7 +182,6 @@ class ContextPipeline:
         "_stop",
         "_storage",
         "_wakeups",
-        "_web_search_active",
         "_work",
     )
 
@@ -215,7 +214,6 @@ class ContextPipeline:
         dialogue_read: ContextDialogueReadPort,
         codex_read: CodexTaskSourceReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
-        web_search_active: bool = False,
         wakeups: ContextWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
@@ -227,7 +225,6 @@ class ContextPipeline:
         self._dialogue_read = dialogue_read
         self._storage = storage
         self._policy_version = policy_version
-        self._web_search_active = web_search_active
         self._repository = PostgreSQLContextRepository(
             relationship_read,
             sleep_read,
@@ -420,7 +417,6 @@ class ContextPipeline:
                 creator_prompt_bytes,
                 subject_prompt_bytes,
                 tuple(recent_scene_payloads),
-                web_search_active=self._web_search_active,
                 recalled_context=recalled,
             )
             context_profile(snapshot.purpose).validate(request.items)
@@ -679,7 +675,6 @@ def _context_request(
     subject_prompt_bytes: bytes | None = None,
     recent_scene_payloads: tuple[tuple[ContextDialogueItem, bytes], ...] = (),
     *,
-    web_search_active: bool,
     recalled_context: RecalledContext | None = None,
 ) -> ContextRequest:
     profile = context_profile(snapshot.purpose)
@@ -1232,26 +1227,6 @@ def _context_request(
             if (target_activity := getattr(snapshot, "target_activity", None))
             is not None
             else _unavailable(profile, ContextSection.ACTIVITY, "activity"),
-            _item(
-                profile,
-                ContextSection.CAPABILITY,
-                "web_search_availability",
-                UUID("01985d00-0000-7000-8000-000000000034"),
-                1,
-                rfc8785.dumps(
-                    {
-                        "binding": "armi.model-tool.volcengine-ark-web-search-v1",
-                        "implementation_status": "complete",
-                        "activation_status": "active"
-                        if web_search_active
-                        else "inactive",
-                        "operation_class": "search_read_public",
-                    }
-                ),
-                ContextTrustClass.POLICY,
-                required=False,
-                relevance=60,
-            ),
             _item(
                 profile,
                 ContextSection.CAPABILITY,

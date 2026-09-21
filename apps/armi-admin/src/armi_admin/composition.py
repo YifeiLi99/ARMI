@@ -51,7 +51,6 @@ from armi_subject_state.bootstrap import (
     bootstrap_subject_state_admin_correction,
     bootstrap_subject_state_admin_read,
 )
-from armi_web_observation.bootstrap import bootstrap_web_observation_admin
 
 from armi_admin.application import (
     AdminConfig,
@@ -117,7 +116,6 @@ def bootstrap_admin(
         mood = bootstrap_mood_admin_correction()
         opportunity = bootstrap_opportunity_admin()
         subject_state = bootstrap_subject_state_admin_correction()
-        web = bootstrap_web_observation_admin()
         observation = AdminObservationGateway(
             sleep=bootstrap_sleep_admin_read(),
             factory=pool,
@@ -147,7 +145,6 @@ def bootstrap_admin(
             live_vision=bootstrap_live_vision_admin(),
             material=materials,
             opportunity=opportunity,
-            web=web,
             environment_id=config.environment_id,
             incarnation=config.environment_incarnation,
             mood=mood,

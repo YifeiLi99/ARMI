@@ -184,7 +184,6 @@ class CandidateValidationService:
         "_submission",
         "_validation_diagnostic",
         "_visual_sources_active",
-        "_web_search_active",
     )
 
     def __init__(
@@ -222,7 +221,6 @@ class CandidateValidationService:
         mind_cognition: MindCognitionPort,
         subject_state_read: SubjectStateReadPort,
         mind_read: MindReadPort,
-        web_search_active: bool = False,
         visual_sources_active: frozenset[str] = frozenset(),
         diagnostic: Callable[[str], None] | None = None,
         validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
@@ -242,7 +240,6 @@ class CandidateValidationService:
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
         self._mind_cognition = mind_cognition
-        self._web_search_active = web_search_active
         self._codex_available = codex_available
         self._visual_sources_active = visual_sources_active
         self._catalog = catalog
@@ -294,7 +291,6 @@ class CandidateValidationService:
                 snapshot.creator_party_id,
                 snapshot.current_components,
                 snapshot.purpose,
-                self._web_search_active,
                 self._codex_available(),
                 snapshot.codex_task_sources,
                 snapshot.opportunity_id,

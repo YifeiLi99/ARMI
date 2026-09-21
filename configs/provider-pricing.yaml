@@ -23,12 +23,3 @@ snapshots:
       - unit: cached_input_tokens
         microyuan: 1200000
         per_quantity: 1000000
-  - snapshot_id: ark-evolving-web-2026-09-16
-    provider: volcengine_ark
-    model: doubao-seed-evolving
-    service: web_search
-    effective_from: '2026-09-16T00:00:00+08:00'
-    effective_until: null
-    verified_at: '2026-09-16T00:00:00+08:00'
-    source_url: https://www.volcengine.com/product/doubao
-    rates: *evolving_token_rates

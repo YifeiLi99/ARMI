@@ -66,7 +66,6 @@ def test_codex_prompt_assembles_identity_and_task_once():
         "consider_codex_result",
         "consider_codex_task",
         "consider_life_query_result",
-        "consider_web_evidence",
         "consider_visual_observation",
         "consider_autonomous_life",
         "consider_sleep",
@@ -410,7 +409,7 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
     "version",
     [
         "armi.other-human-dialogue-candidate.v9",
-        "armi.creator-cognitive-act-candidate.v7",
+        "armi.creator-cognitive-act-candidate.v8",
     ],
 )
 def test_all_dialogue_contracts_require_strict_output_and_local_validation(version):

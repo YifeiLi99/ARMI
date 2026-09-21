@@ -32,7 +32,6 @@ DATA_RIGHTS_TARGET_KINDS = frozenset(
         "mood",
         "prompt",
         "effect",
-        "web_research",
         "codex_task",
         "managed_snapshot",
         "artifact",

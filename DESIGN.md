@@ -109,7 +109,7 @@ Windows 安装版按当前用户部署，不注册系统服务。私有 Python�
 | 进入认知 | opportunity（distribution: attention）、context、experience、cognition |
 | 主观生活 | memory、relationship、activity、material、subject-state、mood、prompt、sleep |
 | 意愿与现实 | expression、capability、effect |
-| 外部工作 | web-observation、codex |
+| 外部工作 | codex |
 | 治理 | data-rights |
 
 Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 101 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
@@ -150,7 +150,7 @@ Creator 文本、实时语音和 Codex 结果在 Provider 边界渲染为可读�
 
 Mind 的持久动机与每轮注意窗口分开：每轮最多选入四条未结束动机作为可裁剪背景，与当前证据/机会来源有明确对象关联的优先；自主生活其次优先未消费的复查信号，其余按最近更新排序。四条与单轮最多四项动机评价对应，不是生命周期记录上限，也不宣称最近更新即语义相关。未选中的动机不删除、不自动结束，其复查信号仅在真正进入冻结 Context 后才消费。后续评价若把新证据放在 `object_ref`，但在 `basis_refs` 明确引用唯一同类未结束动机，则沿原动机对象更新；引用多个同类动机时须明确选择目标，否则拒绝歧义。不同对象且无明确延续依据的新愿望仍可建立，不用文本相似度猜测合并。
 
-标准 Creator 文本、语音和精确生命查询结果各执行一次主认知工作，不额外追加评价调用；文本生成仅允许下述五次格式重试，语音仍单次调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
+标准 Creator 文本、语音和精确生命查询结果各执行一次主认知工作，不额外追加评价调用；文本生成仅允许下述五次格式重试，语音仍单次调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
 
 模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求记住时形成，memory_summary 的存在代表记忆提议，不再另传 remember。评价轨迹将新事件与既有事件的引用、变化分开建模。语音复用相同业务类型，仅顶层字段别名和 60 字表达上限不同。
 
@@ -223,7 +223,7 @@ Schema 的格式合法不等于业务提交必然成立。引用、版本、权�
 | `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression；沉默和延期可附带说明 | 9823 |
 | `consider_autonomous_life` | 创建、推进、等待、完成或放弃活动，沉默／延期／需要信息，独立表达，以及已开启的查询、搜索、视觉和 Codex；Activity、Material、Mood、Expression 及工具 Owner | 按本轮能力与时间范围生成 |
 | `consider_sleep` | 入睡、保持清醒、延期、缺少信息；Sleep | 273 |
-| `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 19142 |
+| `consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 19142 |
 | `consider_visual_observation` | 忽略或形成视觉经历及评价、更新关注；Experience、Mood、Mind | 6040 |
 | `maintain_subjective_memory` | 记忆保持、巩固、淡化、遗忘、重解释；Memory、Sleep | 1518 |
 | `perform_subject_self_check` | 保持或发现内部问题；Sleep | 964 |
@@ -427,13 +427,13 @@ Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 o
 
 ### 主模型与 Web
 
-模型绑定由 `configs/model-bindings.yaml` v3 统一管理；purpose 决定 response contract/token budget。普通 Creator 使用一次严格 cognitive act。ARMI 网页研究由 `web_research` 决定触发，Web owner 只允许 search/open/find，并把来源/content 作为 Evidence；普通 cognition tools 列表为空，不自动给主模型上网。
+模型绑定由 `configs/model-bindings.yaml` v3 统一管理；purpose 决定 response contract/token budget。普通 Creator 使用一次严格 cognitive act。ARMI 不自持网页研究模块、搜索配置或搜索过程表；互联网研究通过 Codex 委托发出，结果正文与来源链接按现有 Codex Evidence 路径返回。Codex 未开启或不可用时明确说明原因；普通 cognition tools 列表为空，不自动给主模型上网。
 
 ### 云端 API 用量与费用
 
 管理传输层依据请求合同绑定环境与管理用途：只有 `ScopedOperationRequest` 的 `purpose` 是管理用途。用量查询的同名字段是可选业务筛选条件，CLI/MCP 必须公开并原样传递，省略时不筛选；不能按字段名注入 `admin.usage_*`。
 
-计量是已有调用 Owner 的责任，不建立新的计费 Owner 或重复总账。Cognition、Perception、Web Observation 和 Live Voice 在各自 attempt 的 `provider_calls` 保存逐请求回执；凭据检查由 Local Control 在环境 `run/admin-invocations/provider-calls/` 原子保存 Admin 回执，不依赖 Runtime 在线。语音兼容检查归属 session，语音主认知只计入 Cognition，避免重复统计。
+计量是已有调用 Owner 的责任，不建立新的计费 Owner 或重复总账。Cognition、Perception 和 Live Voice 在各自 attempt 的 `provider_calls` 保存逐请求回执；凭据检查由 Local Control 在环境 `run/admin-invocations/provider-calls/` 原子保存 Admin 回执，不依赖 Runtime 在线。语音兼容检查归属 session，语音主认知只计入 Cognition，避免重复统计。
 
 所有收费适配器先耐久登记 UUID、服务、模型、用途和价格快照，再发送请求；没有绑定 Owner sink 或登记失败时禁止发请求。SDK 重试关闭。供应商回执先保存请求 ID、实际模型、原始数值 usage 和规范化计量，再解释业务正文或准备制品。分词与轮询单独留请求明细，关联同一 attempt 或父调用，不计为第二次收费。业务失败不撤销用量；中断、失联和未取得完整回执保留已知部分并显示未确认，不补发请求。计量记录不保存 prompt、正文或凭据，也不进入认知 Context。
 
@@ -449,7 +449,7 @@ Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 o
 
 委托结果默认是简洁、面向人类的正文：办事说明成功与否、完成事项和必要交付位置；资料问答通常几百字，保留必要来源和限制，原任务要求详细内容时才展开。Runner 不要求 JSON 封套、工具日志或长报告，也不硬截断最终正文。Provider 将本轮结果渲染为 `### Codex 返回 · ctx:N` 条目下的原文代码块，保留原始换行、引号和链接；引用及来源、信任、隐私元数据单独留在背景 Context，正文只出现一次。ARMI 参考结果简短回复，仍使用普通 v7 合同决定情绪、经历和行动，不因接收结果强制产生变化。该呈现变化不缩减其他冻结 Context，也不改变最终候选的结构化校验。
 
-普通文本和语音 v7 决策包含 `codex_delegation`，不要求先提交专门任务。委托固定为 `gpt-5.6-luna` / `medium`，接口与执行器均拒绝其他组合。可委托官方资料/源码研究、多来源对比、复杂计算、代码分析与编写、实验设计和长文整理；内置 Web Search 独立于 ARMI Web 开关。现有工具不支持宿主应用控制、账号操作或宿主文件访问，不向模型宣称这些能力已接入。
+普通文本和语音 v8 决策包含 `codex_delegation`，不要求先提交专门任务。委托固定为 `gpt-5.6-luna` / `medium`，接口与执行器均拒绝其他组合。可委托官方资料/源码研究、多来源对比、复杂计算、代码分析与编写、实验设计和长文整理；互联网查资料、核实最新信息及自身无法完成的互联网相关任务统一使用 Codex 委托，需要联网时启用任务的内置 Web Search。现有工具不支持宿主应用控制、账号操作或宿主文件访问，不向模型宣称这些能力已接入。
 
 `codex.enabled` 默认关闭，由现有配置管理保存、重启生效。Context 和 Runtime 状态读取同一份实际可用性，包括开启状态、本地执行器与凭据是否就绪及失败原因。关闭或不可用时新任务明确失败；旧幂等键仍指向原任务，不重跑。
 
@@ -457,7 +457,7 @@ Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 o
 
 停机、崩溃或 Runtime 更换后，未启动的委托取消；已启动且无可靠结果的保留 unknown，取消信号终止子进程树并清理临时工作区，不重跑、不回读临时目录。已提交主体事实、核验结果和受治理制品保留。原任务和独立结果机会链及其派生工作均由现有 owner 收尾；收尾后的旧执行结果不能越过 fence 和终态，也不能派生工作。任务投影分别显示执行与后续认知状态，执行完成不代表结果已被 ARMI 理解或采纳。
 
-Creator 可逐任务选择内置 Web Search，模型固定为 `gpt-5.6-luna`、reasoning 固定为 `medium`。返回的最终正文作为 `codex_result` 外部证据注入下一轮 Context；结果认知复用普通文本 v7 动作合同，决定回复、沉默或后续行动，不再要求通用 v17 的整套状态变更候选。经历来源由 Runtime 绑定为 `codex_observation`，不自动写成记忆。输出上限保持 4096 token，容纳带来源的研究回复。Runner 使用官方 Python SDK/订阅 auth，在临时 workspace 中直接执行目标，返回 SDK 最终正文；workspace-write sandbox 与 shell network=false 保持配置边界。显式 Web Search 打开内置只读搜索；MCP/apps/skills/hooks/workspace dependencies/credentials 仍关闭。第一版只要求任务记录、执行状态和结果交回：任务仅保存目标及执行选项；成功只保存一份最终正文，失败保存明确错误，并由同一结算事务接纳 Evidence/Opportunity，ARMI 再决定后续行动或对话。不制作任务 ZIP、前后目录快照、文件差异、逐条工具审计或独立验证报告，不要求 result.md 或 JSON 交付封套；中间命令失败与缺少 usage 不替代 SDK 最终状态。清理结果独立记录，清理失败不能丢弃已完成结果、改判执行失败或触发重跑。任务、效果与结果事实承担追踪职责，不再额外写 Codex 接纳/委托/结算审计。
+Creator 可逐任务选择内置 Web Search，模型固定为 `gpt-5.6-luna`、reasoning 固定为 `medium`。返回的最终正文作为 `codex_result` 外部证据注入下一轮 Context；结果认知复用普通文本 v8 动作合同，决定回复、沉默或后续行动，不再要求通用 v18 的整套状态变更候选。经历来源由 Runtime 绑定为 `codex_observation`，不自动写成记忆。输出上限保持 4096 token，容纳带来源的研究回复。Runner 使用官方 Python SDK/订阅 auth，在临时 workspace 中直接执行目标，返回 SDK 最终正文；workspace-write sandbox 与 shell network=false 保持配置边界。显式 Web Search 打开内置只读搜索；MCP/apps/skills/hooks/workspace dependencies/credentials 仍关闭。第一版只要求任务记录、执行状态和结果交回：任务仅保存目标及执行选项；成功只保存一份最终正文，失败保存明确错误，并由同一结算事务接纳 Evidence/Opportunity，ARMI 再决定后续行动或对话。不制作任务 ZIP、前后目录快照、文件差异、逐条工具审计或独立验证报告，不要求 result.md 或 JSON 交付封套；中间命令失败与缺少 usage 不替代 SDK 最终状态。清理结果独立记录，清理失败不能丢弃已完成结果、改判执行失败或触发重跑。任务、效果与结果事实承担追踪职责，不再额外写 Codex 接纳/委托/结算审计。
 
 ### QQ/NapCat
 
@@ -467,7 +467,7 @@ QQ 的可选组件准备由 Setup 应用服务统一提供 CLI/MCP 与设置页�
 
 QQ 接入将组件准备进度与实时登录、渠道健康分开。Setup `status` 仅读准备记录，`refresh` 核验当前认证账号与 Admin 渠道健康；已有绑定的 `complete` 不再重放配置。`open_login` 复用组件和绑定恢复登录，平台拒绝快速登录时明确要求扫码，不能以安装成功代替连接成功。
 
-凭据设置页适配同一 Setup 服务，使用中文用途说明、语音应用 ID/令牌分字段输入及 Codex JSON 文件导入。模型和 Web 适配器按请求解析 file locator，语音按新会话、Codex 按新委托解析；更换凭据不要求全环境重启，进行中的会话不切换。保存状态不作为外部认证或消费者整体就绪的证明。
+凭据设置页适配同一 Setup 服务，使用中文用途说明、语音应用 ID/令牌分字段输入及 Codex JSON 文件导入。模型适配器按请求解析 file locator，语音按新会话、Codex 按新委托解析；更换凭据不要求全环境重启，进行中的会话不切换。保存状态不作为外部认证或消费者整体就绪的证明。
 
 ### Voice
 
@@ -511,13 +511,13 @@ Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 
 
 重置登记的新 incarnation 同步到本机 `admin.yaml`、`issuer.yaml`，再由管理会话重新绑定；保留原始配置中的包身份、权限及凭据引用。数据库登记先于文件发布；文件发布失败须明确报告，不通过数据库升级入口修复。
 
-配置使用完整消费者模型、文件版本和进程锁原子保存。无效文件可安全读取版本及错误码，并使用完整候选文档修复；候选不能更换绑定环境和 data root。消费者验证并采用配置后登记当前版本，重载替换原登记，准备失败不发布新版本。状态区分已生效、部分消费者生效、需要重启、未运行、环境变量覆盖和无法核验；仅文件读取或保存不证明生效。模型与 Web research 的环境覆盖从 `<root>/configs/` 加载。综合诊断读取获授权凭据的可解析性、渠道状态、设备枚举与绑定比较，以及 owner 的 work、lease、恢复与制品状态；物理制品核验在数据库事务之外，有明确对象/字节预算并报告抽样覆盖，不触发模型或设备采集。
+配置使用完整消费者模型、文件版本和进程锁原子保存。无效文件可安全读取版本及错误码，并使用完整候选文档修复；候选不能更换绑定环境和 data root。消费者验证并采用配置后登记当前版本，重载替换原登记，准备失败不发布新版本。状态区分已生效、部分消费者生效、需要重启、未运行、环境变量覆盖和无法核验；仅文件读取或保存不证明生效。模型配置的环境覆盖从 `<root>/configs/` 加载。综合诊断读取获授权凭据的可解析性、渠道状态、设备枚举与绑定比较，以及 owner 的 work、lease、恢复与制品状态；物理制品核验在数据库事务之外，有明确对象/字节预算并报告抽样覆盖，不触发模型或设备采集。
 
 Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验返回值，维护和其他人管理进一步按子操作核验。`invocation_reconcile` 重新核验原操作权限，使用环境互斥锁及独立执行证据恢复中断调用：生命周期完成阶段、配置原子替换前登记的文件身份和版本、owner 校正状态及删除请求幂等记录。控制目录不随重置清除，不保存配置或主体内容副本；证据不足保持 unknown，不重新执行效果。scope graph v2 另行报告关系展开上限与截断，分页结束不代表完整展开。
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v27` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21、v22、v23、v24、v25、v26→v27 路径。v26→v27 保留任务与结果制品，删除 Codex 文件包、文件树、validator 和重复报告字段，执行状态与清理状态独立；同时容纳认知候选 v17。v24→v25 仅扩展自主候选 v9 的历史容纳约束，不重写候选、心理或费用历史。v23→v24 将全部 Mind head/revision 迁至独立表，保留 ID、版本、前序、时间、payload、提交与管理来源及治理标记；核验后移除共享表中的 Mind 并收紧 Self/生活模式约束。这次所有权迁移不新增心理 revision。v22 来源先追加机会信号字段；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v43` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21、v22、v23、v24、v25、v26→v27 路径。v26→v27 保留任务与结果制品，删除 Codex 文件包、文件树、validator 和重复报告字段，执行状态与清理状态独立；同时容纳认知候选 v17。v24→v25 仅扩展自主候选 v9 的历史容纳约束，不重写候选、心理或费用历史。v23→v24 将全部 Mind head/revision 迁至独立表，保留 ID、版本、前序、时间、payload、提交与管理来源及治理标记；核验后移除共享表中的 Mind 并收紧 Self/生活模式约束。这次所有权迁移不新增心理 revision。v22 来源先追加机会信号字段；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
@@ -567,6 +567,6 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 
 Codex 结果表直接保存证据和后续思考机会关联，不再单独建结果关联表。结果、证据和机会同事务提交；证据反向引用结果的外键延迟到提交时核验，缺失关联仍拒绝。
 
-当前 baseline 为 v36，只维护最新数据库的空库安装与精确校验。动作意图及其内容统一存于 action_intents。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
+当前 baseline 为 v43，只维护最新数据库的空库安装与精确校验。动作意图及其内容统一存于 action_intents。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
 
 出生合同摘要是出生时的历史身份，不随心理模板更新改写。启动连续性检查接受当前合同及受支持 v21–v25 来源的明确历史摘要，未知摘要仍拒绝；不执行旧候选或恢复旧出生流程。升级回归必须使用对应历史出生摘要，并验证升级后连续性与未知摘要拒绝，不能只用当前出生模板构造旧库。

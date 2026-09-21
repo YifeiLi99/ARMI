@@ -45,7 +45,6 @@ _KIND_ORDER = {
     "current_maintenance_window": 35,
     "current_maintenance_phase": 36,
     "capability_catalog": 40,
-    "web_search_availability": 41,
     "current_memory": 50,
     "current_material": 51,
     "recall_status": 52,

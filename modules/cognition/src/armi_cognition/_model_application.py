@@ -326,7 +326,6 @@ class ModelPipeline:
         adapter_factory: CognitionModelAdapterFactory,
         binding_path: Path,
         prices: PriceCatalog,
-        web_search_active: bool = False,
         wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
@@ -374,10 +373,6 @@ class ModelPipeline:
         reflect_mind_binding = load_purpose_binding("reflect_mind", binding_path)
         reflect_mood_binding = load_purpose_binding("reflect_mood", binding_path)
         reflect_prompt_binding = load_purpose_binding("reflect_prompt", binding_path)
-        web_evidence_binding = load_purpose_binding(
-            "consider_web_evidence",
-            binding_path,
-        )
         codex_task_binding = load_purpose_binding(
             "consider_codex_task",
             binding_path,
@@ -423,9 +418,7 @@ class ModelPipeline:
             ),
             "consider_creator_input": build_adapter(
                 binding=creator_input_binding,
-                candidate_schema=creator_cognitive_act_schema(
-                    web_search=web_search_active
-                ),
+                candidate_schema=creator_cognitive_act_schema(),
                 instructions=CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
                 schema_name="armi_creator_cognitive_act_candidate_v1",
             ),
@@ -437,17 +430,9 @@ class ModelPipeline:
             ),
             "consider_life_query_result": build_adapter(
                 binding=life_result_binding,
-                candidate_schema=creator_cognitive_act_schema(
-                    web_search=web_search_active
-                ),
+                candidate_schema=creator_cognitive_act_schema(),
                 instructions=LIFE_RESULT_ACT_INSTRUCTIONS,
                 schema_name="armi_creator_cognitive_act_candidate_v1",
-            ),
-            "consider_web_evidence": build_adapter(
-                binding=web_evidence_binding,
-                candidate_schema=candidate_schema(
-                    web_evidence_binding.response_contract_version
-                ),
             ),
             "consider_visual_observation": build_adapter(
                 binding=visual_observation_binding,
@@ -463,11 +448,9 @@ class ModelPipeline:
             ),
             "consider_codex_result": build_adapter(
                 binding=codex_result_binding,
-                candidate_schema=creator_cognitive_act_schema(
-                    web_search=web_search_active
-                ),
+                candidate_schema=creator_cognitive_act_schema(),
                 instructions=CODEX_RESULT_ACT_INSTRUCTIONS,
-                schema_name="armi_creator_cognitive_act_candidate_v7",
+                schema_name="armi_creator_cognitive_act_candidate_v8",
             ),
             "consider_other_human_input": build_adapter(
                 binding=other_human_binding,
@@ -1029,7 +1012,7 @@ class ModelPipeline:
                     )
                 ),
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
-                schema_name="armi_autonomous_activity_candidate_v11",
+                schema_name="armi_autonomous_activity_candidate_v12",
             )
         try:
             adapter = self._adapters[purpose]
@@ -1049,7 +1032,7 @@ class ModelPipeline:
         if (
             purpose == "consider_creator_voice_input"
             and adapter.binding.response_contract_version
-            != "armi.creator-voice-act-candidate.v7"
+            != "armi.creator-voice-act-candidate.v8"
         ):
             raise ModelViolation("MODEL-BINDING")
         if (

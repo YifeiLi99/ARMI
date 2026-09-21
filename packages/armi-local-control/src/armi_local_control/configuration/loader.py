@@ -58,7 +58,6 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
         "integer",
     ),
     "ARMI_MODEL_CONCURRENCY": (("model", "concurrency"), "integer"),
-    "ARMI_WEB_CONCURRENCY": (("web", "concurrency"), "integer"),
     "ARMI_CREATOR_PORT": (("creator", "port"), "integer"),
     "ARMI_CREATOR_REQUEST_BODY_MAX_BYTES": (
         ("creator", "request_body_max_bytes"),

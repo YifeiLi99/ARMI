@@ -20,7 +20,6 @@ REQUIRED = {
     f"{RUNTIME_PREFIX}runtime.yaml",
     f"{RUNTIME_PREFIX}model-bindings.yaml",
     f"{RUNTIME_PREFIX}provider-pricing.yaml",
-    f"{RUNTIME_PREFIX}web-search.yaml",
 }
 CONTRACT_REQUIRED = {
     f"{CONTRACT_PREFIX}alembic/env.py",
@@ -34,7 +33,7 @@ CONTRACT_REQUIRED = {
             "40_life_memory_relationships.sql",
             "50_activities_and_maintenance.sql",
             "60_actions_work_and_effects.sql",
-            "70_web_codex_audit_data_rights.sql",
+            "70_codex_audit_data_rights.sql",
             "80_cross_domain_constraints_and_indexes.sql",
             "85_provider_usage.sql",
             "90_static_catalog.sql",
@@ -130,7 +129,7 @@ def main() -> int:
     runtime_files.update(
         {
             name: (root / "configs" / name).read_bytes()
-            for name in ("runtime.yaml", "model-bindings.yaml", "web-search.yaml")
+            for name in ("runtime.yaml", "model-bindings.yaml")
         }
     )
     contract_root = (

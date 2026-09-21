@@ -17,8 +17,8 @@ from ._dialogue_contract import ContextRef
 from ._prompt_instructions import creator_instructions
 from ._strict_model_json import strict_model_value
 
-CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v7"
-CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v7"
+CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v8"
+CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v8"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = creator_instructions("creator")
 CREATOR_VOICE_ACT_INSTRUCTIONS = creator_instructions("voice")
@@ -63,16 +63,6 @@ class ExactLifeQueryDecision(_StrictModel, frozen=True):
     ) = None
 
 
-class WebResearchDecision(_StrictModel, frozen=True):
-    kind: Literal["web_research"]
-    query: Annotated[
-        str,
-        StringConstraints(
-            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
-        ),
-    ]
-
-
 class CodexDelegationDecision(_StrictModel, frozen=True):
     kind: Literal["codex_delegation"]
     objective: Annotated[
@@ -93,7 +83,6 @@ Decision = Annotated[
     ReplyDecision
     | TerminalDecision
     | ExactLifeQueryDecision
-    | WebResearchDecision
     | CodexDelegationDecision
     | VisualObservationDecision,
     Field(discriminator="kind"),
@@ -133,14 +122,6 @@ class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
         )
 
     @property
-    def query(self) -> str | None:
-        return (
-            self.decision.query
-            if isinstance(self.decision, WebResearchDecision)
-            else None
-        )
-
-    @property
     def source_kind(self) -> Literal["camera", "screen"] | None:
         return (
             self.decision.source_kind
@@ -172,7 +153,6 @@ VoiceDecision = Annotated[
     VoiceReplyDecision
     | VoiceTerminalDecision
     | ExactLifeQueryDecision
-    | WebResearchDecision
     | CodexDelegationDecision
     | VisualObservationDecision,
     Field(discriminator="kind"),
@@ -194,18 +174,8 @@ _ACT = TypeAdapter(CreatorCognitiveActCandidate)
 _VOICE = TypeAdapter(CreatorVoiceActCandidate)
 
 
-def creator_cognitive_act_schema(*, web_search: bool = True) -> dict[str, object]:
-    schema = _ACT.json_schema()
-    if not web_search:
-        decision = schema["properties"]["decision"]
-        decision["oneOf"] = [
-            item
-            for item in decision["oneOf"]
-            if item["$ref"] != "#/$defs/WebResearchDecision"
-        ]
-        decision["discriminator"]["mapping"].pop("web_research")
-        schema["$defs"].pop("WebResearchDecision")
-    return cast(dict[str, object], schema)
+def creator_cognitive_act_schema() -> dict[str, object]:
+    return cast(dict[str, object], _ACT.json_schema())
 
 
 def creator_voice_act_schema() -> dict[str, object]:
@@ -227,11 +197,9 @@ def _check_refs(
 
 
 def parse_creator_cognitive_act(
-    value: object, *, allowed_context_refs: frozenset[str], web_search: bool = True
+    value: object, *, allowed_context_refs: frozenset[str]
 ) -> CreatorCognitiveActCandidate:
     candidate = _ACT.validate_python(strict_model_value(value), strict=True)
-    if candidate.kind == "web_research" and not web_search:
-        raise ValueError("web research is unavailable")
     _check_refs(candidate, allowed_context_refs)
     return candidate
 

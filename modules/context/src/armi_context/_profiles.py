@@ -111,7 +111,6 @@ _PRIVATE_LIFE = frozenset(
         "activity",
         "maintenance_window",
         "maintenance_phase",
-        "web_search_availability",
         "capability_catalog",
     }
 )
@@ -163,11 +162,6 @@ _PROFILES = {
             {"current_scene", "current_relationship", "current_evidence"}
         ),
         retrieval=frozenset({"current_memory"}),
-    ),
-    "consider_web_evidence": _profile(
-        "consider_web_evidence",
-        required=frozenset({"current_scene", "current_evidence"}),
-        retrieval=frozenset({"current_memory", "current_material"}),
     ),
     "consider_visual_observation": _profile(
         "consider_visual_observation",

@@ -9,12 +9,12 @@ from armi_cognition._dialogue_output import flatten_dialogue_output
 from armi_cognition._model_contract import parse_candidate
 from armi_kernel.application import CandidateViolation, ModelViolation
 
-CREATOR = "armi.creator-cognitive-act-candidate.v7"
+CREATOR = "armi.creator-cognitive-act-candidate.v8"
 OTHER = "armi.other-human-dialogue-candidate.v9"
 
 
 @pytest.mark.parametrize(
-    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate.v11"]
+    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate.v12"]
 )
 @pytest.mark.parametrize(
     "messages",

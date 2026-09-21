@@ -240,7 +240,7 @@ async def verify(
                     instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS
                     if full
                     else AUTONOMY_CHECK_INSTRUCTIONS,
-                    schema_name="armi_autonomous_activity_candidate_v11"
+                    schema_name="armi_autonomous_activity_candidate_v12"
                     if full
                     else "armi_autonomy_check_candidate_v1",
                     candidate_schema=CognitionSchemaDocument(rfc8785.dumps(schema)),

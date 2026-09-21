@@ -134,7 +134,11 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
             }
         ),
     )
-    request = _context_request(snapshot, None, b"fixed prompt", web_search_active=False)
+    request = _context_request(
+        snapshot,
+        None,
+        b"fixed prompt",
+    )
     concerns = [item for item in request.items if item.item_kind == "current_concern"]
     assert len(concerns) == 1
     assert concerns[0].content is not None
@@ -151,7 +155,9 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
         SimpleNamespace(**{**vars(snapshot), "purpose": "consider_other_human_input"}),
     )
     other_request = _context_request(
-        other, None, b"fixed prompt", web_search_active=False
+        other,
+        None,
+        b"fixed prompt",
     )
     assert not any(item.item_kind == "current_concern" for item in other_request.items)
     assert not any(
@@ -174,7 +180,6 @@ def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None
         b"fixed prompt",
         (),
         b"distinguish facts from guesses",
-        web_search_active=False,
     )
 
     item = next(value for value in request.items if value.item_kind == "creator_prompt")
@@ -202,7 +207,6 @@ def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None
         b"fixed prompt",
         (),
         b"distinguish observations, claims, and unknowns",
-        web_search_active=False,
     )
     next_item = next(
         value for value in next_request.items if value.item_kind == "creator_prompt"
@@ -241,7 +245,6 @@ def test_exact_life_query_result_is_current_runtime_evidence() -> None:
         snapshot,
         b'{"status":"succeeded","retrieval_kind":"exact_query"}',
         b"fixed prompt",
-        web_search_active=False,
     )
 
     evidence = next(
@@ -279,7 +282,6 @@ def test_codex_task_context_exposes_registered_manifest_digest() -> None:
             }
         ),
         b"fixed prompt",
-        web_search_active=False,
     )
 
     evidence = next(
@@ -308,7 +310,6 @@ def test_autonomy_opportunity_is_required_runtime_evidence() -> None:
         snapshot,
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
 
     evidence = next(
@@ -389,7 +390,9 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
         ),
     )
     request = _context_request(
-        snapshot, None, b"personality " * 500, web_search_active=False
+        snapshot,
+        None,
+        b"personality " * 500,
     )
     contents = {
         item.item_kind: json.loads(item.content)
@@ -445,7 +448,6 @@ def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> No
         (),
         None,
         b'{"schema_version":"armi.subject-prompt.v1"}',
-        web_search_active=False,
     )
     item = next(value for value in first.items if value.item_kind == "subject_prompt")
     assert item.source.reference == revision_id
@@ -472,7 +474,6 @@ def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> No
         (),
         None,
         b'{"schema_version":"armi.subject-prompt.v1","revision":2}',
-        web_search_active=False,
     )
     next_item = next(
         value for value in second.items if value.item_kind == "subject_prompt"
@@ -541,7 +542,6 @@ def test_capability_state_separates_availability_authorization_and_desire() -> N
         _snapshot((), capability_state_payloads=(unavailable, denied)),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     states = tuple(
         item for item in request.items if item.item_kind.startswith("capability_state_")
@@ -578,7 +578,6 @@ def test_context_includes_only_naturally_accessible_memory_heads() -> None:
         _snapshot((_memory("available"), _memory("faded"), _memory("forgotten"))),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     memory_items = tuple(
         item for item in request.items if item.item_kind == "current_memory"
@@ -619,7 +618,6 @@ def test_maintenance_context_separates_memory_work_from_subject_self_check() -> 
         ),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     assert (
         len(
@@ -657,7 +655,6 @@ def test_maintenance_context_separates_memory_work_from_subject_self_check() -> 
         ),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     assert not any(
         item.item_kind == "current_memory" for item in self_check_request.items
@@ -679,7 +676,6 @@ def test_context_distinguishes_no_natural_recall_from_no_database_record() -> No
         _snapshot((_memory("forgotten"),)),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     memory_items = tuple(item for item in request.items if item.item_kind == "memory")
     assert len(memory_items) == 1
@@ -690,7 +686,6 @@ def test_context_distinguishes_no_natural_recall_from_no_database_record() -> No
         _snapshot((), has_memory_records=False),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     empty = next(item for item in none.items if item.item_kind == "memory")
     assert empty.unavailable_reason == "CTX-MEMORY-NONE"
@@ -742,7 +737,6 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
         snapshot,
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     item = next(
         item for item in request.items if item.item_kind == "current_relationship"
@@ -755,7 +749,6 @@ def test_context_includes_current_relationship_or_explicitly_reports_none() -> N
         _snapshot(()),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     empty = next(
         item for item in empty_request.items if item.item_kind == "current_relationship"
@@ -788,7 +781,6 @@ def test_context_includes_current_life_material_with_revision_identity() -> None
         None,
         b"fixed prompt",
         ((source, payload),),
-        web_search_active=False,
     )
     item = next(item for item in request.items if item.item_kind == "current_material")
     assert item.section.value == "material"
@@ -859,7 +851,6 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                 b'{"title":"private-material-title","body":"private-material-body"}',
             ),
         ),
-        web_search_active=False,
     )
     compiled = DeterministicContextCompiler().compile(request).compiled.canonical_bytes
     assert b"other_human_social" in compiled
@@ -900,7 +891,6 @@ def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -
             ),
             None,
             b"fixed prompt",
-            web_search_active=False,
         )
         for scene in (first_scene, second_scene)
     )
@@ -958,7 +948,6 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
                 (source, payload),
                 (reply_source, reply_payload),
             ),
-            web_search_active=False,
         )
 
     alpha = request("alpha", "alpha only")
@@ -1004,7 +993,6 @@ def test_recent_scene_keeps_unpaired_input_and_proactive_response() -> None:
                 rfc8785.dumps({"speaker": "creator", "text": unanswered.text}),
             ),
         ),
-        web_search_active=False,
     )
 
     dialogue = [
@@ -1037,7 +1025,6 @@ def test_recent_scene_preserves_text_and_voice_channel_switches() -> None:
             (source, rfc8785.dumps({"speaker": source.speaker, "text": source.text}))
             for source in sources
         ),
-        web_search_active=False,
     )
 
     dialogue = [
@@ -1112,7 +1099,6 @@ def test_context_hides_forgotten_commitment_but_keeps_open_issue() -> None:
         ),
         None,
         b"fixed prompt",
-        web_search_active=False,
     )
     unavailable = next(
         item for item in request.items if item.item_kind == "relationship_commitment"
@@ -1149,7 +1135,11 @@ def test_context_consumes_owner_projection_without_interpreting_psychology(
         "armi_context._application.mind_context_items",
         lambda *args, **kwargs: (projection,),
     )
-    request = _context_request(snapshot, None, b"fixed prompt", web_search_active=False)
+    request = _context_request(
+        snapshot,
+        None,
+        b"fixed prompt",
+    )
     item = next(item for item in request.items if item.item_kind == "mind")
     assert item.content == projection.content
     assert item.source.reference == source_id

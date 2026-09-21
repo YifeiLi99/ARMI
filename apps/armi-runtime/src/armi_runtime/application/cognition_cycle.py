@@ -58,7 +58,6 @@ from armi_runtime_foundation import (
     PostgreSQLTransaction,
 )
 from armi_sleep.api import MaintenancePhase, SleepReadPort
-from armi_web_observation.api import WebContextReadPort
 
 from armi_runtime.application.opportunity_origin import (
     HUMAN_INPUT_PURPOSES,
@@ -153,7 +152,6 @@ class RuntimeCognitionCycleSelector:
         data_rights: DataRightsCognitionGate,
         evidence: EvidenceReadPort,
         interaction: InteractionCognitionReadPort,
-        web: WebContextReadPort,
         codex_context: CodexContextReadPort,
         codex_sources: CodexTaskSourceReadPort,
         effects: EffectOperationReadPort,
@@ -167,7 +165,6 @@ class RuntimeCognitionCycleSelector:
         self._data_rights = data_rights
         self._evidence = evidence
         self._interaction = interaction
-        self._web = web
         self._codex_context = codex_context
         self._codex_sources = codex_sources
         self._effects = effects
@@ -376,10 +373,6 @@ class RuntimeCognitionCycleSelector:
         if evidence.interaction_id is not None:
             return await self._interaction.interaction_trace(
                 transaction, interaction_id=evidence.interaction_id
-            )
-        if evidence.web_observation_request_id is not None:
-            return await self._web.request_trace(
-                transaction, request_id=evidence.web_observation_request_id
             )
         if evidence.codex_task_source_id is not None:
             return (

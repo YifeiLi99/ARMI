@@ -108,7 +108,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwnerDraft,
     CognitionPurpose,
-    CredentialLocator,
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
@@ -137,12 +136,10 @@ from armi_kernel.contracts import (
     IdempotencyKey,
     Instant,
     OpaqueCursor,
-    SubjectId,
     TraceId,
 )
 from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
-from armi_local_control.configuration import EnvironmentFileCredentialPort
 from armi_local_control.runtime_process import RuntimeProcessManager
 from armi_mind.api import CandidateMindDraft
 from armi_perception.api import (
@@ -258,23 +255,14 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_sleep_cognition,
     bootstrap_subject_state,
     bootstrap_subject_state_cognition,
-    bootstrap_web_observation,
-    bootstrap_web_research_commit,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
     load_active_binding,
-    normalize_full_response,
 )
 from armi_runtime.composition.subject_commit_pipeline import SubjectCommitPipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation
-from armi_web_observation.api import (
-    WebObservationDraft,
-    WebObservationInvocationResult,
-    WebObservationRequestId,
-    WebObservationResultStatus,
-)
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from playwright.sync_api import sync_playwright
@@ -282,7 +270,6 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from tools.live_ark_credential import (
-    load_live_ark_credential,
     load_live_text_credential,
 )
 
@@ -526,11 +513,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("codex_verification_results", "validation_digest"),
     ("creator_exports", "manifest_digest"),
     ("data_rights_order_items", "execution_digest"),
-    ("observation_attempts", "result_digest"),
-    ("observation_attempts", "provider_request_digest"),
-    ("web_evidence_sources", "title_digest"),
-    ("web_evidence_sources", "citation_digest"),
-    ("web_observation_requests", "result_digest"),
 }
 
 
@@ -5552,340 +5534,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone()
                 self.assertEqual(facts, (4, 0, "ready", "ready"))
 
-    @pytest.mark.test_group("web-observation", "evidence")
-    def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
-        live_environment_root = os.environ.get("S033_LIVE_ENVIRONMENT_ROOT")
-        live_credential = None
-        if live_environment_root is not None:
-            try:
-                live_credential = load_live_ark_credential(
-                    Path(live_environment_root).resolve()
-                )
-            except Exception:
-                self.fail("WEB-LIVE-CREDENTIAL")
-        fixture = self.create_database()
-        self._install_current(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        packaged = packaged_birth_digests()
-        anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
-            voice_style="约 16 岁少女口吻",
-            traits=("清醒",),
-        )
-        manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
-            environment_id=fixture.environment_id,
-            birth_request_id=_uuid7(),
-            creator_party_id=_uuid7(),
-            idempotency_key="s033-web-observation-birth",
-            personality_anchor=anchor,
-            birth_contract_digest=packaged["birth_contract_digest"],
-            request_digest=Digest.from_bytes(b"s033-web-observation-birth"),
-        )
-
-        async def exercise(data_root: Path) -> dict[str, object]:
-            birth_factory = PostgreSQLUnitOfWorkFactory(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                pool_min=1,
-                pool_max=2,
-                acquire_timeout_seconds=2,
-                statement_timeout_seconds=5,
-                require_runtime_fence=False,
-            )
-            birth = BirthTransaction(
-                _publishing_artifact_store(
-                    data_root / "artifacts",
-                    birth_factory,
-                    max_object_bytes=2 * 1024 * 1024,
-                ),
-                ArtifactCatalogRepository(),
-                _birth_repository(),
-                birth_factory,
-            )
-            await birth_factory.open()
-            try:
-                born = await birth.birth(manifest)
-            finally:
-                await birth_factory.close()
-            authority = PostgreSQLRuntimeAuthority(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                pool_timeout_seconds=2,
-                statement_timeout_seconds=5,
-            )
-            await authority.open()
-            current = await authority.acquire(
-                runtime_instance_id=RuntimeInstanceId(_uuid7()),
-                lease_seconds=60,
-            )
-            credential_port = (
-                live_credential.port
-                if live_credential is not None
-                else EnvironmentFileCredentialPort(
-                    environment={"ARMI_SECRET_ARK_API_KEY": "conformance-key"},
-                    secret_roots=(),
-                )
-            )
-            receipt_fenced = False
-
-            def usage_admission():
-                if receipt_fenced:
-                    raise RuntimeAuthorityViolation("AUTH-LOCAL-SUSPENDED")
-                return current.fence
-
-            web_factory = PostgreSQLUnitOfWorkFactory(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                pool_min=1,
-                pool_max=2,
-                acquire_timeout_seconds=2,
-                statement_timeout_seconds=10,
-                authority_admission=usage_admission,
-            )
-            execution_custody = PostgreSQLExecutionCustody(
-                fixture.runtime_dsn,
-                environment_id=fixture.environment_id,
-                pool_max=2,
-                pool_timeout_seconds=2,
-            )
-            tool_events = []
-            pipeline = bootstrap_web_observation(
-                tool_diagnostic=tool_events.append,
-                prices=PriceCatalog(()),
-                factory=web_factory,
-                storage=_publishing_artifact_store(
-                    data_root / "artifacts",
-                    web_factory,
-                    max_object_bytes=2 * 1024 * 1024,
-                ),
-                catalog=ArtifactCatalogRepository(),
-                work=PostgreSQLDurableWorkGateway(web_factory),
-                custody=execution_custody,
-                credential_port=credential_port,
-                credential_locator=(
-                    live_credential.locator
-                    if live_credential is not None
-                    else CredentialLocator("env", "ARMI_SECRET_ARK_API_KEY")
-                ),
-                manifest_bytes=Path("configs/web-search.yaml").read_bytes(),
-                evidence=bootstrap_evidence().write,
-                opportunity=bootstrap_opportunity_admission(),
-                diagnostic=None,
-            )
-
-            class ConformanceAdapter:
-                def credential_fingerprint(self) -> str:
-                    return Digest.from_bytes(b"conformance-key").value
-
-                async def invoke(
-                    self, request_bytes: bytes
-                ) -> WebObservationInvocationResult:
-                    nonlocal receipt_fenced
-                    self.assert_request(request_bytes)
-                    response = {
-                        "id": "resp_conformance",
-                        "model": "doubao-seed-evolving",
-                        "status": "completed",
-                        "store": False,
-                        "output": [
-                            {
-                                "type": "web_search_call",
-                                "status": "completed",
-                                "action": {
-                                    "type": "search",
-                                    "query": "PostgreSQL 18 public docs",
-                                },
-                            },
-                            {
-                                "type": "message",
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "output_text",
-                                        "text": "public documentation",
-                                        "annotations": [
-                                            {
-                                                "type": "url_citation",
-                                                "url": "https://www.postgresql.org/docs/18/",
-                                                "title": "PostgreSQL 18",
-                                            }
-                                        ],
-                                    }
-                                ],
-                            },
-                        ],
-                        "usage": {
-                            "input_tokens": 10,
-                            "output_tokens": 10,
-                            "cached_input_tokens": 0,
-                            "tool_usage": {"web_search": 1},
-                        },
-                    }
-                    canonical, actions, usage, model = normalize_full_response(response)
-                    from armi_kernel.application import provider_call
-
-                    async with provider_call(
-                        provider="volcengine_ark", model=model, service="web_search"
-                    ) as measured:
-                        receipt_fenced = True
-                        try:
-                            await measured.capture(
-                                usage=response["usage"],
-                                provider_request_id=response["id"],
-                                response_model=model,
-                            )
-                            with pytest.raises(DatabaseTransactionError):
-                                async with provider_call(
-                                    provider="volcengine_ark",
-                                    model=model,
-                                    service="web_search",
-                                ):
-                                    raise AssertionError(
-                                        "a fenced Runtime must not dispatch another request"
-                                    )
-                        finally:
-                            receipt_fenced = False
-                    return WebObservationInvocationResult(
-                        WebObservationResultStatus.SUCCEEDED,
-                        model,
-                        canonical,
-                        actions,
-                        usage,
-                    )
-
-                @staticmethod
-                def assert_request(request_bytes: bytes) -> None:
-                    if not request_bytes:
-                        raise AssertionError("request artifact must not be empty")
-
-            if live_credential is None:
-                cast(Any, pipeline)._adapter = ConformanceAdapter()
-            await web_factory.open()
-            await execution_custody.open()
-            await pipeline.open()
-            draft = WebObservationDraft(
-                WebObservationRequestId(_uuid7()),
-                SubjectId(born.subject_id),
-                current.fence,
-                IdempotencyKey(
-                    "s033-live-web-search"
-                    if live_credential is not None
-                    else "s033-conformance"
-                ),
-                (
-                    "请搜索 PostgreSQL 18 官方文档中关于事务隔离级别的页面,"
-                    "读取公开页面后简要回答,并给出可核验的官方来源引用。"
-                    "不得登录、下载或执行任何写操作。"
-                    if live_credential is not None
-                    else "PostgreSQL 18 官方文档"
-                ).encode(),
-                TraceId("3" * 32),
-            )
-            try:
-                admitted = await pipeline.admit(draft)
-                self.assertTrue(await pipeline.invoke_once())
-                repeated = await pipeline.admit(draft)
-                self.assertEqual(admitted.request_id, repeated.request_id)
-            finally:
-                await pipeline.close()
-                await execution_custody.close()
-                await web_factory.close()
-                await authority.release(current.fence)
-                await authority.close()
-            with psycopg.connect(fixture.provisioner_dsn) as connection:
-                row = connection.execute(
-                    """
-                        SELECT
-                            request.status, request.request_digest,
-                            attempt.dispatch_state,
-                            attempt.result_status, attempt.provider_model_id,
-                            attempt.input_tokens, attempt.output_tokens,
-                            attempt.web_search_calls, attempt.citation_count,
-                            attempt.estimated_cost_microyuan,
-                            request.last_error_code, attempt.error_code,
-                            (SELECT count(*) FROM armi.web_observation_requests),
-                            (SELECT count(*) FROM armi.observation_attempts),
-                            (SELECT count(*) FROM armi.durable_work
-                             WHERE work_kind = 'web.search.invoke'
-                               AND status = 'completed')
-                        FROM armi.web_observation_requests AS request
-                        JOIN armi.observation_attempts AS attempt
-                          ON attempt.web_observation_request_id =
-                             request.web_observation_request_id
-                        """
-                ).fetchone()
-                assert row is not None
-                return {
-                    "request_status": str(row[0]),
-                    "request_digest": str(row[1]),
-                    "dispatch_state": str(row[2]),
-                    "attempt_result": str(row[3]),
-                    "provider_model": str(row[4]) if row[4] else None,
-                    "input_tokens": int(row[5]) if row[5] is not None else None,
-                    "output_tokens": int(row[6]) if row[6] is not None else None,
-                    "web_search_calls": int(row[7]) if row[7] is not None else None,
-                    "citation_count": int(row[8]) if row[8] is not None else None,
-                    "estimated_model_cost_microyuan": int(row[9])
-                    if row[9] is not None
-                    else None,
-                    "request_error_code": str(row[10]) if row[10] else None,
-                    "attempt_error_code": str(row[11]) if row[11] else None,
-                    "request_count": int(row[12]),
-                    "attempt_count": int(row[13]),
-                    "tool_call_count": len(tool_events),
-                    "completed_work_count": int(row[14]),
-                }
-
-        with tempfile.TemporaryDirectory(dir=Path(".tmp")) as temporary:
-            evidence = asyncio.run(
-                exercise(Path(temporary).resolve()),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
-        self.assertEqual(evidence["request_status"], "succeeded")
-        self.assertEqual(evidence["dispatch_state"], "settled")
-        self.assertEqual(evidence["attempt_result"], "succeeded")
-        self.assertTrue(
-            str(evidence["provider_model"]).startswith("doubao-seed-evolving")
-        )
-        self.assertEqual(evidence["request_count"], 1)
-        self.assertEqual(evidence["attempt_count"], 1)
-        self.assertGreaterEqual(cast(int, evidence["tool_call_count"]), 1)
-        self.assertEqual(evidence["completed_work_count"], 1)
-        self.assertIsNone(evidence["estimated_model_cost_microyuan"])
-        with psycopg.connect(fixture.admin_role_dsn) as connection:
-            receipt_row = connection.execute(
-                "SELECT receipt FROM armi.provider_usage_calls WHERE owner = 'web-observation'"
-            ).fetchone()
-            assert receipt_row is not None
-            self.assertEqual(receipt_row[0]["outcome"], "returned")
-            self.assertEqual(receipt_row[0]["cost"]["status"], "unpriced")
-            if live_credential is None:
-                self.assertEqual(
-                    receipt_row[0]["provider_request_id"], "resp_conformance"
-                )
-                self.assertEqual(
-                    {
-                        item["unit"]: item["quantity"]
-                        for item in receipt_row[0]["quantities"]
-                    },
-                    {
-                        "input_tokens": 10,
-                        "output_tokens": 10,
-                        "cached_input_tokens": 0,
-                        "web_search_calls": 1,
-                    },
-                )
-            row = connection.execute(
-                "SELECT count(*) FROM armi.web_observation_requests"
-            ).fetchone()
-            assert row is not None
-            self.assertEqual(row[0], 1)
-
     @pytest.mark.test_group("schema", "admin")
     def test_runtime_readiness_rejects_catalog_constraint_drift(self) -> None:
         fixture = self.create_database()
@@ -7316,7 +6964,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "content": "我愿意在当前场景认真回应。",
                     }
                 ],
-                "web_research_requests": [],
                 "visual_observation_requests": [],
                 "codex_delegations": [],
                 "owner_drafts": [],
@@ -7384,7 +7031,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 if codex
                 else (),
-                web_research_requests=(),
                 rejections=(),
             )
         else:
@@ -7789,7 +7435,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v17"
+        candidate_contract_version = "armi.cognition-candidate.v18"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -8333,7 +7979,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
                 mind_commit=bootstrap_mind().commit,
-                web_research_commit=bootstrap_web_research_commit(),
                 visual_observation_commit=bootstrap_live_vision_commit(),
             )
             await memory_module.open()
@@ -10163,7 +9808,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 .splitlines()
             ]
             self.assertEqual(
-                log_events[:10],
+                log_events[:9],
                 [
                     "runtime.lifecycle.starting",
                     "runtime.authority.acquired",
@@ -10174,15 +9819,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "creator.event_stream.connected",
                     "creator.input.accepted",
                     "creator.input.idempotent",
-                    "runtime.authority.heartbeat",
                 ],
             )
-            self.assertIn(
-                log_events[10],
-                {
-                    "creator.event_stream.closed",
-                    "creator.event_stream.disconnected",
-                },
+            # Background context preparation and heartbeat can complete in either order.
+            self.assertIn("runtime.authority.heartbeat", log_events[9:])
+            self.assertTrue(
+                {"creator.event_stream.closed", "creator.event_stream.disconnected"}
+                & set(log_events[9:])
             )
             self.assertIn("runtime.lifecycle.draining", log_events)
             self.assertIn("creator.session.revoked_all", log_events)

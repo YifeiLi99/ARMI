@@ -57,18 +57,7 @@ WITH parents AS (
            NULL::text, NULL::text, NULL::integer, NULL::integer,
            NULL::integer, NULL::integer, NULL::bigint, s.error_code
     FROM armi.live_voice_sessions s
-    UNION ALL
-    SELECT 'web-observation', a.observation_attempt_id, o.root_opportunity_id,
-           'web_observation', a.web_observation_request_id, a.result_status,
-           a.settled_at, a.provider_calls, a.usage_contract_version,
-           'volcengine_ark', 'doubao-seed-evolving', 'web_search', 'public_web_research',
-           a.dispatched_at, NULL::text, a.provider_model_id, a.input_tokens,
-           a.output_tokens, NULL::integer, a.web_search_calls,
-           a.estimated_cost_microyuan, a.error_code
-    FROM armi.observation_attempts a
-    JOIN armi.web_observation_requests r USING (web_observation_request_id)
-    LEFT JOIN armi.web_research_intents i USING (web_research_intent_id)
-    LEFT JOIN armi.opportunities o ON o.opportunity_id = i.source_opportunity_id
+
 )
 SELECT p.owner, p.attempt_id, p.operation_id, p.reference_kind, p.reference_id,
        p.business_result, false AS legacy,

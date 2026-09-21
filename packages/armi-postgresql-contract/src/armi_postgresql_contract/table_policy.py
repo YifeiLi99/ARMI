@@ -139,18 +139,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "effects": TableOwnership("effect", maintenance_writable=False),
     "local_inbox_deliveries": TableOwnership("effect", maintenance_writable=False),
     # Web, Codex, and Data Rights.
-    "observation_attempts": TableOwnership(
-        "web-observation", maintenance_writable=False
-    ),
-    "web_evidence_sources": TableOwnership(
-        "web-observation", maintenance_writable=True
-    ),
-    "web_observation_requests": TableOwnership(
-        "web-observation", maintenance_writable=True
-    ),
-    "web_research_intents": TableOwnership(
-        "web-observation", maintenance_writable=True
-    ),
     "codex_task_sources": TableOwnership("codex", maintenance_writable=True),
     "codex_verification_results": TableOwnership("codex", maintenance_writable=False),
     "creator_exports": TableOwnership("data-rights", maintenance_writable=False),

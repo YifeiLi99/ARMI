@@ -141,7 +141,6 @@ def test_all_cognitive_purposes_have_explicit_context_profiles() -> None:
     purposes = {
         "consider_creator_input",
         "consider_life_query_result",
-        "consider_web_evidence",
         "consider_other_human_input",
         "consider_autonomous_life",
         "consider_sleep",

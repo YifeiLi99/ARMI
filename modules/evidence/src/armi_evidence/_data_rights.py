@@ -57,7 +57,7 @@ class PostgreSQLEvidenceDataRightsParticipant:
         )
         rows = await (
             await transaction.execute(
-                """SELECT evidence_id, artifact_id,web_observation_request_id,
+                """SELECT evidence_id, artifact_id,
                           codex_task_source_id,codex_verification_id,
                           visual_observation_id
                    FROM armi.external_evidence
@@ -92,24 +92,19 @@ class PostgreSQLEvidenceDataRightsParticipant:
                 [DataRightsRelatedRef("evidence", ref) for ref in evidence_ids]
                 + [DataRightsRelatedRef("experience", row[0]) for row in link_rows]
                 + [
-                    DataRightsRelatedRef("web-observation", row[2])
+                    DataRightsRelatedRef("codex-task", row[2])
                     for row in rows
                     if row[2] is not None
                 ]
                 + [
-                    DataRightsRelatedRef("codex-task", row[3])
+                    DataRightsRelatedRef("codex-verification", row[3])
                     for row in rows
                     if row[3] is not None
                 ]
                 + [
-                    DataRightsRelatedRef("codex-verification", row[4])
+                    DataRightsRelatedRef("visual-observation", row[4])
                     for row in rows
                     if row[4] is not None
-                ]
-                + [
-                    DataRightsRelatedRef("visual-observation", row[5])
-                    for row in rows
-                    if row[5] is not None
                 ]
             ),
             tuple(

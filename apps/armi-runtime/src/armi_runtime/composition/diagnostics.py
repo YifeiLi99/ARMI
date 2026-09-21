@@ -20,7 +20,6 @@ from armi_context.api import EmbeddingAttemptDiagnostic, EmbeddingFailureDiagnos
 from armi_kernel.contracts import Instant
 from armi_live_voice.api import VoiceProviderDiagnostic
 from armi_local_control.runtime_errors import RuntimeViolation
-from armi_web_observation.api import WebToolCallDiagnostic
 
 _EVENT = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$", re.ASCII)
 _RESULT = re.compile(r"^[A-Z][A-Z0-9_-]{2,127}$", re.ASCII)
@@ -358,9 +357,6 @@ class StructuredDiagnosticLog:
 
     def voice_provider(self, event: VoiceProviderDiagnostic) -> None:
         self.emit("live_voice.provider." + event.event, details=asdict(event))
-
-    def web_tool_call(self, step: WebToolCallDiagnostic) -> None:
-        self.emit("web.observation.tool_call", details=asdict(step))
 
     def embedding_attempt(self, attempt: EmbeddingAttemptDiagnostic) -> None:
         self.emit("context.embedding.attempt", details=asdict(attempt))

@@ -38,11 +38,10 @@ class PostgreSQLEvidenceWriter:
             INSERT INTO armi.external_evidence (
                 evidence_id, interaction_id, subject_id, scene_id,
                 context_party_id, artifact_id, source_kind, trust_status,
-                privacy_scope, acceptance_status, web_observation_request_id,
-                observation_attempt_id, codex_task_source_id,
+                privacy_scope, acceptance_status, codex_task_source_id,
                 codex_verification_id, visual_observation_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s,'external_claim',%s,'accepted',
-                    %s,%s,%s,%s,%s)
+                    %s,%s,%s)
             """,
             (
                 draft.evidence_id.value,
@@ -53,8 +52,6 @@ class PostgreSQLEvidenceWriter:
                 draft.artifact_id,
                 draft.source_kind.value,
                 draft.privacy_scope.value,
-                draft.web_observation_request_id,
-                draft.observation_attempt_id,
                 draft.codex_task_source_id,
                 draft.codex_verification_id,
                 draft.visual_observation_id,
@@ -124,8 +121,7 @@ class PostgreSQLEvidenceWriter:
             await _connection(transaction).execute(
                 """
                 SELECT received_at, interaction_id, artifact_id, source_kind,
-                       scene_id, context_party_id, web_observation_request_id,
-                       observation_attempt_id, codex_task_source_id,
+                       scene_id, context_party_id, codex_task_source_id,
                        codex_verification_id, visual_observation_id
                 FROM armi.external_evidence
                 WHERE evidence_id = %s AND acceptance_status = 'accepted'
@@ -149,8 +145,6 @@ class PostgreSQLEvidenceWriter:
             row[6],
             row[7],
             row[8],
-            row[9],
-            row[10],
         )
 
 

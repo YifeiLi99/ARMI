@@ -329,7 +329,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v17",
+        "schema_version": "armi.cognition-candidate.v18",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -520,7 +520,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.model_id == active.model_id == ACTIVE_MODEL_ID
     assert dialogue.profile == "creator_cognitive_act"
     assert (
-        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v7"
+        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v8"
     )
     assert dialogue.output_token_limit == 2048
 
@@ -528,7 +528,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert request["schema_version"] == "armi.model-request.v1"
     assert (
         request["output_contract"]["schema_version"]
-        == "armi.creator-cognitive-act-candidate.v7"
+        == "armi.creator-cognitive-act-candidate.v8"
     )
     assert request["candidate_base"]["bundle_activation_id"] == str(_BUNDLE_ID)
 
@@ -679,7 +679,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert request["context_digest"] == Digest.from_bytes(compiled).value
     assert request["candidate_base"]["subject_version"] == 9
     assert request["output_contract"]["schema_version"] == (
-        "armi.creator-cognitive-act-candidate.v7"
+        "armi.creator-cognitive-act-candidate.v8"
     )
 
 
@@ -800,40 +800,6 @@ def test_replaced_autonomy_purposes_have_no_executable_binding(purpose: str) -> 
         load_purpose_binding(purpose)
 
 
-def test_web_dialogue_uses_current_action_contract_and_rejects_url_fields() -> None:
-    schema = candidate_schema(CREATOR_COGNITIVE_ACT_VERSION)
-    schema_text = json.dumps(schema, separators=(",", ":"))
-    assert '"web_research"' in schema_text
-    assert '"schema_version"' not in schema_text
-    assert '"subject_id"' not in schema_text
-
-    parsed = parse_candidate(
-        json.dumps(
-            {
-                "decision": {
-                    "kind": "web_research",
-                    "query": "PostgreSQL 18 正式发布说明",
-                }
-            },
-            ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset(),
-        expected_version=CREATOR_COGNITIVE_ACT_VERSION,
-    )
-    assert parsed.schema_version == CREATOR_COGNITIVE_ACT_VERSION
-    assert parsed.model_dump(mode="json")["decision"] == {
-        "kind": "web_research",
-        "query": "PostgreSQL 18 正式发布说明",
-    }
-
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
-        parse_candidate(
-            b'{"decision":{"kind":"web_research","url":"https://example.com/"}}',
-            allowed_context_refs=frozenset(),
-            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
-        )
-
-
 def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None:
     schema_text = json.dumps(candidate_schema(CREATOR_COGNITIVE_ACT_VERSION))
     assert '"exact_life_query"' in schema_text
@@ -949,3 +915,16 @@ def test_codex_observation_may_omit_nullable_uncertainty() -> None:
 
     assert isinstance(parsed, CognitionCandidate)
     assert parsed.experiences[0].payload.uncertainty is None
+
+
+def test_internet_research_uses_codex_and_rejects_retired_web_action() -> None:
+    schema_text = json.dumps(candidate_schema(CREATOR_COGNITIVE_ACT_VERSION))
+    assert '"codex_delegation"' in schema_text
+    assert '"web_search"' in schema_text
+    assert '"web_research"' not in schema_text
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_candidate(
+            b'{"decision":{"kind":"web_research","query":"latest release"}}',
+            allowed_context_refs=frozenset(),
+            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
+        )

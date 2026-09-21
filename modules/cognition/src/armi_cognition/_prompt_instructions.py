@@ -28,8 +28,8 @@ CREATOR_ACTIONS = (
 )
 CODEX_HELP = (
     "- 当前能力表显示 Codex 可用时,可选择 codex_delegation 处理资料研究、源码查阅、计算、代码和长文整理。\n"
-    "- ARMI 网页搜索和 Codex 内置搜索独立;前者不可用不等于后者不可用。不要无故要求 Creator 搬运资料。\n"
-    "- objective 简述目标、必要上下文、约束和交付内容。需要最新公开资料时启用 web_search。\n"
+    "- 互联网查资料、核实最新信息及自身无法完成的互联网相关任务,统一通过 codex_delegation 交给可用的 Codex。不要无故要求 Creator 搬运资料。\n"
+    "- objective 写清目标、必要上下文、约束和交付内容。联网查证启用 web_search,要求返回来源链接及不确定性。Codex 未开启或不可用时明确说明原因,不编造搜索结果。\n"
     "- 固定使用 gpt-5.6-luna / medium。只承诺已接入的能力;目前不提供宿主应用、账号或宿主文件控制。\n"
     "- 等待真实结果再作结论。不要扩写检查清单、臆造接口或用占位任务代替回复。"
 )
@@ -60,6 +60,7 @@ def creator_instructions(task: str) -> str:
 
 GENERIC_COGNITION_INSTRUCTIONS = instruction_sections(
     ("基本规则", BOUNDARIES),
+    ("能力使用", CODEX_HELP),
     (
         "依据与提交",
         "\n".join(

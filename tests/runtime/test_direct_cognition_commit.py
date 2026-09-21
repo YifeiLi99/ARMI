@@ -86,7 +86,6 @@ async def test_validation_and_application_commit_or_rollback_together(fail) -> N
     changes = SimpleNamespace(
         owner_drafts=(),
         action_choices=(),
-        web_research_requests=(),
         exact_life_queries=(),
         visual_observation_requests=(),
         codex_delegations=(),
@@ -125,7 +124,6 @@ async def test_autonomous_codex_preparation_failure_never_opens_commit_transacti
     changes = SimpleNamespace(
         owner_drafts=(),
         action_choices=(),
-        web_research_requests=(),
         exact_life_queries=(),
         visual_observation_requests=(),
         codex_delegations=(SimpleNamespace(new_task=object()),),

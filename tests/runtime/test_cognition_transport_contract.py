@@ -19,9 +19,7 @@ from armi_runtime.composition.model_verification import (
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "purpose", ["consider_codex_task", "consider_codex_result", "consider_web_evidence"]
-)
+@pytest.mark.parametrize("purpose", ["consider_codex_task", "consider_codex_result"])
 async def test_generic_transport_sends_current_prompt_and_schema(
     monkeypatch, purpose
 ) -> None:
@@ -42,7 +40,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     )
     clients = ark.ModelClients()
     monkeypatch.setattr(clients, "get", lambda *_args: client)
-    schema = candidate_schema("armi.cognition-candidate.v17")
+    schema = candidate_schema("armi.cognition-candidate.v18")
     transport = ark.OfficialArkTransport(
         schema,
         clients=clients,
@@ -84,7 +82,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
                 SimpleNamespace(
                     provider="volcengine_ark",
                     model_id="doubao-seed-evolving",
-                    response_contract_version="armi.cognition-candidate.v17",
+                    response_contract_version="armi.cognition-candidate.v18",
                 ),
             ),
             request=cast(Any, request),
@@ -98,7 +96,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
             Any,
             SimpleNamespace(
                 model_id="doubao-seed-evolving",
-                response_contract_version="armi.cognition-candidate.v17",
+                response_contract_version="armi.cognition-candidate.v18",
             ),
         ),
         cast(Any, request),

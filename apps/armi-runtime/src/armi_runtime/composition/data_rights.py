@@ -202,7 +202,6 @@ def compose_data_rights_participants(
         "sleep",
         "expression",
         "effect",
-        "web-observation",
         "codex",
         "context",
         "data-rights",

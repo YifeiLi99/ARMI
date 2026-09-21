@@ -52,7 +52,7 @@
 
 - 稳定包身份为 `YifeiLi99.ARMI`，发布配置集中在 `configs/windows-release.yaml`；正式签名材料不进入仓库。安装、程序替换与卸载交给 Windows，不维护卸载 EXE、程序切换日志或文件回滚。Windows 直接卸载保留数据；ARMI 设置和 setup 机器接口的卸载默认保留，只有明确选择永久清理才删除当前包的数据目录，必须先经 Admin 正常停机，失败不继续。更新必须核验可信签名、相同包身份与递增版本。自动更新与显式本地更新都只接受相同数据库合同；程序部署成功与 Runtime 就绪分别核验。已安装 Admin/Creator 配置绑定稳定包身份，不保存随版本变化的程序路径；源码和隔离测试保留明确资源绑定。
 - 当前开发阶段暂不使用 GitHub Releases。用户要求“更新本机”时，默认通过 [本地构建安装入口](tools/install_local_msix.ps1) 从当前源码构建、签名并安装或原位升级独立验收包；沿用已建立的证书信任，不逐次重新要求打包授权。已有安装不得以先卸载再重装代替升级，不删除、重建数据库或重复出生；数据库合同不同时，在部署前停止并报告；清空并重建目标数据库须另获明确授权。保持验收版 GitHub 自动更新关闭，不自行发布 Release、配置正式签名或购买服务。修改源码本身不代表需要立即更新本机；具体命令与产物位置见 [README](README.md)。
-- 凭据通过设置或同一 setup 凭据用例写入所属环境的私有文件，配置只引用 locator，不写进项目文档或仓库。主文本模型只选 Qwen 或 DeepSeek，分别使用 `model.qwen_api_key` 与 `model.deepseek_api_key`；方舟不再作为主文本选择或回退。`model.ark_api_key` 保留给独立豆包语音认知、视觉识别与 Web 搜索；语音识别/合成、Codex、QQ 保持独立凭据。当前存储保护方式和生效步骤见 [运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。
+- 凭据通过设置或同一 setup 凭据用例写入所属环境的私有文件，配置只引用 locator，不写进项目文档或仓库。主文本模型只选 Qwen 或 DeepSeek，分别使用 `model.qwen_api_key` 与 `model.deepseek_api_key`；方舟不再作为主文本选择或回退。`model.ark_api_key` 保留给独立豆包语音认知、视觉识别；语音识别/合成、Codex、QQ 保持独立凭据。当前存储保护方式和生效步骤见 [运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 Alembic revision、autogenerate 或 downgrade。只维护最新数据库，不保留历史 schema 快照、升级资源或升级入口；已有数据库合同不匹配时停止。普通启动不升级，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
@@ -78,7 +78,7 @@
 - 交互用例和操作合同位于 Runtime `application/`，HTTP、CLI、MCP 只适配传输，不经 HTTP handler 转接机器操作。本地拥有者经服务端验证受保护的本机绑定后具有完整 ARMI 管理权限，不需要 Windows 提权或逐次应用内审批；显式受限绑定仍按授权范围执行，不能借 setup 转发、调用参数或配置修改信任根。事务、并发、回执及正式环境故障注入限制继续生效。配置消费者仅在验证并实际采用后登记当前版本；读取文件或保存配置不等于生效。中断管理调用通过 `invocation reconcile` 核验，不以当前状态猜测历史成功或重放原效果。
 - ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；开发代理执行危险操作仍须遵守用户授权边界，不以应用内管理权限替代用户授权。
 - ARMI 的 Codex 委托使用官方 SDK/订阅 auth，当前委托固定使用 `gpt-5.6-luna` 与 `medium`，接口与执行器拒绝其他组合；逐任务可选择内置 Web Search；这不指定开发仓库时的模型。Runner 只操作 manifest 的一次性 workspace，遵守路径边界，不访问 ARMI DB、Admin 或宿主 secret/配置；第一版仅保留目标与执行选项的委托记录、执行状态和最终正文，结果交回后由 ARMI 决定后续行动或对话。不要求任务 ZIP、目录差异、独立 validator、多份报告或 `result.md` 交付；本地清理失败独立记录，不丢弃成功结果或重跑任务。
-- ARMI Web research 与 Codex 内置 Web Search 是独立只读链，后者不授予 shell 网络权限；结果先成为 Evidence/Opportunity，不直接写 Memory、Relationship 或回复。
+- ARMI 不自持网页搜索；互联网查资料、最新信息核实及自身无法完成的互联网相关任务统一通过现有 Codex 委托。需要联网查证时启用任务的内置 Web Search，要求返回来源和不确定性；不额外授予 shell 网络权限。Codex 未开启或不可用时明确说明；结果先成为 Evidence/Opportunity，由 ARMI 决定后续行动。
 - 项目当前未授予开源许可证，不擅自声明开源或复制不兼容源码/素材，保留研究来源和许可证记录。
 
 ## 6. 验证、文档与入口

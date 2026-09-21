@@ -19,9 +19,6 @@ class ConfigurationConsumption:
             runtime_config_path(
                 "model-bindings.yaml", environment_root=root
             ).resolve(): "model-bindings",
-            runtime_config_path(
-                "web-search.yaml", environment_root=root
-            ).resolve(): "web-search",
             (root / "channels/qq-napcat.yaml").resolve(): "qq",
             (root / "devices/mood-display.yaml").resolve(): "mood-display",
         }
@@ -32,7 +29,6 @@ class ConfigurationConsumption:
                 runtime_config_path(
                     "provider-pricing.yaml", environment_root=root
                 ).resolve(): "provider-pricing",
-                (root / "configs/web-search.yaml").resolve(): "web-search",
             }
         )
         self._consumers: dict[str, dict[str, tuple[str, str]]] = {}

@@ -627,7 +627,6 @@ class PostgreSQLOpportunityOwner:
             "consider_creator_voice_input",
             "consider_other_human_input",
             "consider_codex_result",
-            "consider_web_evidence",
             "consider_life_query_result",
             "consider_requested_visual_observation",
         }:

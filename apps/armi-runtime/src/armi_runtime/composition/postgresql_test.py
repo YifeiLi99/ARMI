@@ -81,11 +81,6 @@ from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
     bootstrap_subject_state_cognition,
 )
-from armi_web_observation.bootstrap import (
-    bootstrap_web_observation,
-    bootstrap_web_research_commit,
-    normalize_web_observation_response,
-)
 
 ArtifactCatalogRepository = bootstrap_artifact_catalog
 CodexTaskSourceGateway = compose_codex_task_source_gateway
@@ -100,7 +95,6 @@ OtherHumanInputRepository = compose_other_human_input_repository
 PostgreSQLInteractionPerception = compose_interaction_perception
 PostgreSQLSceneTimelineQuery = compose_scene_timeline_query
 ExternalContentPipeline = compose_external_content_pipeline
-normalize_full_response = normalize_web_observation_response
 build_request_bytes = build_model_request_bytes
 candidate_schema = build_candidate_schema
 checked_model_request = check_model_request
@@ -171,12 +165,9 @@ __all__ = (
     "bootstrap_subject_state",
     "bootstrap_subject_state_cognition",
     "bootstrap_system_notification_effects",
-    "bootstrap_web_observation",
-    "bootstrap_web_research_commit",
     "build_request_bytes",
     "candidate_schema",
     "checked_model_request",
     "load_active_binding",
-    "normalize_full_response",
     "parse_candidate",
 )

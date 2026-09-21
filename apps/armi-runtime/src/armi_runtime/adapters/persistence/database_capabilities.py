@@ -42,15 +42,15 @@ live_voice_sessions
 live_voice_turns local_inbox_deliveries maintenance_phase_results
 maintenance_session_revisions maintenance_sessions memory_relations
 mood_appraisal_events mood_heads mood_revisions
-observation_attempts opportunities parties
+opportunities parties
 party_input_interactions system_notifications prompt_documents
 prompt_revisions relationship_experience_links relationship_revisions
 relationships runtime_bundle_activations runtime_instances
 scene_participants
 scene_timeline_items sleep_decisions subject_commits mind_heads subject_component_heads
 mind_revisions subject_component_revisions subjective_memories subjective_memory_revisions
-subjects web_evidence_sources
-web_observation_requests web_research_intents
+subjects
+
 """
 
 _RUNTIME_UPDATE = """
@@ -71,12 +71,12 @@ interaction_scenes life_material_revisions life_materials live_vision_observatio
 live_vision_observations live_vision_sessions
 live_voice_sessions
 live_voice_turns local_inbox_deliveries maintenance_sessions mood_appraisal_events mood_heads
-observation_attempts opportunities parties party_input_interactions
+opportunities parties party_input_interactions
   prompt_documents relationship_revisions relationships
 runtime_instances
 scene_participants mind_heads subject_component_heads mind_revisions subject_component_revisions
 subjective_memories subjective_memory_revisions subjects
-web_observation_requests web_research_intents
+
 """
 
 _ADMIN_INSERT = """

@@ -50,9 +50,9 @@ def test_evidence_source_identity_is_owned_by_contract() -> None:
             scene_id=uuid7(),
             context_party_id=uuid7(),
             artifact_id=uuid7(),
-            source_kind=EvidenceSourceKind.WEB_SEARCH,
+            source_kind=EvidenceSourceKind.CODEX_RESULT,
             privacy_scope=EvidencePrivacyScope.PRIVATE,
-            web_observation_request_id=uuid7(),
+            codex_task_source_id=uuid7(),
         )
 
 

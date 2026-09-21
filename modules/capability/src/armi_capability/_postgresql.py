@@ -38,11 +38,6 @@ class PostgreSQLCapabilityCatalog:
                 (UUID(identity), kind, operation, 1)
                 for identity, kind, operation in (
                     (
-                        "01985d00-0000-7000-8000-000000000034",
-                        "web.search",
-                        "search_read_public",
-                    ),
-                    (
                         "01985d00-0000-7000-8000-000000000035",
                         "vision.camera",
                         "observe_camera",

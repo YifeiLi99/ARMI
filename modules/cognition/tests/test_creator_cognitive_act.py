@@ -34,7 +34,6 @@ from pydantic import BaseModel, ValidationError
         {"kind": "no_action"},
         {"kind": "exact_life_query", "record_kind": "memory"},
         {"kind": "exact_life_query", "record_kind": "memory", "query": "last week"},
-        {"kind": "web_research", "query": "public facts"},
         {
             "kind": "codex_delegation",
             "objective": "Compare official sources",

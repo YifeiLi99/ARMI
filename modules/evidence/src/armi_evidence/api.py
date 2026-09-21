@@ -42,7 +42,6 @@ class EvidenceId:
 class EvidenceSourceKind(StrEnum):
     CREATOR_INPUT = "creator_input"
     OTHER_HUMAN_INPUT = "other_human_input"
-    WEB_SEARCH = "web_search"
     CODEX_TASK_SOURCE = "codex_task_source"
     CODEX_RESULT = "codex_result"
     VISUAL_OBSERVATION = "visual_observation"
@@ -63,8 +62,6 @@ class EvidenceDraft:
     source_kind: EvidenceSourceKind
     privacy_scope: EvidencePrivacyScope
     interaction_id: UUID | None = None
-    web_observation_request_id: UUID | None = None
-    observation_attempt_id: UUID | None = None
     codex_task_source_id: UUID | None = None
     codex_verification_id: UUID | None = None
     visual_observation_id: UUID | None = None
@@ -84,8 +81,6 @@ class EvidenceDraft:
         _require_uuid7(self.artifact_id, "EVIDENCE-ARTIFACT")
         identities = (
             self.interaction_id,
-            self.web_observation_request_id,
-            self.observation_attempt_id,
             self.codex_task_source_id,
             self.codex_verification_id,
             self.visual_observation_id,
@@ -94,33 +89,11 @@ class EvidenceDraft:
             if identity is not None:
                 _require_uuid7(identity, "EVIDENCE-SOURCE-ID")
         expected = {
-            EvidenceSourceKind.CREATOR_INPUT: (True, False, False, False, False, False),
-            EvidenceSourceKind.OTHER_HUMAN_INPUT: (
-                True,
-                False,
-                False,
-                False,
-                False,
-                False,
-            ),
-            EvidenceSourceKind.WEB_SEARCH: (False, True, True, False, False, False),
-            EvidenceSourceKind.CODEX_TASK_SOURCE: (
-                False,
-                False,
-                False,
-                True,
-                False,
-                False,
-            ),
-            EvidenceSourceKind.CODEX_RESULT: (False, False, False, False, True, False),
-            EvidenceSourceKind.VISUAL_OBSERVATION: (
-                False,
-                False,
-                False,
-                False,
-                False,
-                True,
-            ),
+            EvidenceSourceKind.CREATOR_INPUT: (True, False, False, False),
+            EvidenceSourceKind.OTHER_HUMAN_INPUT: (True, False, False, False),
+            EvidenceSourceKind.CODEX_TASK_SOURCE: (False, True, False, False),
+            EvidenceSourceKind.CODEX_RESULT: (False, False, True, False),
+            EvidenceSourceKind.VISUAL_OBSERVATION: (False, False, False, True),
         }[self.source_kind]
         if tuple(value is not None for value in identities) != expected:
             raise EvidenceViolation("EVIDENCE-SOURCE-SHAPE")
@@ -156,8 +129,6 @@ class EvidenceSnapshot:
     source_kind: EvidenceSourceKind
     scene_id: UUID | None
     context_party_id: UUID | None
-    web_observation_request_id: UUID | None
-    observation_attempt_id: UUID | None
     codex_task_source_id: UUID | None
     codex_verification_id: UUID | None
     visual_observation_id: UUID | None

@@ -45,7 +45,6 @@ def test_pairs_share_contract_and_accept_silence_without_forcing_emotion(experim
         assert not result.change_set.action_choices
         kinds = set(case["schema"]["discriminator"]["mapping"])
         assert not kinds & {
-            "web_research",
             "visual_observation",
             "codex_delegation",
             "exact_life_query",

@@ -1031,26 +1031,8 @@ ALTER TABLE ONLY armi.mood_revisions
 ALTER TABLE ONLY armi.mood_revisions
     ADD CONSTRAINT mood_revisions_subject_version_key UNIQUE (subject_id, mood_version);
 
---
--- Name: observation_attempts observation_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.observation_attempts
-    ADD CONSTRAINT observation_attempts_pkey PRIMARY KEY (observation_attempt_id);
 
---
--- Name: observation_attempts observation_attempts_web_observation_request_id_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_attempts
-    ADD CONSTRAINT observation_attempts_web_observation_request_id_attempt_no_key UNIQUE (web_observation_request_id, attempt_no);
-
---
--- Name: observation_attempts observation_attempts_web_observation_request_id_work_attemp_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_attempts
-    ADD CONSTRAINT observation_attempts_web_observation_request_id_work_attemp_key UNIQUE (web_observation_request_id, work_attempt_id);
 
 --
 -- Name: opportunities opportunities_episode_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1440,103 +1422,19 @@ ALTER TABLE ONLY armi.subjects
 
 
 
---
--- Name: web_evidence_sources web_evidence_sources_evidence_id_canonical_url_digest_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_evidence_id_canonical_url_digest_key UNIQUE (evidence_id, canonical_url_digest);
 
---
--- Name: web_evidence_sources web_evidence_sources_evidence_id_citation_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_evidence_id_citation_no_key UNIQUE (evidence_id, citation_no);
 
---
--- Name: web_evidence_sources web_evidence_sources_observation_attempt_id_citation_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_observation_attempt_id_citation_no_key UNIQUE (observation_attempt_id, citation_no);
 
---
--- Name: web_evidence_sources web_evidence_sources_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_pkey PRIMARY KEY (web_evidence_source_id);
 
---
--- Name: web_observation_requests web_observation_requests_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_pkey PRIMARY KEY (web_observation_request_id);
 
---
--- Name: web_observation_requests web_observation_requests_subject_id_purpose_idempotency_key_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_subject_id_purpose_idempotency_key_key UNIQUE (subject_id, purpose, idempotency_key);
 
---
--- Name: web_observation_requests web_observation_requests_web_research_intent_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_web_research_intent_id_key UNIQUE (web_research_intent_id);
-
---
--- Name: web_observation_requests web_observation_requests_work_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_work_id_key UNIQUE (work_id);
-
---
--- Name: web_research_intents web_research_intents_admission_work_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_admission_work_id_key UNIQUE (admission_work_id);
-
---
--- Name: web_research_intents web_research_intents_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_pkey PRIMARY KEY (web_research_intent_id);
-
---
--- Name: web_research_intents web_research_intents_source_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_source_opportunity_id_key UNIQUE (source_opportunity_id);
-
---
--- Name: web_research_intents web_research_intents_subject_commit_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_subject_commit_id_key UNIQUE (subject_commit_id);
-
---
--- Name: web_research_intents web_research_intents_subject_id_source_opportunity_id_propo_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_subject_id_source_opportunity_id_propo_key UNIQUE (subject_id, source_opportunity_id, proposal_ref);
-
---
--- Name: web_research_intents web_research_intents_web_observation_request_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_web_observation_request_id_key UNIQUE (web_observation_request_id);
 
 --
 -- Name: accepted_experiences_gist_trgm_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2808,11 +2706,7 @@ ALTER TABLE ONLY armi.external_evidence
     ADD CONSTRAINT external_evidence_interaction_owner_fkey FOREIGN KEY (interaction_id, subject_id, scene_id, context_party_id) REFERENCES armi.party_input_interactions(interaction_id, subject_id, scene_id, source_party_id);
 
 --
--- Name: external_evidence external_evidence_observation_attempt_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.external_evidence
-    ADD CONSTRAINT external_evidence_observation_attempt_fkey FOREIGN KEY (observation_attempt_id) REFERENCES armi.observation_attempts(observation_attempt_id);
+-- Name: external_evidence external_evidence_observation_attempt_fkey; Type: FK CONSTRAINT; Schema: armi;
 
 --
 -- Name: external_evidence external_evidence_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2842,12 +2736,6 @@ ALTER TABLE ONLY armi.external_evidence
 ALTER TABLE ONLY armi.external_evidence
     ADD CONSTRAINT external_evidence_visual_observation_id_fkey FOREIGN KEY (visual_observation_id) REFERENCES armi.live_vision_observations(observation_id);
 
---
--- Name: external_evidence external_evidence_web_request_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.external_evidence
-    ADD CONSTRAINT external_evidence_web_request_fkey FOREIGN KEY (web_observation_request_id) REFERENCES armi.web_observation_requests(web_observation_request_id);
 
 --
 -- Name: external_message_parts external_message_parts_interaction_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3280,26 +3168,8 @@ ALTER TABLE ONLY armi.mood_revisions
 ALTER TABLE ONLY armi.mood_revisions
     ADD CONSTRAINT mood_revisions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: observation_attempts observation_attempts_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.observation_attempts
-    ADD CONSTRAINT observation_attempts_result_artifact_id_fkey FOREIGN KEY (result_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: observation_attempts observation_attempts_web_observation_request_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_attempts
-    ADD CONSTRAINT observation_attempts_web_observation_request_id_fkey FOREIGN KEY (web_observation_request_id) REFERENCES armi.web_observation_requests(web_observation_request_id);
-
---
--- Name: observation_attempts observation_attempts_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.observation_attempts
-    ADD CONSTRAINT observation_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
 --
 -- Name: opportunities opportunities_activity_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3799,124 +3669,22 @@ ALTER TABLE ONLY armi.subjects
 
 
 
---
--- Name: web_evidence_sources web_evidence_sources_evidence_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_evidence_id_fkey FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
 
---
--- Name: web_evidence_sources web_evidence_sources_observation_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_observation_attempt_id_fkey FOREIGN KEY (observation_attempt_id) REFERENCES armi.observation_attempts(observation_attempt_id);
 
---
--- Name: web_evidence_sources web_evidence_sources_source_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_evidence_sources
-    ADD CONSTRAINT web_evidence_sources_source_artifact_id_fkey FOREIGN KEY (source_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: web_observation_requests web_observation_requests_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: web_observation_requests web_observation_requests_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_result_artifact_id_fkey FOREIGN KEY (result_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: web_observation_requests web_observation_requests_runtime_instance_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_runtime_instance_id_fkey FOREIGN KEY (runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
 
---
--- Name: web_observation_requests web_observation_requests_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
---
--- Name: web_observation_requests web_observation_requests_web_research_intent_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_web_research_intent_id_fkey FOREIGN KEY (web_research_intent_id) REFERENCES armi.web_research_intents(web_research_intent_id);
 
---
--- Name: web_observation_requests web_observation_requests_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_observation_requests
-    ADD CONSTRAINT web_observation_requests_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
-
---
--- Name: web_research_intents web_research_intents_admission_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_admission_work_id_fkey FOREIGN KEY (admission_work_id) REFERENCES armi.durable_work(work_id);
-
---
--- Name: web_research_intents web_research_intents_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: web_research_intents web_research_intents_query_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_query_artifact_id_fkey FOREIGN KEY (query_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: web_research_intents web_research_intents_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_scene_id_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
-
---
--- Name: web_research_intents web_research_intents_source_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_source_opportunity_id_fkey FOREIGN KEY (source_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: web_research_intents web_research_intents_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
-
---
--- Name: web_research_intents web_research_intents_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: web_research_intents web_research_intents_web_observation_request_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.web_research_intents
-    ADD CONSTRAINT web_research_intents_web_observation_request_id_fkey FOREIGN KEY (web_observation_request_id) REFERENCES armi.web_observation_requests(web_observation_request_id);
 -- F02 execution custody and current-state fence ownership.
 ALTER TABLE ONLY armi.data_rights_party_fences
     ADD CONSTRAINT data_rights_party_fences_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);

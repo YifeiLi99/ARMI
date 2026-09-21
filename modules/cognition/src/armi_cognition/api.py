@@ -44,7 +44,6 @@ from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
-from armi_web_observation.api import WebResearchRequestDraft
 
 from ._autonomy_check_contract import (
     AUTONOMY_CHECK_INSTRUCTIONS,
@@ -126,7 +125,6 @@ class SubjectChangeSet:
     disposition: CandidateDisposition
     experiences: tuple[CandidateExperienceDraft, ...]
     action_choices: tuple[ResponseChoiceDraft, ...]
-    web_research_requests: tuple[WebResearchRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]
     visual_observation_requests: tuple[VisualObservationRequestDraft, ...] = ()
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()

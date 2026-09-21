@@ -107,7 +107,6 @@ class ConfigurationRequest(EnvironmentRequest):
         "runtime",
         "model-bindings",
         "provider-pricing",
-        "web-search",
         "qq",
         "mood-display",
     ] = "runtime"

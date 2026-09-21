@@ -306,7 +306,7 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v7",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v8",
     )
     concern_id = uuid7()
     bases = (
@@ -363,7 +363,7 @@ def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v7",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v8",
         current_components=tuple(
             (
                 owner,
@@ -470,7 +470,7 @@ def test_creator_decision_with_expression_reaches_expression_owner(kind, purpose
     context = replace(
         context,
         purpose=purpose,
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v7",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v8",
     )
     bases = (
         *bases,
@@ -522,7 +522,7 @@ def test_creator_combined_changes_keep_unique_refs_and_shared_experience(voice, 
         subject_party_id=uuid7(),
         purpose="consider_creator_voice_input" if voice else "consider_creator_input",
         candidate_contract_version=(
-            "armi.creator-voice-act-candidate.v7"
+            "armi.creator-voice-act-candidate.v8"
             if voice
             else CREATOR_COGNITIVE_ACT_VERSION
         ),
@@ -1530,7 +1530,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v17",
+        "schema_version": "armi.cognition-candidate.v18",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -2457,78 +2457,6 @@ def test_external_claim_cannot_be_declared_objective_fact() -> None:
     assert result.error_code == "CANDIDATE-FACT-CLASS"
 
 
-def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_default() -> (
-    None
-):
-    context, bases = _fixture()
-    extended = (
-        *bases,
-        CandidateBasis(
-            4,
-            "purpose",
-            "current_purpose",
-            uuid7(),
-            1,
-            "policy",
-            "private",
-        ),
-        CandidateBasis(
-            5,
-            "capability",
-            "web_search_availability",
-            uuid7(),
-            1,
-            "policy",
-            "private",
-        ),
-    )
-    candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
-    candidate["experiences"] = []
-    candidate["component_changes"] = []
-    candidate["action_choices"] = []
-    candidate["web_research_requests"] = [
-        {
-            "proposal_ref": "proposal:1",
-            "atomic_group_ref": "group:1",
-            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
-            "payload": {
-                "proposal_kind": "web_research_requests",
-                "fact_class": "inference",
-                "purpose": "public_web_research",
-                "operation_class": "search_read_public",
-                "query": "PostgreSQL 18 的正式发布说明",
-            },
-        }
-    ]
-    inactive = DeterministicCandidateValidator(context).validate(
-        _bytes(candidate), bases=extended
-    )
-    assert inactive.status is CandidateValidationStatus.REJECTED
-    assert inactive.error_code == "CANDIDATE-WEB-NOT-ACTIVE"
-
-    active_context = replace(context, web_search_active=True)
-    first = DeterministicCandidateValidator(active_context).validate(
-        _bytes(candidate), bases=extended
-    )
-    second = DeterministicCandidateValidator(active_context).validate(
-        _bytes(candidate), bases=extended
-    )
-    assert first.status is CandidateValidationStatus.ACCEPTED
-    assert first.change_set is not None and second.change_set is not None
-    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert len(first.change_set.web_research_requests) == 1
-    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
-
-    candidate["web_research_requests"][0]["payload"]["query"] = (  # type: ignore[index]
-        "https://example.com/"
-    )
-    rejected = DeterministicCandidateValidator(active_context).validate(
-        _bytes(candidate), bases=extended
-    )
-    assert rejected.error_code == "CANDIDATE-WEB-URL-FORBIDDEN"
-
-
 def test_creator_dialogue_can_delegate_without_a_precreated_codex_task() -> None:
     context, bases = _fixture()
     context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
@@ -2555,51 +2483,6 @@ def test_creator_dialogue_can_delegate_without_a_precreated_codex_task() -> None
     assert manifest["model_id"] == "gpt-5.6-luna"
     assert manifest["reasoning_effort"] == "medium"
     assert manifest["web_search"] is True
-
-
-def test_creator_cognitive_act_web_research_binds_authority_deterministically() -> None:
-    context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
-    extended = (
-        *bases,
-        CandidateBasis(
-            4,
-            "purpose",
-            "current_purpose",
-            uuid7(),
-            1,
-            "policy",
-            "private",
-        ),
-        CandidateBasis(
-            5,
-            "capability",
-            "web_search_availability",
-            uuid7(),
-            1,
-            "policy",
-            "private",
-        ),
-    )
-    candidate = {
-        "decision": {"kind": "web_research", "query": "PostgreSQL 18 正式发布说明"}
-    }
-    inactive = DeterministicCandidateValidator(context).validate(
-        _bytes(candidate), bases=extended
-    )
-    assert inactive.error_code == "CANDIDATE-WEB-NOT-ACTIVE"
-
-    active = DeterministicCandidateValidator(replace(context, web_search_active=True))
-    first = active.validate(_bytes(candidate), bases=extended)
-    second = active.validate(_bytes(candidate), bases=extended)
-    assert first.status is CandidateValidationStatus.ACCEPTED
-    assert first.change_set is not None and second.change_set is not None
-    assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v37" in first.change_set.canonical_bytes
-    assert (
-        first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
-        == candidate["decision"]["query"]
-    )
 
 
 @pytest.mark.parametrize("evidence_ordinal", [2, 8])
@@ -2761,7 +2644,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
+    candidate["schema_version"] = "armi.cognition-candidate.v18"
     candidate["understanding"] = {
         "text": "我刚查到一条相关记录。",
         "fact_class": "objective_fact",
@@ -2856,7 +2739,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
         "private",
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
+    candidate["schema_version"] = "armi.cognition-candidate.v18"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2936,7 +2819,7 @@ def test_creator_reply_capability_request_is_not_in_the_contract() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
+    candidate["schema_version"] = "armi.cognition-candidate.v18"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2990,7 +2873,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
+    candidate["schema_version"] = "armi.cognition-candidate.v18"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4181,7 +4064,7 @@ def test_memory_fact_class_cannot_drift_from_its_source_experience() -> None:
         ),
         (
             CandidateFactClass.EXTERNAL_CLAIM,
-            "consider_web_evidence",
+            "consider_codex_result",
             MemorySourceKind.QUERIED,
         ),
         (
@@ -4255,7 +4138,7 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
+    candidate["schema_version"] = "armi.cognition-candidate.v18"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4303,7 +4186,7 @@ def test_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v17"
+    candidate["schema_version"] = "armi.cognition-candidate.v18"
     candidate["disposition"] = "no_action"
     candidate["experiences"] = []
     candidate["component_changes"] = []

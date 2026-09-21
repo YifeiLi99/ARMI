@@ -18,8 +18,6 @@ from armi_local_control.configuration import ModelManifest
 from armi_local_control.configuration.editing import EnvironmentConfiguration
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.maintenance import ConfigurationInvocation
-from armi_web_observation.api import WebObservationViolation
-from armi_web_observation.bootstrap import validate_web_search_configuration
 
 from armi_runtime.adapters.model.external_content import (
     load_external_recognition_binding,
@@ -36,19 +34,18 @@ class ConfigurationAsset(EnvironmentConfiguration):
             environment_id=str(request.environment_id),
         )
         self.target: Literal[
-            "model-bindings", "provider-pricing", "web-search", "qq", "mood-display"
+            "model-bindings", "provider-pricing", "qq", "mood-display"
         ] = request.target
         relative = {
             "model-bindings": "configs/model-bindings.yaml",
             "provider-pricing": "configs/provider-pricing.yaml",
-            "web-search": "configs/web-search.yaml",
             "qq": "channels/qq-napcat.yaml",
             "mood-display": "devices/mood-display.yaml",
         }[self.target]
         self.path = self.root / relative
         self.default = (
             runtime_config_path(self.target + ".yaml")
-            if self.target in {"model-bindings", "web-search", "provider-pricing"}
+            if self.target in {"model-bindings", "provider-pricing"}
             else None
         )
 
@@ -70,7 +67,6 @@ class ConfigurationAsset(EnvironmentConfiguration):
         except (
             ValueError,
             ModelViolation,
-            WebObservationViolation,
             MoodDisplayViolation,
         ):
             result = self._invalid(raw, "ADMIN-CONFIG-INVALID")
@@ -135,8 +131,6 @@ class ConfigurationAsset(EnvironmentConfiguration):
                     load_voice_model_binding(path)
                     load_embedding_binding(path)
                     load_external_recognition_binding(path)
-                case "web-search":
-                    validate_web_search_configuration(raw)
                 case "provider-pricing":
                     load_price_catalog(path)
                 case "qq":

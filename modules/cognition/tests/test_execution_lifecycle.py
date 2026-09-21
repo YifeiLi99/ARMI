@@ -303,7 +303,7 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
         response_contract_version=(
             "armi.other-human-dialogue-candidate.v9"
             if other
-            else "armi.creator-cognitive-act-candidate.v7"
+            else "armi.creator-cognitive-act-candidate.v8"
         ),
     )
     pipeline.episode = replace(

@@ -11,7 +11,6 @@ from typing import Final, Literal
 class CognitionPurpose(StrEnum):
     CONSIDER_CREATOR_INPUT = "consider_creator_input"
     CONSIDER_CREATOR_VOICE_INPUT = "consider_creator_voice_input"
-    CONSIDER_WEB_EVIDENCE = "consider_web_evidence"
     CONSIDER_CODEX_TASK = "consider_codex_task"
     CONSIDER_CODEX_RESULT = "consider_codex_result"
     CONSIDER_AUTONOMOUS_LIFE = "consider_autonomous_life"

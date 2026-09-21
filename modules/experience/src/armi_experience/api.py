@@ -30,7 +30,6 @@ class ExperienceViolation(RuntimeError):
 
 class ExperienceKind(StrEnum):
     CREATOR_INPUT = "creator_input"
-    WEB_OBSERVATION = "web_observation"
     CODEX_OBSERVATION = "codex_observation"
     OTHER_HUMAN_INPUT = "other_human_input"
     VISUAL_OBSERVATION = "visual_observation"
@@ -38,7 +37,6 @@ class ExperienceKind(StrEnum):
 
 class ExperienceSourcePerspective(StrEnum):
     CREATOR_CLAIM = "creator_claim"
-    WEB_CLAIM = "web_claim"
     CODEX_OBSERVATION = "codex_observation"
     OTHER_HUMAN_CLAIM = "other_human_claim"
     VISUAL_MODEL_OBSERVATION = "visual_model_observation"
@@ -72,7 +70,6 @@ class AcceptedExperienceDraft:
     def __post_init__(self) -> None:
         expected_source = {
             ExperienceKind.CREATOR_INPUT: ExperienceSourcePerspective.CREATOR_CLAIM,
-            ExperienceKind.WEB_OBSERVATION: ExperienceSourcePerspective.WEB_CLAIM,
             ExperienceKind.CODEX_OBSERVATION: (
                 ExperienceSourcePerspective.CODEX_OBSERVATION
             ),

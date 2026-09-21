@@ -1,4 +1,4 @@
-"""Strict immutable models for ``armi.runtime-config.v5``."""
+"""Strict immutable models for ``armi.runtime-config.v6``."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v5"
+RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v6"
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -138,11 +138,6 @@ class RuntimeLeaseConfig(LeaseConfig):
 class ModelConfig(_FrozenModel):
     concurrency: PositiveInt = 2
     semantic_recall_enabled: bool = False
-
-
-class WebConfig(_FrozenModel):
-    enabled: bool = False
-    concurrency: PositiveInt = 1
 
 
 class CreatorConfig(_FrozenModel):
@@ -335,12 +330,11 @@ class AutonomyConfig(_FrozenModel):
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
-    schema_version: Literal["armi.runtime-config.v5"]
+    schema_version: Literal["armi.runtime-config.v6"]
     environment: EnvironmentConfig
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()
     model: ModelConfig = ModelConfig()
-    web: WebConfig = WebConfig()
     creator: CreatorConfig
     http: HttpConfig = HttpConfig()
     codex: CodexConfig = CodexConfig()
@@ -408,5 +402,4 @@ __all__ = (
     "VisionConfig",
     "VoiceConfig",
     "VoiceDeviceConfig",
-    "WebConfig",
 )

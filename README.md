@@ -31,13 +31,13 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v42`，只维护最新数据库 |
-| 物理 schema | 当前 baseline 96 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v43`，只维护最新数据库 |
+| 物理 schema | 当前 baseline 87 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
 
-已实现的正式路径包括 Creator 文本/多场合对话、其他人隔离交流、Experience、Memory、Relationship、Activity、Material、Mood、Sleep、Prompt、Capability、Effect/outbox、精确生命查询、数据导出与数据权利；可选边界包括本地混合语义召回、ARMI 网页研究、Creator→Codex、QQ/NapCat、实时语音、常驻视觉和 ESP32 私有心情窗。
+已实现的正式路径包括 Creator 文本/多场合对话、其他人隔离交流、Experience、Memory、Relationship、Activity、Material、Mood、Sleep、Prompt、Capability、Effect/outbox、精确生命查询、数据导出与数据权利；可选边界包括本地混合语义召回、Codex 委托及互联网研究、QQ/NapCat、实时语音、常驻视觉和 ESP32 私有心情窗。
 
 “仓库存在实现”不等于目标环境已经启用、供应商可用、账号已登录、设备已连接或 live 已验收。
 
@@ -60,7 +60,7 @@ Qwen/DeepSeek 文本返回仅在 JSON 或候选结构不合格时，使用完全
 
 所有共用认知（包括其他人对话、自主活动、Codex 和睡眠整理）中断即结束本轮，格式重试也不在重启后继续。模型响应成功先单独保存，后续校验或提交失败不改写模型调用结果；`finalizing` 表示正在校验、准备制品并提交。长期活动与维护进度保留，由原调度重新准备新 Context，不读取旧响应或候选续算。
 
-模型候选可表达回复、拒绝、不行动、不改变、延期、需要信息、精确生命查询、网页研究或对已启用 camera/screen 的一次视觉观察请求，并可携带有依据的 experience/appraisal/受限 owner changes。模型不能填写主体版本、权限结果、VAD、模型身份、usage 或现实执行结果。慢模型、网络、文件、设备和 Codex I/O 一律在数据库写事务外；回库时重新验证 Runtime fence、work lease、generation 和主体/owner 版本。
+模型候选可表达回复、拒绝、不行动、不改变、延期、需要信息、精确生命查询、Codex 委托或对已启用 camera/screen 的一次视觉观察请求，并可携带有依据的 experience/appraisal/受限 owner changes。模型不能填写主体版本、权限结果、VAD、模型身份、usage 或现实执行结果。慢模型、网络、文件、设备和 Codex I/O 一律在数据库写事务外；回库时重新验证 Runtime fence、work lease、generation 和主体/owner 版本。
 
 ## 持续自主生活
 
@@ -76,11 +76,11 @@ apps/
   armi-runtime/                 Runtime、交互 CLI/MCP、Creator HTTP、适配器与组合根
   armi-admin/                   独立 Admin CLI/MCP
   armi-creator-web/             React Creator 工作台
-modules/                        23 个业务模块
+modules/                        业务模块
 packages/                       8 个稳定底座与边界适配器
 devices/esp32-s3-touch-lcd-7c-box/
                                 私有心情窗固件
-configs/                        Runtime、模型、Web 与 Codex MCP 配置
+configs/                        Runtime、模型与 Codex MCP 配置
 tools/                          工具链、数据库、质量、性能与显式 live gates
 tests/                          架构、合同、Runtime、PostgreSQL 与系统测试
 docs/                           私有设计和外部研究，Git 忽略
@@ -200,7 +200,7 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 保留资源按用途分目录：`models/semantic-recall/` 保存模型，`tools/semantic-recall/cache/` 保存安装包，`secrets/` 下按 `ark`、`codex`、`volc` 分别保存账号凭据，`config/` 保存配置参考；这些路径均相对于 `.armi/reusable/`。目录内的 `README.md` 说明用途与复用方式。
 
-账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存。千问文本模型使用 `model.qwen_api_key`，DeepSeek 文本模型使用 `model.deepseek_api_key`；方舟 Key 仅用于独立豆包语音认知、视觉识别与网页搜索等原有用途。豆包语音识别/合成使用新版语音控制台 Key；Codex 导入登录文件；QQ 通信凭据自动生成。已有 locator 的 Key 更换在后续请求生效，当前任务不切换；旧环境首次添加千问或 DeepSeek locator 后需要重启 Runtime。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，依靠文件权限保护，不回显已保存内容。普通升级和默认卸载保留这些文件。保存只证明本地文件已更新，不代表服务商认证、模型或真实对话已通过。
+账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存。千问文本模型使用 `model.qwen_api_key`，DeepSeek 文本模型使用 `model.deepseek_api_key`；方舟 Key 仅用于独立豆包语音认知、视觉识别。豆包语音识别/合成使用新版语音控制台 Key；Codex 导入登录文件；QQ 通信凭据自动生成。已有 locator 的 Key 更换在后续请求生效，当前任务不切换；旧环境首次添加千问或 DeepSeek locator 后需要重启 Runtime。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，依靠文件权限保护，不回显已保存内容。普通升级和默认卸载保留这些文件。保存只证明本地文件已更新，不代表服务商认证、模型或真实对话已通过。
 
 主文本模型在“功能与模型”页选择 `qwen` 或 `deepseek`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持千问 `qwen3.8-flash`（默认）、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`，以及 DeepSeek `deepseek-flash`、`deepseek-v4-pro`；两家统一使用官方 Responses 接口并关闭思考。Qwen 通过提示词提供完整 Schema 和格式要求，DeepSeek 另启用 JSON Object 模式；后端始终使用同一套严格候选校验。新增型号必须先确认其 Responses 与非思考能力，不能仅换名字猜测兼容。
 
@@ -218,7 +218,7 @@ QQ 已登录但 NapCat API 端口被 Windows 禁止绑定时，可调用 `{"acti
 
 QQ 页面分别显示组件安装、账号登录和连接状态；进度条仅用于下载与安装。`refresh` 用例读取当前登录和渠道健康，`open_login` 打开已有登录页并启动必要环境，不重新安装或重做绑定。首次配置后的重启可能需要 QQ 再次扫码验证，此时显示 `login_required`；再次登录后仅核验连接，不循环重启。已保存的安装进度不代表当前在线，`ready` 也不等于真实消息收发已验证。
 
-模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。两家文本 Key 可独立验证：已选供应商检查所选型号，另一家使用默认测试型号（千问 `qwen3.8-flash`、DeepSeek `deepseek-flash`），不修改聊天配置，也不拿该 Key 尝试另一家。两家均用 Responses，并复用正式文本适配器的生成设置与后端严格 Schema 校验。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。本地请求校验失败与服务商鉴权、响应错误分别说明。状态读取不联网。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
+模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。两家文本 Key 可独立验证：已选供应商检查所选型号，另一家使用默认测试型号（千问 `qwen3.8-flash`、DeepSeek `deepseek-flash`），不修改聊天配置，也不拿该 Key 尝试另一家。两家均用 Responses，并复用正式文本适配器的生成设置与后端严格 Schema 校验。方舟 Key 单独验证语音认知模型；语音服务 Key 验证 TTS 生成与 ASR 识别。全部检查成功才返回 `verification.status=passed`，`status=configured` 只代表已保存。本地请求校验失败与服务商鉴权、响应错误分别说明。状态读取不联网。此验证不覆盖主体认知、录音文件识别或设备采集，不发送生活数据。
 
 ## 统一 MCP 与数据库管理
 

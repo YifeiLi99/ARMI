@@ -68,6 +68,6 @@ def test_json_object_remains_valid_yaml_input() -> None:
 
 def test_runtime_configs_have_one_tracked_source() -> None:
     packaged = ROOT / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"
-    for name in ("runtime.yaml", "model-bindings.yaml", "web-search.yaml"):
+    for name in ("runtime.yaml", "model-bindings.yaml"):
         assert (ROOT / "configs" / name).is_file()
         assert not (packaged / name).exists()

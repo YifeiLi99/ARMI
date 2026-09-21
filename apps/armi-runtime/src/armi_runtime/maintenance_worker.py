@@ -15,7 +15,6 @@ from armi_local_control.maintenance import (
     ConfigurationInvocation,
     MaintenanceInvocation,
 )
-from armi_web_observation.api import WebObservationViolation
 from pydantic import ValidationError
 
 from .composition.configuration_management import execute_configuration
@@ -47,7 +46,6 @@ def main() -> int:
         ModelViolation,
         LiveVoiceViolation,
         LiveVisionViolation,
-        WebObservationViolation,
         MoodDisplayViolation,
     ) as error:
         print(json.dumps({"status": "failed", "error_code": error.code}))

@@ -7,7 +7,7 @@ from pathlib import Path
 from armi_local_control.configuration import load_model_manifest
 
 _CONFIG_NAMES = frozenset(
-    {"runtime.yaml", "model-bindings.yaml", "web-search.yaml", "provider-pricing.yaml"}
+    {"runtime.yaml", "model-bindings.yaml", "provider-pricing.yaml"}
 )
 
 

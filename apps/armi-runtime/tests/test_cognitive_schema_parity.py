@@ -134,12 +134,12 @@ def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, ac
     "version,value,path",
     [
         (
-            "armi.creator-cognitive-act-candidate.v7",
+            "armi.creator-cognitive-act-candidate.v8",
             {"decision": {"kind": "reply", "content": "ok"}},
             ("decision", "content"),
         ),
         (
-            "armi.creator-voice-act-candidate.v7",
+            "armi.creator-voice-act-candidate.v8",
             {"d": {"kind": "reply", "content": "ok"}},
             ("d", "content"),
         ),
@@ -149,7 +149,7 @@ def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, ac
             ("decision", "content"),
         ),
         (
-            "armi.autonomous-activity-candidate.v11",
+            "armi.autonomous-activity-candidate.v12",
             {
                 "kind": "no_activity",
                 "expression": "ok",
@@ -204,7 +204,7 @@ def test_expression_and_summary_rules_match_on_all_channels(
     [(60, True), (60.0, True), (60.5, False), ("60", False), (True, False)],
 )
 def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted):
-    version = "armi.autonomous-activity-candidate.v11"
+    version = "armi.autonomous-activity-candidate.v12"
     value = {
         "kind": "no_result",
         "reason": "No new evidence",

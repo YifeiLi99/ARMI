@@ -36,14 +36,14 @@ def test_runtime_records_exact_consumed_bytes_and_detects_mixed_versions(
     assert consumed.snapshot()["qq"]["state"] == "not_loaded"
 
 
-def test_web_manifest_byte_consumer_is_recorded_without_secret_content(
+def test_model_manifest_byte_consumer_is_recorded_without_secret_content(
     tmp_path: Path,
 ) -> None:
     consumed = ConfigurationConsumption(tmp_path)
-    path = runtime_config_path("web-search.yaml", environment_root=tmp_path)
-    with consumed.consumer("web-search"):
+    path = runtime_config_path("model-bindings.yaml", environment_root=tmp_path)
+    with consumed.consumer("model-bindings"):
         raw = read_configuration_bytes(path)
-    snapshot = consumed.snapshot()["web-search"]
+    snapshot = consumed.snapshot()["model-bindings"]
     assert snapshot["state"] == "loaded"
     assert snapshot["versions"] == ["sha256:" + hashlib.sha256(raw).hexdigest()]
     assert "values" not in snapshot
@@ -61,11 +61,11 @@ def test_failed_consumer_does_not_publish_read_bytes(tmp_path: Path) -> None:
 
 def test_failed_reload_retains_previous_adopted_version(tmp_path: Path) -> None:
     consumed = ConfigurationConsumption(tmp_path)
-    path = runtime_config_path("web-search.yaml", environment_root=tmp_path)
-    with consumed.consumer("web-search"):
+    path = runtime_config_path("model-bindings.yaml", environment_root=tmp_path)
+    with consumed.consumer("model-bindings"):
         read_configuration_bytes(path)
     previous = consumed.snapshot()
-    with pytest.raises(RuntimeError), consumed.consumer("web-search"):
+    with pytest.raises(RuntimeError), consumed.consumer("model-bindings"):
         read_configuration_bytes(path)
         raise RuntimeError("consumer could not open")
     assert consumed.snapshot() == previous

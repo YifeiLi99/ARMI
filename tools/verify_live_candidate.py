@@ -179,7 +179,6 @@ async def _verify_metered(
         (
             accepted.experiences,
             accepted.action_choices,
-            accepted.web_research_requests,
             accepted.codex_delegations,
             accepted.owner_drafts,
             accepted.exact_life_queries,
@@ -192,7 +191,7 @@ async def _verify_metered(
         if choice_scene != scene_id or choice_creator != creator_party_id:
             raise RuntimeError("CANDIDATE-LIVE-SCENE-PREDICATE")
     return {
-        "candidate_contract": "armi.cognition-candidate.v17",
+        "candidate_contract": "armi.cognition-candidate.v18",
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
         "validation_status": validation.status.value,

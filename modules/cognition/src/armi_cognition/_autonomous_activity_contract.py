@@ -25,7 +25,7 @@ from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v11"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v12"
 
 
 class _StrictModel(BaseModel):
@@ -55,12 +55,6 @@ class AutonomousTerminalDecision(_StrictModel):
 class AutonomousVisualObservationDecision(_StrictModel):
     kind: Literal["visual_observation"]
     source_kind: Literal["camera", "screen"]
-    appraisal: AppraisalEventSignalV3 | None = None
-
-
-class AutonomousWebResearchDecision(_StrictModel):
-    kind: Literal["web_research"]
-    query: Text2048
     appraisal: AppraisalEventSignalV3 | None = None
 
 
@@ -109,7 +103,6 @@ AutonomousActivityCandidate = Annotated[
     StartActivityDecision
     | AutonomousTerminalDecision
     | AutonomousVisualObservationDecision
-    | AutonomousWebResearchDecision
     | AutonomousLifeQueryDecision
     | AutonomousWaitDecision
     | AutonomousCodexDecision
@@ -167,8 +160,6 @@ def autonomous_schema_for_context(compiled_context: bytes) -> dict[str, Any]:
                 "AutonomousNoResultDecision",
             }
         )
-    if "web.search" not in enabled:
-        blocked.add("AutonomousWebResearchDecision")
     if "codex.delegated-work" not in enabled:
         blocked.add("AutonomousCodexDecision")
     if "life.query" not in enabled:
@@ -220,7 +211,6 @@ __all__ = (
     "AutonomousTerminalDecision",
     "AutonomousVisualObservationDecision",
     "AutonomousWaitDecision",
-    "AutonomousWebResearchDecision",
     "StartActivityDecision",
     "autonomous_activity_candidate_schema",
     "autonomous_schema_for_context",

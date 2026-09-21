@@ -163,7 +163,6 @@ from armi_interaction.bootstrap import (
     bootstrap_interaction_failure_notifications,
     bootstrap_interaction_identity,
 )
-from armi_kernel import read_configuration_bytes
 from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
@@ -256,19 +255,6 @@ from armi_subject_state.api import (
 from armi_subject_state.bootstrap import (
     SubjectStateModule,
     bootstrap_subject_state,
-)
-from armi_web_observation.api import (
-    WebContextReadPort,
-    WebObservationRuntimePort,
-    WebObservationViolation,
-    WebResearchRuntimePort,
-    WebToolCallDiagnostic,
-)
-from armi_web_observation.bootstrap import (
-    bootstrap_web_context_read,
-    bootstrap_web_observation,
-    bootstrap_web_research,
-    bootstrap_web_research_commit,
 )
 
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
@@ -1288,7 +1274,6 @@ def compose_context_pipeline(
     interaction_cognition: InteractionCognitionReadPort,
     opportunity_cognition: OpportunityCognitionPort,
     runtime_subjects: RuntimeCognitionState,
-    web_context: WebContextReadPort,
     expression_read: ExpressionIntentReadPort,
     effect_read: EffectOperationReadPort,
     data_rights: DataRightsCognitionGate,
@@ -1318,7 +1303,6 @@ def compose_context_pipeline(
         data_rights=data_rights,
         evidence=evidence_read,
         interaction=interaction_cognition,
-        web=web_context,
         codex_context=codex_context,
         codex_sources=codex_read,
         effects=effect_read,
@@ -1361,7 +1345,6 @@ def compose_context_pipeline(
         interaction_context=interaction_context,
         dialogue_read=dialogue_read,
         codex_read=codex_read,
-        web_search_active=config.web.enabled,
         wakeups=wakeups,
         diagnostic=diagnostic,
         embedding=(
@@ -1433,10 +1416,6 @@ def _interaction_failure_notifications(
     async def derived_origin(
         transaction: PostgreSQLTransaction, evidence: EvidenceSnapshot
     ) -> UUID | None:
-        if evidence.web_observation_request_id is not None:
-            return await bootstrap_web_context_read().request_opportunity(
-                transaction, request_id=evidence.web_observation_request_id
-            )
         if evidence.visual_observation_id is not None:
             episode_id = await bootstrap_visual_origin_read().origin_episode(
                 transaction, observation_id=evidence.visual_observation_id
@@ -1468,7 +1447,7 @@ def _interaction_failure_notifications(
     ) -> UUID | None:
         try:
             return await derived_origin(transaction, evidence)
-        except CodexDelegationViolation, ResponseViolation, WebObservationViolation:
+        except CodexDelegationViolation, ResponseViolation:
             if diagnostic is not None:
                 diagnostic("interaction.notification.origin_unavailable")
             return None
@@ -1632,81 +1611,7 @@ def compose_model_pipeline(
         binding_path=runtime_config_path(
             "model-bindings.yaml", environment_root=prepared.root
         ),
-        web_search_active=config.web.enabled,
         wakeups=wakeups,
-        diagnostic=diagnostic,
-    )
-
-
-def compose_web_search_pipeline(
-    prepared: PreparedEnvironment,
-    *,
-    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    evidence: EvidenceWritePort,
-    opportunity: OpportunityAdmissionPort,
-    catalog: ArtifactCatalogPort,
-    custody: ExecutionCustodyPort,
-    diagnostic: Callable[[str], None] | None = None,
-    tool_diagnostic: Callable[[WebToolCallDiagnostic], None] | None = None,
-    voice: LiveVoiceRuntimePort | None = None,
-) -> WebObservationRuntimePort:
-    """Resolve the fixed database and Ark credentials for S033 custody."""
-
-    model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
-    if model_locator is None:
-        raise WebObservationViolation("WEB-CREDENTIAL")
-    try:
-        manifest_bytes = read_configuration_bytes(
-            runtime_config_path("web-search.yaml", environment_root=prepared.root)
-        )
-    except OSError:
-        raise WebObservationViolation("WEB-MANIFEST") from None
-    return bootstrap_web_observation(
-        prices=load_price_catalog(
-            runtime_config_path("provider-pricing.yaml", environment_root=prepared.root)
-        ),
-        failure_notifications=_opportunity_failure_notification(
-            prepared, unit_of_work_factory, catalog, diagnostic, voice
-        ),
-        factory=unit_of_work_factory,
-        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
-        catalog=catalog,
-        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        custody=custody,
-        credential_port=prepared.credential_port,
-        credential_locator=model_locator,
-        manifest_bytes=manifest_bytes,
-        evidence=evidence,
-        opportunity=opportunity,
-        diagnostic=diagnostic,
-        tool_diagnostic=tool_diagnostic,
-    )
-
-
-def compose_web_research_admission_pipeline(
-    prepared: PreparedEnvironment,
-    *,
-    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    custody: WebObservationRuntimePort,
-    evidence: EvidenceWritePort,
-    opportunity: OpportunityAdmissionPort,
-    catalog: ArtifactCatalogPort,
-    diagnostic: Callable[[str], None] | None = None,
-    voice: LiveVoiceRuntimePort | None = None,
-) -> WebResearchRuntimePort:
-    """Resolve the active S034 intent-to-custody worker."""
-
-    return bootstrap_web_research(
-        failure_notifications=_opportunity_failure_notification(
-            prepared, unit_of_work_factory, catalog, diagnostic, voice
-        ),
-        factory=unit_of_work_factory,
-        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
-        catalog=catalog,
-        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        custody=custody,
-        evidence=evidence,
-        opportunity=opportunity,
         diagnostic=diagnostic,
     )
 
@@ -1753,7 +1658,6 @@ def compose_candidate_validation_pipeline(
 ) -> CognitionFinalizationPort:
     """Resolve the Runtime credential for the active S025 validator."""
 
-    config = prepared.effective.config
     return bootstrap_cognition_candidate(
         failure_notification=_cognition_failure_notification(
             prepared, unit_of_work_factory, catalog, diagnostic, voice
@@ -1790,7 +1694,6 @@ def compose_candidate_validation_pipeline(
         mind_cognition=mind_cognition,
         subject_state_read=subject_state_read,
         mind_read=mind_read,
-        web_search_active=config.web.enabled,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
         validation_diagnostic=validation_diagnostic,
@@ -1855,7 +1758,6 @@ def compose_subject_commit_pipeline(
         sleep_commit=sleep_commit,
         subject_state_commit=subject_state_commit,
         mind_commit=mind_commit,
-        web_research_commit=bootstrap_web_research_commit(),
         visual_observation_commit=bootstrap_live_vision_commit(),
         notifier=notifier,
         voice_results=voice_results,
@@ -2064,8 +1966,6 @@ __all__ = (
     "compose_sleep_module",
     "compose_subject_commit_pipeline",
     "compose_subject_state_module",
-    "compose_web_research_admission_pipeline",
-    "compose_web_search_pipeline",
     "inspect_creator_context",
     "inspect_operator_schema",
     "inspect_runtime_continuity",

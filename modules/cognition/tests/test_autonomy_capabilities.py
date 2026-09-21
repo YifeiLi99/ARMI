@@ -61,11 +61,11 @@ def test_enabled_but_temporarily_unavailable_tools_remain_explicit_choices():
                     "enabled": True,
                     "availability_status": "unavailable",
                 }
-                for name in ("web.search", "vision.screen", "life.query")
+                for name in ("codex.delegated-work", "vision.screen", "life.query")
             ]
         )
     )
-    assert {"web_research", "visual_observation", "exact_life_query"} <= schema[
+    assert {"codex_delegation", "visual_observation", "exact_life_query"} <= schema[
         "discriminator"
     ]["mapping"].keys()
     assert schema["$defs"]["AutonomousVisualObservationDecision"]["properties"][

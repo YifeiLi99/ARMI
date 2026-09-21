@@ -1,4 +1,4 @@
--- Current ARMI schema tables owned by this baseline module.
+-- Current Codex, audit and data-rights tables.
 
 --
 -- Name: audit_events; Type: TABLE; Schema: armi; Owner: -
@@ -166,7 +166,7 @@ CREATE TABLE armi.data_rights_order_items (
     CONSTRAINT data_rights_order_items_retention_reason_check CHECK (((retention_reason IS NULL) OR (retention_reason = ANY (ARRAY['rights_enforcement'::text, 'shared_reference'::text, 'objective_history'::text, 'subject_continuity'::text, 'operator_managed_snapshot'::text])))),
     CONSTRAINT data_rights_order_items_required_action_check CHECK ((required_action = ANY (ARRAY['block'::text, 'restrict'::text, 'cancel'::text, 'redact'::text, 'tombstone'::text, 'delete'::text, 'retain'::text, 'operator_remove'::text]))),
     CONSTRAINT data_rights_order_items_result_status_check CHECK ((result_status = ANY (ARRAY['pending'::text, 'completed'::text, 'partial'::text, 'too_late'::text, 'unknown'::text]))),
-    CONSTRAINT data_rights_order_items_target_kind_check CHECK ((target_kind = ANY (ARRAY['party'::text, 'external_binding'::text, 'scene'::text, 'interaction'::text, 'media_recognition'::text, 'live_voice'::text, 'live_vision'::text, 'evidence'::text, 'experience'::text, 'cognition'::text, 'memory'::text, 'relationship'::text, 'activity'::text, 'material'::text, 'subject_component'::text, 'mood'::text, 'prompt'::text, 'effect'::text, 'web_research'::text, 'codex_task'::text, 'managed_snapshot'::text, 'artifact'::text]))),
+    CONSTRAINT data_rights_order_items_target_kind_check CHECK ((target_kind = ANY (ARRAY['party'::text, 'external_binding'::text, 'scene'::text, 'interaction'::text, 'media_recognition'::text, 'live_voice'::text, 'live_vision'::text, 'evidence'::text, 'experience'::text, 'cognition'::text, 'memory'::text, 'relationship'::text, 'activity'::text, 'material'::text, 'subject_component'::text, 'mood'::text, 'prompt'::text, 'effect'::text, 'codex_task'::text, 'managed_snapshot'::text, 'artifact'::text]))),
     CONSTRAINT data_rights_order_items_target_ref_check CHECK ((uuid_extract_version(target_ref) = 7))
 );
 
@@ -216,142 +216,4 @@ CREATE TABLE armi.data_rights_order_retry_attempts (
     CONSTRAINT data_rights_order_retry_attempts_cycle_check CHECK ((retry_cycle >= 2)),
     CONSTRAINT data_rights_order_retry_attempts_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
     CONSTRAINT data_rights_order_retry_attempts_trace_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
-);
-
---
--- Name: observation_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.observation_attempts (
-    observation_attempt_id uuid NOT NULL,
-    web_observation_request_id uuid NOT NULL,
-    work_id uuid NOT NULL,
-    work_attempt_id uuid NOT NULL,
-    work_lease_token bigint NOT NULL,
-    attempt_no smallint NOT NULL,
-    binding_id text NOT NULL,
-    credential_identity text NOT NULL,
-    dispatch_state text NOT NULL,
-    provider_model_id text,
-    result_artifact_id uuid,
-    input_tokens integer,
-    output_tokens integer,
-    web_search_calls smallint,
-    citation_count smallint,
-    estimated_cost_microyuan bigint,
-    result_status text,
-    error_code text,
-    prepared_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    dispatched_at timestamp(6) with time zone,
-    settled_at timestamp(6) with time zone,
-    usage_contract_version smallint DEFAULT 1 NOT NULL CHECK (usage_contract_version IN (0, 1)),
-    provider_calls jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(provider_calls) = 'object'),
-    CONSTRAINT observation_attempts_attempt_no_check CHECK ((attempt_no >= 1)),
-    CONSTRAINT observation_attempts_binding_id_check CHECK ((binding_id = 'armi.model-tool.volcengine-ark-web-search-v1'::text)),
-    CONSTRAINT observation_attempts_check CHECK ((((dispatch_state = 'prepared'::text) AND (result_status IS NULL) AND (provider_model_id IS NULL) AND (result_artifact_id IS NULL) AND (input_tokens IS NULL) AND (output_tokens IS NULL) AND (web_search_calls IS NULL) AND (citation_count IS NULL) AND (estimated_cost_microyuan IS NULL) AND (error_code IS NULL) AND (dispatched_at IS NULL) AND (settled_at IS NULL)) OR ((dispatch_state = 'dispatched'::text) AND (result_status IS NULL) AND (provider_model_id IS NULL) AND (result_artifact_id IS NULL) AND (input_tokens IS NULL) AND (output_tokens IS NULL) AND (web_search_calls IS NULL) AND (citation_count IS NULL) AND (estimated_cost_microyuan IS NULL) AND (error_code IS NULL) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL)) OR ((dispatch_state = 'settled'::text) AND (result_status = 'cancelled'::text) AND (settled_at IS NOT NULL)) OR ((dispatch_state = 'settled'::text) AND (result_status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'outcome_unknown'::text])) AND (dispatched_at IS NOT NULL) AND (settled_at IS NOT NULL)))),
-    CONSTRAINT observation_attempts_check1 CHECK ((((result_status = 'succeeded'::text) AND (provider_model_id IS NOT NULL) AND (result_artifact_id IS NOT NULL) AND (input_tokens IS NOT NULL) AND (output_tokens IS NOT NULL) AND (web_search_calls IS NOT NULL) AND (citation_count IS NOT NULL) AND (error_code IS NULL)) OR ((result_status = ANY (ARRAY['failed'::text, 'outcome_unknown'::text])) AND (error_code IS NOT NULL) AND (result_artifact_id IS NULL)) OR (result_status IS NULL) OR ((result_status = 'cancelled'::text) AND (result_artifact_id IS NULL)))),
-    CONSTRAINT observation_attempts_citation_count_check CHECK (((citation_count IS NULL) OR ((citation_count >= 1) AND (citation_count <= 128)))),
-    CONSTRAINT observation_attempts_credential_identity_check CHECK ((credential_identity ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT observation_attempts_dispatch_state_check CHECK ((dispatch_state = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'settled'::text]))),
-    CONSTRAINT observation_attempts_error_code_check CHECK (((error_code IS NULL) OR (error_code ~ '^WEB-[A-Z0-9-]+$'::text))),
-    CONSTRAINT observation_attempts_estimated_cost_microyuan_check CHECK (((estimated_cost_microyuan IS NULL) OR ((estimated_cost_microyuan >= 0)))),
-    CONSTRAINT observation_attempts_input_tokens_check CHECK (((input_tokens IS NULL) OR (input_tokens > 0))),
-    CONSTRAINT observation_attempts_observation_attempt_id_check CHECK ((uuid_extract_version(observation_attempt_id) = 7)),
-    CONSTRAINT observation_attempts_output_tokens_check CHECK (((output_tokens IS NULL) OR (output_tokens > 0))),
-    CONSTRAINT observation_attempts_provider_model_id_check CHECK (((provider_model_id IS NULL) OR (provider_model_id ~ '^doubao-seed-evolving[a-z0-9-]*$'::text))),
-    CONSTRAINT observation_attempts_result_status_check CHECK (((result_status IS NULL) OR (result_status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'outcome_unknown'::text, 'cancelled'::text])))),
-    CONSTRAINT observation_attempts_web_search_calls_check CHECK (((web_search_calls IS NULL) OR ((web_search_calls >= 1) AND (web_search_calls <= 8)))),
-    CONSTRAINT observation_attempts_work_attempt_id_check CHECK ((uuid_extract_version(work_attempt_id) = 7)),
-    CONSTRAINT observation_attempts_work_lease_token_check CHECK ((work_lease_token > 0))
-);
-
---
--- Name: web_evidence_sources; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.web_evidence_sources (
-    web_evidence_source_id uuid NOT NULL,
-    evidence_id uuid NOT NULL,
-    observation_attempt_id uuid NOT NULL,
-    citation_no smallint NOT NULL,
-    source_artifact_id uuid NOT NULL,
-    canonical_url_digest text NOT NULL,
-    acquisition_kind text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT web_evidence_sources_acquisition_kind_check CHECK ((acquisition_kind = 'provider_synthesis_citation'::text)),
-    CONSTRAINT web_evidence_sources_canonical_url_digest_check CHECK ((canonical_url_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT web_evidence_sources_citation_no_check CHECK (((citation_no >= 1) AND (citation_no <= 128))),
-    CONSTRAINT web_evidence_sources_web_evidence_source_id_check CHECK ((uuid_extract_version(web_evidence_source_id) = 7))
-);
-
---
--- Name: web_observation_requests; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.web_observation_requests (
-    web_observation_request_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    runtime_instance_id uuid NOT NULL,
-    fence_token bigint NOT NULL,
-    idempotency_key text NOT NULL,
-    purpose text NOT NULL,
-    operation_class text NOT NULL,
-    request_artifact_id uuid NOT NULL,
-    request_digest text NOT NULL,
-    binding_id text NOT NULL,
-    work_id uuid NOT NULL,
-    deadline_at timestamp(6) with time zone NOT NULL,
-    max_cost_microyuan bigint DEFAULT 1000000 NOT NULL,
-    status text DEFAULT 'pending'::text NOT NULL,
-    result_artifact_id uuid,
-    last_error_code text,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    completed_at timestamp(6) with time zone,
-    web_research_intent_id uuid,
-    CONSTRAINT web_observation_requests_binding_id_check CHECK ((binding_id = 'armi.model-tool.volcengine-ark-web-search-v1'::text)),
-    CONSTRAINT web_observation_requests_check CHECK ((deadline_at > created_at)),
-    CONSTRAINT web_observation_requests_check1 CHECK ((((status = ANY (ARRAY['pending'::text, 'running'::text])) AND (result_artifact_id IS NULL) AND (last_error_code IS NULL) AND (completed_at IS NULL)) OR ((status = 'succeeded'::text) AND (result_artifact_id IS NOT NULL) AND (last_error_code IS NULL) AND (completed_at IS NOT NULL)) OR ((status = ANY (ARRAY['failed'::text, 'unknown'::text])) AND (result_artifact_id IS NULL) AND (last_error_code IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'cancelled'::text) AND (result_artifact_id IS NULL) AND (completed_at IS NOT NULL)))),
-    CONSTRAINT web_observation_requests_fence_token_check CHECK ((fence_token > 0)),
-    CONSTRAINT web_observation_requests_idempotency_key_check CHECK (((octet_length(idempotency_key) >= 1) AND (octet_length(idempotency_key) <= 128) AND (idempotency_key ~ '^[A-Za-z0-9._:-]+$'::text))),
-    CONSTRAINT web_observation_requests_last_error_code_check CHECK (((last_error_code IS NULL) OR (last_error_code ~ '^WEB-[A-Z0-9-]+$'::text))),
-    CONSTRAINT web_observation_requests_max_cost_microyuan_check CHECK ((max_cost_microyuan = 1000000)),
-    CONSTRAINT web_observation_requests_operation_class_check CHECK ((operation_class = 'search_read_public'::text)),
-    CONSTRAINT web_observation_requests_purpose_check CHECK ((purpose = 'public_web_research'::text)),
-    CONSTRAINT web_observation_requests_request_digest_check CHECK ((request_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT web_observation_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text]))),
-    CONSTRAINT web_observation_requests_web_observation_request_id_check CHECK ((uuid_extract_version(web_observation_request_id) = 7))
-);
-
---
--- Name: web_research_intents; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.web_research_intents (
-    web_research_intent_id uuid NOT NULL,
-    subject_commit_id uuid NOT NULL,
-    source_opportunity_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    creator_party_id uuid NOT NULL,
-    proposal_ref text NOT NULL,
-    purpose text NOT NULL,
-    operation_class text NOT NULL,
-    query_artifact_id uuid NOT NULL,
-    query_digest text NOT NULL,
-    idempotency_key text NOT NULL,
-    admission_work_id uuid NOT NULL,
-    web_observation_request_id uuid,
-    status text NOT NULL,
-    trace_id text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    completed_at timestamp(6) with time zone,
-    CONSTRAINT web_research_intents_check CHECK ((((status = 'pending'::text) AND (web_observation_request_id IS NULL) AND (completed_at IS NULL)) OR ((status = 'admitted'::text) AND (web_observation_request_id IS NOT NULL) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['succeeded'::text, 'unknown'::text])) AND (web_observation_request_id IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = ANY (ARRAY['failed'::text, 'cancelled'::text])) AND (completed_at IS NOT NULL)))),
-    CONSTRAINT web_research_intents_idempotency_key_check CHECK (((octet_length(idempotency_key) >= 1) AND (octet_length(idempotency_key) <= 128) AND (idempotency_key ~ '^[A-Za-z0-9._:-]+$'::text))),
-    CONSTRAINT web_research_intents_operation_class_check CHECK ((operation_class = 'search_read_public'::text)),
-    CONSTRAINT web_research_intents_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
-    CONSTRAINT web_research_intents_purpose_check CHECK ((purpose = 'public_web_research'::text)),
-    CONSTRAINT web_research_intents_query_digest_check CHECK ((query_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT web_research_intents_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'admitted'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text]))),
-    CONSTRAINT web_research_intents_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32)))),
-    CONSTRAINT web_research_intents_web_research_intent_id_check CHECK ((uuid_extract_version(web_research_intent_id) = 7))
 );

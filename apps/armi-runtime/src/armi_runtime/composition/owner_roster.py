@@ -85,10 +85,6 @@ from armi_subject_state.bootstrap import (
     bootstrap_subject_state_data_rights,
     bootstrap_subject_state_recovery,
 )
-from armi_web_observation.bootstrap import (
-    bootstrap_web_observation_data_rights,
-    bootstrap_web_observation_recovery,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +134,6 @@ _OWNER_ORDER = (
     "sleep",
     "expression",
     "effect",
-    "web-observation",
     "codex",
     "context",
     "data-rights",
@@ -165,7 +160,6 @@ _RECOVERY_ORDER = (
     "opportunity",
     "expression",
     "effect",
-    "web-observation",
     "codex",
     "data-rights",
 )
@@ -200,7 +194,6 @@ def compose_runtime_owner_roster(
         "sleep": bootstrap_sleep_recovery(),
         "expression": bootstrap_expression_recovery(),
         "effect": bootstrap_effect_recovery(),
-        "web-observation": bootstrap_web_observation_recovery(),
         "codex": bootstrap_codex_recovery(),
         "context": bootstrap_context_recovery(embedding_failure_diagnostic),
         "data-rights": bootstrap_data_rights_recovery(),
@@ -224,7 +217,6 @@ def compose_runtime_owner_roster(
         "sleep": bootstrap_sleep_data_rights(),
         "expression": bootstrap_expression_data_rights(),
         "effect": bootstrap_effect_data_rights(),
-        "web-observation": bootstrap_web_observation_data_rights(),
         "codex": bootstrap_codex_data_rights(),
         "context": bootstrap_context_data_rights(),
         "data-rights": data_rights,

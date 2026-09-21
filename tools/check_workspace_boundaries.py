@@ -360,21 +360,6 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
-        name="armi-web-observation",
-        module="armi_web_observation",
-        project_dir=Path("modules/web-observation"),
-        layers=(),
-        dependencies=(
-            "armi-evidence==0.0.0",
-            "armi-kernel==0.0.0",
-            "armi-attention==0.0.0",
-            "armi-runtime-foundation==0.0.0",
-            "httpx==0.28.1",
-            "openai==2.49.0",
-            "rfc8785==0.1.4",
-        ),
-    ),
-    Distribution(
         name="armi-codex",
         module="armi_codex",
         project_dir=Path("modules/codex"),
@@ -443,7 +428,6 @@ DISTRIBUTIONS = (
             "armi-sleep==0.0.0",
             "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
-            "armi-web-observation==0.0.0",
             "pydantic==2.13.4",
             "rfc8785==0.1.4",
         ),
@@ -527,7 +511,6 @@ DISTRIBUTIONS = (
             "armi-material==0.0.0",
             "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
-            "armi-web-observation==0.0.0",
             "armi-mood==0.0.0",
             "armi-prompt==0.0.0",
             "fastapi==0.140.13",
@@ -591,7 +574,6 @@ DISTRIBUTIONS = (
             "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-sleep==0.0.0",
-            "armi-web-observation==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "packaging==26.2",
@@ -628,7 +610,6 @@ DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS = frozenset(
         "armi-sleep",
         "armi-subject-state",
         "armi-mind",
-        "armi-web-observation",
     }
 )
 
@@ -1274,18 +1255,6 @@ def _check_import(
             }
         )
         or (
-            source_distribution == "armi-web-observation"
-            and target_distribution
-            not in {
-                None,
-                "armi-evidence",
-                "armi-kernel",
-                "armi-attention",
-                "armi-runtime-foundation",
-                "armi-web-observation",
-            }
-        )
-        or (
             source_distribution == "armi-codex"
             and target_distribution
             not in {
@@ -1339,7 +1308,6 @@ def _check_import(
                 "armi-sleep",
                 "armi-subject-state",
                 "armi-mind",
-                "armi-web-observation",
             }
         )
         or (
@@ -1524,13 +1492,6 @@ def _check_import(
         ),
         "armi-effect": frozenset(
             {"armi_effect", "armi_effect.api", "armi_effect.bootstrap"}
-        ),
-        "armi-web-observation": frozenset(
-            {
-                "armi_web_observation",
-                "armi_web_observation.api",
-                "armi_web_observation.bootstrap",
-            }
         ),
         "armi-codex": frozenset(
             {"armi_codex", "armi_codex.api", "armi_codex.bootstrap"}
@@ -1774,19 +1735,6 @@ def _check_import(
                     path,
                     line,
                     "effect bootstrap is reserved for Runtime composition",
-                )
-            )
-        if (
-            imported_module == "armi_web_observation.bootstrap"
-            and not source_module.startswith("armi_runtime.composition")
-            and source_module != "armi_admin.composition"
-        ):
-            violations.append(
-                Violation(
-                    "ARC-SURFACE-BOOTSTRAP",
-                    path,
-                    line,
-                    "web-observation bootstrap is reserved for Runtime composition",
                 )
             )
         if (
@@ -2093,12 +2041,6 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_effect": root / "modules/effect/src/armi_effect/__init__.py",
         "armi_effect.api": root / "modules/effect/src/armi_effect/api.py",
         "armi_effect.bootstrap": root / "modules/effect/src/armi_effect/bootstrap.py",
-        "armi_web_observation": root
-        / "modules/web-observation/src/armi_web_observation/__init__.py",
-        "armi_web_observation.api": root
-        / "modules/web-observation/src/armi_web_observation/api.py",
-        "armi_web_observation.bootstrap": root
-        / "modules/web-observation/src/armi_web_observation/bootstrap.py",
         "armi_codex": root / "modules/codex/src/armi_codex/__init__.py",
         "armi_codex.api": root / "modules/codex/src/armi_codex/api.py",
         "armi_codex.bootstrap": root / "modules/codex/src/armi_codex/bootstrap.py",

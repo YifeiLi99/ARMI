@@ -2250,7 +2250,6 @@ export interface components {
         | "mood"
         | "prompt"
         | "effect"
-        | "web_research"
         | "codex_task"
         | "managed_snapshot"
         | "artifact";

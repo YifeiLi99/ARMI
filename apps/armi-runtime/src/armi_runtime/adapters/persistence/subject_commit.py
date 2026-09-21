@@ -123,11 +123,6 @@ from armi_subject_state.api import (
     SubjectStateCommitPort,
     SubjectStateViolation,
 )
-from armi_web_observation.api import (
-    WebResearchCommitContext,
-    WebResearchCommitPort,
-    WebResearchViolation,
-)
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -231,20 +226,6 @@ def _expression_commit_context(
     )
 
 
-def _web_research_commit_context(
-    snapshot: SubjectCommitSnapshot,
-) -> WebResearchCommitContext:
-    return WebResearchCommitContext(
-        snapshot.validation_id,
-        snapshot.episode_id,
-        snapshot.opportunity_id,
-        snapshot.subject_id,
-        snapshot.scene_id,
-        snapshot.creator_party_id,
-        snapshot.trace_id,
-    )
-
-
 def _visual_observation_commit_context(
     snapshot: SubjectCommitSnapshot,
 ) -> VisualObservationCommitContext:
@@ -296,7 +277,6 @@ class PostgreSQLSubjectCommitRepository:
         "_sleep_commit",
         "_subject_state_commit",
         "_visual_observation_commit",
-        "_web_research_commit",
     )
 
     def __init__(
@@ -321,7 +301,6 @@ class PostgreSQLSubjectCommitRepository:
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
         mind_commit: MindCommitPort,
-        web_research_commit: WebResearchCommitPort,
         visual_observation_commit: VisualObservationCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
@@ -344,7 +323,6 @@ class PostgreSQLSubjectCommitRepository:
         self._sleep_commit = sleep_commit
         self._subject_state_commit = subject_state_commit
         self._mind_commit = mind_commit
-        self._web_research_commit = web_research_commit
         self._visual_observation_commit = visual_observation_commit
 
     async def settle_stale(
@@ -519,7 +497,6 @@ class PostgreSQLSubjectCommitRepository:
         change_set: SubjectChangeSet,
         owner_drafts: SubjectCommitOwnerDrafts,
         response_artifact: ArtifactRef | None = None,
-        research_artifact: ArtifactRef | None = None,
         prepared_codex: tuple[CodexPreparedTask, ...] = (),
         material_artifacts: dict[str, ArtifactRef] | None = None,
         prompt_artifacts: dict[str, ArtifactRef] | None = None,
@@ -658,7 +635,6 @@ class PostgreSQLSubjectCommitRepository:
             change_set=change_set,
             owner_drafts=owner_drafts,
             response_artifact=response_artifact,
-            research_artifact=research_artifact,
             prepared_codex=prepared_codex,
             material_artifacts=material_artifacts or {},
             prompt_artifacts=prompt_artifacts or {},
@@ -673,7 +649,6 @@ class PostgreSQLSubjectCommitRepository:
         change_set: SubjectChangeSet,
         owner_drafts: SubjectCommitOwnerDrafts,
         response_artifact: ArtifactRef | None,
-        research_artifact: ArtifactRef | None,
         prepared_codex: tuple[CodexPreparedTask, ...],
         material_artifacts: dict[str, ArtifactRef],
         prompt_artifacts: dict[str, ArtifactRef],
@@ -705,7 +680,6 @@ class PostgreSQLSubjectCommitRepository:
         if (
             not change_set.experiences
             and not change_set.action_choices
-            and not change_set.web_research_requests
             and not change_set.visual_observation_requests
             and not change_set.codex_delegations
             and not change_set.owner_drafts
@@ -789,10 +763,6 @@ class PostgreSQLSubjectCommitRepository:
                     "consider_codex_task": (
                         ExperienceKind.CREATOR_INPUT,
                         ExperienceSourcePerspective.CREATOR_CLAIM,
-                    ),
-                    "consider_web_evidence": (
-                        ExperienceKind.WEB_OBSERVATION,
-                        ExperienceSourcePerspective.WEB_CLAIM,
                     ),
                     "consider_codex_result": (
                         ExperienceKind.CODEX_OBSERVATION,
@@ -1007,16 +977,6 @@ class PostgreSQLSubjectCommitRepository:
             )
         except ResponseViolation as error:
             raise SubjectCommitViolation(error.code) from None
-        try:
-            await self._web_research_commit.commit_requests(
-                unit_of_work,
-                context=_web_research_commit_context(snapshot),
-                commit_id=commit_id.value,
-                requests=change_set.web_research_requests,
-                query_artifact=research_artifact,
-            )
-        except WebResearchViolation as error:
-            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         try:
             await self._visual_observation_commit.commit_requests(
                 unit_of_work,
@@ -1567,7 +1527,6 @@ def _assert_accepted_change_set(
     groups = (
         ("experience", change_set.experiences),
         ("action", change_set.action_choices),
-        ("web_research", change_set.web_research_requests),
         ("visual_observation", change_set.visual_observation_requests),
         ("codex_delegation", change_set.codex_delegations),
         ("exact_life_query", change_set.exact_life_queries),

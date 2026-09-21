@@ -104,17 +104,6 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract("sleep", (), ()),
     _contract("subject-state", ("subject_component",), ()),
     _contract("mind", ("subject_component",), ()),
-    _contract(
-        "web-observation",
-        ("web_research",),
-        (
-            ("observation_attempts", "result_artifact_id", "party"),
-            ("web_evidence_sources", "source_artifact_id", "party"),
-            ("web_observation_requests", "request_artifact_id", "party"),
-            ("web_observation_requests", "result_artifact_id", "party"),
-            ("web_research_intents", "query_artifact_id", "party"),
-        ),
-    ),
 )
 
 __all__ = ("DATA_RIGHTS_OWNER_CONTRACTS",)

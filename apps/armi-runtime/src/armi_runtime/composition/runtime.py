@@ -38,6 +38,7 @@ from armi_capability.api import CapabilityAvailability
 from armi_capability.bootstrap import bootstrap_capability
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import bootstrap_codex_commit
+from armi_cognition.api import CognitionWorkerPort
 from armi_cognition.bootstrap import (
     bootstrap_cognition_context,
     bootstrap_cognition_owner,
@@ -110,13 +111,6 @@ from armi_memory.api import MemoryViolation
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
-from armi_web_observation.api import (
-    WebObservationRuntimePort,
-    WebObservationViolation,
-    WebResearchRuntimePort,
-    WebResearchViolation,
-)
-from armi_web_observation.bootstrap import bootstrap_web_context_read
 from starlette.responses import Response as StarletteResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -223,8 +217,6 @@ from .database import (
     compose_subject_commit_pipeline,
     compose_subject_state_module,
     compose_visual_failure_notification,
-    compose_web_research_admission_pipeline,
-    compose_web_search_pipeline,
     inspect_creator_context,
     inspect_runtime_continuity,
     runtime_database_reason,
@@ -514,7 +506,7 @@ async def _serve(
     life_opportunity_pipeline = None
     context_pipeline = None
     context_embedding_pipeline = None
-    model_pipeline = None
+    model_pipeline: CognitionWorkerPort | None = None
     model_clients = None
     candidate_pipeline = None
     subject_commit_pipeline = None
@@ -559,15 +551,6 @@ async def _serve(
     capability_read = bootstrap_capability(
         lambda: {
             "codex.delegated-work": codex_availability,
-            "web.search": CapabilityAvailability(
-                config.web.enabled,
-                config.web.enabled and web_search_pipeline is not None,
-                "WEB-DISABLED"
-                if not config.web.enabled
-                else "WEB-UNAVAILABLE"
-                if web_search_pipeline is None
-                else None,
-            ),
             "vision.camera": visual_capability(
                 VisualSourceKind.CAMERA,
                 config.vision.camera.enabled,
@@ -580,8 +563,6 @@ async def _serve(
         }
     )
     effect_pipeline = None
-    web_search_pipeline: WebObservationRuntimePort | None = None
-    web_research_pipeline: WebResearchRuntimePort | None = None
     codex_pipeline: CodexRuntimePort | None = None
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
@@ -804,7 +785,6 @@ async def _serve(
                 AutonomyPolicy(**config.autonomy.model_dump())
             )
             opportunity_sleep = bootstrap_opportunity_sleep()
-            web_context = bootstrap_web_context_read()
             activity_module = compose_activity_module(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
@@ -1142,7 +1122,6 @@ async def _serve(
                 interaction_cognition=interaction_module.cognition_read,
                 opportunity_cognition=opportunity_cognition,
                 runtime_subjects=runtime_cognition_state,
-                web_context=web_context,
                 expression_read=expression_module.intents,
                 effect_read=effect_owner,
                 data_rights=data_rights_module.cognition,
@@ -1389,55 +1368,6 @@ async def _serve(
                         result_code="MODEL_UNAVAILABLE",
                         reason_codes=("RUNTIME_MODEL_UNAVAILABLE", error.code),
                     )
-                if config.web.enabled:
-                    try:
-                        with configuration_consumption.consumer("web-search"):
-                            web_search_pipeline = compose_web_search_pipeline(
-                                prepared,
-                                voice=live_voice_service,
-                                unit_of_work_factory=runtime_unit_of_work_factory,
-                                evidence=evidence_module.write,
-                                opportunity=opportunity_admission,
-                                catalog=artifact_catalog,
-                                custody=execution_custody,
-                                tool_diagnostic=diagnostic.web_tool_call,
-                                diagnostic=lambda event: diagnostic.emit(
-                                    event,
-                                    result_code="WEB_SEARCH_CUSTODY",
-                                ),
-                            )
-                            await web_search_pipeline.open()
-                        with configuration_consumption.consumer("web-research"):
-                            web_research_pipeline = (
-                                compose_web_research_admission_pipeline(
-                                    prepared,
-                                    voice=live_voice_service,
-                                    unit_of_work_factory=runtime_unit_of_work_factory,
-                                    custody=web_search_pipeline,
-                                    evidence=evidence_module.write,
-                                    opportunity=opportunity_admission,
-                                    catalog=artifact_catalog,
-                                    diagnostic=lambda event: diagnostic.emit(
-                                        event,
-                                        result_code="WEB_RESEARCH_ADMISSION",
-                                    ),
-                                )
-                            )
-                            await web_research_pipeline.open()
-                    except WebObservationViolation, WebResearchViolation:
-                        if web_research_pipeline is not None:
-                            await web_research_pipeline.close()
-                            web_research_pipeline = None
-                        if web_search_pipeline is not None:
-                            await web_search_pipeline.close()
-                        web_search_pipeline = None
-                        configuration_consumption.release("web-search")
-                        configuration_consumption.release("web-research")
-                        diagnostic.emit(
-                            "runtime.web_search.unavailable",
-                            level=logging.WARNING,
-                            result_code="WEB_SEARCH_UNAVAILABLE",
-                        )
             else:
                 lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
         except DatabaseViolation, RuntimeAuthorityViolation:
@@ -1556,10 +1486,6 @@ async def _serve(
                 await model_pipeline.close()
             if model_clients is not None:
                 await model_clients.close()
-            if web_research_pipeline is not None:
-                await web_research_pipeline.close()
-            if web_search_pipeline is not None:
-                await web_search_pipeline.close()
             if effect_pipeline is not None:
                 await effect_pipeline.close()
             if codex_pipeline is not None:
@@ -1720,17 +1646,6 @@ async def _serve(
                     model_pipeline.run_worker(),
                     name=f"cognition-execute-worker-{index + 1}",
                 )
-        if web_search_pipeline is not None:
-            if web_research_pipeline is not None:
-                supervisor.start(
-                    web_research_pipeline.run_worker(),
-                    name="web-research-admission-worker",
-                )
-            for index in range(config.web.concurrency):
-                supervisor.start(
-                    web_search_pipeline.run_worker(),
-                    name=f"web-search-worker-{index + 1}",
-                )
         if effect_pipeline is not None:
             supervisor.start(
                 effect_pipeline.run(),
@@ -1831,14 +1746,6 @@ async def _serve(
                 else exact_life_query_pipeline.stop,
             ),
             ("model", None if model_pipeline is None else model_pipeline.stop),
-            (
-                "web_search",
-                None if web_search_pipeline is None else web_search_pipeline.stop,
-            ),
-            (
-                "web_research",
-                None if web_research_pipeline is None else web_research_pipeline.stop,
-            ),
             ("effect", None if effect_pipeline is None else effect_pipeline.stop),
             ("codex", None if codex_pipeline is None else codex_pipeline.stop),
             (
@@ -1931,14 +1838,6 @@ async def _serve(
             ),
             ("model", None if model_pipeline is None else model_pipeline.close),
             ("model_clients", None if model_clients is None else model_clients.close),
-            (
-                "web_research",
-                None if web_research_pipeline is None else web_research_pipeline.close,
-            ),
-            (
-                "web_search",
-                None if web_search_pipeline is None else web_search_pipeline.close,
-            ),
             ("effect", None if effect_pipeline is None else effect_pipeline.close),
             ("qq_channel", None if qq_channel is None else qq_channel.close),
             ("codex", None if codex_pipeline is None else codex_pipeline.close),
@@ -2393,8 +2292,6 @@ async def _serve(
             context_pipeline,
             context_embedding_pipeline,
             model_pipeline,
-            web_search_pipeline,
-            web_research_pipeline,
             effect_pipeline,
             codex_pipeline,
         ):
@@ -2851,8 +2748,6 @@ async def _serve(
             await qq_channel.close()
         if codex_pipeline is not None:
             await codex_pipeline.close()
-        if web_search_pipeline is not None:
-            await web_search_pipeline.close()
         if observation_port is not None:
             await observation_port.close()
         if execution_custody is not None:

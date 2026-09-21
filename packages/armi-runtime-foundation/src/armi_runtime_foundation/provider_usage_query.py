@@ -83,12 +83,9 @@ def usage_statement(
             conditions.append("""operation_id::uuid IN (
                 WITH RECURSIVE links AS (
                     SELECT DISTINCT o.root_opportunity_id AS child,
-                        COALESCE(wo.root_opportunity_id, vo.root_opportunity_id) AS parent
+                        vo.root_opportunity_id AS parent
                     FROM armi.opportunities o
                     JOIN armi.external_evidence e USING (evidence_id)
-                    LEFT JOIN armi.web_observation_requests w USING (web_observation_request_id)
-                    LEFT JOIN armi.web_research_intents i USING (web_research_intent_id)
-                    LEFT JOIN armi.opportunities wo ON wo.opportunity_id = i.source_opportunity_id
                     LEFT JOIN armi.live_vision_observations v ON v.observation_id = e.visual_observation_id
                     LEFT JOIN armi.cognitive_episodes ve ON ve.cognitive_episode_id = v.origin_episode_id
                     LEFT JOIN armi.opportunities vo ON vo.opportunity_id = ve.opportunity_id

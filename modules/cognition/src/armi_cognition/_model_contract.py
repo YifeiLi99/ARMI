@@ -52,7 +52,6 @@ from ._autonomous_activity_contract import (
     AutonomousTerminalDecision,
     AutonomousVisualObservationDecision,
     AutonomousWaitDecision,
-    AutonomousWebResearchDecision,
     StartActivityDecision,
     autonomous_activity_candidate_schema,
     parse_autonomous_activity_candidate,
@@ -111,7 +110,7 @@ from ._visual_observation_contract import (
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v4"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
-CANDIDATE_VERSION = "armi.cognition-candidate.v17"
+CANDIDATE_VERSION = "armi.cognition-candidate.v18"
 ACTIVE_MODEL_ID = "qwen3.8-flash"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -375,26 +374,6 @@ class ActionChoiceProposal(_StrictModel, frozen=True):
     payload: ActionChoicePayload
 
 
-class WebResearchRequestPayload(_StrictModel, frozen=True):
-    proposal_kind: Literal["web_research_requests"]
-    fact_class: Literal["subjective_understanding", "inference"]
-    purpose: Literal["public_web_research"]
-    operation_class: Literal["search_read_public"]
-    query: Annotated[
-        str,
-        StringConstraints(
-            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
-        ),
-    ]
-
-
-class WebResearchRequestProposal(_StrictModel, frozen=True):
-    proposal_ref: ProposalRef
-    atomic_group_ref: AtomicGroupRef
-    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
-    payload: WebResearchRequestPayload
-
-
 class VisualObservationRequestPayload(_StrictModel, frozen=True):
     proposal_kind: Literal["visual_observation_requests"]
     fact_class: Literal["inference"]
@@ -418,7 +397,7 @@ class CandidateUncertainty(_StrictModel, frozen=True):
 class CognitionCandidate(_StrictModel, frozen=True):
     mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
-    schema_version: Literal["armi.cognition-candidate.v17"]
+    schema_version: Literal["armi.cognition-candidate.v18"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -435,9 +414,6 @@ class CognitionCandidate(_StrictModel, frozen=True):
     relationship_changes: tuple[RelationshipChangeProposal, ...] = Field(max_length=4)
     activity_changes: tuple[ActivityChangeProposal, ...] = Field(max_length=4)
     action_choices: tuple[ActionChoiceProposal, ...] = Field(max_length=2)
-    web_research_requests: tuple[WebResearchRequestProposal, ...] = Field(
-        default=(), max_length=1
-    )
     visual_observation_requests: tuple[VisualObservationRequestProposal, ...] = Field(
         default=(), max_length=1
     )
@@ -648,7 +624,6 @@ def parse_candidate(
             AutonomousTerminalDecision,
             AutonomousCodexDecision,
             AutonomousVisualObservationDecision,
-            AutonomousWebResearchDecision,
             AutonomousLifeQueryDecision,
             AutonomousWaitDecision,
         ),
@@ -661,7 +636,6 @@ def parse_candidate(
         *candidate.relationship_changes,
         *candidate.activity_changes,
         *candidate.action_choices,
-        *getattr(candidate, "web_research_requests", ()),
         *getattr(candidate, "visual_observation_requests", ()),
     )
     if len(proposals) > 16:
@@ -686,18 +660,6 @@ def parse_candidate(
                 or len(encoded) > 65536
                 or b"\x00" in encoded
                 or not proposal.payload.content.strip()
-            ):
-                raise ModelViolation("MODEL-RESPONSE-LIMIT")
-        if isinstance(proposal.payload, WebResearchRequestPayload):
-            try:
-                encoded_query = proposal.payload.query.encode("utf-8", errors="strict")
-            except UnicodeEncodeError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
-            if (
-                not encoded_query
-                or len(encoded_query) > 16 * 1024
-                or b"\x00" in encoded_query
-                or not proposal.payload.query.strip()
             ):
                 raise ModelViolation("MODEL-RESPONSE-LIMIT")
     if any(count > 8 for count in group_counts.values()):
@@ -762,11 +724,6 @@ def load_active_binding(
                 "profile": "sleep_decision",
                 "response_contract_version": SLEEP_DECISION_CANDIDATE_VERSION,
                 "output_token_limit": 256,
-            },
-            "consider_web_evidence": {
-                "profile": "web_evidence_cognition",
-                "response_contract_version": CANDIDATE_VERSION,
-                "output_token_limit": 1024,
             },
             "consider_visual_observation": {
                 "profile": "visual_observation",
@@ -1022,8 +979,6 @@ __all__ = (
     "CodexDelegationPayload",
     "CognitionCandidate",
     "RuntimeBoundCreatorReplyPayload",
-    "WebResearchRequestPayload",
-    "WebResearchRequestProposal",
     "build_request_bytes",
     "candidate_schema",
     "checked_model_request",

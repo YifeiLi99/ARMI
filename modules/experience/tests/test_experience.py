@@ -101,7 +101,7 @@ def test_draft_rejects_mismatched_source_pair() -> None:
             draft.first_person_gist,
             draft.scene_id,
             draft.occurred_at,
-            ExperienceSourcePerspective.WEB_CLAIM,
+            ExperienceSourcePerspective.CODEX_OBSERVATION,
             draft.uncertainty,
         )
 

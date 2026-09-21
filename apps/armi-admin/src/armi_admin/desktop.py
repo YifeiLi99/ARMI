@@ -330,7 +330,6 @@ class Desktop:
                 "runtime",
                 "model-bindings",
                 "provider-pricing",
-                "web-search",
                 "qq",
                 "mood-display",
             ),

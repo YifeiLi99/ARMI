@@ -13,7 +13,6 @@ class CandidateOwner(StrEnum):
     RELATIONSHIP = "relationship"
     ACTIVITY = "activity"
     ACTION = "action"
-    WEB_RESEARCH = "web_research"
     VISUAL_OBSERVATION = "visual_observation"
     CODEX_DELEGATION = "codex_delegation"
     SLEEP = "sleep"
