@@ -41,7 +41,6 @@ def test_runtime_subject_commit_contains_only_runtime_owned_business_sql() -> No
         "cognitive_context_items",
         "cognitive_episodes",
         "data_rights_orders",
-        "exact_life_query_intents",
         "external_evidence",
         "interaction_scenes",
         "opportunities",

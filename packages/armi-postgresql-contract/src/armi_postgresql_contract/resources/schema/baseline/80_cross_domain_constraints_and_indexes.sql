@@ -501,47 +501,11 @@ ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_live_voice_turn_id_key UNIQUE (live_voice_turn_id);
 
 
---
--- Name: exact_life_query_intents exact_life_query_intents_execution_work_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_execution_work_id_key UNIQUE (execution_work_id);
 
---
--- Name: exact_life_query_intents exact_life_query_intents_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_pkey PRIMARY KEY (exact_life_query_intent_id);
 
---
--- Name: exact_life_query_intents exact_life_query_intents_result_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_result_opportunity_id_key UNIQUE (result_opportunity_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_source_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_source_opportunity_id_key UNIQUE (source_opportunity_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_subject_commit_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_subject_commit_id_key UNIQUE (subject_commit_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_subject_id_source_opportunity_id_p_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_subject_id_source_opportunity_id_p_key UNIQUE (subject_id, source_opportunity_id, proposal_ref);
 
 --
 -- Name: experience_evidence_links experience_evidence_links_experience_id_evidence_id_context_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2096,61 +2060,13 @@ ALTER TABLE ONLY armi.effects
 
 
 
---
--- Name: exact_life_query_intents exact_life_query_intents_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
 
---
--- Name: exact_life_query_intents exact_life_query_intents_execution_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_execution_work_id_fkey FOREIGN KEY (execution_work_id) REFERENCES armi.durable_work(work_id);
 
---
--- Name: exact_life_query_intents exact_life_query_intents_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_result_artifact_id_fkey FOREIGN KEY (result_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: exact_life_query_intents exact_life_query_intents_result_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_result_opportunity_id_fkey FOREIGN KEY (result_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_scene_id_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_source_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_source_opportunity_id_fkey FOREIGN KEY (source_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
-
---
--- Name: exact_life_query_intents exact_life_query_intents_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.exact_life_query_intents
-    ADD CONSTRAINT exact_life_query_intents_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: experience_evidence_links experience_evidence_links_context_item_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3117,3 +3033,24 @@ CREATE UNIQUE INDEX mind_revisions_current_key ON armi.mind_revisions (subject_i
 CREATE UNIQUE INDEX mood_revisions_current_key ON armi.mood_revisions (subject_id) WHERE is_current;
 
 CREATE UNIQUE INDEX subject_component_revisions_current_key ON armi.subject_component_revisions (subject_id, component_kind) WHERE is_current;
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_execution_work_id_key UNIQUE (life_query_work_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_id_key UNIQUE (exact_life_query_intent_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_result_opportunity_id_key UNIQUE (life_query_result_opportunity_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_creator_party_id_fkey FOREIGN KEY (life_query_creator_party_id) REFERENCES armi.parties(party_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_execution_work_id_fkey FOREIGN KEY (life_query_work_id) REFERENCES armi.durable_work(work_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_result_artifact_id_fkey FOREIGN KEY (life_query_result_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_life_query_result_opportunity_id_fkey FOREIGN KEY (life_query_result_opportunity_id) REFERENCES armi.opportunities(opportunity_id);

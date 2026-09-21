@@ -95,9 +95,9 @@ def usage_statement(
                     JOIN armi.effects effect ON effect.effect_id = verification.effect_id
                     UNION
                     SELECT child.root_opportunity_id, parent.root_opportunity_id
-                    FROM armi.exact_life_query_intents query
-                    JOIN armi.opportunities child ON child.opportunity_id = query.result_opportunity_id
-                    JOIN armi.opportunities parent ON parent.opportunity_id = query.source_opportunity_id
+                    FROM armi.cognitive_episodes query
+                    JOIN armi.opportunities child ON child.opportunity_id = query.life_query_result_opportunity_id
+                    JOIN armi.opportunities parent ON parent.opportunity_id = query.opportunity_id
                 ), related(id) AS (
                     SELECT COALESCE(o.root_opportunity_id, selector.id)
                     FROM (SELECT %s::uuid AS id) selector

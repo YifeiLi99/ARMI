@@ -23,7 +23,7 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("cognition")
-_VERSION = DataRightsContributionVersion(6)
+_VERSION = DataRightsContributionVersion(7)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "cognitive_attempts",
@@ -52,11 +52,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.cognition_maintenance_cursors AS source
            ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "exact_life_query_intents",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.exact_life_query_intents AS source ORDER BY to_jsonb(source)::text""",
     ),
 )
 
@@ -115,10 +110,11 @@ class PostgreSQLCognitionDataRightsParticipant:
         commit_ids = tuple(row[0] for row in commit_rows)
         exact_rows = await (
             await transaction.execute(
-                """SELECT exact_life_query_intent_id,result_artifact_id
-                   FROM armi.exact_life_query_intents
-                   WHERE subject_commit_id=ANY(%s::uuid[])
-                      OR creator_party_id=%s
+                """SELECT exact_life_query_intent_id,life_query_result_artifact_id
+                   FROM armi.cognitive_episodes
+                   WHERE exact_life_query_intent_id IS NOT NULL
+                     AND (subject_commit_id=ANY(%s::uuid[])
+                          OR life_query_creator_party_id=%s)
                    ORDER BY exact_life_query_intent_id""",
                 (list(commit_ids), request.party_id),
             )
@@ -211,7 +207,7 @@ class PostgreSQLCognitionDataRightsParticipant:
             )
             if exact_ids:
                 await transaction.execute(
-                    """UPDATE armi.exact_life_query_intents SET query_text=NULL
+                    """UPDATE armi.cognitive_episodes SET life_query_text=NULL
                        WHERE exact_life_query_intent_id=ANY(%s::uuid[])""",
                     (list(exact_ids),),
                 )

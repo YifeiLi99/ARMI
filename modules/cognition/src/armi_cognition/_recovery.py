@@ -73,12 +73,12 @@ class CognitionRecoveryParticipant:
         )
         query_rows = await (
             await transaction.execute(
-                """UPDATE armi.exact_life_query_intents
-                   SET status='failed',result_count=0,
-                       failure_code='LIFE-QUERY-RUNTIME-INTERRUPTED',
-                       completed_at=statement_timestamp()
-                   WHERE source_opportunity_id=ANY(%s::uuid[]) AND status='pending'
-                   RETURNING execution_work_id""",
+                """UPDATE armi.cognitive_episodes
+                   SET life_query_status='failed',life_query_result_count=0,
+                       life_query_failure_code='LIFE-QUERY-RUNTIME-INTERRUPTED',
+                       life_query_completed_at=statement_timestamp()
+                   WHERE opportunity_id=ANY(%s::uuid[]) AND life_query_status='pending'
+                   RETURNING life_query_work_id""",
                 (list(interrupted_opportunities),),
             )
         ).fetchall()
@@ -109,11 +109,11 @@ class CognitionRecoveryParticipant:
                     and item.reconciliation_required
                 ):
                     await transaction.execute(
-                        """UPDATE armi.exact_life_query_intents
-                           SET status='failed',result_count=0,
-                               failure_code='LIFE-QUERY-WORK-EXHAUSTED',
-                               completed_at=statement_timestamp()
-                           WHERE execution_work_id=%s AND status='pending'""",
+                        """UPDATE armi.cognitive_episodes
+                           SET life_query_status='failed',life_query_result_count=0,
+                               life_query_failure_code='LIFE-QUERY-WORK-EXHAUSTED',
+                               life_query_completed_at=statement_timestamp()
+                           WHERE life_query_work_id=%s AND life_query_status='pending'""",
                         (item.work_id,),
                     )
                     await reconciliation.fail(

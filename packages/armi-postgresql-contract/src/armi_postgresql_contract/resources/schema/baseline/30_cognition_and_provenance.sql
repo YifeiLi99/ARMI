@@ -164,6 +164,37 @@ CREATE TABLE armi.cognitive_episodes (
     subject_commit_id uuid UNIQUE,
     successor_opportunity_id uuid UNIQUE,
     observed_subject_version bigint,
+    exact_life_query_intent_id uuid,
+    life_query_creator_party_id uuid,
+    life_query_proposal_ref text,
+    life_query_record_kind text,
+    life_query_text text,
+    life_query_result_limit smallint,
+    life_query_digest text,
+    life_query_work_id uuid,
+    life_query_status text,
+    life_query_result_artifact_id uuid,
+    life_query_result_count smallint,
+    life_query_failure_code text,
+    life_query_result_opportunity_id uuid,
+    life_query_created_at timestamp(6) with time zone,
+    life_query_completed_at timestamp(6) with time zone,
+    CONSTRAINT cognitive_episodes_life_query_shape CHECK (
+        (exact_life_query_intent_id IS NULL AND life_query_creator_party_id IS NULL AND life_query_proposal_ref IS NULL AND life_query_record_kind IS NULL AND life_query_text IS NULL AND life_query_result_limit IS NULL AND life_query_digest IS NULL AND life_query_work_id IS NULL AND life_query_status IS NULL AND life_query_result_artifact_id IS NULL AND life_query_result_count IS NULL AND life_query_failure_code IS NULL AND life_query_result_opportunity_id IS NULL AND life_query_created_at IS NULL AND life_query_completed_at IS NULL)
+        OR (exact_life_query_intent_id IS NOT NULL AND life_query_creator_party_id IS NOT NULL AND life_query_proposal_ref IS NOT NULL AND life_query_record_kind IS NOT NULL AND life_query_result_limit IS NOT NULL AND life_query_digest IS NOT NULL AND life_query_work_id IS NOT NULL AND life_query_status IS NOT NULL AND life_query_created_at IS NOT NULL AND candidate_validation_id IS NOT NULL AND scene_id IS NOT NULL)
+    ),
+    CONSTRAINT cognitive_episodes_life_query_check CHECK ((((life_query_status = 'pending'::text) AND (life_query_result_artifact_id IS NULL) AND (life_query_result_count IS NULL) AND (life_query_failure_code IS NULL) AND (life_query_result_opportunity_id IS NULL) AND (life_query_completed_at IS NULL)) OR ((life_query_status = ANY (ARRAY['succeeded'::text, 'empty'::text])) AND (life_query_result_artifact_id IS NOT NULL) AND (life_query_result_count IS NOT NULL) AND (life_query_failure_code IS NULL) AND (life_query_result_opportunity_id IS NOT NULL) AND (life_query_completed_at IS NOT NULL)) OR ((life_query_status = ANY (ARRAY['failed'::text, 'denied'::text])) AND (life_query_result_count = 0) AND (life_query_failure_code IS NOT NULL) AND (life_query_completed_at IS NOT NULL) AND (((life_query_result_artifact_id IS NOT NULL) AND (life_query_result_opportunity_id IS NOT NULL)) OR ((life_query_status = 'failed'::text) AND (life_query_result_artifact_id IS NULL) AND (life_query_result_opportunity_id IS NULL)))))),
+    CONSTRAINT cognitive_episodes_life_query_check1 CHECK (((life_query_status = 'empty'::text) = ((life_query_result_count = 0) AND (life_query_failure_code IS NULL)))),
+    CONSTRAINT cognitive_episodes_life_query_check2 CHECK (((life_query_status = 'succeeded'::text) = (life_query_result_count > 0))),
+    CONSTRAINT cognitive_episodes_life_query_id_check CHECK ((uuid_extract_version(exact_life_query_intent_id) = 7)),
+    CONSTRAINT cognitive_episodes_life_query_failure_code_check CHECK (((life_query_failure_code IS NULL) OR (life_query_failure_code ~ '^LIFE-QUERY-[A-Z0-9-]+$'::text))),
+    CONSTRAINT cognitive_episodes_life_query_proposal_ref_check CHECK ((life_query_proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
+    CONSTRAINT cognitive_episodes_life_query_query_digest_check CHECK ((life_query_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT cognitive_episodes_life_query_query_text_check CHECK (((life_query_text IS NULL) OR ((octet_length(life_query_text) >= 1) AND (octet_length(life_query_text) <= 1024) AND (btrim(life_query_text) <> ''::text)))),
+    CONSTRAINT cognitive_episodes_life_query_record_kind_check CHECK ((life_query_record_kind = ANY (ARRAY['activity'::text, 'conversation'::text, 'material'::text, 'memory'::text, 'relationship'::text, 'self_change'::text]))),
+    CONSTRAINT cognitive_episodes_life_query_result_count_check CHECK (((life_query_result_count IS NULL) OR ((life_query_result_count >= 0) AND (life_query_result_count <= 20)))),
+    CONSTRAINT cognitive_episodes_life_query_result_limit_check CHECK (((life_query_result_limit >= 1) AND (life_query_result_limit <= 20))),
+    CONSTRAINT cognitive_episodes_life_query_status_check CHECK ((life_query_status = ANY (ARRAY['pending'::text, 'succeeded'::text, 'empty'::text, 'failed'::text, 'denied'::text]))),
     dialogue_decision_kind text,
     dialogue_reason_class text,
     dialogue_proposal_ref text,
@@ -325,45 +356,6 @@ CREATE VIEW armi.context_model_cache_hit_ratios AS
      JOIN armi.cognitive_attempts attempt ON ((attempt.cognitive_episode_id = episode.cognitive_episode_id)))
   GROUP BY episode.purpose;
 
---
--- Name: exact_life_query_intents; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.exact_life_query_intents (
-    exact_life_query_intent_id uuid NOT NULL,
-    subject_commit_id uuid NOT NULL,
-    source_opportunity_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    creator_party_id uuid NOT NULL,
-    proposal_ref text NOT NULL,
-    record_kind text NOT NULL,
-    query_text text,
-    result_limit smallint NOT NULL,
-    query_digest text NOT NULL,
-    execution_work_id uuid NOT NULL,
-    status text NOT NULL,
-    result_artifact_id uuid,
-    result_count smallint,
-    failure_code text,
-    result_opportunity_id uuid,
-    trace_id text NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    completed_at timestamp(6) with time zone,
-    CONSTRAINT exact_life_query_intents_check CHECK ((((status = 'pending'::text) AND (result_artifact_id IS NULL) AND (result_count IS NULL) AND (failure_code IS NULL) AND (result_opportunity_id IS NULL) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['succeeded'::text, 'empty'::text])) AND (result_artifact_id IS NOT NULL) AND (result_count IS NOT NULL) AND (failure_code IS NULL) AND (result_opportunity_id IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = ANY (ARRAY['failed'::text, 'denied'::text])) AND (result_count = 0) AND (failure_code IS NOT NULL) AND (completed_at IS NOT NULL) AND (((result_artifact_id IS NOT NULL) AND (result_opportunity_id IS NOT NULL)) OR ((status = 'failed'::text) AND (result_artifact_id IS NULL) AND (result_opportunity_id IS NULL)))))),
-    CONSTRAINT exact_life_query_intents_check1 CHECK (((status = 'empty'::text) = ((result_count = 0) AND (failure_code IS NULL)))),
-    CONSTRAINT exact_life_query_intents_check2 CHECK (((status = 'succeeded'::text) = (result_count > 0))),
-    CONSTRAINT exact_life_query_intents_exact_life_query_intent_id_check CHECK ((uuid_extract_version(exact_life_query_intent_id) = 7)),
-    CONSTRAINT exact_life_query_intents_failure_code_check CHECK (((failure_code IS NULL) OR (failure_code ~ '^LIFE-QUERY-[A-Z0-9-]+$'::text))),
-    CONSTRAINT exact_life_query_intents_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
-    CONSTRAINT exact_life_query_intents_query_digest_check CHECK ((query_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT exact_life_query_intents_query_text_check CHECK (((query_text IS NULL) OR ((octet_length(query_text) >= 1) AND (octet_length(query_text) <= 1024) AND (btrim(query_text) <> ''::text)))),
-    CONSTRAINT exact_life_query_intents_record_kind_check CHECK ((record_kind = ANY (ARRAY['activity'::text, 'conversation'::text, 'material'::text, 'memory'::text, 'relationship'::text, 'self_change'::text]))),
-    CONSTRAINT exact_life_query_intents_result_count_check CHECK (((result_count IS NULL) OR ((result_count >= 0) AND (result_count <= 20)))),
-    CONSTRAINT exact_life_query_intents_result_limit_check CHECK (((result_limit >= 1) AND (result_limit <= 20))),
-    CONSTRAINT exact_life_query_intents_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'succeeded'::text, 'empty'::text, 'failed'::text, 'denied'::text]))),
-    CONSTRAINT exact_life_query_intents_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
-);
 
 --
 -- Name: experience_evidence_links; Type: TABLE; Schema: armi; Owner: -

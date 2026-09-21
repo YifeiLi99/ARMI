@@ -49,7 +49,7 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
                 ("cognitive_episodes", "change_set_artifact_id"),
                 ("cognitive_episodes", "compiled_context_artifact_id"),
                 ("cognitive_episodes", "context_manifest_artifact_id"),
-                ("exact_life_query_intents", "result_artifact_id"),
+                ("cognitive_episodes", "life_query_result_artifact_id"),
             )
         ),
     ),

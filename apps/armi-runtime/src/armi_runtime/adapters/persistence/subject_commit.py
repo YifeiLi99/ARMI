@@ -977,7 +977,6 @@ class PostgreSQLSubjectCommitRepository:
             unit_of_work,
             cognition_commit=self._cognition_commit,
             snapshot=snapshot,
-            commit_id=commit_id,
             queries=change_set.exact_life_queries,
         )
         try:
@@ -1381,7 +1380,6 @@ async def _insert_exact_life_query_intent(
     *,
     cognition_commit: CognitionSubjectCommitPort,
     snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
     queries: tuple[CandidateExactLifeQueryDraft, ...],
 ) -> None:
     if not queries:
@@ -1425,7 +1423,6 @@ async def _insert_exact_life_query_intent(
         unit_of_work.transaction,
         CognitionExactLifeQueryIntentDraft(
             intent_id=intent_id,
-            subject_commit_id=commit_id.value,
             source_opportunity_id=snapshot.opportunity_id,
             subject_id=snapshot.subject_id,
             scene_id=snapshot.scene_id,

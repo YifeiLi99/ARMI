@@ -23,13 +23,13 @@ class PostgreSQLCognitionExactLifeQuery:
             await transaction.execute(
                 """
                 SELECT exact_life_query_intent_id, subject_id,
-                       source_opportunity_id, scene_id, creator_party_id,
-                       record_kind, query_text, result_limit,
-                       query_digest, trace_id
-                FROM armi.exact_life_query_intents
+                       opportunity_id, scene_id, life_query_creator_party_id,
+                       life_query_record_kind, life_query_text, life_query_result_limit,
+                       life_query_digest, trace_id
+                FROM armi.cognitive_episodes
                 WHERE exact_life_query_intent_id = %s
                   AND subject_id = %s
-                  AND status = 'pending'
+                  AND life_query_status = 'pending'
                 FOR UPDATE
                 """,
                 (intent_id, subject_id),
@@ -64,12 +64,12 @@ class PostgreSQLCognitionExactLifeQuery:
         row = await (
             await transaction.execute(
                 """
-                UPDATE armi.exact_life_query_intents
-                SET status = %s, result_artifact_id = %s,
-                    result_count = %s, failure_code = %s,
-                    result_opportunity_id = %s,
-                    completed_at = statement_timestamp()
-                WHERE exact_life_query_intent_id = %s AND status = 'pending'
+                UPDATE armi.cognitive_episodes
+                SET life_query_status = %s, life_query_result_artifact_id = %s,
+                    life_query_result_count = %s, life_query_failure_code = %s,
+                    life_query_result_opportunity_id = %s,
+                    life_query_completed_at = statement_timestamp()
+                WHERE exact_life_query_intent_id = %s AND life_query_status = 'pending'
                 RETURNING exact_life_query_intent_id
                 """,
                 (
@@ -95,10 +95,10 @@ class PostgreSQLCognitionExactLifeQuery:
         row = await (
             await transaction.execute(
                 """
-                UPDATE armi.exact_life_query_intents
-                SET status = 'failed', result_count = 0,
-                    failure_code = %s, completed_at = statement_timestamp()
-                WHERE exact_life_query_intent_id = %s AND status = 'pending'
+                UPDATE armi.cognitive_episodes
+                SET life_query_status = 'failed', life_query_result_count = 0,
+                    life_query_failure_code = %s, life_query_completed_at = statement_timestamp()
+                WHERE exact_life_query_intent_id = %s AND life_query_status = 'pending'
                 RETURNING exact_life_query_intent_id
                 """,
                 (code, intent_id),

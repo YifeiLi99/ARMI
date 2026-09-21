@@ -218,9 +218,9 @@ class PostgreSQLCognitionContextLifecycle:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
         life = await (
             await transaction.execute(
-                """SELECT exact_life_query_intent_id, result_artifact_id
-               FROM armi.exact_life_query_intents
-               WHERE result_opportunity_id=%s""",
+                """SELECT exact_life_query_intent_id, life_query_result_artifact_id
+               FROM armi.cognitive_episodes
+               WHERE life_query_result_opportunity_id=%s""",
                 (row[1],),
             )
         ).fetchone()

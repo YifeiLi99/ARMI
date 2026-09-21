@@ -84,7 +84,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "cognition_maintenance_cursors": TableOwnership(
         "cognition", maintenance_writable=True
     ),
-    "exact_life_query_intents": TableOwnership("cognition", maintenance_writable=True),
     # Subject-owned components.
     "subject_component_revisions": TableOwnership(
         "subject-state", maintenance_writable=True

@@ -65,10 +65,12 @@ from armi_codex.api import (
     bind_autonomous_codex_task,
 )
 from armi_cognition.api import (
+    CandidateExactLifeQueryDraft,
     CognitionAcceptedCandidate,
     CognitionSchemaDocument,
     SubjectChangeSet,
 )
+from armi_cognition.bootstrap import bootstrap_cognition_exact_life_query
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
 from armi_expression.api import (
@@ -118,6 +120,7 @@ from armi_kernel.application import (
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
+    LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
     ModelResultStatus,
     PersonalityAnchor,
@@ -499,7 +502,7 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("cognitive_context_items", "source_digest"),
     ("cognitive_episodes", "policy_digest"),
     ("cognitive_episodes", "mechanism_config_digest"),
-    ("exact_life_query_intents", "result_digest"),
+    ("cognitive_episodes", "life_query_result_digest"),
     ("opportunities", "source_digest"),
     ("life_material_revisions", "semantic_digest"),
     ("life_material_revisions", "body_digest"),
@@ -6863,6 +6866,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_dialogue_terminal_decisions_share_episode_and_rollback(self) -> None:
         self._exercise_creator_reply(check_dialogue_decisions=True)
 
+    @pytest.mark.test_group("life-query", "cognition")
+    def test_exact_life_query_custody_shares_atomic_episode_commit(self) -> None:
+        self._exercise_creator_reply(
+            interruption_stage="rollback", check_life_query=True
+        )
+
     def _exercise_creator_reply(
         self,
         *,
@@ -6872,6 +6881,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         concerns: bool = False,
         neutral_mood: bool = False,
         check_sleep_decisions: bool = False,
+        check_life_query: bool = False,
         check_dialogue_decisions: bool = False,
         purpose: str | None = None,
         technical_failure: str | None = None,
@@ -7522,6 +7532,34 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 owner_drafts=owner_drafts,
                 canonical_bytes=rfc8785.dumps(document),
             )
+        if check_life_query:
+            document = json.loads(change_set.canonical_bytes)
+            document["exact_life_queries"] = [
+                {
+                    "proposal_ref": "proposal:4",
+                    "atomic_group_ref": "group:3",
+                    "basis_ordinals": [1],
+                    "fact_class": "subjective_understanding",
+                    "record_kind": "conversation",
+                    "query_text": "上周",
+                    "limit": 5,
+                }
+            ]
+            change_set = replace(
+                change_set,
+                exact_life_queries=(
+                    CandidateExactLifeQueryDraft(
+                        "proposal:4",
+                        "group:3",
+                        (1,),
+                        CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                        LifeRecordKind("conversation"),
+                        "上周",
+                        5,
+                    ),
+                ),
+                canonical_bytes=rfc8785.dumps(document),
+            )
         change_set_bytes = change_set.canonical_bytes
         digests["change_set"] = Digest.from_bytes(change_set_bytes)
         payloads["change_set"] = change_set_bytes
@@ -8112,13 +8150,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     if isinstance(draft, CandidateOwnerDraft)
                                     else "codex_delegation"
                                     if isinstance(draft, CodexDelegationDraft)
+                                    else "exact_life_query"
+                                    if isinstance(draft, CandidateExactLifeQueryDraft)
                                     else "action"
                                 ),
                                 fact_class=(
                                     draft.fact_class
                                     if isinstance(
                                         draft,
-                                        (CandidateExperienceDraft, CandidateOwnerDraft),
+                                        (
+                                            CandidateExperienceDraft,
+                                            CandidateOwnerDraft,
+                                            CandidateExactLifeQueryDraft,
+                                        ),
                                     )
                                     else CandidateFactClass.INFERENCE
                                 ),
@@ -8139,6 +8183,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                         *change_set.owner_drafts,
                                         *change_set.action_choices,
                                         *change_set.codex_delegations,
+                                        *change_set.exact_life_queries,
                                     ),
                                     key=lambda item: item.proposal_ref,
                                 ),
@@ -8190,6 +8235,41 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         else:
                             self.assertGreater(mood_snapshot.current.valence, 0)
                             self.assertTrue(mood_snapshot.active_emotions)
+                    if check_life_query:
+                        query_row = await (
+                            await unit_of_work.transaction.execute(
+                                "SELECT exact_life_query_intent_id,life_query_status,status "
+                                "FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                                (ids["episode"],),
+                            )
+                        ).fetchone()
+                        assert query_row is not None
+                        self.assertEqual(query_row[1:], ("pending", "completed"))
+                        owner = bootstrap_cognition_exact_life_query()
+                        query_snapshot = await owner.snapshot(
+                            unit_of_work.transaction,
+                            intent_id=query_row[0],
+                            subject_id=born.subject_id,
+                        )
+                        self.assertEqual(query_snapshot.query_text, "上周")
+                        self.assertEqual(
+                            query_snapshot.source_opportunity_id, ids["opportunity"]
+                        )
+                        await owner.settle(
+                            unit_of_work.transaction,
+                            intent_id=query_row[0],
+                            status="succeeded",
+                            result_artifact_id=artifact_ids["reply"],
+                            result_count=1,
+                            failure_code=None,
+                            result_opportunity_id=ids["opportunity"],
+                        )
+                        with self.assertRaises(LifeRecordQueryViolation):
+                            await owner.fail(
+                                unit_of_work.transaction,
+                                intent_id=query_row[0],
+                                code="LIFE-QUERY-WORK-STALE",
+                            )
                     if rollback:
                         raise RuntimeError("injected after subject and effect writes")
                 return result.status, result.subject_version or -1
@@ -8349,6 +8429,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """).fetchone(),
                     (0, 0, 0),
                 )
+                if check_life_query:
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT exact_life_query_intent_id,life_query_status "
+                            "FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                            (ids["episode"],),
+                        ).fetchone(),
+                        (None, None),
+                    )
                 if autonomous_codex:
                     self.assertEqual(
                         connection.execute(

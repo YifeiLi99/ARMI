@@ -386,34 +386,38 @@ class PostgreSQLCognitionSubjectCommit:
         transaction: PostgreSQLTransaction,
         draft: CognitionExactLifeQueryIntentDraft,
     ) -> None:
-        await transaction.execute(
-            """
-            INSERT INTO armi.exact_life_query_intents (
-                exact_life_query_intent_id, subject_commit_id,
-                source_opportunity_id, subject_id, scene_id, creator_party_id,
-                proposal_ref, record_kind, query_text, result_limit,
-                query_digest, execution_work_id, status, trace_id
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, 'pending', %s
+        # Query custody stays on its source episode (DESIGN.md).
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes
+                   SET exact_life_query_intent_id=%s,
+                       life_query_creator_party_id=%s, life_query_proposal_ref=%s,
+                       life_query_record_kind=%s, life_query_text=%s,
+                       life_query_result_limit=%s, life_query_digest=%s,
+                       life_query_work_id=%s, life_query_status='pending',
+                       life_query_created_at=statement_timestamp()
+                   WHERE opportunity_id=%s AND subject_id=%s AND scene_id=%s
+                     AND trace_id=%s AND status='finalizing'
+                     AND exact_life_query_intent_id IS NULL
+                   RETURNING cognitive_episode_id""",
+                (
+                    draft.intent_id,
+                    draft.creator_party_id,
+                    draft.proposal_ref,
+                    draft.record_kind,
+                    draft.query_text,
+                    draft.result_limit,
+                    draft.query_digest.value,
+                    draft.execution_work_id,
+                    draft.source_opportunity_id,
+                    draft.subject_id,
+                    draft.scene_id,
+                    draft.trace_id.value,
+                ),
             )
-            """,
-            (
-                draft.intent_id,
-                draft.subject_commit_id,
-                draft.source_opportunity_id,
-                draft.subject_id,
-                draft.scene_id,
-                draft.creator_party_id,
-                draft.proposal_ref,
-                draft.record_kind,
-                draft.query_text,
-                draft.result_limit,
-                draft.query_digest.value,
-                draft.execution_work_id,
-                draft.trace_id.value,
-            ),
-        )
+        ).fetchone()
+        if row is None:
+            raise SubjectCommitViolation("SUBJECT-EXACT-LIFE-QUERY-STALE")
 
     async def finish_episode(
         self,

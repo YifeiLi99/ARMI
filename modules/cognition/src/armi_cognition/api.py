@@ -618,7 +618,6 @@ class CognitionApplicationDraft:
 @dataclass(frozen=True, slots=True)
 class CognitionExactLifeQueryIntentDraft:
     intent_id: UUID
-    subject_commit_id: UUID
     source_opportunity_id: UUID
     subject_id: UUID
     scene_id: UUID
