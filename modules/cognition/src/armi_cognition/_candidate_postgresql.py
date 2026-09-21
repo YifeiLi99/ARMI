@@ -525,7 +525,6 @@ class PostgreSQLCandidateValidationRepository:
         lease: WorkLease,
         snapshot: CandidateEpisodeSnapshot,
         result: CandidateValidationResult,
-        validator_identity: str,
         change_set_artifact: ArtifactRef | None,
     ) -> None:
         connection = unit_of_work.transaction
@@ -534,49 +533,8 @@ class PostgreSQLCandidateValidationRepository:
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise CandidateViolation("CANDIDATE-FENCE")
+        # One episode owns its outcome; diagnostic details stay in logs (DESIGN.md).
         change_set = result.change_set
-        if change_set is not None:
-            await connection.execute(
-                """
-                INSERT INTO armi.cognitive_candidate_validations (
-                    candidate_validation_id, cognitive_episode_id, model_attempt_id,
-                    work_id, subject_id, life_generation_id, bundle_activation_id,
-                    base_subject_version, base_state_epoch, context_digest,
-                    candidate_contract_version, validator_identity, validation_status,
-                    final_disposition, change_set_artifact_id,
-                    accepted_count, rejected_count, error_code,
-                    validated_by_runtime_instance_id, validation_fence_token)
-                VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    result.validation_id.value,
-                    snapshot.episode_id,
-                    snapshot.model_attempt_id,
-                    lease.work_id.value,
-                    snapshot.subject_id,
-                    snapshot.generation_id,
-                    snapshot.bundle_activation_id,
-                    snapshot.base_subject_version,
-                    snapshot.base_state_epoch,
-                    snapshot.context_digest.value,
-                    snapshot.candidate_contract_version,
-                    validator_identity,
-                    result.status.value,
-                    change_set.disposition.value if change_set else None,
-                    (
-                        change_set_artifact.artifact_id.value
-                        if change_set_artifact is not None
-                        else None
-                    ),
-                    result.accepted_count,
-                    result.rejected_count,
-                    result.error_code,
-                    fence.runtime_instance_id.value,
-                    fence.fence_token,
-                ),
-            )
         episode_status = (
             "candidate_rejected"
             if result.status is CandidateValidationStatus.REJECTED
@@ -589,7 +547,12 @@ class PostgreSQLCandidateValidationRepository:
                 SET status = %s,
                     final_disposition = %s,
                     failure_code = %s,
-                    validated_at = statement_timestamp()
+                    validated_at = statement_timestamp(),
+                    candidate_validation_id = %s,
+                    validated_model_attempt_id = %s,
+                    validation_generation_id = %s,
+                    validation_status = %s,
+                    change_set_artifact_id = %s
                 WHERE cognitive_episode_id = %s
                   AND status = 'finalizing'
                 RETURNING cognitive_episode_id
@@ -598,6 +561,13 @@ class PostgreSQLCandidateValidationRepository:
                     episode_status,
                     change_set.disposition.value if change_set else None,
                     result.error_code,
+                    result.validation_id.value if change_set is not None else None,
+                    snapshot.model_attempt_id if change_set is not None else None,
+                    snapshot.generation_id if change_set is not None else None,
+                    result.status.value,
+                    change_set_artifact.artifact_id.value
+                    if change_set_artifact is not None
+                    else None,
                     snapshot.episode_id,
                 ),
             )

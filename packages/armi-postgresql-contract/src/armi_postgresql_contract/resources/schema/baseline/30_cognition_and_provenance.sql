@@ -92,73 +92,6 @@ CREATE TABLE armi.cognitive_attempts (
 );
 
 --
--- Name: cognitive_candidate_applications; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.cognitive_candidate_applications (
-    candidate_application_id uuid CONSTRAINT cognitive_candidate_applicati_candidate_application_id_not_null NOT NULL,
-    candidate_validation_id uuid CONSTRAINT cognitive_candidate_applicatio_candidate_validation_id_not_null NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    work_id uuid NOT NULL,
-    resolution text NOT NULL,
-    subject_commit_id uuid,
-    successor_opportunity_id uuid,
-    base_subject_version bigint NOT NULL,
-    observed_subject_version bigint CONSTRAINT cognitive_candidate_applicati_observed_subject_version_not_null NOT NULL,
-    runtime_instance_id uuid NOT NULL,
-    fence_token bigint NOT NULL,
-    resolved_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT cognitive_candidate_applications_base_subject_version_check CHECK ((base_subject_version >= 0)),
-    CONSTRAINT cognitive_candidate_applications_candidate_application_id_check CHECK ((uuid_extract_version(candidate_application_id) = 7)),
-    CONSTRAINT cognitive_candidate_applications_check CHECK (((resolution = 'applied'::text) = (subject_commit_id IS NOT NULL))),
-    CONSTRAINT cognitive_candidate_applications_check1 CHECK (((successor_opportunity_id IS NULL) OR (resolution = 'stale'::text))),
-    CONSTRAINT cognitive_candidate_applications_fence_token_check CHECK ((fence_token > 0)),
-    CONSTRAINT cognitive_candidate_applications_observed_subject_version_check CHECK ((observed_subject_version >= 0)),
-    CONSTRAINT cognitive_candidate_applications_resolution_check CHECK ((resolution = ANY (ARRAY['applied'::text, 'no_change'::text, 'deferred'::text, 'declined'::text, 'no_action'::text, 'need_information'::text, 'stale'::text])))
-);
-
---
--- Name: cognitive_candidate_validations; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.cognitive_candidate_validations (
-    candidate_validation_id uuid CONSTRAINT cognitive_candidate_validation_candidate_validation_id_not_null NOT NULL,
-    cognitive_episode_id uuid NOT NULL,
-    model_attempt_id uuid NOT NULL,
-    work_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    life_generation_id uuid NOT NULL,
-    bundle_activation_id uuid NOT NULL,
-    base_subject_version bigint NOT NULL,
-    base_state_epoch bigint NOT NULL,
-    context_digest text NOT NULL,
-    candidate_contract_version text CONSTRAINT cognitive_candidate_validat_candidate_contract_version_not_null NOT NULL,
-    validator_identity text NOT NULL,
-    validation_status text NOT NULL,
-    final_disposition text,
-    change_set_artifact_id uuid,
-    accepted_count smallint NOT NULL,
-    rejected_count smallint NOT NULL,
-    error_code text,
-    validated_by_runtime_instance_id uuid CONSTRAINT cognitive_candidate_validat_validated_by_runtime_insta_not_null NOT NULL,
-    validation_fence_token bigint NOT NULL,
-    validated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT cognitive_candidate_validation_candidate_contract_version_check CHECK ((candidate_contract_version = ANY (ARRAY['armi.cognition-candidate.v12'::text, 'armi.creator-dialogue-candidate.v25'::text, 'armi.creator-dialogue-candidate.v26'::text, 'armi.creator-cognitive-act-candidate.v3'::text, 'armi.creator-voice-act-candidate.v3'::text, 'armi.autonomous-activity-candidate.v4'::text, 'armi.activity-attention-candidate.v4'::text, 'armi.activity-internal-work-candidate.v3'::text, 'armi.sleep-decision-candidate.v1'::text, 'armi.maintenance-work-candidate.v1'::text, 'armi.owner-reflection-candidate.v1'::text, 'armi.other-human-dialogue-candidate.v6'::text, 'armi.visual-observation-candidate.v1'::text, 'armi.creator-cognitive-act-candidate.v4'::text, 'armi.creator-cognitive-act-candidate.v5'::text, 'armi.creator-cognitive-act-candidate.v6'::text, 'armi.creator-cognitive-act-candidate.v8'::text, 'armi.creator-voice-act-candidate.v4'::text, 'armi.creator-voice-act-candidate.v5'::text, 'armi.creator-voice-act-candidate.v6'::text, 'armi.creator-voice-act-candidate.v8'::text, 'armi.cognition-candidate.v13'::text, 'armi.cognition-candidate.v14'::text, 'armi.cognition-candidate.v15'::text, 'armi.cognition-candidate.v16'::text, 'armi.cognition-candidate.v18'::text, 'armi.activity-attention-candidate.v5'::text, 'armi.activity-internal-work-candidate.v4'::text, 'armi.activity-internal-work-candidate.v5'::text, 'armi.autonomous-activity-candidate.v5'::text, 'armi.autonomous-activity-candidate.v6'::text, 'armi.autonomous-activity-candidate.v7'::text, 'armi.autonomous-activity-candidate.v8'::text, 'armi.autonomous-activity-candidate.v9'::text, 'armi.autonomous-activity-candidate.v10'::text, 'armi.autonomous-activity-candidate.v12'::text, 'armi.autonomy-check-candidate.v1'::text, 'armi.other-human-dialogue-candidate.v7'::text, 'armi.other-human-dialogue-candidate.v8'::text, 'armi.other-human-dialogue-candidate.v9'::text, 'armi.visual-observation-candidate.v2'::text, 'armi.visual-observation-candidate.v3'::text, 'armi.visual-observation-candidate.v4'::text, 'armi.owner-reflection-candidate.v2'::text, 'armi.owner-reflection-candidate.v3'::text, 'armi.owner-reflection-candidate.v4'::text, 'armi.maintenance-work-candidate.v2'::text, 'armi.maintenance-work-candidate.v3'::text]))),
-    CONSTRAINT cognitive_candidate_validations_accepted_count_check CHECK (((accepted_count >= 0) AND (accepted_count <= 16))),
-    CONSTRAINT cognitive_candidate_validations_base_state_epoch_check CHECK ((base_state_epoch >= 0)),
-    CONSTRAINT cognitive_candidate_validations_base_subject_version_check CHECK ((base_subject_version >= 0)),
-    CONSTRAINT cognitive_candidate_validations_candidate_validation_id_check CHECK ((uuid_extract_version(candidate_validation_id) = 7)),
-    CONSTRAINT cognitive_candidate_validations_check CHECK ((((validation_status = ANY (ARRAY['accepted'::text, 'partially_accepted'::text])) AND (final_disposition IS NOT NULL) AND (change_set_artifact_id IS NOT NULL) AND (error_code IS NULL)) OR ((validation_status = 'rejected'::text) AND (final_disposition IS NULL) AND (change_set_artifact_id IS NULL) AND (accepted_count = 0) AND (error_code IS NOT NULL)))),
-    CONSTRAINT cognitive_candidate_validations_context_digest_check CHECK ((context_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT cognitive_candidate_validations_error_code_check CHECK (((error_code IS NULL) OR (error_code ~ '^CANDIDATE-[A-Z0-9-]+$'::text))),
-    CONSTRAINT cognitive_candidate_validations_final_disposition_check CHECK (((final_disposition IS NULL) OR (final_disposition = ANY (ARRAY['change'::text, 'no_change'::text, 'defer'::text, 'decline'::text, 'no_action'::text, 'need_information'::text])))),
-    CONSTRAINT cognitive_candidate_validations_rejected_count_check CHECK (((rejected_count >= 0) AND (rejected_count <= 16))),
-    CONSTRAINT cognitive_candidate_validations_validation_fence_token_check CHECK ((validation_fence_token > 0)),
-    CONSTRAINT cognitive_candidate_validations_validation_status_check CHECK ((validation_status = ANY (ARRAY['accepted'::text, 'partially_accepted'::text, 'rejected'::text]))),
-    CONSTRAINT cognitive_candidate_validations_validator_identity_check CHECK ((validator_identity = 'armi.candidate-validator.deterministic-v1'::text))
-);
-
---
 -- Name: cognitive_context_items; Type: TABLE; Schema: armi; Owner: -
 --
 
@@ -243,6 +176,33 @@ CREATE TABLE armi.cognitive_episodes (
     validated_at timestamp(6) with time zone,
     application_resolution text,
     committed_at timestamp(6) with time zone,
+    candidate_validation_id uuid UNIQUE,
+    validated_model_attempt_id uuid UNIQUE,
+    validation_generation_id uuid,
+    validation_status text,
+    change_set_artifact_id uuid,
+    candidate_application_id uuid UNIQUE,
+    subject_commit_id uuid UNIQUE,
+    successor_opportunity_id uuid UNIQUE,
+    observed_subject_version bigint,
+    CONSTRAINT cognitive_episodes_validation_result_check CHECK (
+        (validation_status IS NULL AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND validation_generation_id IS NULL AND change_set_artifact_id IS NULL)
+        OR (validation_status IS NOT NULL AND validation_status='rejected' AND candidate_validation_id IS NULL AND validated_model_attempt_id IS NULL AND validation_generation_id IS NULL AND change_set_artifact_id IS NULL AND validated_at IS NOT NULL)
+        OR (validation_status IS NOT NULL AND validation_status IN ('accepted','partially_accepted') AND candidate_validation_id IS NOT NULL AND validated_model_attempt_id IS NOT NULL AND validation_generation_id IS NOT NULL AND change_set_artifact_id IS NOT NULL AND final_disposition IS NOT NULL AND validated_at IS NOT NULL)
+    ),
+    CONSTRAINT cognitive_episodes_application_result_check CHECK (
+        (candidate_application_id IS NULL AND subject_commit_id IS NULL AND successor_opportunity_id IS NULL AND observed_subject_version IS NULL)
+        OR (candidate_application_id IS NOT NULL AND candidate_validation_id IS NOT NULL AND observed_subject_version IS NOT NULL AND observed_subject_version >= 0)
+    ),
+    CONSTRAINT cognitive_episodes_commit_result_check CHECK (
+        application_resolution IS NULL OR
+        ((application_resolution='applied') = (subject_commit_id IS NOT NULL))
+    ),
+    CONSTRAINT cognitive_episodes_successor_result_check CHECK (
+        successor_opportunity_id IS NULL OR application_resolution IS NULL OR application_resolution='stale'
+    ),
+    CONSTRAINT cognitive_episodes_validation_identity_check CHECK (candidate_validation_id IS NULL OR uuid_extract_version(candidate_validation_id)=7),
+    CONSTRAINT cognitive_episodes_application_identity_check CHECK (candidate_application_id IS NULL OR uuid_extract_version(candidate_application_id)=7),
     CONSTRAINT cognitive_episodes_application_resolution_check CHECK (((application_resolution IS NULL) OR (application_resolution = ANY (ARRAY['applied'::text, 'no_change'::text, 'deferred'::text, 'declined'::text, 'no_action'::text, 'need_information'::text, 'stale'::text])))),
     CONSTRAINT cognitive_episodes_base_state_epoch_check CHECK ((base_state_epoch >= 0)),
     CONSTRAINT cognitive_episodes_base_subject_version_check CHECK ((base_subject_version >= 0)),

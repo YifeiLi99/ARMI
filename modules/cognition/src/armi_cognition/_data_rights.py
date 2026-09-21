@@ -23,22 +23,12 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("cognition")
-_VERSION = DataRightsContributionVersion(2)
+_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "cognitive_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.cognitive_attempts AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "cognitive_candidate_applications",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognitive_candidate_applications AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "cognitive_candidate_validations",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognitive_candidate_validations AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "cognitive_episodes",
@@ -104,8 +94,9 @@ class PostgreSQLCognitionDataRightsParticipant:
         validation_rows = await (
             await transaction.execute(
                 """SELECT candidate_validation_id
-                   FROM armi.cognitive_candidate_validations
+                   FROM armi.cognitive_episodes
                    WHERE cognitive_episode_id=ANY(%s::uuid[])
+                     AND candidate_validation_id IS NOT NULL
                    ORDER BY candidate_validation_id""",
                 (list(episode_ids),),
             )
@@ -114,7 +105,7 @@ class PostgreSQLCognitionDataRightsParticipant:
         commit_rows = await (
             await transaction.execute(
                 """SELECT DISTINCT application.subject_commit_id
-                   FROM armi.cognitive_candidate_applications AS application
+                   FROM armi.cognitive_episodes AS application
                    WHERE application.candidate_validation_id=ANY(%s::uuid[])
                      AND application.subject_commit_id IS NOT NULL
                    ORDER BY application.subject_commit_id""",
@@ -147,11 +138,9 @@ class PostgreSQLCognitionDataRightsParticipant:
                      FROM armi.cognitive_attempts AS attempt JOIN armi.cognitive_episodes AS episode
                        ON episode.cognitive_episode_id = attempt.cognitive_episode_id
                      WHERE attempt.response_artifact_id IS NOT NULL
-                     UNION ALL SELECT validation.change_set_artifact_id, episode.context_party_id
-                     FROM armi.cognitive_candidate_validations AS validation
-                     JOIN armi.cognitive_episodes AS episode
-                       ON episode.cognitive_episode_id = validation.cognitive_episode_id
-                     WHERE validation.change_set_artifact_id IS NOT NULL
+                     UNION ALL SELECT change_set_artifact_id, context_party_id
+                     FROM armi.cognitive_episodes
+                     WHERE change_set_artifact_id IS NOT NULL
                    ) SELECT artifact_id, count(*),
                        count(*) FILTER (WHERE context_party_id = %s)
                      FROM refs GROUP BY artifact_id ORDER BY artifact_id""",

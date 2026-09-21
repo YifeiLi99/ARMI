@@ -35,9 +35,8 @@ class PostgreSQLCognitionSubjectCommit:
             return frozenset()
         rows = await (
             await transaction.execute(
-                """SELECT s.subject_commit_id FROM armi.cognitive_candidate_applications s
-               JOIN armi.cognitive_episodes e ON e.cognitive_episode_id=s.cognitive_episode_id
-               WHERE s.subject_commit_id=ANY(%s::uuid[]) AND e.purpose='consider_autonomous_life'""",
+                """SELECT subject_commit_id FROM armi.cognitive_episodes
+               WHERE subject_commit_id=ANY(%s::uuid[]) AND purpose='consider_autonomous_life'""",
                 (list(commit_ids),),
             )
         ).fetchall()
@@ -93,11 +92,9 @@ class PostgreSQLCognitionSubjectCommit:
             await transaction.execute(
                 """
                 SELECT episode.status, episode.failure_code,
-                       application.resolution,
-                       application.observed_subject_version
+                       episode.application_resolution,
+                       episode.observed_subject_version
                 FROM armi.cognitive_episodes AS episode
-                LEFT JOIN armi.cognitive_candidate_applications AS application
-                  ON application.cognitive_episode_id=episode.cognitive_episode_id
                 WHERE episode.opportunity_id=%s
                 """,
                 (opportunity_id,),
@@ -126,30 +123,23 @@ class PostgreSQLCognitionSubjectCommit:
         row = await (
             await transaction.execute(
                 """
-                SELECT validation.candidate_validation_id,
+                SELECT episode.candidate_validation_id,
                        episode.cognitive_episode_id,
                        episode.opportunity_id,
                        episode.subject_id,
-                       validation.life_generation_id,
-                       validation.bundle_activation_id,
-                       validation.change_set_artifact_id,
-                       validation.base_subject_version,
-                       validation.base_state_epoch,
-                       validation.context_digest,
+                       episode.validation_generation_id,
+                       episode.bundle_activation_id,
+                       episode.change_set_artifact_id,
+                       episode.base_subject_version,
+                       episode.base_state_epoch,
+                       episode.compiled_context_digest,
                        episode.trace_id
                 FROM armi.cognitive_episodes AS episode
-                JOIN armi.cognitive_candidate_validations AS validation
-                  ON validation.cognitive_episode_id = episode.cognitive_episode_id
                 WHERE episode.cognitive_episode_id = %s
                   AND episode.status = 'finalizing'
-                  AND validation.validation_status = 'accepted'
-                  AND validation.change_set_artifact_id IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM armi.cognitive_candidate_applications AS application
-                      WHERE application.candidate_validation_id =
-                            validation.candidate_validation_id
-                  )
+                  AND episode.validation_status = 'accepted'
+                  AND episode.change_set_artifact_id IS NOT NULL
+                  AND episode.candidate_application_id IS NULL
                 """,
                 (episode_id,),
             )
@@ -177,10 +167,11 @@ class PostgreSQLCognitionSubjectCommit:
         row = await (
             await transaction.execute(
                 """
-                SELECT candidate_application_id, resolution, subject_commit_id,
+                SELECT candidate_application_id, application_resolution, subject_commit_id,
                        observed_subject_version, successor_opportunity_id
-                FROM armi.cognitive_candidate_applications
+                FROM armi.cognitive_episodes
                 WHERE candidate_validation_id = %s
+                  AND candidate_application_id IS NOT NULL
                 """,
                 (validation_id,),
             )
@@ -220,29 +211,28 @@ class PostgreSQLCognitionSubjectCommit:
     async def record_application(
         self, transaction: PostgreSQLTransaction, draft: CognitionApplicationDraft
     ) -> None:
-        await transaction.execute(
-            """
-            INSERT INTO armi.cognitive_candidate_applications (
-                candidate_application_id, candidate_validation_id,
-                cognitive_episode_id, work_id, resolution, subject_commit_id,
-                successor_opportunity_id, base_subject_version,
-                observed_subject_version, runtime_instance_id, fence_token
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                draft.application_id.value,
-                draft.validation_id,
-                draft.episode_id,
-                draft.work_id,
-                draft.status.value,
-                draft.subject_commit_id,
-                draft.successor_opportunity_id,
-                draft.base_subject_version,
-                draft.observed_subject_version,
-                draft.runtime_instance_id,
-                draft.fence_token,
-            ),
-        )
+        updated = await (
+            await transaction.execute(
+                """
+                UPDATE armi.cognitive_episodes
+                SET candidate_application_id=%s, subject_commit_id=%s,
+                    successor_opportunity_id=%s, observed_subject_version=%s
+                WHERE cognitive_episode_id=%s AND candidate_validation_id=%s
+                  AND status='finalizing' AND candidate_application_id IS NULL
+                RETURNING cognitive_episode_id
+                """,
+                (
+                    draft.application_id.value,
+                    draft.subject_commit_id,
+                    draft.successor_opportunity_id,
+                    draft.observed_subject_version,
+                    draft.episode_id,
+                    draft.validation_id,
+                ),
+            )
+        ).fetchone()
+        if updated is None:
+            raise SubjectCommitViolation("SUBJECT-WORK-STALE")
         if (
             draft.status is CandidateApplicationStatus.APPLIED
             and draft.purpose == "reflect_prompt"

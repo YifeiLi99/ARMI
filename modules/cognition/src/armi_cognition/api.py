@@ -614,14 +614,10 @@ class CognitionApplicationDraft:
     application_id: CandidateApplicationId
     validation_id: UUID
     episode_id: UUID
-    work_id: UUID
     status: CandidateApplicationStatus
     subject_commit_id: UUID | None
     successor_opportunity_id: UUID | None
-    base_subject_version: int
     observed_subject_version: int
-    runtime_instance_id: UUID
-    fence_token: int
     purpose: str | None = None
     generation_id: UUID | None = None
 

@@ -22,9 +22,8 @@ class PostgreSQLCognitionAdmin:
         if not commit_ids:
             return frozenset()
         rows = transaction.execute(
-            """SELECT s.subject_commit_id FROM armi.cognitive_candidate_applications s
-               JOIN armi.cognitive_episodes e ON e.cognitive_episode_id=s.cognitive_episode_id
-               WHERE s.subject_commit_id IN (SELECT value::uuid FROM jsonb_array_elements_text(%s::jsonb)) AND e.purpose='consider_autonomous_life'""",
+            """SELECT subject_commit_id FROM armi.cognitive_episodes
+               WHERE subject_commit_id IN (SELECT value::uuid FROM jsonb_array_elements_text(%s::jsonb)) AND purpose='consider_autonomous_life'""",
             (json.dumps([str(value) for value in commit_ids]),),
         ).fetchall()
         return frozenset(cast(UUID, row[0]) for row in rows)
@@ -69,8 +68,8 @@ class PostgreSQLCognitionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> tuple[UUID, ...]:
         rows = transaction.execute(
-            "SELECT cognitive_episode_id FROM armi.cognitive_episodes WHERE context_manifest_artifact_id=%s OR compiled_context_artifact_id=%s ORDER BY cognitive_episode_id LIMIT 201",
-            (artifact_id, artifact_id),
+            "SELECT cognitive_episode_id FROM armi.cognitive_episodes WHERE context_manifest_artifact_id=%s OR compiled_context_artifact_id=%s OR change_set_artifact_id=%s ORDER BY cognitive_episode_id LIMIT 201",
+            (artifact_id, artifact_id, artifact_id),
         ).fetchall()
         return tuple(cast(UUID, row[0]) for row in rows)
 
@@ -135,7 +134,7 @@ class PostgreSQLCognitionAdmin:
         row = transaction.execute(
             "SELECT (SELECT count(*) FROM armi.cognitive_episodes WHERE context_manifest_artifact_id=%s OR compiled_context_artifact_id=%s)+"
             "(SELECT count(*) FROM armi.cognitive_attempts WHERE request_artifact_id=%s OR response_artifact_id=%s)+"
-            "(SELECT count(*) FROM armi.cognitive_candidate_validations WHERE change_set_artifact_id=%s)",
+            "(SELECT count(*) FROM armi.cognitive_episodes WHERE change_set_artifact_id=%s)",
             (
                 artifact_id,
                 artifact_id,

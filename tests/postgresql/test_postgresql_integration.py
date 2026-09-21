@@ -483,10 +483,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("subject_component_revisions", "semantic_digest"),
     ("cognitive_attempts", "binding_digest"),
     ("cognitive_attempts", "request_digest"),
-    ("cognitive_candidate_applications", "completion_digest"),
-    ("cognitive_candidate_validations", "candidate_digest"),
-    ("cognitive_candidate_validations", "policy_digest"),
-    ("cognitive_candidate_validations", "change_set_digest"),
     ("cognitive_context_items", "source_digest"),
     ("cognitive_episodes", "policy_digest"),
     ("cognitive_episodes", "mechanism_config_digest"),
@@ -7729,33 +7725,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 """
-                INSERT INTO armi.cognitive_candidate_validations (
-                    candidate_validation_id, cognitive_episode_id,
-                    model_attempt_id, work_id, subject_id, life_generation_id,
-                    bundle_activation_id, base_subject_version, base_state_epoch,
-                    context_digest, candidate_contract_version, validator_identity,
-                    validation_status, final_disposition, change_set_artifact_id,
-                    accepted_count, rejected_count,
-                    validated_by_runtime_instance_id, validation_fence_token) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, %s,
-                          %s, 'armi.candidate-validator.deterministic-v1',
-                          'accepted', 'change', %s, %s, 0, %s, 1)
+                UPDATE armi.cognitive_episodes
+                SET candidate_validation_id=%s, validated_model_attempt_id=%s,
+                    validation_generation_id=%s, validation_status='accepted',
+                    change_set_artifact_id=%s
+                WHERE cognitive_episode_id=%s
                 """,
                 (
                     ids["validation"],
-                    ids["episode"],
                     ids["model_attempt"],
-                    ids["commit_work"],
-                    born.subject_id,
                     born.life_generation_id,
-                    born.bundle_activation_id,
-                    digests["compiled_context"].value,
-                    candidate_contract_version,
                     artifact_ids["change_set"],
-                    len(change_set.experiences)
-                    + len(change_set.owner_drafts)
-                    + len(change_set.action_choices)
-                    + len(change_set.codex_delegations),
-                    ids["runtime"],
+                    ids["episode"],
                 ),
             )
             if codex:
@@ -8169,7 +8150,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         }:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 connection.execute(
-                    "DELETE FROM armi.cognitive_candidate_validations WHERE candidate_validation_id=%s",
+                    "UPDATE armi.cognitive_episodes SET candidate_validation_id=NULL,validated_model_attempt_id=NULL,validation_generation_id=NULL,validation_status=NULL,change_set_artifact_id=NULL WHERE candidate_validation_id=%s",
                     (ids["validation"],),
                 )
                 connection.execute(
@@ -8504,7 +8485,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (ids["commit_work"],),
             ).fetchone()
             application = connection.execute(
-                "SELECT candidate_application_id FROM armi.cognitive_candidate_applications"
+                "SELECT candidate_application_id FROM armi.cognitive_episodes WHERE candidate_application_id IS NOT NULL"
             ).fetchone()
             assert result_ref is not None and application is not None
             self.assertEqual(result_ref[0], application[0])

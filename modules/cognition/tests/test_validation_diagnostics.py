@@ -48,7 +48,6 @@ async def test_rejection_finishes_episode_without_persisting_validation_or_audit
         lease=cast(Any, SimpleNamespace(token=1)),
         snapshot=cast(Any, snapshot),
         result=result,
-        validator_identity="test",
         change_set_artifact=None,
     )
     statements = [call.args[0] for call in connection.execute.await_args_list]

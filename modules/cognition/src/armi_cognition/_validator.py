@@ -211,7 +211,6 @@ from .api import (
 )
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
-CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
 ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v37"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
@@ -4088,7 +4087,6 @@ def _action_wire(
 __all__ = (
     "ACTIVE_CHANGE_SET_VERSION",
     "CANDIDATE_POLICY_VERSION",
-    "CANDIDATE_VALIDATOR_IDENTITY",
     "CandidateLifeMaterialContext",
     "CandidateMemoryContext",
     "CandidateRelationshipContext",

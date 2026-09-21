@@ -95,7 +95,6 @@ from ._candidate_postgresql import (
 from ._dialogue_output import expand_dialogue_output
 from ._validation_diagnostics import contract_rejection
 from ._validator import (
-    CANDIDATE_VALIDATOR_IDENTITY,
     CandidateMemoryContext,
     CandidateRelationshipCommitmentContext,
     CandidateRelationshipContext,
@@ -156,7 +155,6 @@ class _PreparedCandidate:
             lease=lease,
             snapshot=self.snapshot,
             result=self.result,
-            validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
             change_set_artifact=artifact,
         )
 

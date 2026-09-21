@@ -1374,21 +1374,16 @@ async def _insert_application(
     commit_id: SubjectCommitId | None = None,
     successor_id: UUID | None = None,
 ) -> None:
-    fence = cast(RuntimeFence, unit_of_work.runtime_fence)
     await cognition_commit.record_application(
         unit_of_work.transaction,
         CognitionApplicationDraft(
             application_id=application_id,
             validation_id=snapshot.validation_id,
             episode_id=snapshot.episode_id,
-            work_id=lease.work_id.value,
             status=status,
             subject_commit_id=commit_id.value if commit_id is not None else None,
             successor_opportunity_id=successor_id,
-            base_subject_version=snapshot.base_subject_version,
             observed_subject_version=observed_version,
-            runtime_instance_id=fence.runtime_instance_id.value,
-            fence_token=fence.fence_token,
             purpose=snapshot.opportunity_purpose,
             generation_id=snapshot.generation_id,
         ),

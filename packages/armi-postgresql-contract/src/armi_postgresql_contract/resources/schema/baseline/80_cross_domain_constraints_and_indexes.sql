@@ -311,75 +311,15 @@ ALTER TABLE ONLY armi.cognitive_attempts
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_pkey PRIMARY KEY (model_attempt_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_candidate_validation_id_key UNIQUE (candidate_validation_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_cognitive_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_pkey PRIMARY KEY (candidate_application_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_subject_commit_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_subject_commit_id_key UNIQUE (subject_commit_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_successor_opportunity_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_successor_opportunity_id_key UNIQUE (successor_opportunity_id);
-
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_work_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_work_id_key UNIQUE (work_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_cognitive_episode_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_cognitive_episode_id_key UNIQUE (cognitive_episode_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_model_attempt_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_model_attempt_id_key UNIQUE (model_attempt_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_pkey PRIMARY KEY (candidate_validation_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_work_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_work_id_key UNIQUE (work_id);
 
 --
 -- Name: cognitive_context_items cognitive_context_items_cognitive_episode_id_ordinal_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1478,11 +1418,6 @@ CREATE INDEX audit_events_target_idx ON armi.audit_events USING btree (target_ki
 
 CREATE INDEX audit_events_trace_idx ON armi.audit_events USING btree (trace_id, occurred_at, audit_event_id);
 
---
--- Name: candidate_applications_resolution_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX candidate_applications_resolution_idx ON armi.cognitive_candidate_applications USING btree (resolution, resolved_at, candidate_application_id);
 
 --
 --
@@ -1506,11 +1441,6 @@ CREATE UNIQUE INDEX cognition_maintenance_batches_active_idx ON armi.cognition_m
 
 CREATE INDEX cognitive_attempts_episode_status_idx ON armi.cognitive_attempts USING btree (cognitive_episode_id, dispatch_status, attempt_no);
 
---
--- Name: cognitive_candidate_validations_status_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX cognitive_candidate_validations_status_idx ON armi.cognitive_candidate_validations USING btree (validation_status, validated_at, candidate_validation_id);
 
 --
 -- Name: cognitive_episodes_subject_purpose_recent_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1924,7 +1854,7 @@ ALTER TABLE ONLY armi.activity_decisions
 --
 
 ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_candidate_applications(candidate_application_id);
+    ADD CONSTRAINT activity_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
 --
 -- Name: activity_decisions activity_decisions_episode_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -1966,7 +1896,7 @@ ALTER TABLE ONLY armi.activity_decisions
 --
 
 ALTER TABLE ONLY armi.activity_decisions
-    ADD CONSTRAINT activity_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT activity_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: activity_revisions activity_revisions_activity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -1980,7 +1910,7 @@ ALTER TABLE ONLY armi.activity_revisions
 --
 
 ALTER TABLE ONLY armi.activity_revisions
-    ADD CONSTRAINT activity_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT activity_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: activity_revisions activity_revisions_previous_revision_id_activity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2161,117 +2091,33 @@ ALTER TABLE ONLY armi.cognitive_attempts
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_runtime_instance_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_runtime_instance_id_fkey FOREIGN KEY (runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_successor_opportunity_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_successor_opportunity_id_fkey FOREIGN KEY (successor_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: cognitive_candidate_applications cognitive_candidate_applications_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_applications
-    ADD CONSTRAINT cognitive_candidate_applications_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validatio_validated_by_runtime_instanc_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validatio_validated_by_runtime_instanc_fkey FOREIGN KEY (validated_by_runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_bundle_activation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_bundle_activation_id_fkey FOREIGN KEY (bundle_activation_id) REFERENCES armi.runtime_bundle_activations(bundle_activation_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_change_set_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_change_set_artifact_id_fkey FOREIGN KEY (change_set_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: action_intents action_intents_validation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.action_intents
-    ADD CONSTRAINT action_intents_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT action_intents_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: dialogue_decisions dialogue_decisions_validation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT dialogue_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
 
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_model_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_model_attempt_id_fkey FOREIGN KEY (model_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-
---
--- Name: cognitive_candidate_validations cognitive_candidate_validations_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_candidate_validations
-    ADD CONSTRAINT cognitive_candidate_validations_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
 --
 -- Name: cognitive_context_items cognitive_context_items_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2406,7 +2252,7 @@ ALTER TABLE ONLY armi.data_rights_orders
 --
 
 ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_candidate_applications(candidate_application_id);
+    ADD CONSTRAINT dialogue_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
 --
 -- Name: dialogue_decisions dialogue_decisions_commit_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2798,7 +2644,7 @@ ALTER TABLE ONLY armi.life_material_revisions
 --
 
 ALTER TABLE ONLY armi.life_material_revisions
-    ADD CONSTRAINT life_material_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT life_material_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: life_material_revisions life_material_revisions_life_material_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2977,14 +2823,14 @@ ALTER TABLE ONLY armi.local_inbox_deliveries
 --
 
 ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_candidate_applications(candidate_application_id);
+    ADD CONSTRAINT maintenance_phase_results_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
 --
 -- Name: maintenance_phase_results maintenance_phase_results_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.maintenance_phase_results
-    ADD CONSTRAINT maintenance_phase_results_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT maintenance_phase_results_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: maintenance_phase_results maintenance_phase_results_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3082,7 +2928,7 @@ ALTER TABLE ONLY armi.maintenance_sessions
 --
 
 ALTER TABLE ONLY armi.memory_relations
-    ADD CONSTRAINT memory_relations_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT memory_relations_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: memory_relations memory_relations_from_memory_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3356,7 +3202,7 @@ ALTER TABLE ONLY armi.relationship_experience_links
 --
 
 ALTER TABLE ONLY armi.relationship_revisions
-    ADD CONSTRAINT relationship_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT relationship_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: relationship_revisions relationship_revisions_previous_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3482,14 +3328,14 @@ ALTER TABLE ONLY armi.scene_timeline_items
 --
 
 ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_candidate_applications(candidate_application_id);
+    ADD CONSTRAINT sleep_decisions_candidate_application_id_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
 --
 -- Name: sleep_decisions sleep_decisions_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.sleep_decisions
-    ADD CONSTRAINT sleep_decisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT sleep_decisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: sleep_decisions sleep_decisions_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3531,7 +3377,7 @@ ALTER TABLE ONLY armi.subject_commits
 --
 
 ALTER TABLE ONLY armi.subject_commits
-    ADD CONSTRAINT subject_commits_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT subject_commits_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: subject_commits subject_commits_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3622,7 +3468,7 @@ ALTER TABLE ONLY armi.subjective_memories
 --
 
 ALTER TABLE ONLY armi.subjective_memory_revisions
-    ADD CONSTRAINT subjective_memory_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_candidate_validations(candidate_validation_id);
+    ADD CONSTRAINT subjective_memory_revisions_candidate_validation_id_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
 -- Name: subjective_memory_revisions subjective_memory_revisions_memory_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3754,3 +3600,15 @@ ALTER TABLE ONLY armi.external_message_parts
     ADD CONSTRAINT external_message_parts_recognition_response_artifact_id_fkey FOREIGN KEY (recognition_response_artifact_id) REFERENCES armi.artifacts(artifact_id);
 ALTER TABLE ONLY armi.external_message_parts
     ADD CONSTRAINT external_message_parts_recognition_work_id_fkey FOREIGN KEY (recognition_work_id) REFERENCES armi.durable_work(work_id);
+
+-- A cognition episode owns its validation and application outcome.
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_validated_attempt_fkey FOREIGN KEY (validated_model_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_validation_generation_fkey FOREIGN KEY (validation_generation_id) REFERENCES armi.life_generations(life_generation_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_change_set_fkey FOREIGN KEY (change_set_artifact_id) REFERENCES armi.artifacts(artifact_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_subject_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_successor_fkey FOREIGN KEY (successor_opportunity_id) REFERENCES armi.opportunities(opportunity_id);

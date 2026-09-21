@@ -36,10 +36,8 @@ def test_runtime_subject_commit_contains_only_runtime_owned_business_sql() -> No
     forbidden = {
         "accepted_experiences",
         "artifacts",
-        "cognitive_candidate_applications",
         "cognitive_candidate_basis_links",
         "cognitive_candidate_validation_items",
-        "cognitive_candidate_validations",
         "cognitive_context_items",
         "cognitive_episodes",
         "data_rights_orders",
