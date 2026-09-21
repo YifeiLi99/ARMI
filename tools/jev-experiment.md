@@ -129,6 +129,22 @@ Jev 实测概率取两位小数，分布总和检查容许每个选项 0.005 的
 
 这不是正式 Runtime 接入或联合 Subject Commit 验收，也没有新增同 episode 的隐式评价调用。
 
+### 复杂语境与连续消息固定回放
+
+`configs/jev-mood-context-experiment.yaml` 提供 32 个独立合成场景，各重复三次，
+两家共 192 次调用。复用相同协议与评分器，覆盖反话、说话人归属、缺失语境、
+混合目标、短篇干扰和两条连续消息链。配置中的“长上下文”类别实际是短篇干扰，
+不作为长上下文能力测试。每一步由宿主提供固定历史，未沿用前一步模型输出，
+不验证持久化心情、混合衰减或真实认知闭环。
+
+```powershell
+.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --config configs/jev-mood-context-experiment.yaml --output .tmp/jev-mood-context-plan
+.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --live --config configs/jev-mood-context-experiment.yaml --environment-root <已授权环境根> --output .tmp/jev-mood-context-live
+```
+
+本地实验报告统一保存在 `docs/06-实验记录/Jev/`，包含历史记忆筛选、明确 Mood 场景、
+复杂语境的结果、失败样例和证据位置。该目录沿用 docs 的 Git 忽略策略；合成配置与工具可提交。
+
 ## 官方依据
 
 - [HTTP API 与 Noul 返回](https://docs.typesafe.ai/api)：Bearer Key，`state/model/questions`，`answers/usage`。
