@@ -71,7 +71,14 @@ from armi_cognition.api import (
 )
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
-from armi_expression.api import CreatorReplyDraft
+from armi_expression.api import (
+    CreatorReplyDraft,
+    ExpressionCommitContext,
+    FormalNoActionDraft,
+    FormalNoActionKind,
+    FormalNoActionReason,
+    ResponseViolation,
+)
 from armi_interaction.api import (
     ConfigureExternalCreatorCommand,
     CreatorInputAcceptance,
@@ -225,6 +232,7 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_data_rights_core,
+    bootstrap_dialogue_decision_record,
     bootstrap_effect_codex_lifecycle,
     bootstrap_effect_intent_read,
     bootstrap_effect_operation_read,
@@ -499,7 +507,6 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("maintenance_sessions", "schedule_digest"),
     ("effect_attempts", "request_digest"),
     ("effects", "settlement_digest"),
-    ("dialogue_decisions", "basis_digest"),
     ("outbox_items", "payload_digest"),
     ("audit_events", "request_digest"),
     ("audit_events", "response_digest"),
@@ -4496,7 +4503,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     opportunity=bootstrap_opportunity_admission(),
                     effect=bootstrap_effect_codex_lifecycle(),
                     expression=bootstrap_expression_action_ports(
-                        bootstrap_effect_intent_read()
+                        bootstrap_effect_intent_read(),
+                        bootstrap_dialogue_decision_record(),
                     ).intents,
                     sources=bootstrap_codex_read_ports().task_sources,
                     custody=custody,
@@ -6724,6 +6732,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     ) -> None:
         self._exercise_creator_reply(check_sleep_decisions=True)
 
+    @pytest.mark.test_group("cognition", "expression")
+    def test_dialogue_terminal_decisions_share_episode_and_rollback(self) -> None:
+        self._exercise_creator_reply(check_dialogue_decisions=True)
+
     def _exercise_creator_reply(
         self,
         *,
@@ -6733,6 +6745,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         concerns: bool = False,
         neutral_mood: bool = False,
         check_sleep_decisions: bool = False,
+        check_dialogue_decisions: bool = False,
         purpose: str | None = None,
         technical_failure: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
@@ -7910,6 +7923,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 interaction_actions.scenes,
                 bootstrap_live_voice_context_read(),
                 bootstrap_effect_intent_read(),
+                bootstrap_dialogue_decision_record(),
             )
             evidence_module = bootstrap_evidence()
             data_rights_core = bootstrap_data_rights_core()
@@ -8030,11 +8044,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             else None
                         ),
                     )
-                    if reply_decision_kind != "reply":
+                    if change_set.action_choices and not codex:
                         self.assertEqual(
                             await (
                                 await unit_of_work.transaction.execute(
-                                    "SELECT decision_kind FROM armi.dialogue_decisions WHERE cognitive_episode_id=%s",
+                                    "SELECT dialogue_decision_kind FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
                                     (ids["episode"],),
                                 )
                             ).fetchone(),
@@ -8601,6 +8615,130 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         effect_id=dispatch_snapshot.request.effect_id.value,
                         occurred_at=receipt.received_at,
                     )
+                if check_dialogue_decisions:
+                    relationship_module = bootstrap_relationship(
+                        response_factory,
+                        subject_id=born.subject_id,
+                        creator_party_id=creator_party_id,
+                        environment_id=fixture.environment_id,
+                        cursor_key=hashlib.sha256(b"dialogue-choice").digest(),
+                        visibility=bootstrap_data_rights_core().visibility,
+                    )
+                    decisions = bootstrap_dialogue_decision_record()
+                    actions = bootstrap_expression_action_ports(
+                        bootstrap_effect_intent_read(), decisions
+                    )
+                    interaction_actions = bootstrap_interaction_action_ports()
+                    expression = bootstrap_expression(
+                        relationship_module.read,
+                        relationship_module.policy,
+                        bootstrap_expression_effect_registration(),
+                        interaction_actions.routes,
+                        interaction_actions.scenes,
+                        bootstrap_live_voice_context_read(),
+                        bootstrap_effect_intent_read(),
+                        decisions,
+                    )
+                    for kind in ("silence", "decline", "defer", "end_conversation"):
+                        async with response_factory.unit_of_work() as unit:
+                            await unit.transaction.execute("SAVEPOINT dialogue_choice")
+                            row = await (
+                                await unit.transaction.execute(
+                                    """UPDATE armi.cognitive_episodes
+                                   SET dialogue_decision_kind=NULL, dialogue_reason_class=NULL,
+                                       dialogue_proposal_ref=NULL, dialogue_operation_ref=NULL,
+                                       dialogue_effect_id=NULL
+                                   WHERE cognitive_episode_id=%s
+                                   RETURNING candidate_validation_id,candidate_application_id""",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone()
+                            assert row is not None
+                            before = await (
+                                await unit.transaction.execute(
+                                    "SELECT count(*) FROM armi.effects"
+                                )
+                            ).fetchone()
+                            context = ExpressionCommitContext(
+                                row[0],
+                                ids["episode"],
+                                ids["opportunity"],
+                                ids["opportunity"],
+                                born.subject_id,
+                                scene_id,
+                                creator_party_id,
+                                None,
+                                "consider_creator_input",
+                                TraceId(uuid7().hex),
+                            )
+                            if kind in {"silence", "decline"}:
+                                await expression.commit.record_terminal(
+                                    unit,
+                                    context=context,
+                                    application_id=row[1],
+                                    application_status="no_action"
+                                    if kind == "silence"
+                                    else "declined",
+                                    activity_owned=False,
+                                    choices=(
+                                        FormalNoActionDraft(
+                                            "proposal:1",
+                                            "group:1",
+                                            (1,),
+                                            FormalNoActionKind.NO_ACTION
+                                            if kind == "silence"
+                                            else FormalNoActionKind.DECLINE,
+                                            FormalNoActionReason.SUBJECTIVE_SILENCE
+                                            if kind == "silence"
+                                            else FormalNoActionReason.SUBJECTIVE_REFUSAL,
+                                        ),
+                                    ),
+                                )
+                            else:
+                                await decisions.record_dialogue_decision(
+                                    unit.transaction,
+                                    context=context,
+                                    decision_kind=kind,
+                                    operation_ref=ids["opportunity"],
+                                )
+                            snapshot = await actions.intents.operation_snapshot(
+                                unit.transaction, operation_ref=ids["opportunity"]
+                            )
+                            assert snapshot is not None
+                            self.assertEqual(
+                                snapshot.dialogue_decision_id, ids["episode"]
+                            )
+                            self.assertEqual(snapshot.decision_kind, kind)
+                            stored = await (
+                                await unit.transaction.execute(
+                                    "SELECT dialogue_effect_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone()
+                            self.assertEqual(stored, (None,))
+                            after = await (
+                                await unit.transaction.execute(
+                                    "SELECT count(*) FROM armi.effects"
+                                )
+                            ).fetchone()
+                            self.assertEqual(before, after)
+                            with self.assertRaises(ResponseViolation):
+                                await decisions.record_dialogue_decision(
+                                    unit.transaction,
+                                    context=context,
+                                    decision_kind="silence",
+                                    operation_ref=ids["opportunity"],
+                                )
+                            await unit.transaction.execute(
+                                "ROLLBACK TO SAVEPOINT dialogue_choice"
+                            )
+                            original = await (
+                                await unit.transaction.execute(
+                                    "SELECT dialogue_decision_kind,dialogue_effect_id IS NOT NULL FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone()
+                            self.assertEqual(original, ("reply", True))
                 if check_sleep_decisions:
                     sleep = bootstrap_sleep(
                         response_factory,
@@ -8850,7 +8988,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 bootstrap_opportunity_admission(),
                 codex_effect,
                 bootstrap_expression_action_ports(
-                    bootstrap_effect_intent_read()
+                    bootstrap_effect_intent_read(), bootstrap_dialogue_decision_record()
                 ).intents,
                 ArtifactCatalogRepository(),
                 bootstrap_codex_read_ports().task_sources,

@@ -372,6 +372,8 @@ class ExpressionIntentSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class ExpressionOperationSnapshot:
+    """Dialogue decision identity is the owning cognitive episode ID."""
+
     operation_ref: UUID
     intent_id: UUID | None
     dialogue_decision_id: UUID | None
@@ -428,14 +430,25 @@ class ExpressionIntentReadPort(Protocol):
 
 
 @runtime_checkable
-class ExpressionEffectLinkPort(Protocol):
-    async def link_effect(
+class DialogueDecisionRecordPort(Protocol):
+    async def record_dialogue_decision(
         self,
         transaction: PostgreSQLTransaction,
         *,
-        action_intent_id: UUID,
-        effect_id: UUID,
+        context: ExpressionCommitContext,
+        decision_kind: str,
+        operation_ref: UUID,
+        proposal_ref: str | None = None,
+        reason_class: str | None = None,
+        effect_id: UUID | None = None,
     ) -> None: ...
+
+    async def dialogue_operation(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        operation_ref: UUID,
+    ) -> ExpressionOperationSnapshot | None: ...
 
 
 @runtime_checkable
@@ -515,11 +528,11 @@ __all__ = (
     "CreatorResponseOperationId",
     "DeclaredResponseEffectDraft",
     "DelegatedActionIntentDraft",
+    "DialogueDecisionRecordPort",
     "ExpressionAdminPort",
     "ExpressionAdminSnapshot",
     "ExpressionCommitContext",
     "ExpressionCommitPort",
-    "ExpressionEffectLinkPort",
     "ExpressionEffectRegistrationPort",
     "ExpressionIntentReadPort",
     "ExpressionIntentSnapshot",

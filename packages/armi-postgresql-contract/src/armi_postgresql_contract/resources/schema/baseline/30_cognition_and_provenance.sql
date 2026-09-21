@@ -164,6 +164,20 @@ CREATE TABLE armi.cognitive_episodes (
     subject_commit_id uuid UNIQUE,
     successor_opportunity_id uuid UNIQUE,
     observed_subject_version bigint,
+    dialogue_decision_kind text,
+    dialogue_reason_class text,
+    dialogue_proposal_ref text,
+    dialogue_operation_ref uuid,
+    dialogue_effect_id uuid,
+    CONSTRAINT cognitive_episodes_dialogue_shape_check CHECK (
+        (dialogue_decision_kind IS NULL AND dialogue_reason_class IS NULL AND dialogue_proposal_ref IS NULL AND dialogue_operation_ref IS NULL AND dialogue_effect_id IS NULL)
+        OR (dialogue_decision_kind IS NOT NULL AND dialogue_operation_ref IS NOT NULL
+            AND candidate_validation_id IS NOT NULL
+            AND dialogue_decision_kind IN ('reply','decline','silence','no_change','need_information','defer','end_conversation')
+            AND uuid_extract_version(dialogue_operation_ref)=7
+            AND ((dialogue_decision_kind <> 'end_conversation' AND dialogue_proposal_ref IS NOT NULL AND dialogue_effect_id IS NOT NULL)
+                OR (dialogue_decision_kind <> 'reply' AND dialogue_effect_id IS NULL)))
+    ),
     sleep_decision_kind text,
     sleep_cycle_anchor_ref uuid,
     sleep_review_not_before timestamp(6) with time zone,

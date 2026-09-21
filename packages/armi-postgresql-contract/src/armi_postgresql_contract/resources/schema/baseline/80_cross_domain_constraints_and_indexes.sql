@@ -414,25 +414,10 @@ ALTER TABLE ONLY armi.deployment_environments
     ADD CONSTRAINT deployment_environments_pkey PRIMARY KEY (singleton_key);
 
 --
--- Name: dialogue_decisions dialogue_decisions_operation_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_operation_ref_key UNIQUE (operation_ref);
 
 --
--- Name: dialogue_decisions dialogue_decisions_opportunity_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_opportunity_key UNIQUE (opportunity_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_pkey PRIMARY KEY (dialogue_decision_id);
 
 --
 -- Name: durable_work durable_work_owner_kind_owner_ref_work_kind_idempotency_key_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1886,11 +1871,6 @@ ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_intent_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_validation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_validation_fkey FOREIGN KEY (candidate_validation_id) REFERENCES armi.cognitive_episodes(candidate_validation_id);
 
 
 
@@ -2014,67 +1994,22 @@ ALTER TABLE ONLY armi.data_rights_orders
     ADD CONSTRAINT data_rights_orders_scope_party_id_requester_kind_fkey FOREIGN KEY (scope_party_id, requester_kind) REFERENCES armi.parties(party_id, party_kind);
 
 --
--- Name: dialogue_decisions dialogue_decisions_application_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_application_fkey FOREIGN KEY (candidate_application_id) REFERENCES armi.cognitive_episodes(candidate_application_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_commit_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_effect_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_effect_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_episode_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_intent_operation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_intent_operation_fkey FOREIGN KEY (action_intent_id, operation_ref) REFERENCES armi.effects(action_intent_id, operation_ref);
 
 --
--- Name: dialogue_decisions dialogue_decisions_intent_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_intent_owner_fkey FOREIGN KEY (action_intent_id, subject_id, scene_id, context_party_id) REFERENCES armi.effects(action_intent_id, subject_id, scene_id, context_party_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_opportunity_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_opportunity_fkey FOREIGN KEY (opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_scene_participant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, context_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
 
 --
--- Name: dialogue_decisions dialogue_decisions_subject_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.dialogue_decisions
-    ADD CONSTRAINT dialogue_decisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: durable_work durable_work_subject_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3204,3 +3139,10 @@ ALTER TABLE ONLY armi.subjects ADD CONSTRAINT subjects_birth_creator_fkey FOREIG
 
 CREATE UNIQUE INDEX effects_root_action_kind_key ON armi.effects
     (root_opportunity_id, (effect_kind = 'codex_delegation'));
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_dialogue_operation_key UNIQUE (dialogue_operation_ref);
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_dialogue_owner_key UNIQUE (effect_id, operation_ref, subject_id);
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_dialogue_effect_fkey FOREIGN KEY (dialogue_effect_id, dialogue_operation_ref, subject_id) REFERENCES armi.effects(effect_id, operation_ref, subject_id);

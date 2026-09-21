@@ -21,31 +21,6 @@
 
 
 --
--- Name: dialogue_decisions; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.dialogue_decisions (
-    dialogue_decision_id uuid NOT NULL,
-    opportunity_id uuid NOT NULL,
-    cognitive_episode_id uuid,
-    candidate_validation_id uuid NOT NULL,
-    candidate_application_id uuid,
-    subject_commit_id uuid,
-    subject_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    context_party_id uuid NOT NULL,
-    proposal_ref text,
-    decision_kind text NOT NULL,
-    reason_class text,
-    action_intent_id uuid,
-    effect_id uuid,
-    decided_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    operation_ref uuid NOT NULL,
-    CONSTRAINT dialogue_decisions_id_check CHECK ((uuid_extract_version(dialogue_decision_id) = 7)),
-    CONSTRAINT dialogue_decisions_kind_check CHECK ((decision_kind = ANY (ARRAY['reply'::text, 'decline'::text, 'silence'::text, 'no_change'::text, 'need_information'::text, 'defer'::text, 'end_conversation'::text]))),
-    CONSTRAINT dialogue_decisions_operation_ref_check CHECK ((uuid_extract_version(operation_ref) = 7)),
-    CONSTRAINT dialogue_decisions_shape_check CHECK ((((decision_kind <> 'end_conversation'::text) AND (proposal_ref IS NOT NULL) AND (action_intent_id IS NOT NULL)) OR ((decision_kind <> 'reply'::text) AND (action_intent_id IS NULL) AND (effect_id IS NULL))))
-);
 
 --
 -- Name: durable_work; Type: TABLE; Schema: armi; Owner: -

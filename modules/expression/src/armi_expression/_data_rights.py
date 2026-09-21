@@ -19,14 +19,8 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("expression")
-_VERSION = DataRightsContributionVersion(3)
-_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "dialogue_decisions",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.dialogue_decisions AS source ORDER BY to_jsonb(source)::text""",
-    ),
-)
+_VERSION = DataRightsContributionVersion(4)
+_SEGMENTS: tuple[tuple[str, LiteralString], ...] = ()
 
 
 class PostgreSQLExpressionDataRightsParticipant:

@@ -26,6 +26,7 @@ from .api import (
     CreatorReplyDraft,
     DeclaredResponseEffectDraft,
     DelegatedActionIntentDraft,
+    DialogueDecisionRecordPort,
     ExpressionCommitContext,
     ExpressionEffectRegistrationPort,
     ExpressionVoiceRoutePort,
@@ -41,6 +42,7 @@ class PostgreSQLExpressionOwner:
     """Commit expression choices without owning subject transaction lifetime."""
 
     __slots__ = (
+        "_decisions",
         "_effect_registration",
         "_interaction_routes",
         "_interaction_scenes",
@@ -57,6 +59,7 @@ class PostgreSQLExpressionOwner:
         interaction_routes: InteractionEffectRoutePort,
         interaction_scenes: InteractionSceneTransitionPort,
         voice: ExpressionVoiceRoutePort,
+        decisions: DialogueDecisionRecordPort,
     ) -> None:
         self._relationships = relationships
         self._relationship_policy = relationship_policy
@@ -64,6 +67,7 @@ class PostgreSQLExpressionOwner:
         self._interaction_routes = interaction_routes
         self._interaction_scenes = interaction_scenes
         self._voice = voice
+        self._decisions = decisions
 
     async def commit(
         self,
@@ -93,10 +97,9 @@ class PostgreSQLExpressionOwner:
                     response_artifact=response_artifact,
                 )
             else:
-                await self._insert_other_human_change_terminal(
+                await self._record_other_human_change_terminal(
                     unit_of_work,
                     context=context,
-                    commit_id=commit_id,
                     choices=choices,
                     response_artifact=response_artifact,
                 )
@@ -166,10 +169,9 @@ class PostgreSQLExpressionOwner:
         if type(application_id) is not UUID or application_id.version != 7:
             raise ResponseViolation("SUBJECT-NO-ACTION-SCOPE")
         if context.opportunity_purpose == "consider_other_human_input":
-            await self._insert_other_human_terminal(
+            await self._record_other_human_terminal(
                 unit_of_work.transaction,
                 context=context,
-                application_id=application_id,
                 application_status=application_status,
             )
             return
@@ -182,39 +184,22 @@ class PostgreSQLExpressionOwner:
             raise ResponseViolation("SUBJECT-NO-ACTION-COUNT")
         decision = decisions[0]
         connection = unit_of_work.transaction
-        no_action_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id, candidate_application_id,
-                candidate_validation_id, proposal_ref, decision_kind,
-                reason_class, subject_id, scene_id, context_party_id,
-                operation_ref) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                no_action_id,
-                context.root_opportunity_id,
-                application_id,
-                context.validation_id,
-                decision.proposal_ref,
-                "silence"
-                if decision.kind.value == "no_action"
-                else decision.kind.value,
-                decision.reason.value,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                context.root_opportunity_id,
-            ),
+        await self._decisions.record_dialogue_decision(
+            connection,
+            context=context,
+            decision_kind="silence"
+            if decision.kind.value == "no_action"
+            else decision.kind.value,
+            operation_ref=context.root_opportunity_id,
+            proposal_ref=decision.proposal_ref,
+            reason_class=decision.reason.value,
         )
 
-    async def _insert_other_human_change_terminal(
+    async def _record_other_human_change_terminal(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         context: ExpressionCommitContext,
-        commit_id: UUID,
         choices: tuple[ResponseChoiceDraft, ...],
         response_artifact: ArtifactRef | None,
     ) -> None:
@@ -231,35 +216,18 @@ class PostgreSQLExpressionOwner:
         ):
             raise ResponseViolation("SUBJECT-OTHER-HUMAN-TERMINAL")
         decision_kind = "silence" if no_actions else "defer"
-        await unit_of_work.transaction.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                subject_commit_id, subject_id, scene_id, context_party_id,
-                decision_kind, operation_ref) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                uuid7(),
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                commit_id,
-                context.subject_id,
-                context.scene_id,
-                context.other_party_id,
-                decision_kind,
-                uuid7(),
-            ),
+        await self._decisions.record_dialogue_decision(
+            unit_of_work.transaction,
+            context=context,
+            decision_kind=decision_kind,
+            operation_ref=uuid7(),
         )
 
-    async def _insert_other_human_terminal(
+    async def _record_other_human_terminal(
         self,
         connection: Any,
         *,
         context: ExpressionCommitContext,
-        application_id: UUID,
         application_status: str,
     ) -> None:
         if (
@@ -269,27 +237,11 @@ class PostgreSQLExpressionOwner:
             or application_status not in {"no_action", "deferred"}
         ):
             raise ResponseViolation("SUBJECT-OTHER-HUMAN-TERMINAL")
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                candidate_application_id, subject_id, scene_id, context_party_id,
-                decision_kind, operation_ref) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                uuid7(),
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                application_id,
-                context.subject_id,
-                context.scene_id,
-                context.other_party_id,
-                "silence" if application_status == "no_action" else "defer",
-                uuid7(),
-            ),
+        await self._decisions.record_dialogue_decision(
+            connection,
+            context=context,
+            decision_kind="silence" if application_status == "no_action" else "defer",
+            operation_ref=uuid7(),
         )
 
     async def _insert_other_human_action(
@@ -327,7 +279,6 @@ class PostgreSQLExpressionOwner:
             or action.other_party_id != context.other_party_id
         ):
             raise ResponseViolation("SUBJECT-OTHER-HUMAN-SCOPE")
-        decision_id = uuid7()
         if endings:
             if group_route:
                 raise ResponseViolation("SUBJECT-OTHER-HUMAN-GROUP-END")
@@ -339,27 +290,11 @@ class PostgreSQLExpressionOwner:
                 scene_id=context.scene_id,
                 other_party_id=context.other_party_id,
             )
-            await connection.execute(
-                """
-                INSERT INTO armi.dialogue_decisions (
-                    dialogue_decision_id, opportunity_id,
-                    cognitive_episode_id, candidate_validation_id,
-                    subject_commit_id, subject_id, scene_id, context_party_id,
-                    decision_kind, operation_ref) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,
-                    'end_conversation', %s)
-                """,
-                (
-                    decision_id,
-                    context.opportunity_id,
-                    context.episode_id,
-                    context.validation_id,
-                    commit_id,
-                    context.subject_id,
-                    context.scene_id,
-                    context.other_party_id,
-                    uuid7(),
-                ),
+            await self._decisions.record_dialogue_decision(
+                connection,
+                context=context,
+                decision_kind="end_conversation",
+                operation_ref=uuid7(),
             )
             return
 
@@ -432,31 +367,13 @@ class PostgreSQLExpressionOwner:
                 max_attempts=1 if group_route or private_route else 2,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id,
-                cognitive_episode_id, candidate_validation_id,
-                subject_commit_id, subject_id, scene_id, context_party_id,
-                proposal_ref, decision_kind, action_intent_id, effect_id,
-                operation_ref) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                decision_id,
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                commit_id,
-                context.subject_id,
-                context.scene_id,
-                context.other_party_id,
-                reply.proposal_ref,
-                reply.decision_kind,
-                action_id,
-                effect_id,
-                operation_ref,
-            ),
+        await self._decisions.record_dialogue_decision(
+            connection,
+            context=context,
+            decision_kind=reply.decision_kind,
+            operation_ref=operation_ref,
+            proposal_ref=reply.proposal_ref,
+            effect_id=effect_id,
         )
 
     async def _finish_creator_response(
@@ -470,7 +387,6 @@ class PostgreSQLExpressionOwner:
         action_id: UUID,
     ) -> None:
         connection = unit_of_work.transaction
-        decision_id = uuid7()
         turn_id = await self._voice.turn_for_opportunity(
             connection, opportunity_id=context.root_opportunity_id
         )
@@ -515,30 +431,13 @@ class PostgreSQLExpressionOwner:
                 live_voice_turn_id=turn_id,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.dialogue_decisions (
-                dialogue_decision_id, opportunity_id, cognitive_episode_id,
-                candidate_validation_id, subject_commit_id, subject_id, scene_id,
-                context_party_id, proposal_ref, decision_kind, action_intent_id,
-                operation_ref, effect_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                decision_id,
-                context.opportunity_id,
-                context.episode_id,
-                context.validation_id,
-                commit_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                reply.proposal_ref,
-                reply.decision_kind,
-                action_id,
-                context.root_opportunity_id,
-                effect_id,
-            ),
+        await self._decisions.record_dialogue_decision(
+            connection,
+            context=context,
+            decision_kind=reply.decision_kind,
+            operation_ref=context.root_opportunity_id,
+            proposal_ref=reply.proposal_ref,
+            effect_id=effect_id,
         )
         await unit_of_work.audit.append(
             _audit(

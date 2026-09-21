@@ -18,6 +18,7 @@ from armi_context.api import ContextCognitionReadPort
 from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort
 from armi_experience.api import ExperienceReadPort
+from armi_expression.api import DialogueDecisionRecordPort
 from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import DurableWorkPort, ExecutionCustodyPort, PriceCatalog
 from armi_material.api import (
@@ -132,6 +133,10 @@ def bootstrap_cognition_admin() -> CognitionAdminPort:
 
 def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
     return PostgreSQLCognitionExactLifeQuery()
+
+
+def bootstrap_dialogue_decision_record() -> DialogueDecisionRecordPort:
+    return PostgreSQLCognitionSubjectCommit()
 
 
 def bootstrap_sleep_decision_record() -> SleepDecisionRecordPort:
@@ -298,6 +303,7 @@ __all__ = (
     "bootstrap_cognition_recovery",
     "bootstrap_cognition_subject_commit",
     "bootstrap_cognition_validator",
+    "bootstrap_dialogue_decision_record",
     "bootstrap_sleep_decision_record",
     "build_candidate_schema",
     "build_model_request_bytes",

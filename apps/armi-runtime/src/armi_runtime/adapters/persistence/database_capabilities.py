@@ -29,7 +29,7 @@ context_embedding_coverage
 context_embedding_projections context_embedding_source_sets creator_exports managed_data_snapshot_parties
 managed_data_snapshots data_rights_order_items
 data_rights_identity_keys data_rights_party_fences data_rights_order_retry_attempts data_rights_orders
-dialogue_decisions durable_work effect_attempts effect_observations
+durable_work effect_attempts effect_observations
  effects exact_life_query_intents
 experience_evidence_links
 external_channel_bindings
@@ -62,7 +62,7 @@ cognition_maintenance_batches cognition_maintenance_cursors cognitive_attempts
 cognitive_episodes
 context_embedding_coverage context_embedding_source_sets creator_exports
 managed_data_snapshots
-data_rights_party_fences data_rights_order_items data_rights_orders dialogue_decisions durable_work effect_attempts
+data_rights_party_fences data_rights_order_items data_rights_orders durable_work effect_attempts
  effects exact_life_query_intents
 external_channel_bindings
 external_evidence external_message_parts
@@ -92,7 +92,7 @@ artifact_publications artifacts
 """
 
 _ADMIN_DELETE = """
-artifacts audit_events dialogue_decisions
+artifacts audit_events
 external_evidence external_message_parts opportunities
 party_input_interactions scene_timeline_items
 """

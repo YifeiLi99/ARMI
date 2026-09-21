@@ -5,6 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from armi_expression.api import (
+    ExpressionCommitContext,
+    ExpressionOperationSnapshot,
+    ResponseViolation,
+)
 from armi_kernel.application import (
     ArtifactId,
     CandidateApplicationId,
@@ -31,6 +36,66 @@ from .api import (
 
 
 class PostgreSQLCognitionSubjectCommit:
+    async def record_dialogue_decision(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        context: ExpressionCommitContext,
+        decision_kind: str,
+        operation_ref: UUID,
+        proposal_ref: str | None = None,
+        reason_class: str | None = None,
+        effect_id: UUID | None = None,
+    ) -> None:
+        # Decisions belong to the episode; effects own delivery (DESIGN.md).
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes
+               SET dialogue_decision_kind=%s, dialogue_reason_class=%s,
+                   dialogue_proposal_ref=%s, dialogue_operation_ref=%s,
+                   dialogue_effect_id=%s
+               WHERE cognitive_episode_id=%s AND subject_id=%s
+                 AND candidate_validation_id=%s AND dialogue_decision_kind IS NULL
+               RETURNING cognitive_episode_id""",
+                (
+                    decision_kind,
+                    reason_class,
+                    proposal_ref,
+                    operation_ref,
+                    effect_id,
+                    context.episode_id,
+                    context.subject_id,
+                    context.validation_id,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise ResponseViolation("SUBJECT-DIALOGUE-STALE")
+
+    async def dialogue_operation(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        operation_ref: UUID,
+    ) -> ExpressionOperationSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """SELECT cognitive_episode_id, dialogue_decision_kind, dialogue_reason_class
+               FROM armi.cognitive_episodes WHERE dialogue_operation_ref=%s""",
+                (operation_ref,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return ExpressionOperationSnapshot(
+            operation_ref=operation_ref,
+            intent_id=None,
+            dialogue_decision_id=row[0],
+            action_kind=None,
+            decision_kind=row[1],
+            reason_code=row[2],
+        )
+
     async def record_sleep_decision(
         self,
         transaction: PostgreSQLTransaction,

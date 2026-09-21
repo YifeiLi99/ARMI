@@ -115,7 +115,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "maintenance_session_revisions": TableOwnership("sleep", maintenance_writable=True),
     "maintenance_sessions": TableOwnership("sleep", maintenance_writable=True),
     # Expression, capability, and effect lifecycle.
-    "dialogue_decisions": TableOwnership("expression", maintenance_writable=True),
     "effect_attempts": TableOwnership("effect", maintenance_writable=False),
     "effect_observations": TableOwnership("effect", maintenance_writable=False),
     "effects": TableOwnership("effect", maintenance_writable=False),

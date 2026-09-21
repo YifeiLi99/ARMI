@@ -70,6 +70,7 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
     bootstrap_cognition_operation,
+    bootstrap_dialogue_decision_record,
     bootstrap_sleep_decision_record,
 )
 from armi_context.api import (
@@ -1439,7 +1440,9 @@ def _interaction_failure_notifications(
             )
             if effect is None or effect.action_intent_id is None:
                 return None
-            intent = await bootstrap_expression_action_ports(bootstrap_effect_intent_read()).intents.intent_snapshot(
+            intent = await bootstrap_expression_action_ports(
+                bootstrap_effect_intent_read(), bootstrap_dialogue_decision_record()
+            ).intents.intent_snapshot(
                 transaction, action_intent_id=effect.action_intent_id
             )
             return intent.root_opportunity_id
@@ -1785,6 +1788,7 @@ def compose_expression_module(
         interaction_scenes,
         bootstrap_live_voice_context_read(),
         bootstrap_effect_intent_read(),
+        bootstrap_dialogue_decision_record(),
     )
 
 

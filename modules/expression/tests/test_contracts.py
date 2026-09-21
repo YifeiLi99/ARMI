@@ -114,6 +114,7 @@ async def test_creator_reply_registers_effect_in_subject_transaction(
         route,
         AsyncMock(),
         voice,
+        AsyncMock(),
     )
     artifact = SimpleNamespace(
         artifact_id=SimpleNamespace(value=uuid7()),
@@ -199,6 +200,7 @@ async def test_autonomous_expression_checks_contact_boundary_before_any_write() 
         relationships,
         policy,
         registration,
+        AsyncMock(),
         AsyncMock(),
         AsyncMock(),
         AsyncMock(),

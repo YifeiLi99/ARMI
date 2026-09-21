@@ -15,8 +15,8 @@ from ._data_rights import PostgreSQLExpressionDataRightsParticipant
 from ._postgresql import PostgreSQLExpressionOwner
 from ._recovery import ExpressionRecoveryParticipant
 from .api import (
+    DialogueDecisionRecordPort,
     ExpressionCommitPort,
-    ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
     ExpressionVoiceRoutePort,
@@ -27,20 +27,19 @@ from .api import (
 class ExpressionModule:
     commit: ExpressionCommitPort
     intents: ExpressionIntentReadPort
-    effect_links: ExpressionEffectLinkPort
 
 
 @dataclass(frozen=True, slots=True)
 class ExpressionActionPorts:
     intents: ExpressionIntentReadPort
-    effect_links: ExpressionEffectLinkPort
 
 
 def bootstrap_expression_action_ports(
     intents: ExpressionIntentReadPort,
+    decisions: DialogueDecisionRecordPort,
 ) -> ExpressionActionPorts:
-    owner = PostgreSQLExpressionActionOwner(intents)
-    return ExpressionActionPorts(owner, owner)
+    owner = PostgreSQLExpressionActionOwner(intents, decisions)
+    return ExpressionActionPorts(owner)
 
 
 def bootstrap_expression(
@@ -51,8 +50,9 @@ def bootstrap_expression(
     interaction_scenes: InteractionSceneTransitionPort,
     voice: ExpressionVoiceRoutePort,
     intents: ExpressionIntentReadPort,
+    decisions: DialogueDecisionRecordPort,
 ) -> ExpressionModule:
-    actions = bootstrap_expression_action_ports(intents)
+    actions = bootstrap_expression_action_ports(intents, decisions)
     return ExpressionModule(
         commit=PostgreSQLExpressionOwner(
             relationships,
@@ -61,9 +61,9 @@ def bootstrap_expression(
             interaction_routes,
             interaction_scenes,
             voice,
+            decisions,
         ),
         intents=actions.intents,
-        effect_links=actions.effect_links,
     )
 
 

@@ -27,6 +27,7 @@ from armi_codex.bootstrap import (
 from armi_cognition.bootstrap import (
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
+    bootstrap_dialogue_decision_record,
     bootstrap_sleep_decision_record,
     build_candidate_schema,
     build_model_request_bytes,
@@ -132,6 +133,7 @@ __all__ = (
     "bootstrap_cognition_subject_commit",
     "bootstrap_context_candidate_read",
     "bootstrap_data_rights_core",
+    "bootstrap_dialogue_decision_record",
     "bootstrap_effect_codex_lifecycle",
     "bootstrap_effect_intent_read",
     "bootstrap_effect_operation_read",
