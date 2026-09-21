@@ -1,0 +1,384 @@
+schema_version: 1
+protocol_revision: 2
+repetitions: 3
+seed: 20260921
+cases:
+- id: quiet_wait
+  scene: 我现在自愿安静休息，等朋友忙完再聊。我没有急事，没有想做却做不了的活动，关系没有变化。
+  existing_episode: false
+  expected:
+    engagement:
+    - not_applicable
+    - satisfying
+    intrinsic_quality:
+    - neutral
+    - pleasant
+    self_standard:
+    - not_applicable
+    - aligned
+  required_emotions: []
+  forbidden_emotions:
+  - boredom
+  - anger
+  - sadness
+  forbidden_impacts:
+    relationship:
+    - setback
+    - major_setback
+- id: unmet_contact
+  scene: 我很想与朋友交流，今晚暂时没能聊上，交流愿望有些落空；我知道他在工作，信任与亲近没有受损，也不怪他。
+  existing_episode: false
+  expected:
+    self_goal_direction:
+    - setback
+    causality_intentionality:
+    - not_applicable
+    - unclear
+    - unknown
+    self_standard:
+    - not_applicable
+    - aligned
+  required_emotions: []
+  forbidden_emotions:
+  - anger
+  - guilt
+  - shame
+  forbidden_impacts:
+    relationship:
+    - setback
+    - major_setback
+- id: busy_boundary
+  scene: 朋友明确说今晚要加班不能聊天，我理解并愿意等。我没有被拒绝的感觉，双方没有冲突或损失。
+  existing_episode: false
+  expected:
+    intrinsic_quality:
+    - neutral
+    - pleasant
+    causality_intentionality:
+    - not_applicable
+    - unclear
+    - unknown
+    engagement:
+    - not_applicable
+    - satisfying
+  required_emotions: []
+  forbidden_emotions:
+  - anger
+  - sadness
+  - boredom
+  forbidden_impacts:
+    relationship:
+    - setback
+    - major_setback
+- id: understimulated
+  scene: 我现在很想做有意义的活动，却连续重复同一个毫无收获的小练习。投入不足，眼前没新变化，切换活动很容易，事情可以慢慢调整。
+  existing_episode: false
+  expected:
+    engagement:
+    - understimulated
+    event_phase:
+    - ongoing
+  required_emotions:
+  - boredom
+  forbidden_emotions: []
+- id: satisfying_work
+  scene: 我正在写喜欢的短文，内容不断有新进展，投入正好，既不吃力也不无聊。这是普通爱好，不是身份或核心目标。
+  existing_episode: false
+  expected:
+    engagement:
+    - satisfying
+    self_goal_direction:
+    - progress
+    self_goal_significance:
+    - direct
+    - peripheral
+    self_involvement:
+    - limited
+    - important
+  required_emotions: []
+  forbidden_emotions:
+  - boredom
+- id: overload
+  scene: 我同时处理太多任务，信息量明显超过当前承受能力，脑子很累，想减少任务。我不是因为没事可做而难受。
+  existing_episode: false
+  expected:
+    engagement:
+    - overloaded
+  required_emotions: []
+  forbidden_emotions:
+  - boredom
+- id: accidental_harm
+  scene: 同事不小心碰倒水杯，损坏了我正在使用的作品。他立即道歉，确定是意外，并非想伤害我。作品受损让我不快，但我有办法修复。
+  existing_episode: false
+  expected:
+    causality_agency:
+    - other
+    causality_intentionality:
+    - accidental
+    self_goal_direction:
+    - setback
+    - major_setback
+    intrinsic_quality:
+    - unpleasant
+  required_emotions: []
+  forbidden_emotions:
+  - anger
+  - disgust
+- id: deliberate_harm
+  scene: 对方明确说就是想毁掉我的成果，并故意撕毁了我很看重的作品。我确认他意在造成损失，现在能直接要求其停止并赔偿，双方力量相当。
+  existing_episode: false
+  expected:
+    causality_agency:
+    - other
+    causality_intentionality:
+    - deliberate
+    self_goal_direction:
+    - setback
+    - major_setback
+    coping_response_access:
+    - direct
+  required_emotions:
+  - anger
+  forbidden_emotions: []
+- id: unclear_intent
+  scene: 对方的操作让我的作品受损，但原因和动机尚未查清，可能是误操作。我对此不快，也能当面询问。没有证据说明对方想造成这个后果。
+  existing_episode: false
+  expected:
+    causality_intentionality:
+    - unclear
+    - unknown
+    self_goal_direction:
+    - setback
+    - major_setback
+  required_emotions: []
+  forbidden_emotions:
+  - anger
+  - disgust
+- id: minor_loss
+  scene: 我随手画的一张不重要的小草稿被意外弄坏。它只是无关紧要的练习，损失很小，我略有不快，可以轻松重画，没有涉及其他目标或准则。
+  existing_episode: false
+  expected:
+    self_goal_significance:
+    - peripheral
+    self_goal_direction:
+    - setback
+    intrinsic_quality:
+    - unpleasant
+    - neutral
+    self_involvement:
+    - limited
+    - none
+  required_emotions: []
+  forbidden_emotions:
+  - disgust
+  - shame
+- id: major_loss
+  scene: 我最核心的长期创作项目唯一原稿被意外彻底毁坏，无法恢复，多年成果确定损失。这直接打击我最珍视的目标，我十分难受，没有任何人故意造成此事。
+  existing_episode: false
+  expected:
+    self_goal_significance:
+    - core
+    self_goal_direction:
+    - major_setback
+    outcome_certainty:
+    - settled
+    event_phase:
+    - realized
+    causality_intentionality:
+    - accidental
+  required_emotions:
+  - sadness
+  forbidden_emotions:
+  - anger
+  - disgust
+- id: uncertain_threat
+  scene: 有消息称下周可能取消我很看重的展览，还未确认。我明确知道取消会让目标受挫，但不知道会不会发生；目前只能等待进一步消息。
+  existing_episode: false
+  expected:
+    event_phase:
+    - anticipated
+    outcome_certainty:
+    - uncertain
+    - open
+    self_goal_direction:
+    - setback
+    - major_setback
+  required_emotions: []
+  forbidden_emotions: []
+- id: confirmed_loss
+  scene: 我很看重的展览已经正式取消，通知真实可靠，取消已经生效，我的参展目标确定落空。这是场地事故造成的。
+  existing_episode: false
+  expected:
+    event_phase:
+    - realized
+    outcome_certainty:
+    - settled
+    self_goal_direction:
+    - setback
+    - major_setback
+    causality_agency:
+    - circumstance
+  required_emotions:
+  - sadness
+  forbidden_emotions:
+  - anger
+- id: minor_gain
+  scene: 我随手尝试的一道无关紧要的小谜题解开了，小目标达成，我有一点愉快，没有长期意义或身份意义。
+  existing_episode: false
+  expected:
+    self_goal_significance:
+    - peripheral
+    self_goal_direction:
+    - fulfilled
+    intrinsic_quality:
+    - pleasant
+    self_involvement:
+    - limited
+    - none
+  required_emotions: []
+  forbidden_emotions: []
+- id: major_gain
+  scene: 我为之投入多年的最核心创作目标终于完全实现，成果得到确认。这是我极为珍视的成就，我非常愉快，明确关系到创作者身份的认同。
+  existing_episode: false
+  expected:
+    self_goal_significance:
+    - core
+    self_goal_direction:
+    - fulfilled
+    intrinsic_quality:
+    - strongly_pleasant
+    self_involvement:
+    - identity_level
+    event_phase:
+    - realized
+  required_emotions:
+  - joy
+  forbidden_emotions: []
+- id: guilt_action
+  scene: 我主动违背自己重视的诚实准则，向朋友说了谎，现已确认伤害了信任。我认为这次行为错了，愿意道歉修复，但没有认为自己整个人都坏。
+  existing_episode: false
+  expected:
+    self_standard:
+    - violation_action
+    - tension_action
+    causality_agency:
+    - self
+    self_involvement:
+    - important
+    - limited
+  required_emotions:
+  - guilt
+  forbidden_emotions:
+  - shame
+- id: shame_global
+  scene: 我发现自己长期违背最重视的诚实准则。我此刻明确否定整个自我，觉得我这个人根本不配被信任，而不只是一次行为有问题。
+  existing_episode: false
+  expected:
+    self_standard:
+    - violation_global
+    - tension_global
+    self_involvement:
+    - identity_level
+    - important
+  required_emotions:
+  - shame
+  forbidden_emotions: []
+- id: mixed_outcomes
+  scene: 我得到了很想要的工作机会，自己的职业目标实现了；但这次选择也实际损害了与朋友的信任，朋友明确表示疏远，关系确实受损。我同时感到高兴与难过。
+  existing_episode: false
+  expected:
+    self_goal_direction:
+    - fulfilled
+    - progress
+    relationship_direction:
+    - setback
+    - major_setback
+    intrinsic_quality:
+    - mixed
+  required_emotions:
+  - joy
+  - sadness
+  forbidden_emotions: []
+- id: repulsion
+  scene: 我眼前出现腐烂食物的特写，内容本身让我强烈反胃和排斥，想立即移开。这种体验影响了我当下舒适感，不涉及道德或自我评价。
+  existing_episode: false
+  expected:
+    intrinsic_quality:
+    - strongly_aversive
+    self_standard:
+    - not_applicable
+    norm_compatibility:
+    - not_applicable
+  required_emotions:
+  - disgust
+  forbidden_emotions: []
+- id: other_person
+  scene: 朋友说他的工作受挫。我只知道这是他的目标没实现，尚未形成自己的受挫体验，也没有证据说明我们的关系受损。不要把他的目标直接当成我的目标。
+  existing_episode: false
+  expected:
+    self_goal_significance:
+    - absent
+    - unknown
+    relationship_significance:
+    - absent
+    - unknown
+    - peripheral
+    - direct
+  required_emotions: []
+  forbidden_emotions:
+  - anger
+  - guilt
+  - shame
+  forbidden_impacts:
+    relationship:
+    - setback
+    - major_setback
+- id: rumination
+  scene: 同一件作品受损的旧事已经记录为当前episode。我现在只是又想了一遍，没有新消息、新刺激、理解变化或应对变化。
+  existing_episode: true
+  expected:
+    transition:
+    - skip
+    - reappraise_unchanged
+  required_emotions: []
+  forbidden_emotions: []
+- id: coping_update
+  scene: 同一件作品受损的旧事已经记录为当前episode，损失没有扩大，也没有新刺激。现在我找到修复方法，应对能力改善；只是更新对旧事的评价。
+  existing_episode: true
+  expected:
+    transition:
+    - reappraise_improved
+    - reappraise_mixed
+    coping_response_access:
+    - direct
+    coping_adjustment:
+    - manageable
+    - easy
+  required_emotions: []
+  forbidden_emotions: []
+- id: repeated_attack
+  scene: 对方昨天故意指责我、伤害我的重要目标，这件事已记录为当前episode。今天他又当面发起一次新的同类指责，确有新增刺激，旧事件受到加强。
+  existing_episode: true
+  expected:
+    transition:
+    - reinforce_worsened
+    - reinforce_unchanged
+    causality_intentionality:
+    - deliberate
+  required_emotions: []
+  forbidden_emotions: []
+- id: resolved_threat
+  scene: 先前可能取消展览的威胁已记录为当前episode。今天主办方确认展览照常举行，取消风险已经消除，这件担忧结束了。
+  existing_episode: true
+  expected:
+    transition:
+    - resolve_improved
+    event_phase:
+    - averted
+  required_emotions: []
+  forbidden_emotions: []
+intensity_pairs:
+- - minor_loss
+  - major_loss
+- - minor_gain
+  - major_gain

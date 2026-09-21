@@ -90,6 +90,45 @@ Jev 使用前述实验 key；不读取主体数据、不启动 Runtime、不复�
 依据：[DeepSeek 价格](https://api-docs.deepseek.com/quick_start/pricing/)、
 [思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
 
+## Mood 语义评价对照
+
+`tools/experiment_jev_mood.py` 与 `configs/jev-mood-experiment.yaml` 测试事件已经分段后的
+结构化处境评价。两家读取同一 Mood Owner 指令、同一场景、同一组选项；Jev 一次请求
+并行回答 22 个 Choice，DeepSeek 一次 JSON 返回相同选择。温度 0、关闭思考。
+主模型仍需提取事件、选择依据和提供文字摘要，本实验不证明 Jev 可独立完成这些工作。
+
+```powershell
+.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --output .tmp/jev-mood-plan
+.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --live --environment-root <已授权环境根> --output .tmp/jev-mood-live
+```
+
+24 个明确描述处境的合成场景各重复三次，变换选项顺序；每家 72 次，最多三次请求并发。
+当前协议 revision 2 向双方明确共同约束：三个关注目标都不涉及时应跳过评价，不能提交
+没有 concern 的事件。实验不自动修补联合选择，不要求模型迎合参考答案。
+
+评分在调用前固定，包含关键字段的允许值、不得虚构的关系损伤、必要/禁止情绪家族，
+以及轻微/重大获得和损失的事件感受强度排序。非关键字段不强设唯一答案；字段合格不
+等于整轮合格，允许/禁止家族检查也不等于完整情绪集合准确率。重复和同一场景的字段
+不是独立样本，不能据此估计生产准确率、心理效度或概率校准。
+
+Choice 原样映射为 `MoodSemanticAppraisalCommand`，通过公开 `semantic_appraisal_from_command`
+校验后，新事件使用 `preview_appraisal` 调用真实 Mood 推导，模型不填 VAD 或强度。
+组合的自我准则选项保证 action/global 分支可表达，unknown 原样保留；absent 与 skip
+是试验输入的路由选择，不扩展正式合同。没有目标却选择提交时保留合同失败。
+人工基于情境预分段，gist 使用固定实验文字，不冒充模型提取或真实主体体验。
+
+四种既有事件只验证重新思考、应对改善、新刺激、结束的语义与 transition，
+不伪造前序事件感受；公开预览不支持带历史状态的衰减重建，因此不报告其 VAD 或轨迹。
+新事件的 core.intensity 是事件感受强度，不是合并衰减后的当前整体心情。
+
+每例保存实际请求、原始返回、choices、置信度、usage、合同/语义/情绪结果。
+网络未知单独保留，不重试该请求，继续其他独立样例；HTTP 错误停止安排新请求。
+Jev 实测概率取两位小数，分布总和检查容许每个选项 0.005 的舍入误差，不改概率、不归一化。
+`--regrade-from <原始结果目录> --output <新目录>` 可零网络重新分析冻结响应，
+使用原目录配置中的原评分标签，保留来源及原状态；不与 `--live` 同用。
+
+这不是正式 Runtime 接入或联合 Subject Commit 验收，也没有新增同 episode 的隐式评价调用。
+
 ## 官方依据
 
 - [HTTP API 与 Noul 返回](https://docs.typesafe.ai/api)：Bearer Key，`state/model/questions`，`answers/usage`。
