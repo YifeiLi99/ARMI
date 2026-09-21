@@ -124,7 +124,7 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v10"]
+    schema_kind: Literal["armi.admin-config"]
     operator_id: str = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )
@@ -277,7 +277,7 @@ class AdminConfig(BaseModel):
 
     def safe_digest(self) -> str:
         payload = {
-            "schema_version": self.schema_version,
+            "schema_kind": self.schema_kind,
             "operator_id": self.operator_id,
             "authorized_operations": self.authorized_operations,
             "environment_kind": str(self.environment_kind),

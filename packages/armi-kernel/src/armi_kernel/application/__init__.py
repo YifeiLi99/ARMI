@@ -90,7 +90,7 @@ from .execution_custody import (
     ordered_custody_requests,
 )
 from .life_records import (
-    LIFE_RECORD_PROJECTION_VERSION,
+    LIFE_RECORD_PROJECTION_KIND,
     LifeRecordActor,
     LifeRecordItem,
     LifeRecordKind,
@@ -111,7 +111,7 @@ from .model import (
     ModelViolation,
 )
 from .other_human_records import (
-    OTHER_HUMAN_RECORD_PROJECTION_VERSION,
+    OTHER_HUMAN_RECORD_PROJECTION_KIND,
     OtherHumanPartyRecord,
     OtherHumanPartyRecordPage,
     OtherHumanRecordDirection,
@@ -179,8 +179,8 @@ from .usage_query import UsageFilter, UsageQuery, UsageQueryPort
 
 __all__: tuple[str, ...] = (
     "COGNITION_PURPOSES",
-    "LIFE_RECORD_PROJECTION_VERSION",
-    "OTHER_HUMAN_RECORD_PROJECTION_VERSION",
+    "LIFE_RECORD_PROJECTION_KIND",
+    "OTHER_HUMAN_RECORD_PROJECTION_KIND",
     "RESPONSIBILITY_BINDINGS",
     "ArtifactId",
     "ArtifactIntegrityStatus",

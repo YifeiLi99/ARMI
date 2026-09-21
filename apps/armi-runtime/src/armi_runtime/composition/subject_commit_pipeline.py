@@ -589,7 +589,7 @@ class SubjectCommitPipeline:
                 CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v8",
+                "creator-operation",
             )
         ]
         if result.subject_commit_id is not None:
@@ -599,7 +599,7 @@ class SubjectCommitPipeline:
                         CreatorResourceKind("scene_timeline"),
                         SceneKey(snapshot.scene_key).value,
                         now,
-                        "scene-timeline.v6",
+                        "scene-timeline",
                     )
                 )
             invalidations.append(
@@ -607,7 +607,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("subject_summary"),
                     str(snapshot.subject_id),
                     now,
-                    "subject-summary.v1",
+                    "subject-summary",
                 )
             )
         try:
@@ -620,7 +620,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("activity"),
                     str(activity_id),
                     now,
-                    "creator-activity.v3",
+                    "creator-activity",
                 )
                 for activity_id in activity_ids
             )
@@ -637,7 +637,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("memory"),
                     str(memory_id),
                     now,
-                    "creator-memory.v2",
+                    "creator-memory",
                 )
                 for memory_id in memory_ids
             )
@@ -654,7 +654,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("material"),
                     str(material_id),
                     now,
-                    "life-record-query.v2",
+                    "life-record-query",
                 )
                 for material_id in material_ids
             )
@@ -671,7 +671,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("relationship"),
                     str(relationship_id),
                     now,
-                    "creator-relationship.v3",
+                    "creator-relationship",
                 )
                 for relationship_id in relationship_ids
             )
@@ -690,7 +690,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("maintenance"),
                     str(session_id),
                     now,
-                    "creator-maintenance.v3",
+                    "creator-maintenance",
                 )
                 for session_id in maintenance_ids
             )

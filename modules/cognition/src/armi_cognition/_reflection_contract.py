@@ -19,7 +19,7 @@ from ._dialogue_contract import ContextRef, DialogueSubjectPromptChange
 from ._model_contract import MindState, SelfState
 from ._strict_model_json import strict_model_value
 
-OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate.v4"
+OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate"
 
 REFLECT_SELF_INSTRUCTIONS = """\
 # 本轮自我反思任务与边界
@@ -46,7 +46,7 @@ class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return OWNER_REFLECTION_CANDIDATE_VERSION
 
 

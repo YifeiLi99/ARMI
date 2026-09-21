@@ -30,7 +30,7 @@ from ._domain import (
     validate_maintenance_advance,
 )
 
-MAINTENANCE_PROJECTION_VERSION: Final = "creator-maintenance.v3"
+MAINTENANCE_PROJECTION_KIND: Final = "creator-maintenance"
 type MaintenanceTransitionKind = Literal[
     "started",
     "advanced",
@@ -712,7 +712,7 @@ class SleepAdminReadPort(Protocol):
 
 
 __all__ = (
-    "MAINTENANCE_PROJECTION_VERSION",
+    "MAINTENANCE_PROJECTION_KIND",
     "CandidateMaintenanceDecisionDraft",
     "CandidateSleepDecisionDraft",
     "CreatorEmergencyWakePort",

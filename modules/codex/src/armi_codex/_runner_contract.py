@@ -99,12 +99,12 @@ class CodexTaskManifest:
     model_id: CodexModel = CodexModel.LUNA
     reasoning_effort: CodexReasoningEffort = CodexReasoningEffort.MEDIUM
     web_search: bool = False
-    schema_version: str = "armi.codex-task-manifest.v2"
+    schema_kind: str = "armi.codex-task-manifest"
 
     def __post_init__(self) -> None:
         if (
             type(self.execution_id) is not CodexExecutionId
-            or self.schema_version != "armi.codex-task-manifest.v2"
+            or self.schema_kind != "armi.codex-task-manifest"
             or type(self.deadline_seconds) is not int
             or not 60 <= self.deadline_seconds <= 1800
             or type(self.model_id) is not CodexModel
@@ -129,7 +129,7 @@ class CodexRunResult:
     usage: CodexUsage | None
     error_code: str | None = None
     cleanup_error_code: str | None = None
-    schema_version: str = "armi.codex-run-result.v2"
+    schema_kind: str = "armi.codex-run-result"
 
     def __post_init__(self) -> None:
         if (
@@ -139,7 +139,7 @@ class CodexRunResult:
             or type(self.sdk_version) is not str
             or not self.sdk_version
             or type(self.final_response) is not str
-            or self.schema_version != "armi.codex-run-result.v2"
+            or self.schema_kind != "armi.codex-run-result"
         ):
             raise CodexRunnerViolation("CODEX-RUN-RESULT")
         if self.status is CodexRunStatus.SUCCEEDED:

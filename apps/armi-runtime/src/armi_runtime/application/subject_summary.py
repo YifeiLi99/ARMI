@@ -23,20 +23,20 @@ class SubjectComponentKind(StrEnum):
 class SubjectComponentSummary:
     kind: SubjectComponentKind
     version: int
-    schema_version: str
+    schema_kind: str
     content_visibility: str = "private"
 
     def __post_init__(self) -> None:
         expected = {
-            SubjectComponentKind.SELF: "armi.self.v1",
-            SubjectComponentKind.MIND: "armi.mind.v4",
-            SubjectComponentKind.LIFE_MODE: "armi.life-mode.v1",
+            SubjectComponentKind.SELF: "armi.self",
+            SubjectComponentKind.MIND: "armi.mind",
+            SubjectComponentKind.LIFE_MODE: "armi.life-mode",
         }
         if (
             type(self.kind) is not SubjectComponentKind
             or type(self.version) is not int
             or self.version <= 0
-            or self.schema_version != expected[self.kind]
+            or self.schema_kind != expected[self.kind]
             or self.content_visibility != "private"
         ):
             raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
@@ -119,14 +119,14 @@ class RuntimeSubjectSummaryAssembler:
             SubjectComponentSummary(
                 SubjectComponentKind(item.kind.value),
                 item.version,
-                "armi.self.v1" if item.kind.value == "self" else "armi.life-mode.v1",
+                "armi.self" if item.kind.value == "self" else "armi.life-mode",
             )
             for item in heads
         ]
         components.insert(
             1,
             SubjectComponentSummary(
-                SubjectComponentKind.MIND, mind.version, "armi.mind.v4"
+                SubjectComponentKind.MIND, mind.version, "armi.mind"
             ),
         )
         return SubjectSummary(int(row[0]), tuple(components), commit_id, row[1])

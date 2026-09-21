@@ -11,7 +11,6 @@ from .database_contract import (
 )
 from .schema_resources import (
     BASELINE_DOCUMENTS,
-    BASELINE_IDENTITY,
     EXPECTED_REVISION,
     role_policy_digest,
     schema_resource_digest,
@@ -21,7 +20,6 @@ from .schema_resources import (
 
 __all__ = (
     "BASELINE_DOCUMENTS",
-    "BASELINE_IDENTITY",
     "EXPECTED_REVISION",
     "PostgreSQLContractError",
     "PostgreSQLContractEvidence",

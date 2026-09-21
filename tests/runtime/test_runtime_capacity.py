@@ -35,7 +35,7 @@ def _status(
             "readiness": "ready",
             "reason_codes": ["RUNTIME_MODEL_UNAVAILABLE"],
             "observability": {
-                "schema_version": "armi.runtime-observability.v1",
+                "schema_kind": "armi.runtime-observability",
                 "status": "available",
                 "observed_at": "2026-08-05T10:00:00.000000Z",
                 "authority": {

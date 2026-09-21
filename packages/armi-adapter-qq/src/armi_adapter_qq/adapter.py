@@ -83,12 +83,9 @@ class QQAdapterConfig:
             ):
                 raise ValueError("QQ allowed group is invalid")
         object.__setattr__(self, "allowed_groups", MappingProxyType(groups))
-        if (
-            type(self.private_user_blocklist) is not frozenset
-            or any(
-                type(user_id) is not int or user_id <= 0
-                for user_id in self.private_user_blocklist
-            )
+        if type(self.private_user_blocklist) is not frozenset or any(
+            type(user_id) is not int or user_id <= 0
+            for user_id in self.private_user_blocklist
         ):
             raise ValueError("QQ reply policy is invalid")
 
@@ -224,7 +221,7 @@ class QQEgressAdapter:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESULT-UNKNOWN") from None
         receipt_bytes = json.dumps(
             {
-                "schema_version": "armi.external-message-receipt.v1",
+                "schema_kind": "armi.external-message-receipt",
                 "channel": "qq",
                 "account_key": request.account_key.value,
                 "conversation_kind": request.conversation_kind.value,

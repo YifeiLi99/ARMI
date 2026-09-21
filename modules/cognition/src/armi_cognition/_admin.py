@@ -41,8 +41,8 @@ class PostgreSQLCognitionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
     ) -> tuple[CognitionAdminAttempt, ...]:
         rows = transaction.execute(
-            "SELECT model_attempt_id,attempt_no,model_id,request_schema_version,"
-            "candidate_schema_version,request_artifact_id,response_artifact_id,"
+            "SELECT model_attempt_id,attempt_no,model_id,"
+            "candidate_contract_kind,request_artifact_id,response_artifact_id,"
             "dispatch_status,result_status,error_code FROM armi.cognitive_attempts "
             "WHERE cognitive_episode_id=%s ORDER BY attempt_no",
             (episode_id,),
@@ -53,12 +53,11 @@ class PostgreSQLCognitionAdmin:
                 int(cast(int, row[1])),
                 str(row[2]),
                 str(row[3]),
-                str(row[4]),
+                cast(UUID | None, row[4]),
                 cast(UUID | None, row[5]),
-                cast(UUID | None, row[6]),
-                str(row[7]),
+                str(row[6]),
+                cast(str | None, row[7]),
                 cast(str | None, row[8]),
-                cast(str | None, row[9]),
             )
             for row in rows
         )

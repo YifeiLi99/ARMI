@@ -30,8 +30,8 @@ def main() -> int:
         values = json.loads(raw)
         if (
             isinstance(values, dict)
-            and cast(dict[str, Any], values).get("schema_version")
-            == "armi.local-configuration.v3"
+            and cast(dict[str, Any], values).get("schema_kind")
+            == "armi.local-configuration"
         ):
             result = execute_configuration(
                 ConfigurationInvocation.model_validate(values)

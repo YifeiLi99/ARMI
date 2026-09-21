@@ -91,7 +91,7 @@ try {
     $environments = @()
     if (Test-Path -LiteralPath $indexPath) {
         $registration = Get-Content -LiteralPath $indexPath -Raw -Encoding utf8 | ConvertFrom-Json
-        if ($registration.schema_version -ne 'armi.installation-environments.v2' -or [IO.Path]::GetFullPath($registration.installation_root) -ne $dataRoot) {
+        if ($registration.schema_kind -ne 'armi.installation-environments' -or [IO.Path]::GetFullPath($registration.installation_root) -ne $dataRoot) {
             throw 'LOCAL-MSIX-ENVIRONMENT-REGISTRATION'
         }
         $environments = @($registration.environments)
@@ -100,7 +100,7 @@ try {
             if ([IO.Path]::GetDirectoryName($resolved) -ne (Join-Path $dataRoot 'environments')) { throw 'LOCAL-MSIX-ENVIRONMENT-BOUNDARY' }
             $binding = Get-Content -LiteralPath (Join-Path $resolved '.setup/program.json') -Raw -Encoding utf8 | ConvertFrom-Json
             $sameContract = $true
-            foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
+            foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'schema_digest', 'role_policy_digest')) {
                 if ($binding.database.$field -ne $bundle.database.$field) { $sameContract = $false }
             }
             if (-not $sameContract) {

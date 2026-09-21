@@ -9,8 +9,7 @@ from armi_runtime.application.creator_contract import EffectResponse
 
 def effect_wire(view: EffectView) -> dict[str, Any]:
     return EffectResponse(
-        contract_version="1.0",
-        projection_version="creator-effect.v6",
+        projection_kind="creator-effect",
         effect_id=str(view.effect_id.value),
         action_intent_ref=str(view.action_intent_ref),
         capability_kind=view.capability_kind,

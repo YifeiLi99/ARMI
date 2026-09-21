@@ -22,7 +22,7 @@ from .api import (
 
 _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
     SubjectStateKind.SELF: {
-        "schema_version": "armi.self.v1",
+        "schema_kind": "armi.self",
         "identity_kind": "electronic_person",
         "creator_role_awareness": "unique_primary_creator",
         "name": None,
@@ -35,7 +35,7 @@ _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
         "tensions": [],
     },
     SubjectStateKind.LIFE_MODE: {
-        "schema_version": "armi.life-mode.v1",
+        "schema_kind": "armi.life-mode",
         "mode": "awake",
         "active_activities": [],
     },

@@ -72,7 +72,7 @@ async def check(program: Path, *, installed: bool = False) -> None:
         binding.write_text(
             json.dumps(
                 {
-                    "schema_version": "armi.interaction-client.v1",
+                    "schema_kind": "armi.interaction-client",
                     "environment_id": str(uuid7()),
                     "environment_root": str(root),
                     "delegate_id": str(uuid7()),
@@ -88,7 +88,7 @@ async def check(program: Path, *, installed: bool = False) -> None:
         mcp_binding.write_text(
             json.dumps(
                 {
-                    "schema_version": "armi.mcp-binding.v1",
+                    "schema_kind": "armi.mcp-binding",
                     "interaction_config": str(binding),
                 }
             ),

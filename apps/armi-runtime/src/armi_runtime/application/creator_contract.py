@@ -77,7 +77,6 @@ class ReadyResponse(_StrictWireModel):
 
 
 class _BrowserSessionMetadataResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     creator_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     default_scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
@@ -121,8 +120,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
 
 class SceneTimelinePageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["scene-timeline.v6"]
+    projection_kind: Literal["scene-timeline"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
     next_cursor: (
@@ -140,8 +138,7 @@ class OtherHumanPartyRecordResponse(_StrictWireModel):
 
 
 class OtherHumanPartyRecordPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["other-human-record.v1"]
+    projection_kind: Literal["other-human-record"]
     items: Annotated[list[OtherHumanPartyRecordResponse], Field(max_length=100)]
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -157,8 +154,7 @@ class OtherHumanSceneRecordResponse(_StrictWireModel):
 
 
 class OtherHumanSceneRecordPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["other-human-record.v1"]
+    projection_kind: Literal["other-human-record"]
     party: OtherHumanPartyRecordResponse
     items: Annotated[list[OtherHumanSceneRecordResponse], Field(max_length=100)]
     next_cursor: (
@@ -176,8 +172,7 @@ class OtherHumanTimelineRecordResponse(_StrictWireModel):
 
 
 class OtherHumanTimelineRecordPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["other-human-record.v1"]
+    projection_kind: Literal["other-human-record"]
     party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[OtherHumanTimelineRecordResponse], Field(max_length=100)]
@@ -187,7 +182,6 @@ class OtherHumanTimelineRecordPageResponse(_StrictWireModel):
 
 
 class CreatorSceneCreateRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
 
     @model_validator(mode="after")
@@ -198,8 +192,7 @@ class CreatorSceneCreateRequest(_StrictWireModel):
 
 
 class CreatorSceneResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-scenes.v1"]
+    projection_kind: Literal["creator-scenes"]
     scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     status: Literal["open", "closed"]
@@ -212,8 +205,7 @@ class CreatorSceneResponse(_StrictWireModel):
 
 
 class CreatorSceneCollectionResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-scenes.v1"]
+    projection_kind: Literal["creator-scenes"]
     scenes: Annotated[list[CreatorSceneResponse], Field(min_length=1)]
 
 
@@ -268,8 +260,7 @@ class CreatorActivityItemResponse(_StrictWireModel):
 
 
 class CreatorActivityPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-activity.v3"]
+    projection_kind: Literal["creator-activity"]
     items: Annotated[list[CreatorActivityItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
@@ -284,8 +275,7 @@ class CreatorActivityTimelineItemResponse(_StrictWireModel):
 
 
 class CreatorActivityTimelineResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-activity.v3"]
+    projection_kind: Literal["creator-activity"]
     activity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorActivityTimelineItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -383,21 +373,18 @@ class CreatorRelationshipItemResponse(_StrictWireModel):
 
 
 class CreatorRelationshipCurrentResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-relationship.v3"]
+    projection_kind: Literal["creator-relationship"]
     relationship: CreatorRelationshipItemResponse | None
 
 
 class CreatorRelationshipTimelineResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-relationship.v3"]
+    projection_kind: Literal["creator-relationship"]
     relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorRelationshipRevisionResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorRelationshipBoundaryRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     kind: RelationshipBoundaryKindValue
     action: RelationshipBoundaryActionValue
     summary: Annotated[str, Field(min_length=1, max_length=512)]
@@ -445,16 +432,14 @@ class LifeRecordItemResponse(_StrictWireModel):
 
 
 class LifeRecordPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["life-record-query.v2"]
+    projection_kind: Literal["life-record-query"]
     retrieval_kind: Literal["exact_query", "creator_view"]
     items: Annotated[list[LifeRecordItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorLifeMaterialResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-life-material.v1"]
+    projection_kind: Literal["creator-life-material"]
     material_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     material_kind: Literal["diary", "work", "collection", "draft"]
     revision_no: Annotated[int, Field(ge=1)]
@@ -485,8 +470,7 @@ class CreatorMemoryItemResponse(_StrictWireModel):
 
 
 class CreatorMemoryPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-memory.v2"]
+    projection_kind: Literal["creator-memory"]
     retrieval_kind: Literal["creator_view"]
     items: Annotated[list[CreatorMemoryItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -507,8 +491,7 @@ class CreatorMemoryTimelineItemResponse(_StrictWireModel):
 
 
 class CreatorMemoryTimelineResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-memory.v2"]
+    projection_kind: Literal["creator-memory"]
     retrieval_kind: Literal["creator_view"]
     memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorMemoryTimelineItemResponse], Field(max_length=100)]
@@ -564,8 +547,7 @@ class CreatorMaintenanceSessionResponse(_StrictWireModel):
 
 
 class CreatorMaintenanceStatusResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-maintenance.v3"]
+    projection_kind: Literal["creator-maintenance"]
     session: CreatorMaintenanceSessionResponse | None
     waiting_input_count: Annotated[int, Field(ge=0)]
 
@@ -582,8 +564,7 @@ class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
 
 
 class CreatorMaintenanceTimelineResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-maintenance.v3"]
+    projection_kind: Literal["creator-maintenance"]
     maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[
         list[CreatorMaintenanceTimelineItemResponse], Field(max_length=100)
@@ -592,7 +573,6 @@ class CreatorMaintenanceTimelineResponse(_StrictWireModel):
 
 
 class CreatorProjectionEventResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
     event_id: Annotated[str, Field(pattern=_EVENT_ID_PATTERN, max_length=128)]
     event_kind: Literal[
         "activity.invalidated",
@@ -621,29 +601,27 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "data_rights",
     ]
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
-    projection_version: Literal[
-        "creator-activity.v3",
-        "creator-memory.v2",
-        "creator-maintenance.v3",
-        "life-record-query.v2",
-        "creator-relationship.v3",
-        "scene-timeline.v6",
-        "creator-operation.v8",
-        "other-human-record.v1",
-        "creator-effect.v6",
-        "subject-summary.v1",
-        "data-rights-order-collection.v3",
+    projection_kind: Literal[
+        "creator-activity",
+        "creator-memory",
+        "creator-maintenance",
+        "life-record-query",
+        "creator-relationship",
+        "scene-timeline",
+        "creator-operation",
+        "other-human-record",
+        "creator-effect",
+        "subject-summary",
+        "data-rights-order-collection",
     ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
 
 class CreatorInputRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     message: Annotated[str, Field(min_length=1, max_length=262144)]
 
 
 class CreatorCodexTaskRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     objective: Annotated[str, Field(min_length=1, max_length=16384)]
     model_id: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
     reasoning_effort: Literal["medium"] = "medium"
@@ -664,7 +642,6 @@ class CodexAvailabilityResponse(_StrictWireModel):
 
 class RuntimeStatusResponse(_StrictWireModel):
     codex: CodexAvailabilityResponse
-    contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     runtime_state: RuntimeState
     readiness: Readiness
@@ -678,8 +655,7 @@ class RuntimeStatusResponse(_StrictWireModel):
 
 
 class QQChannelHealthResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-channel-health.v2"]
+    projection_kind: Literal["creator-channel-health"]
     channel: Literal["qq"]
     driver: Literal["napcat"]
     configured: bool
@@ -708,8 +684,7 @@ class QQChannelHealthResponse(_StrictWireModel):
 
 
 class LiveVoiceStatusResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-live-voice-status.v2"]
+    projection_kind: Literal["creator-live-voice-status"]
     state: Literal[
         "disabled",
         "idle",
@@ -750,8 +725,7 @@ class LiveVoiceStatusResponse(_StrictWireModel):
 
 
 class LiveVisionSourceStatusResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-live-vision-source-status.v3"]
+    projection_kind: Literal["creator-live-vision-source-status"]
     source_kind: Literal["camera", "screen"]
     state: Literal[
         "disabled",
@@ -779,8 +753,7 @@ class LiveVisionSourceStatusResponse(_StrictWireModel):
 
 
 class LiveVisionStatusResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-live-vision-status.v3"]
+    projection_kind: Literal["creator-live-vision-status"]
     sources: Annotated[
         list[LiveVisionSourceStatusResponse], Field(min_length=2, max_length=2)
     ]
@@ -788,14 +761,12 @@ class LiveVisionStatusResponse(_StrictWireModel):
 
 
 class LiveVisionObservationRequest(_StrictWireModel):
-    contract_version: Literal["1.0"] = "1.0"
     source_kind: Literal["camera", "screen"]
     trigger: Literal["manual"] = "manual"
 
 
 class LiveVisionObservationResponse(_StrictWireModel):
-    contract_version: Literal["1.0"] = "1.0"
-    projection_version: Literal["creator-live-vision-observation.v2"]
+    projection_kind: Literal["creator-live-vision-observation"]
     observation_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     source_kind: Literal["camera", "screen"]
     origin_kind: Literal["automatic", "creator", "subject"]
@@ -825,7 +796,6 @@ class ErrorDescriptorResponse(_StrictWireModel):
 
 
 class _CommonOutcomeResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
     trace_id: Annotated[str, Field(pattern=_TRACE_PATTERN)]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     message: Annotated[str, Field(min_length=1, max_length=4096)]
@@ -926,7 +896,7 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v8"]
+    projection_kind: Literal["creator-operation"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",
@@ -1046,13 +1016,12 @@ type OperationOutcomeResponse = Annotated[
 class SubjectComponentSummaryResponse(_StrictWireModel):
     kind: Literal["self", "mind", "life_mode"]
     version: Annotated[int, Field(ge=1)]
-    schema_version: Literal["armi.self.v1", "armi.mind.v4", "armi.life-mode.v1"]
+    schema_kind: Literal["armi.self", "armi.mind", "armi.life-mode"]
     content_visibility: Literal["private"]
 
 
 class SubjectSummaryResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["subject-summary.v1"]
+    projection_kind: Literal["subject-summary"]
     subject_version: Annotated[int, Field(ge=0)]
     components: Annotated[
         list[SubjectComponentSummaryResponse], Field(min_length=3, max_length=3)
@@ -1062,8 +1031,7 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 
 class EffectResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-effect.v6"]
+    projection_kind: Literal["creator-effect"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
@@ -1128,7 +1096,6 @@ class EffectResponse(_StrictWireModel):
 
 
 class CreatorPromptRevisionRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     expected_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
     content: Annotated[str, Field(min_length=1, max_length=65_536)]
 
@@ -1154,7 +1121,6 @@ class CreatorPromptRevisionRequest(_StrictWireModel):
 
 
 class CreatorPromptDeactivateRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     expected_revision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
 
     @field_validator("expected_revision_id")
@@ -1167,8 +1133,7 @@ class CreatorPromptDeactivateRequest(_StrictWireModel):
 
 
 class CreatorPromptResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-prompt.v1"]
+    projection_kind: Literal["creator-prompt"]
     prompt_document_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
     prompt_kind: Literal["creator_guidance"]
     status: Literal["active", "inactive"]
@@ -1181,7 +1146,6 @@ class CreatorPromptResponse(_StrictWireModel):
 
 
 class CreatorExportRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     directory_name: Annotated[str, Field(pattern=r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")]
 
     @field_validator("directory_name")
@@ -1193,8 +1157,7 @@ class CreatorExportRequest(_StrictWireModel):
 
 
 class CreatorExportResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["creator-export.v5"]
+    projection_kind: Literal["creator-export"]
     export_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal[
         "building",
@@ -1217,13 +1180,11 @@ class CreatorExportResponse(_StrictWireModel):
 
 
 class DataRightsOrderRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
     order_kind: Literal["stop_contact", "stop_use", "delete_related"]
 
 
 class DataRightsOrderResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order-summary.v3"]
+    projection_kind: Literal["data-rights-order-summary"]
     order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_kind: Literal["creator", "other_human"]
@@ -1303,8 +1264,7 @@ class DataRightsTimelineItemResponse(_StrictWireModel):
 
 
 class DataRightsOrderDetailResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order-detail.v3"]
+    projection_kind: Literal["data-rights-order-detail"]
     order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_kind: Literal["creator", "other_human"]
@@ -1334,8 +1294,7 @@ class DataRightsOrderDetailResponse(_StrictWireModel):
 
 
 class DataRightsOrderCollectionResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order-collection.v3"]
+    projection_kind: Literal["data-rights-order-collection"]
     orders: list[DataRightsOrderDetailResponse]
 
 

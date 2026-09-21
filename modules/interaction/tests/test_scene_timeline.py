@@ -256,8 +256,7 @@ class SceneTimelineContractTests(unittest.TestCase):
                 limit=50,
             )
         stale_payload = {
-            "contract_version": "1.0",
-            "projection_version": "scene-timeline.v1",
+            "projection_kind": "scene-timeline.v1",
             "environment_id": str(environment_id),
             "creator_party_id": str(creator_party_id),
             "scene_id": str(scene_id),

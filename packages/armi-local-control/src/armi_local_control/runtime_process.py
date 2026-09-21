@@ -28,8 +28,8 @@ from armi_local_control.process_identity import (
 )
 from armi_local_control.runtime_errors import RuntimeViolation
 
-_CONTROL_SCHEMA = "armi.runtime-admin-control.v1"
-_PROCESS_SCHEMA = "armi.runtime-process.v2"
+_CONTROL_SCHEMA = "armi.runtime-admin-control"
+_PROCESS_SCHEMA = "armi.runtime-process"
 _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
 _START_TIMEOUT_SECONDS = 30.0
@@ -287,7 +287,7 @@ class RuntimeProcessManager:
             self._atomic_json(
                 self._control_root / "runtime-control.manifest.json",
                 {
-                    "schema_version": _CONTROL_SCHEMA,
+                    "schema_kind": _CONTROL_SCHEMA,
                     "environment_id": self._environment_id,
                     "incarnation": self._incarnation,
                     "descriptor": "runtime-control.json",
@@ -361,7 +361,7 @@ class RuntimeProcessManager:
                 self._atomic_json(
                     self._state_path,
                     {
-                        "schema_version": _PROCESS_SCHEMA,
+                        "schema_kind": _PROCESS_SCHEMA,
                         "environment_id": self._environment_id,
                         "incarnation": self._incarnation,
                         "pid": process.pid,
@@ -567,7 +567,7 @@ class RuntimeProcessManager:
             self._descriptor_path(), "CLI-RUNTIME-DESCRIPTOR"
         )
         expected = {
-            "schema_version",
+            "schema_kind",
             "environment_id",
             "incarnation",
             "instance_id",
@@ -585,7 +585,7 @@ class RuntimeProcessManager:
             )
         if (
             set(descriptor) != expected
-            or descriptor.get("schema_version") != _CONTROL_SCHEMA
+            or descriptor.get("schema_kind") != _CONTROL_SCHEMA
             or descriptor.get("environment_id") != self._environment_id
             or descriptor.get("incarnation") != self._incarnation
             or type(descriptor.get("pid")) is not int
@@ -614,7 +614,7 @@ class RuntimeProcessManager:
         request_id = str(uuid7())
         encoded = json.dumps(
             {
-                "schema_version": _CONTROL_SCHEMA,
+                "schema_kind": _CONTROL_SCHEMA,
                 "request_id": request_id,
                 "environment_id": self._environment_id,
                 "incarnation": self._incarnation,
@@ -795,7 +795,7 @@ class RuntimeProcessManager:
             return ManagedProcessState.ABSENT
         try:
             if (
-                state.get("schema_version") != _PROCESS_SCHEMA
+                state.get("schema_kind") != _PROCESS_SCHEMA
                 or state.get("environment_id") != self._environment_id
                 or state.get("incarnation") != self._incarnation
             ):

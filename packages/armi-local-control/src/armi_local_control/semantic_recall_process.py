@@ -50,9 +50,9 @@ _MODEL_URL = (
 _RELEASE_BASE = (
     f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_CPP_VERSION}"
 )
-_SCHEMA = "armi.semantic-recall-service.v2"
-_INSTALL_SCHEMA = "armi.semantic-recall-install-observation.v2"
-_PROFILE_SCHEMA = "armi.semantic-recall-profile.v2"
+_SCHEMA = "armi.semantic-recall-service"
+_INSTALL_SCHEMA = "armi.semantic-recall-install-observation"
+_PROFILE_SCHEMA = "armi.semantic-recall-profile"
 _START_TIMEOUT_SECONDS = 30.0
 _GPU_LAYERS = 28
 _GPU_MEMORY_LIMIT_MIB = 1800
@@ -296,7 +296,7 @@ class SemanticRecallProcessManager:
         _atomic_json(
             self._install_path,
             {
-                "schema_version": _INSTALL_SCHEMA,
+                "schema_kind": _INSTALL_SCHEMA,
                 "llama_cpp_version": LLAMA_CPP_VERSION,
                 "model_id": EMBEDDING_MODEL_ID,
                 "model_revision": EMBEDDING_MODEL_REVISION,
@@ -365,7 +365,7 @@ class SemanticRecallProcessManager:
                 f"rss_mib={rss_memory}, idle_cpu_percent={idle_cpu}",
             )
         profile: dict[str, object] = {
-            "schema_version": _PROFILE_SCHEMA,
+            "schema_kind": _PROFILE_SCHEMA,
             "model_id": EMBEDDING_MODEL_ID,
             "model_revision": EMBEDDING_MODEL_REVISION,
             "model_sha256": EMBEDDING_MODEL_SHA256,
@@ -467,7 +467,7 @@ class SemanticRecallProcessManager:
         _atomic_json(
             self._run_root / "service.json",
             {
-                "schema_version": _SCHEMA,
+                "schema_kind": _SCHEMA,
                 "pid": process.pid,
                 "process_identity": ManagedProcessIdentity.capture(
                     process.pid,
@@ -616,7 +616,7 @@ class SemanticRecallProcessManager:
 
     def _service_identity(self, state: dict[str, Any]) -> ManagedProcessIdentity:
         try:
-            if state.get("schema_version") != _SCHEMA:
+            if state.get("schema_kind") != _SCHEMA:
                 raise ValueError
             identity = ManagedProcessIdentity.from_wire(state.get("process_identity"))
         except ValueError:
@@ -651,7 +651,7 @@ class SemanticRecallProcessManager:
 
     def _verified_install(self) -> dict[str, Any]:
         observation = _read_json(self._install_path, "SEMANTIC-RECALL-INSTALL")
-        if observation.get("schema_version") != _INSTALL_SCHEMA:
+        if observation.get("schema_kind") != _INSTALL_SCHEMA:
             raise RuntimeViolation(
                 "SEMANTIC-RECALL-INSTALL", "semantic recall install is invalid"
             )
@@ -763,7 +763,7 @@ class SemanticRecallProcessManager:
         idle_cpu = profile.get("calibrated_idle_cpu_percent")
         measurement = profile.get("gpu_memory_measurement")
         expected_scalars = (
-            profile.get("schema_version") == _PROFILE_SCHEMA,
+            profile.get("schema_kind") == _PROFILE_SCHEMA,
             profile.get("model_id") == EMBEDDING_MODEL_ID,
             profile.get("model_revision") == EMBEDDING_MODEL_REVISION,
             profile.get("model_sha256") == EMBEDDING_MODEL_SHA256,

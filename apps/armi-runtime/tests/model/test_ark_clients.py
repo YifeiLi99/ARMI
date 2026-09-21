@@ -115,7 +115,7 @@ async def test_official_sdk_reuses_client_across_contexts_and_preserves_wire(
         SimpleNamespace(
             canonical_bytes=json.dumps(
                 {
-                    "schema_version": "armi.model-request.v1",
+                    "schema_kind": "armi.model-request",
                     "compiled_context": {
                         "purpose": "consider_other_human_input",
                         "layers": [],
@@ -249,7 +249,7 @@ async def test_http_rejection_preserves_request_id_and_failed_receipt(status):
             await transport.tokenize(
                 api_key=memoryview(b"test-key"),
                 binding=binding(),
-                request_bytes=b'{"schema_version":"armi.model-request.v1","compiled_context":{"purpose":"consider_other_human_input","layers":[]},"included_context_refs":[]}',
+                request_bytes=b'{"schema_kind":"armi.model-request","compiled_context":{"purpose":"consider_other_human_input","layers":[]},"included_context_refs":[]}',
             )
     assert receipts[-1].outcome == "failed"
     assert receipts[-1].provider_request_id == "rejected-request"

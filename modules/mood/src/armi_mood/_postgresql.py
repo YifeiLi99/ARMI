@@ -216,7 +216,7 @@ class PostgreSQLMoodOwner:
             if home_base == state.home_base:
                 return False
             next_state = MoodState(
-                state.dynamics_version, state.derivation_version, home_base
+                state.dynamics_method, state.derivation_method, home_base
             )
 
         revision_id = uuid7()
@@ -306,9 +306,9 @@ class PostgreSQLMoodOwner:
             raise MoodViolation("MOOD-CANDIDATE")
         derived = derive_semantic_appraisal(event, previous=previous)
         raw_appraisal = semantic_appraisal_to_wire(event)
-        appraisal_mapping_version = "semantic-anchors.v1"
+        appraisal_mapping_method = "semantic-anchors"
         derived_appraisal = semantic_features_to_wire(event.appraisal)
-        derivation_version = "cpm-fuzzy.v4"
+        derivation_method = "cpm-fuzzy"
         components = [
             component_to_wire(item.component, half_life_seconds=item.half_life_seconds)
             for item in derived.components
@@ -317,10 +317,10 @@ class PostgreSQLMoodOwner:
             """UPDATE armi.mood_revisions
                SET mood_appraisal_event_id=%s,mood_episode_id=%s,
                    previous_appraisal_event_id=%s,transition=%s,event_phase=%s,gist=%s,
-                   basis_ordinals=%s,appraisal_payload=%s::jsonb,appraisal_mapping_version=%s,
+                   basis_ordinals=%s,appraisal_payload=%s::jsonb,appraisal_mapping_method=%s,
                    derived_appraisal_payload=%s::jsonb,importance=%s,derived_vad=%s::jsonb,
-                   derived_components=%s::jsonb,derivation_version=%s,
-                   dynamics_version='recency-reappraisal.v1',affect_intensity=%s,
+                   derived_components=%s::jsonb,derivation_method=%s,
+                   dynamics_method='recency-reappraisal',affect_intensity=%s,
                    affect_half_life_seconds=%s,occurred_at=created_at
                WHERE mood_revision_id=%s AND subject_id=%s""",
             (
@@ -332,7 +332,7 @@ class PostgreSQLMoodOwner:
                 event.gist,
                 list(draft.basis_ordinals),
                 rfc8785.dumps(cast(Any, raw_appraisal)).decode("utf-8"),
-                appraisal_mapping_version,
+                appraisal_mapping_method,
                 rfc8785.dumps(cast(Any, derived_appraisal)).decode("utf-8"),
                 derived.importance,
                 rfc8785.dumps(
@@ -343,7 +343,7 @@ class PostgreSQLMoodOwner:
                     }
                 ).decode("utf-8"),
                 rfc8785.dumps(cast(Any, components)).decode("utf-8"),
-                derivation_version,
+                derivation_method,
                 derived.core.intensity,
                 derived.core.half_life_seconds,
                 revision_id,

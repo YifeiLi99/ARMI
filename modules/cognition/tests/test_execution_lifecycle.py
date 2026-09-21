@@ -34,7 +34,7 @@ async def _unit():
 def test_invalid_saved_response_cannot_reach_subject_commit():
     response = json.dumps(
         {
-            "schema_version": "armi.model-response-artifact.v3",
+            "schema_kind": "armi.model-response-artifact",
             "output_text": "invalid output",
         }
     ).encode()
@@ -46,7 +46,7 @@ class _Execution(model.ModelPipeline):
     def __init__(self, finalization: AsyncMock) -> None:
         self._prices = model.PriceCatalog(())
         self.published: list[tuple[str, bytes]] = []
-        self.input_evidence = b'{"schema_version":"armi.model-input-evidence.v1","provider_request":{"instructions":"saved"}}'
+        self.input_evidence = b'{"schema_kind":"armi.model-input-evidence","provider_request":{"instructions":"saved"}}'
         self._failure_notification = AsyncMock()
         self._stop = asyncio.Event()
         self._wakeups = model._LocalWakeups()
@@ -78,7 +78,7 @@ class _Execution(model.ModelPipeline):
         self._finalization = cast(Any, SimpleNamespace(finalize=finalization))
         self.result_bytes = json.dumps(
             {
-                "schema_version": "armi.model-response-artifact.v3",
+                "schema_kind": "armi.model-response-artifact",
                 "output_text": '{"candidate":{}}',
             }
         ).encode()
@@ -300,10 +300,10 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
     pipeline = _Execution(AsyncMock())
     pipeline.adapter.binding = SimpleNamespace(
         provider=provider,
-        response_contract_version=(
-            "armi.other-human-dialogue-candidate.v9"
+        response_contract_kind=(
+            "armi.other-human-dialogue-candidate"
             if other
-            else "armi.creator-cognitive-act-candidate.v8"
+            else "armi.creator-cognitive-act-candidate"
         ),
     )
     pipeline.episode = replace(
@@ -329,7 +329,7 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
             pipeline.adapter.invoke.return_value,
             response_bytes=json.dumps(
                 {
-                    "schema_version": "armi.model-response-artifact.v3",
+                    "schema_kind": "armi.model-response-artifact",
                     "output_text": text,
                 }
             ).encode(),
@@ -347,9 +347,7 @@ async def test_light_check_only_resolves_attention_after_format_validation(
 
     pipeline, record, frozen, response = _format_retry_execution(monkeypatch)
     pipeline.episode = replace(pipeline.episode, purpose="consider_autonomy_check")
-    pipeline.adapter.binding.response_contract_version = (
-        "armi.autonomy-check-candidate.v1"
-    )
+    pipeline.adapter.binding.response_contract_kind = "armi.autonomy-check-candidate"
     pipeline._repository.finalize_autonomy_check = AsyncMock()
     pipeline.adapter.invoke.side_effect = [
         response('{"engage":"true"}'),

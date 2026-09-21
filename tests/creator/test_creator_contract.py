@@ -37,7 +37,6 @@ INSTANT = "2026-07-29T10:00:00.000000Z"
 
 def runtime_status() -> dict[str, object]:
     return {
-        "contract_version": "1.0",
         "environment_id": ENVIRONMENT_ID,
         "runtime_state": "starting",
         "readiness": "not_ready",
@@ -63,7 +62,6 @@ def runtime_status() -> dict[str, object]:
 
 def rejected() -> dict[str, object]:
     return {
-        "contract_version": "1.0",
         "status": "rejected",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": INSTANT,
@@ -356,8 +354,7 @@ class CreatorContractTests(unittest.TestCase):
     ) -> None:
         status = CreatorMaintenanceStatusResponse.model_validate(
             {
-                "contract_version": "1.0",
-                "projection_version": "creator-maintenance.v3",
+                "projection_kind": "creator-maintenance",
                 "session": {
                     "maintenance_session_id": ENVIRONMENT_ID,
                     "trigger_kind": "system_deadline",
@@ -407,7 +404,7 @@ class CreatorContractTests(unittest.TestCase):
 
     def test_runtime_status_rejects_invalid_boundaries(self) -> None:
         invalid: list[tuple[str, object]] = [
-            ("contract_version", "2.0"),
+            ("contract_version", "1.0"),
             ("environment_id", "550e8400-e29b-41d4-a716-446655440000"),
             ("runtime_state", "not_ready"),
             ("readiness", "maintenance"),
@@ -434,7 +431,6 @@ class CreatorContractTests(unittest.TestCase):
 
     def test_operation_waiting_and_failed_states_are_exhaustive(self) -> None:
         common = {
-            "contract_version": "1.0",
             "trace_id": "0123456789abcdef0123456789abcdef",
             "occurred_at": INSTANT,
             "message": "safe operation state",
@@ -463,7 +459,6 @@ class CreatorContractTests(unittest.TestCase):
 
     def test_session_responses_require_the_authoritative_default_scene(self) -> None:
         metadata = {
-            "contract_version": "1.0",
             "environment_id": ENVIRONMENT_ID,
             "creator_party_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab",
             "default_scene_key": "default",
@@ -487,12 +482,11 @@ class CreatorContractTests(unittest.TestCase):
 
     def test_projection_event_response_is_strict(self) -> None:
         sample = {
-            "contract_version": "1.0",
             "event_id": f"sse-v1.{'a' * 22}.1",
             "event_kind": "scene.timeline.invalidated",
             "resource_kind": "scene_timeline",
             "resource_ref": "default",
-            "projection_version": "scene-timeline.v6",
+            "projection_kind": "scene-timeline",
             "occurred_at": INSTANT,
         }
         model = CreatorProjectionEventResponse.model_validate(sample)
@@ -501,7 +495,7 @@ class CreatorContractTests(unittest.TestCase):
             ("event_id", "sse-v1.invalid.1"),
             ("event_kind", "timeline.item"),
             ("resource_kind", "subject"),
-            ("projection_version", "scene-timeline.v1"),
+            ("projection_kind", "scene-timeline.v1"),
             ("occurred_at", "2026-07-29T10:00:00Z"),
         ):
             with (
@@ -515,8 +509,7 @@ class CreatorContractTests(unittest.TestCase):
     ) -> None:
         current = CreatorRelationshipCurrentResponse.model_validate(
             {
-                "contract_version": "1.0",
-                "projection_version": "creator-relationship.v3",
+                "projection_kind": "creator-relationship",
                 "relationship": {
                     "relationship_id": ENVIRONMENT_ID,
                     "current_revision_id": ENVIRONMENT_ID,
@@ -576,7 +569,6 @@ class CreatorContractTests(unittest.TestCase):
             )
         boundary = CreatorRelationshipBoundaryRequest.model_validate(
             {
-                "contract_version": "1.0",
                 "kind": "exit",
                 "action": "end_contact",
                 "summary": "结束联系",
@@ -586,7 +578,6 @@ class CreatorContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             CreatorRelationshipBoundaryRequest.model_validate(
                 {
-                    "contract_version": "1.0",
                     "kind": "contact",
                     "action": "end_contact",
                     "summary": "错误组合",
@@ -595,7 +586,6 @@ class CreatorContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             CreatorRelationshipBoundaryRequest.model_validate(
                 {
-                    "contract_version": "1.0",
                     "kind": "contact",
                     "action": "restrict",
                     "summary": "   ",
@@ -605,12 +595,11 @@ class CreatorContractTests(unittest.TestCase):
     def test_relationship_projection_event_is_exact(self) -> None:
         event = CreatorProjectionEventResponse.model_validate(
             {
-                "contract_version": "1.0",
                 "event_id": f"sse-v1.{'a' * 22}.1",
                 "event_kind": "relationship.invalidated",
                 "resource_kind": "relationship",
                 "resource_ref": ENVIRONMENT_ID,
-                "projection_version": "creator-relationship.v3",
+                "projection_kind": "creator-relationship",
                 "occurred_at": INSTANT,
             }
         )
@@ -651,8 +640,7 @@ class CreatorContractTests(unittest.TestCase):
     def test_life_material_projection_exposes_only_daily_creator_fields(self) -> None:
         material = CreatorLifeMaterialResponse.model_validate(
             {
-                "contract_version": "1.0",
-                "projection_version": "creator-life-material.v1",
+                "projection_kind": "creator-life-material",
                 "material_id": ENVIRONMENT_ID,
                 "material_kind": "diary",
                 "revision_no": 2,
@@ -708,8 +696,7 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(parsed.message, "Creator 原始输入")
         page = SceneTimelinePageResponse.model_validate(
             {
-                "contract_version": "1.0",
-                "projection_version": "scene-timeline.v6",
+                "projection_kind": "scene-timeline",
                 "scene_key": "default",
                 "items": [item],
             }
@@ -730,8 +717,7 @@ class CreatorContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             SceneTimelinePageResponse.model_validate(
                 {
-                    "contract_version": "1.0",
-                    "projection_version": "scene-timeline.v1",
+                    "projection_kind": "scene-timeline.v1",
                     "scene_key": "default",
                     "items": [],
                 }

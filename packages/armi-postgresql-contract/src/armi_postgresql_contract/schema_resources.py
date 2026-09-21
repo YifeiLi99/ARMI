@@ -8,7 +8,6 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
-BASELINE_IDENTITY: Final = "armi.schema-baseline.v71"
 EXPECTED_REVISION: Final = "0000"
 BASELINE_DOCUMENTS: Final = (
     "10_runtime_and_subject.sql",
@@ -102,7 +101,6 @@ def verify_revision_source(root: Path | None = None) -> None:
 
 __all__ = (
     "BASELINE_DOCUMENTS",
-    "BASELINE_IDENTITY",
     "EXPECTED_REVISION",
     "role_policy_digest",
     "schema_resource_digest",

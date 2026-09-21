@@ -1,5 +1,5 @@
 {
-  "schema_version": "armi.toolchain-manifest.v1",
+  "schema_kind": "armi.toolchain-manifest",
   "target": {
     "operating_system": "windows",
     "architecture": "x86_64"

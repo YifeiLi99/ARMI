@@ -54,7 +54,7 @@ def binding(provider):
 
 def request():
     document = {
-        "schema_version": "armi.model-request.v1",
+        "schema_kind": "armi.model-request",
         "compiled_context": {
             "purpose": "consider_other_human_input",
             "layers": [
@@ -318,7 +318,7 @@ def test_switching_binding_preserves_purpose_contract_and_voice(
         credential_locator=f"model.{provider}_api_key",
         credential_purpose=f"model.request.{provider}",
     )
-    manifest["active_binding"] = f"armi.model-adapter.{provider}-responses-v1"
+    manifest["active_binding"] = f"armi.model-adapter.{provider}-responses"
     path = tmp_path / "bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     assert load_active_model_binding(path).model_id == model
@@ -326,7 +326,7 @@ def test_switching_binding_preserves_purpose_contract_and_voice(
         current = load_purpose_binding(purpose, path)
         original = load_purpose_binding(purpose)
         assert current.profile == original.profile
-        assert current.response_contract_version == original.response_contract_version
+        assert current.response_contract_kind == original.response_contract_kind
         assert current.output_token_limit == original.output_token_limit
     assert load_voice_model_binding(path) == load_voice_model_binding()
 
@@ -346,7 +346,7 @@ def test_optional_state_can_be_omitted_but_required_and_unknown_fields_stay_stri
     )
 
     selected = load_purpose_binding(purpose)
-    schema = candidate_schema(selected.response_contract_version, purpose=purpose)
+    schema = candidate_schema(selected.response_contract_kind, purpose=purpose)
     renderer = CompatibleStructuredTransport(
         schema, instructions="", schema_name="test"
     )
@@ -355,7 +355,7 @@ def test_optional_state_can_be_omitted_but_required_and_unknown_fields_stay_stri
     validator.validate(value)
     parse_candidate(
         json.dumps({"decision": {"kind": "reply", "content": "在呢"}}).encode(),
-        expected_version=selected.response_contract_version,
+        expected_version=selected.response_contract_kind,
         allowed_context_refs=frozenset(),
     )
     # The independent strict-provider path keeps its original all-required view.
@@ -381,7 +381,7 @@ def test_every_purpose_uses_the_same_generation_schema_for_both_providers():
     manifest = cast(dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml")))
     for purpose in manifest["purpose_profiles"]:
         selected = load_purpose_binding(purpose)
-        schema = candidate_schema(selected.response_contract_version, purpose=purpose)
+        schema = candidate_schema(selected.response_contract_kind, purpose=purpose)
         renderer = CompatibleStructuredTransport(
             schema, instructions="business instructions", schema_name="test"
         )
@@ -444,7 +444,7 @@ def test_dialogue_example_covers_flat_appraisal_with_bound_refs(
     )
 
     selected = load_purpose_binding(purpose)
-    schema = candidate_schema(selected.response_contract_version, purpose=purpose)
+    schema = candidate_schema(selected.response_contract_kind, purpose=purpose)
     renderer = CompatibleStructuredTransport(
         schema, instructions="", schema_name="test"
     )
@@ -505,7 +505,7 @@ def test_prefixed_event_fields_keep_coping_standards_and_trajectory_constraints(
 
     selected = load_purpose_binding(purpose)
     renderer = CompatibleStructuredTransport(
-        candidate_schema(selected.response_contract_version, purpose=purpose),
+        candidate_schema(selected.response_contract_kind, purpose=purpose),
         instructions="",
         schema_name="test",
     )
@@ -544,12 +544,12 @@ def test_prefixed_event_fields_keep_coping_standards_and_trajectory_constraints(
     validator.validate(value)
     response = json.dumps(
         {
-            "schema_version": "armi.model-response-artifact.v3",
+            "schema_kind": "armi.model-response-artifact",
             "output_text": json.dumps(value),
         }
     ).encode()
     native = model_response_candidate(
-        response, expected_version=selected.response_contract_version
+        response, expected_version=selected.response_contract_kind
     )
     assert native["appraisal"]["appraisal"]["coping"] == {
         "response_access": "direct",
@@ -562,7 +562,7 @@ def test_prefixed_event_fields_keep_coping_standards_and_trajectory_constraints(
     assert native["appraisal"]["trajectory"]["episode_ref"] == "ctx:2"
     parse_candidate(
         json.dumps(native).encode(),
-        expected_version=selected.response_contract_version,
+        expected_version=selected.response_contract_kind,
         allowed_context_refs=frozenset({"ctx:1", "ctx:2"}),
     )
     for extra in (
@@ -597,7 +597,7 @@ def test_mood_instructions_use_actual_prefixed_fields_after_rendering():
 
     selected = load_purpose_binding("consider_creator_input")
     renderer = CompatibleStructuredTransport(
-        candidate_schema(selected.response_contract_version),
+        candidate_schema(selected.response_contract_kind),
         instructions=MOOD_APPRAISAL_INSTRUCTIONS,
         schema_name="test",
     )
@@ -624,7 +624,7 @@ def test_relationship_generation_requires_interpretation_without_relaxing_backen
     )
 
     selected = load_purpose_binding("consider_other_human_input")
-    schema = candidate_schema(selected.response_contract_version)
+    schema = candidate_schema(selected.response_contract_kind)
     renderer = CompatibleStructuredTransport(
         schema, instructions="", schema_name="test"
     )
@@ -652,7 +652,7 @@ def test_relationship_generation_requires_interpretation_without_relaxing_backen
     # The common backend stays unchanged; generation now selects a safe subset.
     parse_candidate(
         json.dumps(value["candidate"]).encode(),
-        expected_version=selected.response_contract_version,
+        expected_version=selected.response_contract_kind,
         allowed_context_refs=frozenset(),
     )
     assert not Draft202012Validator(output_schema).is_valid(
@@ -666,7 +666,7 @@ def test_relationship_generation_requires_interpretation_without_relaxing_backen
     )
     parse_candidate(
         json.dumps(value["candidate"]).encode(),
-        expected_version=selected.response_contract_version,
+        expected_version=selected.response_contract_kind,
         allowed_context_refs=frozenset(),
     )
     assert "interpretation" in wire["instructions"]
@@ -678,7 +678,7 @@ def test_relationship_generation_requires_interpretation_without_relaxing_backen
     with pytest.raises(ModelViolation):
         parse_candidate(
             json.dumps(value["candidate"]).encode(),
-            expected_version=selected.response_contract_version,
+            expected_version=selected.response_contract_kind,
             allowed_context_refs=frozenset(),
         )
 

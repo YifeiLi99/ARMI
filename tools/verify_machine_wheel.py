@@ -36,7 +36,7 @@ async def verify(root: Path, executable: Path | None = None) -> None:
     config.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v10",
+                "schema_kind": "armi.admin-config",
                 "operator_id": "wheel-verifier",
                 "authorized_operations": ["capabilities", "environment_status"],
                 "environment_kind": "active",
@@ -71,9 +71,7 @@ async def verify(root: Path, executable: Path | None = None) -> None:
     assert cli["status"] == "succeeded"
     binding = root / "mcp.yaml"
     binding.write_text(
-        json.dumps(
-            {"schema_version": "armi.mcp-binding.v1", "admin_config": str(config)}
-        ),
+        json.dumps({"schema_kind": "armi.mcp-binding", "admin_config": str(config)}),
         encoding="utf-8",
     )
     async with Client(

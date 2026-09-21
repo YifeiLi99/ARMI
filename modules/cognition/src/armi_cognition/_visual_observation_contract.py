@@ -11,14 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 from ._strict_model_json import strict_model_value
 
-VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate.v4"
+VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate"
 
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return VISUAL_OBSERVATION_CANDIDATE_VERSION
 
 

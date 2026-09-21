@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-SLEEP_DECISION_CANDIDATE_VERSION = "armi.sleep-decision-candidate.v1"
+SLEEP_DECISION_CANDIDATE_VERSION = "armi.sleep-decision-candidate"
 
 
 class SleepDecisionCandidate(BaseModel):
@@ -14,7 +14,7 @@ class SleepDecisionCandidate(BaseModel):
     kind: Literal["sleep", "stay_awake", "defer", "need_information"]
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return SLEEP_DECISION_CANDIDATE_VERSION
 
 

@@ -14,9 +14,9 @@ describe("generated Creator OpenAPI types", () => {
     expectTypeOf<ReadyResponse["status"]>().toEqualTypeOf<
       "ready" | "not_ready"
     >();
-    expectTypeOf<
-      RuntimeStatusResponse["contract_version"]
-    >().toEqualTypeOf<"1.0">();
+    expectTypeOf<"contract_version">().not.toMatchTypeOf<
+      keyof RuntimeStatusResponse
+    >();
     expectTypeOf<RuntimeStatusResponse["runtime_state"]>().toEqualTypeOf<
       | "unborn"
       | "starting"

@@ -335,7 +335,7 @@ class ExternalContentPipeline:
             request_evidence = await self._publish(
                 json.dumps(
                     {
-                        "schema_version": "armi.external-content-recognition-request.v2",
+                        "schema_kind": "armi.external-content-recognition-request",
                         "provider": provider,
                         "model_id": model_id,
                         "part_kind": part.kind.value,
@@ -362,7 +362,7 @@ class ExternalContentPipeline:
                             )
                         ],
                         "visual_conversion": (
-                            "armi.image-visual-input.v1"
+                            "armi.image-visual-input"
                             if part.kind is ExternalMessagePartKind.IMAGE
                             else None
                         ),

@@ -30,7 +30,7 @@ UpdateAction = Literal["status", "check", "prepare", "apply", "automatic"]
 
 class UpdateManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.update.v1"]
+    schema_kind: Literal["armi.update"]
     name: str
     publisher: str
     version: str
@@ -64,7 +64,7 @@ class UpdateManifest(BaseModel):
 
 class UpdateState(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    schema_version: Literal["armi.update-state.v1"] = "armi.update-state.v1"
+    schema_kind: Literal["armi.update-state"] = "armi.update-state"
     automatic: bool = True
     checked_at: float | None = None
     phase: Literal[

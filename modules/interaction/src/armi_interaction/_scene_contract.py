@@ -11,8 +11,8 @@ from uuid import UUID
 from armi_kernel.application import ArtifactRef, AuditResultStatus
 from armi_kernel.contracts import Instant, OpaqueCursor, TraceId
 
-PROJECTION_VERSION = "scene-timeline.v6"
-SCENE_COLLECTION_PROJECTION_VERSION = "creator-scenes.v1"
+PROJECTION_KIND = "scene-timeline"
+SCENE_COLLECTION_PROJECTION_KIND = "creator-scenes"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:CON-SCENE|CON-QUERY|SCENE)-[A-Z0-9-]+$", re.ASCII)
@@ -90,14 +90,14 @@ class CreatorSceneView:
 @dataclass(frozen=True, slots=True)
 class CreatorSceneCollection:
     scenes: tuple[CreatorSceneView, ...]
-    projection_version: str = SCENE_COLLECTION_PROJECTION_VERSION
+    projection_kind: str = SCENE_COLLECTION_PROJECTION_KIND
 
     def __post_init__(self) -> None:
         if (
             type(self.scenes) is not tuple
             or not self.scenes
             or any(type(scene) is not CreatorSceneView for scene in self.scenes)
-            or self.projection_version != SCENE_COLLECTION_PROJECTION_VERSION
+            or self.projection_kind != SCENE_COLLECTION_PROJECTION_KIND
             or sum(scene.is_default for scene in self.scenes) != 1
             or tuple(scene.scene_key.value for scene in self.scenes)
             != tuple(
@@ -252,7 +252,7 @@ class SceneTimelinePage:
     scene_key: SceneKey
     items: tuple[SceneTimelineItem, ...]
     next_cursor: OpaqueCursor | None = None
-    projection_version: str = PROJECTION_VERSION
+    projection_kind: str = PROJECTION_KIND
 
     def __post_init__(self) -> None:
         if type(self.scene_key) is not SceneKey:
@@ -263,7 +263,7 @@ class SceneTimelinePage:
             raise SceneQueryViolation("CON-QUERY-PAGE")
         if self.next_cursor is not None and type(self.next_cursor) is not OpaqueCursor:
             raise SceneQueryViolation("CON-QUERY-PAGE")
-        if self.projection_version != PROJECTION_VERSION:
+        if self.projection_kind != PROJECTION_KIND:
             raise SceneQueryViolation("CON-QUERY-PROJECTION")
         order = tuple(
             (item.occurred_at.value, item.timeline_item_id.value.bytes)
@@ -288,8 +288,8 @@ class SceneTimelineCodexTaskProjectionPort(Protocol):
 
 
 __all__ = (
-    "PROJECTION_VERSION",
-    "SCENE_COLLECTION_PROJECTION_VERSION",
+    "PROJECTION_KIND",
+    "SCENE_COLLECTION_PROJECTION_KIND",
     "CreatorSceneCollection",
     "CreatorSceneCreateCommand",
     "CreatorScenePort",

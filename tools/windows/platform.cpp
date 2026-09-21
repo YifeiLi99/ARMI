@@ -220,7 +220,7 @@ void require_idle_environments() {
     auto index = root / L"control/environments.yaml";
     if (!std::filesystem::exists(index)) return;
     auto registry = read_json(index);
-    if (registry.GetNamedString(L"schema_version") != L"armi.installation-environments.v2") {
+    if (registry.GetNamedString(L"schema_kind") != L"armi.installation-environments") {
         throw hresult_invalid_argument(L"MSIX-ENVIRONMENT-REGISTRY");
     }
     for (auto const& value : registry.GetNamedArray(L"environments")) {
@@ -392,7 +392,7 @@ JsonObject candidate(std::wstring const& path, bool allowCurrent = false) {
     if (!currentFile) throw hresult_invalid_argument(L"MSIX-CURRENT-CONTRACT");
     std::string currentContract((std::istreambuf_iterator<char>(currentFile)), std::istreambuf_iterator<char>());
     auto currentDatabase = JsonObject::Parse(to_hstring(currentContract)).GetNamedObject(L"database");
-    for (auto field : {L"postgresql", L"vector", L"pg_trgm", L"baseline", L"schema_digest", L"role_policy_digest"}) {
+    for (auto field : {L"postgresql", L"vector", L"pg_trgm", L"schema_digest", L"role_policy_digest"}) {
         if (database.GetNamedString(field) != currentDatabase.GetNamedString(field)) {
             throw hresult_invalid_argument(L"MSIX-DATABASE-INCOMPATIBLE");
         }

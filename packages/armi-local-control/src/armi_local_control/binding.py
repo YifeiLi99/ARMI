@@ -42,7 +42,7 @@ class DelegateBinding(BaseModel):
 class InteractionAccess(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal["armi.interaction-access.v1"]
+    schema_kind: Literal["armi.interaction-access"]
     environment_id: Uuid7
     delegates: tuple[DelegateBinding, ...] = Field(min_length=1)
 
@@ -59,7 +59,7 @@ class InteractionAccess(BaseModel):
 
 
 class InteractionClientBinding(DelegateBinding):
-    schema_version: Literal["armi.interaction-client.v1"]
+    schema_kind: Literal["armi.interaction-client"]
     environment_id: Uuid7
     environment_root: AbsolutePath
     endpoint: str

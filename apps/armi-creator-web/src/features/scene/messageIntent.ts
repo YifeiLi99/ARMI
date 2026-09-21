@@ -27,7 +27,7 @@ export function validateCreatorMessage(message: string): MessageValidation {
   if (message.trim().length === 0) {
     return { valid: false, message: "请输入至少一个非空白字符。" };
   }
-  const request = JSON.stringify({ contract_version: "1.0", message });
+  const request = JSON.stringify({ message });
   if (new TextEncoder().encode(request).byteLength > MAX_REQUEST_BYTES) {
     return { valid: false, message: "输入超过 256 KiB 接纳上限。" };
   }

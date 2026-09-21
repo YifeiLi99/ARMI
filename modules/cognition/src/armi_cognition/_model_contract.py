@@ -108,11 +108,11 @@ from ._visual_observation_contract import (
     visual_observation_candidate_schema,
 )
 
-MODEL_BINDING_VERSION = "armi.model-bindings.v4"
-MODEL_REQUEST_VERSION = "armi.model-request.v1"
-CANDIDATE_VERSION = "armi.cognition-candidate.v18"
+MODEL_BINDING_VERSION = "armi.model-bindings"
+MODEL_REQUEST_VERSION = "armi.model-request"
+CANDIDATE_VERSION = "armi.cognition-candidate"
 ACTIVE_MODEL_ID = "qwen3.8-flash"
-ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-responses-v1"
+ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-responses"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
 
 ProposalRef = Annotated[
@@ -178,7 +178,7 @@ class CandidateUnderstanding(_StrictModel, frozen=True):
 
 
 class SelfState(_StrictModel, frozen=True):
-    schema_version: Literal["armi.self.v1"]
+    schema_kind: Literal["armi.self"]
     identity_kind: Literal["electronic_person"]
     creator_role_awareness: Literal["unique_primary_creator"]
     name: (
@@ -216,7 +216,7 @@ class SelfState(_StrictModel, frozen=True):
 
 
 class LifeModeState(_StrictModel, frozen=True):
-    schema_version: Literal["armi.life-mode.v1"]
+    schema_kind: Literal["armi.life-mode"]
     mode: Literal["awake"]
     active_activities: tuple[str, ...] = Field(max_length=0)
 
@@ -397,7 +397,7 @@ class CandidateUncertainty(_StrictModel, frozen=True):
 class CognitionCandidate(_StrictModel, frozen=True):
     mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
-    schema_version: Literal["armi.cognition-candidate.v18"]
+    schema_kind: Literal["armi.cognition-candidate"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -429,11 +429,11 @@ def candidate_schema(
     *,
     purpose: str | None = None,
 ) -> dict[str, Any]:
-    if version == "armi.autonomy-check-candidate.v1":
+    if version == "armi.autonomy-check-candidate":
         from ._autonomy_check_contract import autonomy_check_schema
 
         return autonomy_check_schema()
-    if version == "armi.owner-reflection-candidate.v4":
+    if version == "armi.owner-reflection-candidate":
         from ._reflection_contract import owner_reflection_schema
 
         return cast(
@@ -498,7 +498,7 @@ def parse_candidate(
             )
         elif (
             candidate_object is not None
-            and expected_version == "armi.owner-reflection-candidate.v4"
+            and expected_version == "armi.owner-reflection-candidate"
         ):
             from ._reflection_contract import parse_owner_reflection
 
@@ -512,7 +512,7 @@ def parse_candidate(
             and expected_version == MAINTENANCE_WORK_CANDIDATE_VERSION
         ):
             maintenance_value = dict(candidate_object)
-            maintenance_value.pop("schema_version", None)
+            maintenance_value.pop("schema_kind", None)
             candidate = parse_maintenance_work_candidate(
                 maintenance_value, purpose=purpose
             )
@@ -521,28 +521,28 @@ def parse_candidate(
             and expected_version == SLEEP_DECISION_CANDIDATE_VERSION
         ):
             sleep_value = dict(candidate_object)
-            sleep_value.pop("schema_version", None)
+            sleep_value.pop("schema_kind", None)
             candidate = parse_sleep_decision_candidate(sleep_value)
         elif (
             candidate_object is not None
             and expected_version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
         ):
             autonomous_value = dict(candidate_object)
-            autonomous_value.pop("schema_version", None)
+            autonomous_value.pop("schema_kind", None)
             candidate = parse_autonomous_activity_candidate(autonomous_value)
         elif (
             candidate_object is not None
             and expected_version == VISUAL_OBSERVATION_CANDIDATE_VERSION
         ):
             visual_value = dict(candidate_object)
-            visual_value.pop("schema_version", None)
+            visual_value.pop("schema_kind", None)
             return parse_visual_observation_candidate(visual_value)
         elif (
             candidate_object is not None
             and expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         ):
             other_human_value = dict(candidate_object)
-            other_human_value.pop("schema_version", None)
+            other_human_value.pop("schema_kind", None)
             candidate = parse_other_human_dialogue_candidate_value(
                 other_human_value,
                 allowed_context_refs=allowed_context_refs,
@@ -682,92 +682,92 @@ def load_active_binding(
     except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     if (
-        value.get("schema_version") != MODEL_BINDING_VERSION
+        value.get("schema_kind") != MODEL_BINDING_VERSION
         or not _supported_text_binding(value.get("active_binding"), binding)
         or binding.get("version_policy") != ACTIVE_VERSION_POLICY
-        or binding.get("response_contract_version") != CANDIDATE_VERSION
+        or binding.get("response_contract_kind") != CANDIDATE_VERSION
         or binding.get("response_model_identity_required") is not True
         or len(value.get("bindings", ())) != 1
         or value.get("purpose_profiles")
         != {
             "consider_creator_input": {
                 "profile": "creator_cognitive_act",
-                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
+                "response_contract_kind": CREATOR_COGNITIVE_ACT_VERSION,
                 "output_token_limit": 2048,
             },
             "consider_codex_result": {
                 "profile": "codex_result",
-                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
+                "response_contract_kind": CREATOR_COGNITIVE_ACT_VERSION,
                 "output_token_limit": 4096,
             },
             "consider_codex_task": {
                 "profile": "codex_task",
-                "response_contract_version": CANDIDATE_VERSION,
+                "response_contract_kind": CANDIDATE_VERSION,
                 "output_token_limit": 1024,
             },
             "consider_life_query_result": {
                 "profile": "creator_cognitive_act",
-                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
+                "response_contract_kind": CREATOR_COGNITIVE_ACT_VERSION,
                 "output_token_limit": 2048,
             },
             "consider_other_human_input": {
                 "profile": "other_human_dialogue",
-                "response_contract_version": OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+                "response_contract_kind": OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
                 "output_token_limit": 2048,
             },
             "consider_autonomous_life": {
                 "profile": "autonomous_activity",
-                "response_contract_version": AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+                "response_contract_kind": AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
                 "output_token_limit": 4096,
             },
             "consider_sleep": {
                 "profile": "sleep_decision",
-                "response_contract_version": SLEEP_DECISION_CANDIDATE_VERSION,
+                "response_contract_kind": SLEEP_DECISION_CANDIDATE_VERSION,
                 "output_token_limit": 256,
             },
             "consider_visual_observation": {
                 "profile": "visual_observation",
-                "response_contract_version": VISUAL_OBSERVATION_CANDIDATE_VERSION,
+                "response_contract_kind": VISUAL_OBSERVATION_CANDIDATE_VERSION,
                 "output_token_limit": 768,
             },
             "consider_autonomy_check": {
                 "profile": "autonomy_check",
-                "response_contract_version": "armi.autonomy-check-candidate.v1",
+                "response_contract_kind": "armi.autonomy-check-candidate",
                 "output_token_limit": 64,
             },
             "consider_requested_visual_observation": {
                 "profile": "creator_cognitive_act",
-                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
+                "response_contract_kind": CREATOR_COGNITIVE_ACT_VERSION,
                 "output_token_limit": 2048,
             },
             "maintain_subjective_memory": {
                 "profile": "memory_maintenance",
-                "response_contract_version": MAINTENANCE_WORK_CANDIDATE_VERSION,
+                "response_contract_kind": MAINTENANCE_WORK_CANDIDATE_VERSION,
                 "output_token_limit": 1024,
             },
             "perform_subject_self_check": {
                 "profile": "subject_self_check",
-                "response_contract_version": MAINTENANCE_WORK_CANDIDATE_VERSION,
+                "response_contract_kind": MAINTENANCE_WORK_CANDIDATE_VERSION,
                 "output_token_limit": 1024,
             },
             "reflect_self": {
                 "profile": "reflect_self",
-                "response_contract_version": "armi.owner-reflection-candidate.v4",
+                "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 2048,
             },
             "reflect_mind": {
                 "profile": "reflect_mind",
-                "response_contract_version": "armi.owner-reflection-candidate.v4",
+                "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 2048,
             },
             "reflect_mood": {
                 "profile": "reflect_mood",
-                "response_contract_version": "armi.owner-reflection-candidate.v4",
+                "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 1024,
             },
             "reflect_prompt": {
                 "profile": "reflect_prompt",
-                "response_contract_version": "armi.owner-reflection-candidate.v4",
+                "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 1024,
             },
         }
@@ -782,13 +782,13 @@ def _supported_text_binding(adapter: object, binding: dict[str, Any]) -> bool:
         return False
     identities = {
         "qwen": (
-            "armi.model-adapter.qwen-responses-v1",
+            "armi.model-adapter.qwen-responses",
             "model.qwen_api_key",
             "model.request.qwen",
             "armi.model.qwen-api-key.v1",
         ),
         "deepseek": (
-            "armi.model-adapter.deepseek-responses-v1",
+            "armi.model-adapter.deepseek-responses",
             "model.deepseek_api_key",
             "model.request.deepseek",
             "armi.model.deepseek-api-key.v1",
@@ -851,8 +851,8 @@ def load_voice_binding(path: Path | None = None) -> ModelBinding:
     except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     if (
-        value.get("schema_version") != MODEL_BINDING_VERSION
-        or voice.get("response_contract_version") != CREATOR_VOICE_ACT_VERSION
+        value.get("schema_kind") != MODEL_BINDING_VERSION
+        or voice.get("response_contract_kind") != CREATOR_VOICE_ACT_VERSION
         or voice.get("output_token_limit") != 512
         or voice.get("thinking") != "disabled"
         or voice.get("tools") != "disabled"
@@ -869,8 +869,7 @@ def _binding_from_manifest(binding: dict[str, Any]) -> ModelBinding:
         version_policy=binding["version_policy"],
         response_model_identity_required=binding["response_model_identity_required"],
         profile=binding["profile"],
-        request_contract_version=binding["request_contract_version"],
-        response_contract_version=binding["response_contract_version"],
+        response_contract_kind=binding["response_contract_kind"],
         credential_identity=binding["credential_identity"],
         input_token_limit=binding["input_token_limit"],
         output_token_limit=binding["output_token_limit"],
@@ -894,19 +893,18 @@ def build_request_bytes(
     except UnicodeDecodeError, json.JSONDecodeError:
         raise ModelViolation("MODEL-CONTEXT") from None
     value: dict[str, object] = {
-        "schema_version": MODEL_REQUEST_VERSION,
+        "schema_kind": MODEL_REQUEST_VERSION,
         "binding": {
             "provider": binding.provider,
             "model_id": binding.model_id,
             "profile": binding.profile,
             "version_policy": binding.version_policy,
-            "request_contract_version": binding.request_contract_version,
-            "response_contract_version": binding.response_contract_version,
+            "response_contract_kind": binding.response_contract_kind,
         },
         "context_digest": context_digest.value,
         "compiled_context": compiled_value,
         "output_contract": {
-            "schema_version": binding.response_contract_version,
+            "schema_kind": binding.response_contract_kind,
         },
     }
     value["candidate_base"] = {

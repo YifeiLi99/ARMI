@@ -76,7 +76,7 @@ def _snapshot(
             creator_prompt=creator_prompt,
             subject_prompt=subject_prompt,
             policy_version="context-policy.v1",
-            mechanism_identity="armi.context-compiler.layered-v3",
+            mechanism_identity="armi.context-compiler.layered",
             trace_id=TraceId("1" * 32),
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
             consideration_signals=(),
@@ -113,7 +113,7 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
         "review_at": "2026-01-01T00:05:00+00:00",
     }
     mind = {
-        "schema_version": "armi.mind.v4",
+        "schema_kind": "armi.mind",
         "motivation_states": [],
         "thoughts": [],
         "concerns": [
@@ -277,7 +277,7 @@ def test_codex_task_context_exposes_registered_manifest_digest() -> None:
         snapshot,
         rfc8785.dumps(
             {
-                "schema_version": "armi.codex-task-source.v3",
+                "schema_kind": "armi.codex-task-source",
                 "objective": "收集资料",
             }
         ),
@@ -338,7 +338,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
             2,
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.mind.v4",
+                    "schema_kind": "armi.mind",
                     "thoughts": [],
                     "concerns": [],
                     "motivation_states": [],
@@ -351,7 +351,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
             3,
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.mood-snapshot.v2",
+                    "schema_kind": "armi.mood-snapshot",
                     "active_episodes": [],
                     "current": {"valence": 0, "arousal": 0, "dominance": 0},
                 }
@@ -447,7 +447,7 @@ def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> No
         b"fixed prompt",
         (),
         None,
-        b'{"schema_version":"armi.subject-prompt.v1"}',
+        b'{"schema_kind":"armi.subject-prompt"}',
     )
     item = next(value for value in first.items if value.item_kind == "subject_prompt")
     assert item.source.reference == revision_id
@@ -473,7 +473,7 @@ def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> No
         b"fixed prompt",
         (),
         None,
-        b'{"schema_version":"armi.subject-prompt.v1","revision":2}',
+        b'{"schema_kind":"armi.subject-prompt","revision":2}',
     )
     next_item = next(
         value for value in second.items if value.item_kind == "subject_prompt"
@@ -492,7 +492,7 @@ def test_capability_state_separates_availability_authorization_and_desire() -> N
         2,
         rfc8785.dumps(
             {
-                "schema_version": "armi.capability-state.v2",
+                "schema_kind": "armi.capability-state",
                 "capability_ref": str(unavailable_id),
                 "capability_kind": "codex.delegated-work",
                 "operation": "execute",
@@ -511,7 +511,7 @@ def test_capability_state_separates_availability_authorization_and_desire() -> N
         2,
         rfc8785.dumps(
             {
-                "schema_version": "armi.capability-state.v2",
+                "schema_kind": "armi.capability-state",
                 "capability_ref": str(denied_id),
                 "capability_kind": "codex.delegated-work",
                 "operation": "execute",

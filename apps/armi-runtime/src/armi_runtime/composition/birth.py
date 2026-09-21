@@ -70,7 +70,7 @@ class BirthTransaction:
     async def birth(self, manifest: BirthManifest) -> BirthResult:
         anchor_bytes = rfc8785.dumps(
             {
-                "schema_version": manifest.personality_anchor.schema_version,
+                "schema_kind": manifest.personality_anchor.schema_kind,
                 "voice_style": manifest.personality_anchor.voice_style,
                 "traits": list(manifest.personality_anchor.traits),
             }

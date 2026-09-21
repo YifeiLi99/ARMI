@@ -24,8 +24,7 @@ function promptResponse(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-prompt.v1",
+    projection_kind: "creator-prompt",
     prompt_document_id: DOCUMENT_ID,
     prompt_kind: "creator_guidance",
     status: "active",
@@ -109,12 +108,10 @@ describe("Creator Prompt panel", () => {
 
     expect(bodies).toEqual([
       {
-        contract_version: "1.0",
         expected_revision_id: null,
         content: "请区分事实与推测。",
       },
       {
-        contract_version: "1.0",
         expected_revision_id: FIRST_REVISION,
       },
     ]);

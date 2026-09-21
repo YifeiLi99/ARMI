@@ -15,7 +15,7 @@ def write_resources(root: Path) -> None:
     static.mkdir(parents=True)
     (static / "index.html").write_bytes(content)
     manifest = {
-        "schema_version": "armi.creator-static.v1",
+        "schema_kind": "armi.creator-static",
         "base_path": "/ui/",
         "entrypoint": "static/index.html",
         "runtime_discovery": False,

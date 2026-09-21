@@ -172,7 +172,6 @@ def verify(
             "/v1/scenes/default/codex-tasks",
             headers={**headers, "Idempotency-Key": f"live-codex-{uuid7()}"},
             body={
-                "contract_version": "1.0",
                 "objective": objective,
                 "model_id": model_id,
                 "reasoning_effort": reasoning_effort,

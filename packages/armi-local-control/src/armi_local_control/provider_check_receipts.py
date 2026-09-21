@@ -23,10 +23,7 @@ class ProviderCheckReceipts:
         self, *, verification_id: str, credential_name: str, call: dict[str, object]
     ) -> None:
         call_id = UUID(str(call["call_id"]))
-        if (
-            call_id.version != 7
-            or call.get("schema_version") != "armi.provider-call.v1"
-        ):
+        if call_id.version != 7 or call.get("schema_kind") != "armi.provider-call":
             raise ValueError("USAGE-ADMIN-RECEIPT")
         if UUID(verification_id).version != 7:
             raise ValueError("USAGE-ADMIN-RECEIPT")
@@ -41,7 +38,7 @@ class ProviderCheckReceipts:
                 incarnation=1,
             )
         document = {
-            "schema_version": "armi.admin-provider-call.v1",
+            "schema_kind": "armi.admin-provider-call",
             "verification_id": verification_id,
             "credential_name": credential_name,
             "call": call,
@@ -85,9 +82,9 @@ class ProviderCheckReceipts:
                 raise ValueError("USAGE-ADMIN-RECEIPT")
             call = cast(dict[str, object], call)
             if (
-                row.get("schema_version") != "armi.admin-provider-call.v1"
+                row.get("schema_kind") != "armi.admin-provider-call"
                 or call.get("call_id") != path.stem
-                or call.get("schema_version") != "armi.provider-call.v1"
+                or call.get("schema_kind") != "armi.provider-call"
             ):
                 raise ValueError("USAGE-ADMIN-RECEIPT")
             result.append(row)

@@ -22,7 +22,7 @@ from ._domain import (
     select_activity,
 )
 
-ACTIVITY_PROJECTION_VERSION: Final = "creator-activity.v3"
+ACTIVITY_PROJECTION_KIND: Final = "creator-activity"
 type ActivityTimelineKind = Literal[
     "admin_update",
     "admin_delete",
@@ -656,7 +656,7 @@ class ActivityCommitPort(Protocol):
 
 
 __all__ = (
-    "ACTIVITY_PROJECTION_VERSION",
+    "ACTIVITY_PROJECTION_KIND",
     "ActivityAdminContentPort",
     "ActivityAttentionDecisionKind",
     "ActivityCandidateSnapshot",

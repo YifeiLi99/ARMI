@@ -97,7 +97,7 @@ def test_restricted_binding_cannot_declare_owner_authority() -> None:
         MCPBinding.model_validate_json(
             json.dumps(
                 {
-                    "schema_version": "armi.mcp-binding.v1",
+                    "schema_kind": "armi.mcp-binding",
                     "local_owner": True,
                 }
             )

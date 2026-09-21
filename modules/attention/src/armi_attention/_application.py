@@ -136,7 +136,7 @@ class MaintenanceCoordinator:
                     CreatorResourceKind("maintenance"),
                     str(session_id),
                     Instant(datetime.now(UTC)),
-                    "creator-maintenance.v3",
+                    "creator-maintenance",
                 )
             )
         except CreatorEventViolation:

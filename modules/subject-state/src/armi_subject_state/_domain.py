@@ -75,7 +75,7 @@ def _self(value: dict[str, object]) -> None:
     if (
         set(value)
         != {
-            "schema_version",
+            "schema_kind",
             "identity_kind",
             "creator_role_awareness",
             "name",
@@ -87,7 +87,7 @@ def _self(value: dict[str, object]) -> None:
             "self_narrative",
             "tensions",
         }
-        or value["schema_version"] != "armi.self.v1"
+        or value["schema_kind"] != "armi.self"
         or value["identity_kind"] != "electronic_person"
         or value["creator_role_awareness"] != "unique_primary_creator"
     ):
@@ -107,8 +107,8 @@ def _self(value: dict[str, object]) -> None:
 
 def _life_mode(value: dict[str, object]) -> None:
     if (
-        set(value) != {"schema_version", "mode", "active_activities"}
-        or value["schema_version"] != "armi.life-mode.v1"
+        set(value) != {"schema_kind", "mode", "active_activities"}
+        or value["schema_kind"] != "armi.life-mode"
         or value["mode"] != "awake"
     ):
         raise ValueError

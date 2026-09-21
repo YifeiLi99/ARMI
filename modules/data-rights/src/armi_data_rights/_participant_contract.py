@@ -80,15 +80,6 @@ class DataRightsOwnerIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class DataRightsContributionVersion:
-    value: int
-
-    def __post_init__(self) -> None:
-        if type(self.value) is not int or self.value < 1:
-            raise DataRightsParticipantViolation("DATA-RIGHTS-PARTICIPANT-VERSION")
-
-
-@dataclass(frozen=True, slots=True)
 class DataRightsRelatedRef:
     kind: str
     ref: UUID
@@ -287,7 +278,6 @@ class DataRightsTupleRecordStream:
 @dataclass(frozen=True, slots=True)
 class DataRightsExportSegment:
     owner_identity: DataRightsOwnerIdentity
-    schema_version: DataRightsContributionVersion
     segment_name: str
     media_type: str
     records: DataRightsRecordBatchStream
@@ -305,9 +295,6 @@ class DataRightsExportSegment:
 class DataRightsParticipant(Protocol):
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity: ...
-
-    @property
-    def schema_version(self) -> DataRightsContributionVersion: ...
 
     async def discover(
         self,
@@ -344,20 +331,15 @@ class DataRightsVisibilityPort(Protocol):
 
 
 class EmptyDataRightsParticipant:
-    __slots__ = ("_contract", "_owner", "_version")
+    __slots__ = ("_contract", "_owner")
 
     def __init__(self, owner_identity: str) -> None:
         self._owner = DataRightsOwnerIdentity(owner_identity)
-        self._version = DataRightsContributionVersion(1)
         self._contract = DataRightsOwnerContract(self._owner)
 
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity:
         return self._owner
-
-    @property
-    def schema_version(self) -> DataRightsContributionVersion:
-        return self._version
 
     @property
     def data_rights_contract(self) -> DataRightsOwnerContract:
@@ -405,7 +387,6 @@ __all__ = (
     "DataRightsArtifactUsage",
     "DataRightsCanonicalRecord",
     "DataRightsContentField",
-    "DataRightsContributionVersion",
     "DataRightsDiscoveryContribution",
     "DataRightsDiscoveryRequest",
     "DataRightsExportScope",

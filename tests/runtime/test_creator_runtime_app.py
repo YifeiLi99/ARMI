@@ -1060,7 +1060,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["projection_version"], "creator-operation.v8")
+                self.assertEqual(details["projection_kind"], "creator-operation")
                 self.assertEqual(
                     details["operation_ref"], str(acceptance.opportunity_id)
                 )
@@ -1072,7 +1072,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
     def _status(self) -> RuntimeStatusResponse:
         snapshot = self.lifecycle.snapshot()
         return RuntimeStatusResponse(
-            contract_version="1.0",
             environment_id=snapshot.environment_id,
             runtime_state=snapshot.runtime_state,
             readiness=snapshot.readiness,
@@ -1099,8 +1098,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
     async def _qq_health(self) -> QQChannelHealthResponse:
         return QQChannelHealthResponse(
-            contract_version="1.0",
-            projection_version="creator-channel-health.v2",
+            projection_kind="creator-channel-health",
             channel="qq",
             driver="napcat",
             configured=True,
@@ -1286,7 +1284,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/prompts/creator-guidance",
                 headers=headers,
                 json={
-                    "contract_version": "1.0",
                     "expected_revision_id": None,
                     "content": "请在形成结论前区分事实与推测。",
                 },
@@ -1296,7 +1293,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/prompts/creator-guidance",
                 headers=headers,
                 json={
-                    "contract_version": "1.0",
                     "expected_revision_id": first_revision,
                     "content": "请区分事实、推测与仍然未知的部分。",
                 },
@@ -1305,7 +1301,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/prompts/creator-guidance",
                 headers=headers,
                 json={
-                    "contract_version": "1.0",
                     "expected_revision_id": first_revision,
                     "content": "这条旧版本写入不应生效。",
                 },
@@ -1314,7 +1309,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/prompts/creator-guidance/deactivation",
                 headers=headers,
                 json={
-                    "contract_version": "1.0",
                     "expected_revision_id": revised.json()["current_revision_id"],
                 },
             )
@@ -1326,7 +1320,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/prompts/creator-guidance",
                 headers={**headers, "Origin": "http://invalid"},
                 json={
-                    "contract_version": "1.0",
                     "expected_revision_id": deactivated.json()["current_revision_id"],
                     "content": "不能越过浏览器边界。",
                 },
@@ -1361,7 +1354,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/exports",
                 headers=headers,
                 json={
-                    "contract_version": "1.0",
                     "directory_name": "creator-export-20260808",
                 },
             )
@@ -1372,12 +1364,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             invalid = client.post(
                 "/v1/exports",
                 headers=headers,
-                json={"contract_version": "1.0", "directory_name": "../escape"},
+                json={"directory_name": "../escape"},
             )
             wrong_origin = client.post(
                 "/v1/exports",
                 headers={**headers, "Origin": "http://invalid"},
-                json={"contract_version": "1.0", "directory_name": "blocked"},
+                json={"directory_name": "blocked"},
             )
 
         self.assertEqual(exported.status_code, 201)
@@ -1407,7 +1399,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             use_cases["data_rights_request"](
                 CreatorCall(
                     actor=CreatorActor(UUID(CREATOR_ID), "default", uuid7()),
-                    input={"contract_version": "1.0", "order_kind": "delete_related"},
+                    input={"order_kind": "delete_related"},
                     idempotency_key="unapproved-delete",
                 )
             )
@@ -1434,12 +1426,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_order = client.post(
                 "/v1/data-rights/orders",
                 headers=creator_headers,
-                json={"contract_version": "1.0", "order_kind": "stop_use"},
+                json={"order_kind": "stop_use"},
             )
             creator_repeat = client.post(
                 "/v1/data-rights/orders",
                 headers=creator_headers,
-                json={"contract_version": "1.0", "order_kind": "stop_use"},
+                json={"order_kind": "stop_use"},
             )
             creator_query = client.get(
                 f"/v1/data-rights/orders/{creator_order.json()['order_id']}",
@@ -1538,8 +1530,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(
             timeline.json(),
             {
-                "contract_version": "1.0",
-                "projection_version": "scene-timeline.v6",
+                "projection_kind": "scene-timeline",
                 "scene_key": "default",
                 "items": [],
             },
@@ -1559,7 +1550,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             created = client.post(
                 "/v1/scenes",
                 headers=headers,
-                json={"contract_version": "1.0", "scene_key": "night-talk"},
+                json={"scene_key": "night-talk"},
             )
             listed = client.get("/v1/scenes", headers=headers)
             closed = client.post("/v1/scenes/night-talk/close", headers=headers)
@@ -1567,7 +1558,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             message = client.post(
                 "/v1/scenes/night-talk/messages",
                 headers={**headers, "Idempotency-Key": "scene-message-1"},
-                json={"contract_version": "1.0", "message": "只属于夜谈场合"},
+                json={"message": "只属于夜谈场合"},
             )
             default_close = client.post("/v1/scenes/default/close", headers=headers)
 
@@ -1611,7 +1602,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
 
         self.assertEqual(activities.status_code, 200)
-        self.assertEqual(activities.json()["projection_version"], "creator-activity.v3")
+        self.assertEqual(activities.json()["projection_kind"], "creator-activity")
         self.assertEqual(activities.json()["items"][0]["status"], "ready")
         self.assertNotIn("resumption_cue", activities.text)
         self.assertEqual(timeline.status_code, 200)
@@ -1695,9 +1686,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
 
         self.assertEqual(visible.status_code, 200)
-        self.assertEqual(
-            visible.json()["projection_version"], "creator-life-material.v1"
-        )
+        self.assertEqual(visible.json()["projection_kind"], "creator-life-material")
         self.assertEqual(visible.json()["privacy_status"], "creator_visible")
         self.assertEqual(visible.json()["body"], "这段正文经过服务端可见性授权。")
         self.assertEqual(visible.headers["cache-control"], "no-store")
@@ -1742,7 +1731,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/relationships/current/boundaries",
                 headers={**headers, "Idempotency-Key": "boundary-1"},
                 json={
-                    "contract_version": "1.0",
                     "kind": "contact",
                     "action": "restrict",
                     "summary": "不要在深夜联系",
@@ -1752,7 +1740,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/relationships/current/boundaries",
                 headers={**headers, "Idempotency-Key": "boundary-2"},
                 json={
-                    "contract_version": "1.0",
                     "kind": "contact",
                     "action": "end_contact",
                     "summary": "错误组合",
@@ -1765,8 +1752,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
         self.assertEqual(current.status_code, 200)
         self.assertEqual(
-            current.json()["projection_version"],
-            "creator-relationship.v3",
+            current.json()["projection_kind"],
+            "creator-relationship",
         )
         self.assertEqual(
             current.json()["relationship"]["current"]["boundaries"][0]["kind"],
@@ -1851,7 +1838,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Idempotency-Key": "request-1",
                 },
                 json={
-                    "contract_version": "1.0",
                     "message": "  exact\r\ntext  ",
                 },
             )
@@ -1865,7 +1851,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     **self._browser_headers(token),
                     "Idempotency-Key": "request-2",
                 },
-                json={"contract_version": "1.0", "message": " \r\n "},
+                json={"message": " \r\n "},
             )
             duplicate = client.post(
                 "/v1/scenes/default/messages",
@@ -1874,7 +1860,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Idempotency-Key": "request-3",
                     "Content-Type": "application/json",
                 },
-                content=b'{"contract_version":"1.0","message":"a","message":"b"}',
+                content=b'{"message":"a","message":"b"}',
             )
             duplicate_idempotency = client.post(
                 "/v1/scenes/default/messages",
@@ -1884,7 +1870,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     ("Idempotency-Key", "request-5"),
                     ("Content-Type", "application/json"),
                 ],
-                content=b'{"contract_version":"1.0","message":"valid"}',
+                content=b'{"message":"valid"}',
             )
             wrong_content_type = client.post(
                 "/v1/scenes/default/messages",
@@ -1893,7 +1879,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Idempotency-Key": "request-6",
                     "Content-Type": "text/plain",
                 },
-                content=b'{"contract_version":"1.0","message":"valid"}',
+                content=b'{"message":"valid"}',
             )
             invalid_utf8 = client.post(
                 "/v1/scenes/default/messages",
@@ -1902,7 +1888,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Idempotency-Key": "request-7",
                     "Content-Type": "application/json",
                 },
-                content=b'{"contract_version":"1.0","message":"\xff"}',
+                content=b'{"message":"\xff"}',
             )
             query = client.post(
                 "/v1/scenes/default/messages?token=x",
@@ -1910,7 +1896,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     **self._browser_headers(token),
                     "Idempotency-Key": "request-8",
                 },
-                json={"contract_version": "1.0", "message": "valid"},
+                json={"message": "valid"},
             )
 
         self.assertEqual(accepted.status_code, 202)
@@ -1941,7 +1927,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Idempotency-Key": "codex-task-1",
                 },
                 json={
-                    "contract_version": "1.0",
                     "objective": "整理一份可核验的交付说明。",
                 },
             )
@@ -1952,7 +1937,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Idempotency-Key": "codex-task-research-1",
                 },
                 json={
-                    "contract_version": "1.0",
                     "objective": "查询今天的公开新闻并附来源。",
                     "model_id": "gpt-5.6-luna",
                     "reasoning_effort": "medium",
@@ -1965,7 +1949,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     **self._browser_headers(token),
                     "Idempotency-Key": "codex-task-2",
                 },
-                json={"contract_version": "1.0", "objective": "  \r\n"},
+                json={"objective": "  \r\n"},
             )
             wrong_origin = client.post(
                 "/v1/scenes/default/codex-tasks",
@@ -1974,7 +1958,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "Origin": "http://localhost:45678",
                     "Idempotency-Key": "codex-task-3",
                 },
-                json={"contract_version": "1.0", "objective": "valid"},
+                json={"objective": "valid"},
             )
 
         self.assertEqual(accepted.status_code, 202)

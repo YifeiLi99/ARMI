@@ -33,7 +33,7 @@ def _without_identifiers(value: Any) -> Any:
         return {
             key: _without_identifiers(item)
             for key, item in cast(dict[str, Any], value).items()
-            if key not in {"schema_version", "source_version", "source_ref"}
+            if key not in {"schema_kind", "source_version", "source_ref"}
             and not key.endswith(("_id", "_ids", "_ref", "_refs"))
         }
     if isinstance(value, list):

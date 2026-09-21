@@ -60,7 +60,7 @@ def test_every_configured_purpose_is_in_contract_regression():
 @pytest.mark.parametrize("purpose", _PURPOSE_KINDS)
 def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     manifest = cast(dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml")))
-    version = manifest["purpose_profiles"][purpose]["response_contract_version"]
+    version = manifest["purpose_profiles"][purpose]["response_contract_kind"]
     kind = _PURPOSE_KINDS[purpose]
     value: dict[str, Any] = {"kind": kind}
     if purpose == "consider_autonomy_check":
@@ -68,7 +68,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         jsonschema.validate(value, candidate_schema(version))
         assert parse_autonomy_check(value).engage is False
         return
-    if version == "armi.creator-cognitive-act-candidate.v8":
+    if version == "armi.creator-cognitive-act-candidate":
         value = {
             "decision": {**value, "content": None},
             "experience": None,
@@ -114,9 +114,9 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         if purpose == "consider_autonomous_life":
             value["expression"] = None
             value["mind_change"] = None
-    elif version == "armi.cognition-candidate.v18":
+    elif version == "armi.cognition-candidate":
         value = {
-            "schema_version": version,
+            "schema_kind": version,
             "base": {
                 "subject_version": 1,
                 "state_epoch": 1,
@@ -148,8 +148,8 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     if "concern_changes" in schema["properties"]["candidate"].get(
         "properties", {}
     ) or version in {
-        "armi.autonomous-activity-candidate.v12",
-        "armi.visual-observation-candidate.v4",
+        "armi.autonomous-activity-candidate",
+        "armi.visual-observation-candidate",
     }:
         value["concern_changes"] = []
         value["mind_appraisals"] = []
@@ -160,12 +160,12 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         purpose=purpose,
         allowed_context_refs=frozenset({"ctx:1"}),
     )
-    assert parsed.schema_version == version
+    assert parsed.schema_kind == version
 
 
 @pytest.mark.parametrize("missing_experience", [True, False])
 def test_other_human_social_dependencies_are_structural(missing_experience):
-    version = "armi.other-human-dialogue-candidate.v9"
+    version = "armi.other-human-dialogue-candidate"
     social = {
         "experience": {
             "first_person_gist": "We discussed our relationship.",
@@ -200,7 +200,7 @@ def test_other_human_social_dependencies_are_structural(missing_experience):
     "purpose", ["reflect_self", "reflect_mind", "reflect_mood", "reflect_prompt"]
 )
 def test_reflection_schema_excludes_other_owner_targets(purpose):
-    version = "armi.owner-reflection-candidate.v4"
+    version = "armi.owner-reflection-candidate"
     target = purpose.removeprefix("reflect_")
     value = {
         "kind": "no_change",
@@ -229,7 +229,7 @@ def test_reflection_schema_excludes_other_owner_targets(purpose):
     ],
 )
 def test_maintenance_schema_excludes_the_other_phase(purpose, kind):
-    version = "armi.maintenance-work-candidate.v3"
+    version = "armi.maintenance-work-candidate"
     value = {"kind": kind, "summary": "unchanged"}
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"candidate": value}, _schema(version, purpose))
@@ -247,7 +247,7 @@ def test_maintenance_schema_excludes_the_other_phase(purpose, kind):
     [
         {"kind": "reply", "content": "legacy"},
         {
-            "schema_version": "armi.creator-dialogue-candidate.v26",
+            "schema_kind": "armi.creator-dialogue-candidate.v26",
             "kind": "reply",
             "content": "legacy",
         },
@@ -262,7 +262,7 @@ def test_provider_selects_action_before_generating_branch_payload():
     # Canonical storage sorts keys, so source declaration order does not survive.
     source = json.loads(
         json.dumps(
-            candidate_schema("armi.creator-cognitive-act-candidate.v8"), sort_keys=True
+            candidate_schema("armi.creator-cognitive-act-candidate"), sort_keys=True
         )
     )
     schema = _provider_output_schema(source, available_refs=("ctx:1",))
@@ -280,14 +280,14 @@ def test_creator_schema_is_smaller_without_repeating_the_complete_object():
     # No existing concern, activity or emotional episode is present in this Context.
     schema = _provider_output_schema(
         bind_context_schema(
-            candidate_schema("armi.creator-cognitive-act-candidate.v8"),
+            candidate_schema("armi.creator-cognitive-act-candidate"),
             ({"ref": "ctx:1", "item_kind": "current_evidence"},),
         ),
         available_refs=("ctx:1",),
     )
     encoded = json.dumps(schema, ensure_ascii=False, separators=(",", ":")).encode()
     original = json.dumps(
-        candidate_schema("armi.creator-cognitive-act-candidate.v8"),
+        candidate_schema("armi.creator-cognitive-act-candidate"),
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode()
@@ -311,7 +311,7 @@ def test_creator_schema_is_smaller_without_repeating_the_complete_object():
 )
 @pytest.mark.parametrize("valid", [True, False])
 def test_other_human_commitment_dependencies_are_visible_in_schema(action, valid):
-    version = "armi.other-human-dialogue-candidate.v9"
+    version = "armi.other-human-dialogue-candidate"
     commitment = {
         "action": action,
         "commitment_ref": None if action == "establish" else "ctx:1",
@@ -371,7 +371,7 @@ def test_reflection_keeps_evidence_without_requiring_a_change(kind):
         "expected_version": 1 if kind == "update" else None,
         "next_state": {} if kind == "update" else None,
     }
-    version = "armi.owner-reflection-candidate.v4"
+    version = "armi.owner-reflection-candidate"
     jsonschema.validate({"candidate": value}, _schema(version))
     parsed = parse_candidate(
         json.dumps(value).encode(),
@@ -395,7 +395,7 @@ def test_reply_memory_shape_is_visible_to_provider(invalid):
         "appraisal": None,
         "changes": [],
     }
-    schema = _schema("armi.creator-cognitive-act-candidate.v8")
+    schema = _schema("armi.creator-cognitive-act-candidate")
     if invalid:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({"candidate": value}, schema)
@@ -413,7 +413,7 @@ def test_maintenance_summary_matches_operation(kind):
         "uncertainty": None,
         "relation": None,
     }
-    schema = _schema("armi.maintenance-work-candidate.v3")
+    schema = _schema("armi.maintenance-work-candidate")
     jsonschema.validate({"candidate": value}, schema)
     value["summary"] = None if kind == "reinterpret" else "Unexpected replacement"
     with pytest.raises(jsonschema.ValidationError):
@@ -463,7 +463,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
         "mind_appraisals": [],
         "changes": [],
     }
-    version = "armi.creator-cognitive-act-candidate.v8"
+    version = "armi.creator-cognitive-act-candidate"
     schema = _schema(version)
     jsonschema.validate({"candidate": value}, schema)
     parse_candidate(
@@ -494,14 +494,14 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
 def test_returned_output_is_saved_before_local_rejection(output, provider_status):
     binding = replace(
         load_active_binding(),
-        response_contract_version="armi.creator-cognitive-act-candidate.v8",
+        response_contract_kind="armi.creator-cognitive-act-candidate",
     )
     adapter = create_model_adapter(
         binding=binding,
         credential_port=Mock(),
         locator=Mock(),
         candidate_schema=CognitionSchemaDocument(
-            json.dumps(candidate_schema(binding.response_contract_version)).encode()
+            json.dumps(candidate_schema(binding.response_contract_kind)).encode()
         ),
         instructions="",
         schema_name="test",
@@ -534,7 +534,7 @@ def test_returned_output_is_saved_before_local_rejection(output, provider_status
     assert result.response_bytes is not None
     saved = json.loads(result.response_bytes)
     assert saved["output_text"] == output
-    assert saved["schema_version"] == "armi.model-response-artifact.v3"
+    assert saved["schema_kind"] == "armi.model-response-artifact"
     assert "candidate" not in saved
     assert "validation_error" not in saved
 
@@ -546,7 +546,7 @@ def test_saved_request_contains_actual_provider_input_without_credentials():
         credential_port=Mock(),
         locator=Mock(),
         candidate_schema=CognitionSchemaDocument(
-            json.dumps(candidate_schema(binding.response_contract_version)).encode()
+            json.dumps(candidate_schema(binding.response_contract_kind)).encode()
         ),
         instructions="本次系统指令",
         schema_name="test",
@@ -557,7 +557,7 @@ def test_saved_request_contains_actual_provider_input_without_credentials():
         SimpleNamespace(
             canonical_bytes=json.dumps(
                 {
-                    "schema_version": "armi.model-request.v1",
+                    "schema_kind": "armi.model-request",
                     "compiled_context": {
                         "purpose": "consider_creator_input",
                         "layers": [
@@ -578,7 +578,7 @@ def test_saved_request_contains_actual_provider_input_without_credentials():
         ),
     )
     saved = json.loads(adapter.request_evidence(request))
-    assert saved["schema_version"] == "armi.model-input-evidence.v1"
+    assert saved["schema_kind"] == "armi.model-input-evidence"
     assert "canonical_request" not in saved
     assert saved["provider_request"]["instructions"].startswith(
         "# ARMI 本轮认知\n\n本次系统指令"

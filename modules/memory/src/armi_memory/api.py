@@ -14,9 +14,9 @@ from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime_foundation import AdminContentPort as MemoryAdminContentPort
 from armi_runtime_foundation import PostgreSQLTransaction
 
-MEMORY_FORMATION_MECHANISM_IDENTITY = "armi.memory-formation.contextual-v1"
-MEMORY_REVISION_MECHANISM_IDENTITY = "armi.memory-revision.contextual-v1"
-CREATOR_MEMORY_PROJECTION_VERSION = "creator-memory.v2"
+MEMORY_FORMATION_MECHANISM_IDENTITY = "armi.memory-formation.contextual"
+MEMORY_REVISION_MECHANISM_IDENTITY = "armi.memory-revision.contextual"
+CREATOR_MEMORY_PROJECTION_KIND = "creator-memory"
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 
@@ -100,7 +100,7 @@ class MemoryRevisionRequest:
     uncertainty: str | None
     related_memory_id: UUID | None = None
     relation_kind: MemoryRelationKind | None = None
-    mechanism_config_identity: str = "natural-dialogue-v1"
+    mechanism_config_identity: str = "natural-dialogue"
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +163,7 @@ class CandidateMemoryRevisionDraft:
     related_memory_id: UUID | None = None
     relation_kind: MemoryRelationKind | None = None
     mechanism_identity: str = MEMORY_REVISION_MECHANISM_IDENTITY
-    mechanism_config_identity: str = "natural-dialogue-v1"
+    mechanism_config_identity: str = "natural-dialogue"
     privacy_scope: str = "private"
 
     def __post_init__(self) -> None:
@@ -184,7 +184,7 @@ class CandidateMemoryRevisionDraft:
             or not valid_memory_text(self.uncertainty, 512, optional=True)
             or self.mechanism_identity != MEMORY_REVISION_MECHANISM_IDENTITY
             or self.mechanism_config_identity
-            not in {"natural-dialogue-v1", "sleep-maintenance-v1"}
+            not in {"natural-dialogue", "sleep-maintenance"}
             or self.privacy_scope != "private"
         ):
             raise MemoryViolation("MEMORY-REVISION")
@@ -270,7 +270,7 @@ class CreatorMemoryItem:
 class CreatorMemoryPage:
     items: tuple[CreatorMemoryItem, ...]
     next_cursor: OpaqueCursor | None = None
-    projection_version: str = CREATOR_MEMORY_PROJECTION_VERSION
+    projection_kind: str = CREATOR_MEMORY_PROJECTION_KIND
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,7 +293,7 @@ class CreatorMemoryTimeline:
     memory_id: UUID
     items: tuple[CreatorMemoryTimelineItem, ...]
     next_cursor: OpaqueCursor | None = None
-    projection_version: str = CREATOR_MEMORY_PROJECTION_VERSION
+    projection_kind: str = CREATOR_MEMORY_PROJECTION_KIND
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,7 +499,7 @@ def _memory_source_supported(
 
 
 __all__ = (
-    "CREATOR_MEMORY_PROJECTION_VERSION",
+    "CREATOR_MEMORY_PROJECTION_KIND",
     "MEMORY_FORMATION_MECHANISM_IDENTITY",
     "MEMORY_REVISION_MECHANISM_IDENTITY",
     "CandidateMemoryDraft",

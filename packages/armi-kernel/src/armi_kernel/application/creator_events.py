@@ -11,7 +11,7 @@ from armi_kernel.contracts import Instant
 _CODE = re.compile(r"^(?:CON-SSE|SSE)-[A-Z0-9-]+$", re.ASCII)
 _SCENE_KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _RESOURCE_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
-_PROJECTION_VERSION = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
+_PROJECTION_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _UUIDV7 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-"
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -48,7 +48,7 @@ class CreatorProjectionInvalidation:
     resource_kind: CreatorResourceKind
     resource_ref: str
     occurred_at: Instant
-    projection_version: str
+    projection_kind: str
 
     def __post_init__(self) -> None:
         if type(self.resource_kind) is not CreatorResourceKind:
@@ -63,8 +63,8 @@ class CreatorProjectionInvalidation:
         if type(self.occurred_at) is not Instant:
             raise CreatorEventViolation("CON-SSE-TIME")
         if (
-            type(self.projection_version) is not str
-            or _PROJECTION_VERSION.fullmatch(self.projection_version) is None
+            type(self.projection_kind) is not str
+            or _PROJECTION_KIND.fullmatch(self.projection_kind) is None
         ):
             raise CreatorEventViolation("CON-SSE-PROJECTION")
 

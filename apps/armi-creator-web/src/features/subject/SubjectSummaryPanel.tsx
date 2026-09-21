@@ -60,7 +60,7 @@ export function SubjectSummaryPanel({
             <div key={component.kind}>
               <dt>{component.kind}</dt>
               <dd>
-                v{component.version} · {component.schema_version}
+                v{component.version} · {component.schema_kind}
               </dd>
             </div>
           ))}

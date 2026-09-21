@@ -643,7 +643,7 @@ class AdminObservationGateway:
         page = ordered[offset : offset + limit]
         next_offset = offset + len(page)
         return {
-            "schema_version": "armi.admin-flow-graph.v2",
+            "schema_kind": "armi.admin-flow-graph",
             "selector": {"kind": kind, "id": value},
             "expansion_limit": 200,
             "expansion_truncated": len(nodes) >= 200,
@@ -1096,7 +1096,7 @@ class AdminObservationGateway:
         page = nodes[offset : offset + limit]
         next_offset = offset + len(page)
         return {
-            "schema_version": "armi.admin-scope-graph.v2",
+            "schema_kind": "armi.admin-scope-graph",
             "expansion_limit": 200,
             "expansion_truncated": expansion_truncated,
             "nodes": page,

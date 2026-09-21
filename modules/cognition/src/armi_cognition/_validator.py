@@ -210,8 +210,8 @@ from .api import (
     SubjectChangeSet,
 )
 
-CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v38"
+CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -358,7 +358,7 @@ class CandidateValidationContext:
     current_relationship: CandidateRelationshipContext | None = None
     current_materials: tuple[CandidateLifeMaterialContext, ...] = ()
     current_subject_prompt: CandidateSubjectPromptContext | None = None
-    candidate_contract_version: str | None = None
+    candidate_contract_kind: str | None = None
     current_maintenance_session_id: UUID | None = None
     current_maintenance_revision_id: UUID | None = None
     current_maintenance_head_version: int | None = None
@@ -469,9 +469,9 @@ class CandidateValidationContext:
             and type(self.current_subject_prompt) is not CandidateSubjectPromptContext
         ):
             raise CandidateViolation("CON-CANDIDATE-SUBJECT-PROMPT-CONTEXT")
-        if self.candidate_contract_version is not None and (
-            type(self.candidate_contract_version) is not str
-            or not self.candidate_contract_version
+        if self.candidate_contract_kind is not None and (
+            type(self.candidate_contract_kind) is not str
+            or not self.candidate_contract_kind
         ):
             raise CandidateViolation("CON-CANDIDATE-CONTEXT")
 
@@ -567,7 +567,7 @@ class DeterministicCandidateValidator:
                         else MAINTENANCE_WORK_CANDIDATE_VERSION
                         if self._context.purpose
                         in {"maintain_subjective_memory", "perform_subject_self_check"}
-                        else self._context.candidate_contract_version
+                        else self._context.candidate_contract_kind
                     ),
                 )
             )
@@ -1248,7 +1248,7 @@ class DeterministicCandidateValidator:
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
         change_set_value: dict[str, object] = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
@@ -1360,7 +1360,7 @@ class DeterministicCandidateValidator:
         )
         owner_drafts = () if mood_draft is None else (mood_draft,)
         value: dict[str, object] = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
@@ -1559,7 +1559,7 @@ class DeterministicCandidateValidator:
                 ),
             )
         value: dict[str, object] = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
@@ -1758,7 +1758,7 @@ class DeterministicCandidateValidator:
             owner_drafts.append(mood_draft)
             disposition = CandidateDisposition.CHANGE
         value = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "episode_id": str(self._context.episode_id),
             "model_attempt_id": str(self._context.model_attempt_id),
@@ -1870,7 +1870,7 @@ class DeterministicCandidateValidator:
         }[decision.decision_kind]
         owner_draft = self._sleep_cognition.bind_sleep(decision)
         value = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
@@ -2053,7 +2053,7 @@ class DeterministicCandidateValidator:
                 return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
             owner_drafts.append(mood_draft)
         value = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
@@ -2238,7 +2238,7 @@ class DeterministicCandidateValidator:
                     cast(
                         Any,
                         {
-                            "schema_version": "armi.subject-prompt.v1",
+                            "schema_kind": "armi.subject-prompt",
                             **prompt_state.model_dump(mode="json"),
                         },
                     )
@@ -2274,7 +2274,7 @@ class DeterministicCandidateValidator:
         sleep_draft = self._sleep_cognition.bind_maintenance(decision)
         all_owner_drafts = (*owner_drafts, sleep_draft)
         value = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
@@ -2424,7 +2424,7 @@ class DeterministicCandidateValidator:
         sleep_owner_draft = self._sleep_cognition.bind_maintenance(decision)
         owner_drafts = (*memory_owner_drafts, sleep_owner_draft)
         value = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
             "episode_id": str(context.episode_id),
             "model_attempt_id": str(context.model_attempt_id),
@@ -2775,7 +2775,7 @@ def _expand_creator_cognitive_act(
         disposition = "change"
     return (
         CognitionCandidate.model_construct(
-            schema_version="armi.cognition-candidate.v18",
+            schema_kind="armi.cognition-candidate",
             base=CandidateBase.model_construct(
                 subject_version=context.base_subject_version,
                 state_epoch=context.base_state_epoch,
@@ -3133,7 +3133,7 @@ def _bind_maintenance_memory_revision(
             uncertainty,
             related_memory_id,
             relation_kind,
-            mechanism_config_identity="sleep-maintenance-v1",
+            mechanism_config_identity="sleep-maintenance",
         ),
         None,
     )
@@ -3655,27 +3655,27 @@ def _component_failure(
         return "CANDIDATE-COMPONENT-BASIS"
     next_state = proposal.payload.next_state.model_dump(mode="json")
     schema_owner = {
-        "armi.self.v1": CandidateOwner.SELF,
-        "armi.mind.v4": CandidateOwner.MIND,
-        "armi.mood.v5": CandidateOwner.MOOD,
-        "armi.mood-appraisal.v3": CandidateOwner.MOOD,
-        "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
-    }.get(str(next_state.get("schema_version")))
+        "armi.self": CandidateOwner.SELF,
+        "armi.mind": CandidateOwner.MIND,
+        "armi.mood": CandidateOwner.MOOD,
+        "armi.mood-appraisal": CandidateOwner.MOOD,
+        "armi.life-mode": CandidateOwner.LIFE_MODE,
+    }.get(str(next_state.get("schema_kind")))
     if schema_owner is not owner:
         return "CANDIDATE-OWNER-MISMATCH"
     try:
         current_schema = cast(dict[str, object], json.loads(current_bytes)).get(
-            "schema_version"
+            "schema_kind"
         )
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         return "CANDIDATE-COMPONENT-STATE"
     if (
         owner is CandidateOwner.MOOD
-        and next_state.get("schema_version") == "armi.mood-appraisal.v3"
+        and next_state.get("schema_kind") == "armi.mood-appraisal"
     ):
-        if current_schema != "armi.mood.v5":
+        if current_schema != "armi.mood":
             return "CANDIDATE-COMPONENT-STATE"
-    elif current_schema != next_state.get("schema_version"):
+    elif current_schema != next_state.get("schema_kind"):
         return "CANDIDATE-COMPONENT-STATE"
     next_bytes = rfc8785.dumps(cast(Any, next_state))
     if next_bytes == current_bytes:
@@ -3839,7 +3839,7 @@ def _proposal_path(
             "action": "decision",
             "visual_observation": "decision",
         }.get(owner, "changes")
-        if candidate.schema_version == creator_act.CREATOR_VOICE_ACT_VERSION:
+        if candidate.schema_kind == creator_act.CREATOR_VOICE_ACT_VERSION:
             field = {
                 "experience": "exp",
                 "appraisal": "app",

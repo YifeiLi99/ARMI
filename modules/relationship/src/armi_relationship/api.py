@@ -14,8 +14,8 @@ from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import AdminContentPort as RelationshipAdminContentPort
 from armi_runtime_foundation import PostgreSQLTransaction
 
-RELATIONSHIP_MECHANISM_IDENTITY: Final = "armi.relationship.lifecycle-v2"
-RELATIONSHIP_PROJECTION_VERSION: Final = "creator-relationship.v3"
+RELATIONSHIP_MECHANISM_IDENTITY: Final = "armi.relationship.lifecycle"
+RELATIONSHIP_PROJECTION_KIND: Final = "creator-relationship"
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 
 
@@ -587,7 +587,7 @@ class RelationshipCommitPort(Protocol):
 
 __all__ = (
     "RELATIONSHIP_MECHANISM_IDENTITY",
-    "RELATIONSHIP_PROJECTION_VERSION",
+    "RELATIONSHIP_PROJECTION_KIND",
     "CandidateRelationshipDraft",
     "CreatorRelationshipItem",
     "CreatorRelationshipRevision",

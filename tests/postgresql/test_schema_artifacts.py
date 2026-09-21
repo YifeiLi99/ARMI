@@ -101,27 +101,27 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
         for name in BASELINE_DOCUMENTS
     )
     for contract in (
-        "armi.creator-dialogue-candidate.v26",
-        "armi.other-human-dialogue-candidate.v9",
+        "armi.creator-cognitive-act-candidate",
+        "armi.other-human-dialogue-candidate",
     ):
         assert contract in baseline
-    assert "cognitive_attempts_candidate_schema_version_check" in baseline
-    assert "armi.creator-cognitive-act-candidate.v8" in baseline
-    assert "armi.creator-voice-act-candidate.v8" in baseline
+    assert "cognitive_attempts_candidate_contract_kind_check" in baseline
+    assert "armi.creator-dialogue-candidate.v26" not in baseline
+    assert "armi.cognition-candidate.v12" not in baseline
+    assert "armi.creator-cognitive-act-candidate" in baseline
+    assert "armi.creator-voice-act-candidate" in baseline
     assert "maintenance_source_episode_id" in baseline
     assert "processed_through_ordinal" in baseline
     assert "acceptance_ordinal bigint GENERATED ALWAYS AS IDENTITY" in baseline
     assert "late_response_artifact_id" not in baseline
     assert "reflect_mood" in baseline
     for contract in (
-        "armi.other-human-dialogue-candidate.v9",
-        "armi.autonomous-activity-candidate.v12",
-        "armi.activity-attention-candidate.v5",
-        "armi.activity-internal-work-candidate.v5",
+        "armi.other-human-dialogue-candidate",
+        "armi.autonomous-activity-candidate",
     ):
         assert contract in baseline
     assert "CREATE TABLE armi.mood_revisions" in baseline
-    assert "semantic-anchors.v1" in baseline
+    assert "semantic-anchors" in baseline
     assert "derived_appraisal_payload" in baseline
 
 
@@ -129,7 +129,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v71" in (
+    assert "INSERT INTO armi.schema_baseline_identity DEFAULT VALUES" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

@@ -22,7 +22,7 @@ class DatabaseMaintenanceReport:
 
     def safe_view(self) -> dict[str, object]:
         return {
-            "schema_version": "armi.database-maintenance.v1",
+            "schema_kind": "armi.database-maintenance",
             "status": "applied",
             "table_count": self.table_count,
             "completed_at": self.completed_at,

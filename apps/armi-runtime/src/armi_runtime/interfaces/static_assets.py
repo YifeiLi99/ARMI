@@ -78,7 +78,7 @@ class StaticAssetStore:
             )
         manifest = cast(dict[str, object], parsed)
         if (
-            manifest.get("schema_version") != "armi.creator-static.v1"
+            manifest.get("schema_kind") != "armi.creator-static"
             or manifest.get("runtime_discovery") is not False
             or manifest.get("base_path") != "/ui/"
             or manifest.get("entrypoint") != "static/index.html"

@@ -9,7 +9,6 @@ from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
     DataRightsCanonicalRecord,
-    DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
@@ -23,8 +22,6 @@ from armi_runtime_foundation import PostgreSQLTransaction
 
 _RUNTIME_OWNER = DataRightsOwnerIdentity("runtime")
 _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
-_VERSION = DataRightsContributionVersion(2)
-_RUNTIME_VERSION = DataRightsContributionVersion(7)
 _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "admin_data_changes",
@@ -62,10 +59,6 @@ class RuntimeDataRightsParticipant:
     def owner_identity(self) -> DataRightsOwnerIdentity:
         return _RUNTIME_OWNER
 
-    @property
-    def schema_version(self) -> DataRightsContributionVersion:
-        return _RUNTIME_VERSION
-
     async def discover(
         self, transaction: PostgreSQLTransaction, request: DataRightsDiscoveryRequest
     ) -> DataRightsDiscoveryContribution:
@@ -99,7 +92,6 @@ class RuntimeDataRightsParticipant:
             result.append(
                 DataRightsExportSegment(
                     _RUNTIME_OWNER,
-                    _RUNTIME_VERSION,
                     name,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(records),
@@ -117,10 +109,6 @@ class ArtifactStoreDataRightsParticipant:
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity:
         return _ARTIFACT_OWNER
-
-    @property
-    def schema_version(self) -> DataRightsContributionVersion:
-        return _VERSION
 
     async def discover(
         self, transaction: PostgreSQLTransaction, request: DataRightsDiscoveryRequest
@@ -149,7 +137,6 @@ class ArtifactStoreDataRightsParticipant:
         return tuple(
             DataRightsExportSegment(
                 _ARTIFACT_OWNER,
-                _VERSION,
                 name,
                 "application/x-ndjson",
                 DataRightsTupleRecordStream(

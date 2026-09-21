@@ -216,14 +216,14 @@ class MoodVAD(_StrictModel, frozen=True):
 
 
 class MoodState(_StrictModel, frozen=True):
-    schema_version: Literal["armi.mood.v5"]
-    dynamics_version: Literal["recency-reappraisal.v1"]
-    derivation_version: Literal["cpm-fuzzy.v4"]
+    schema_kind: Literal["armi.mood"]
+    dynamics_method: Literal["recency-reappraisal"]
+    derivation_method: Literal["cpm-fuzzy"]
     home_base: MoodVAD
 
 
 class MoodSemanticAppraisalCommand(_StrictModel, frozen=True):
-    schema_version: Literal["armi.mood-appraisal.v3"]
+    schema_kind: Literal["armi.mood-appraisal"]
     transition: Literal["new", "reinforce", "reappraise", "resolve"]
     previous_episode_id: str | None
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]

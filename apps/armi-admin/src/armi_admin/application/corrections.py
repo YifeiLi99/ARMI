@@ -24,7 +24,7 @@ from .control_plane import AdminControlPlane
 from .credentials import AdminCredentialPort, AdminSecretError
 
 _TOKEN_FIELDS = {
-    "schema_version",
+    "schema_kind",
     "management_session_id",
     "config_digest",
     "environment_id",
@@ -113,7 +113,7 @@ class AdminCorrectionCoordinator:
             raise AdminCorrectionError(exc.code) from None
         now = datetime.now(UTC)
         payload = {
-            "schema_version": "armi.admin-correction-preview.v2",
+            "schema_kind": "armi.admin-correction-preview",
             "management_session_id": self._control.management_session_id,
             "config_digest": self._config.safe_digest(),
             "environment_id": self._config.environment_id,
@@ -263,7 +263,7 @@ class AdminCorrectionCoordinator:
             if set(payload) != _TOKEN_FIELDS:
                 raise ValueError("fields")
             if (
-                payload["schema_version"] != "armi.admin-correction-preview.v2"
+                payload["schema_kind"] != "armi.admin-correction-preview"
                 or payload["purpose"] != "admin.correction"
                 or not isinstance(payload["status_spec"], dict)
             ):

@@ -75,7 +75,7 @@ async def _verify_metered(
         cast(
             Any,
             {
-                "schema_version": "armi.compiled-context.v3",
+                "schema_kind": "armi.compiled-context",
                 "purpose": "consider_creator_input",
                 "sections": [
                     {
@@ -316,7 +316,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not code.startswith(("MODEL-", "CANDIDATE-")):
             code = "MODEL-LIVE-FAILED"
         evidence = {
-            "schema_version": "armi.creator-closure-no-action-live-evidence.v1",
+            "schema_kind": "armi.creator-closure-no-action-live-evidence",
             "result": "fail",
             "failure_code": code,
         }

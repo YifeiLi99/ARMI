@@ -1,4 +1,4 @@
-schema_version: armi.runtime-config.v6
+schema_kind: armi.runtime-config
 
 environment: {}
 

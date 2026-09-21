@@ -191,7 +191,7 @@ def bind_appraisal_event(
     except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
     event_command = MoodSemanticAppraisalCommand.model_construct(
-        schema_version="armi.mood-appraisal.v3",
+        schema_kind="armi.mood-appraisal",
         transition=signal.transition,
         previous_episode_id=(
             None if episode_basis is None else str(episode_basis.source_ref)

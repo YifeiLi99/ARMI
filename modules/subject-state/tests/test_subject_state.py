@@ -17,7 +17,7 @@ def test_subject_state_owner_draft_round_trip() -> None:
         1,
         rfc8785.dumps(
             {
-                "schema_version": "armi.self.v1",
+                "schema_kind": "armi.self",
                 "identity_kind": "electronic_person",
                 "creator_role_awareness": "unique_primary_creator",
                 "name": None,

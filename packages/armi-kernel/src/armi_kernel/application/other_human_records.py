@@ -10,7 +10,7 @@ from uuid import UUID
 
 from armi_kernel.contracts import OpaqueCursor
 
-OTHER_HUMAN_RECORD_PROJECTION_VERSION: Final = "other-human-record.v1"
+OTHER_HUMAN_RECORD_PROJECTION_KIND: Final = "other-human-record"
 
 
 class OtherHumanRecordViolation(RuntimeError):
@@ -146,7 +146,7 @@ class OtherHumanRecordQueryPort(Protocol):
 
 
 __all__ = (
-    "OTHER_HUMAN_RECORD_PROJECTION_VERSION",
+    "OTHER_HUMAN_RECORD_PROJECTION_KIND",
     "OtherHumanPartyRecord",
     "OtherHumanPartyRecordPage",
     "OtherHumanRecordDirection",

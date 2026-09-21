@@ -301,7 +301,6 @@ CREATE TABLE armi.live_voice_turns (
     playback_extent text DEFAULT 'none'::text NOT NULL,
     frames_written bigint DEFAULT 0 NOT NULL,
     model_identity text,
-    context_version text,
     result_status text DEFAULT 'recognizing'::text NOT NULL,
     error_code text,
     speech_ended_at timestamp(6) with time zone,

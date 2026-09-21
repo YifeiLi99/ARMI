@@ -6,7 +6,6 @@ from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
     DataRightsCanonicalRecord,
-    DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
@@ -17,7 +16,6 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("live-vision")
-_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "live_vision_observations",
@@ -29,7 +27,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
 
 class PostgreSQLLiveVisionDataRightsParticipant:
     owner_identity = _OWNER
-    schema_version = _VERSION
 
     async def discover(
         self, transaction: PostgreSQLTransaction, request: DataRightsDiscoveryRequest
@@ -60,7 +57,6 @@ class PostgreSQLLiveVisionDataRightsParticipant:
             result.append(
                 DataRightsExportSegment(
                     _OWNER,
-                    _VERSION,
                     table,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(

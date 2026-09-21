@@ -149,12 +149,11 @@ it("removes an opened material body before refetching summaries on invalidation"
     ) => {
       onConnected();
       await onEvent({
-        contract_version: "1.0",
         event_id: `sse-v1.${"b".repeat(22)}.1`,
         event_kind: "material.invalidated",
         resource_kind: "material",
         resource_ref: MATERIAL_ID,
-        projection_version: "life-record-query.v2",
+        projection_kind: "life-record-query",
         occurred_at: "2026-08-05T10:00:00.000000Z",
       });
       await new Promise<void>((resolve) =>
@@ -194,12 +193,11 @@ it("keeps an event pending until every active projection refresh succeeds", asyn
       onConnected();
       progress.push("event-started");
       await onEvent({
-        contract_version: "1.0",
         event_id: `sse-v1.${"c".repeat(22)}.1`,
         event_kind: "activity.invalidated",
         resource_kind: "activity",
         resource_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
-        projection_version: "creator-activity.v3",
+        projection_kind: "creator-activity",
         occurred_at: "2026-08-28T01:00:00.000000Z",
       });
       progress.push("event-confirmed");

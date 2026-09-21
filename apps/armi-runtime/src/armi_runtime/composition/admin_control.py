@@ -50,7 +50,7 @@ def load_admin_control_incarnation(
         return None
     value = _strict_json(manifest_path.read_bytes())
     if (
-        value.get("schema_version") != "armi.runtime-admin-control.v1"
+        value.get("schema_kind") != "armi.runtime-admin-control"
         or value.get("environment_id") != environment_id
         or type(value.get("incarnation")) is not int
         or int(value["incarnation"]) < 1
@@ -156,7 +156,7 @@ class RuntimeAdminControlServer:
     async def start(self) -> None:
         manifest = self._read_json(self._manifest)
         allowed = {
-            "schema_version",
+            "schema_kind",
             "environment_id",
             "incarnation",
             "descriptor",
@@ -166,7 +166,7 @@ class RuntimeAdminControlServer:
         if set(manifest) != allowed:
             raise RuntimeAdminControlError("ADMIN-CONTROL-MANIFEST")
         if (
-            manifest["schema_version"] != "armi.runtime-admin-control.v1"
+            manifest["schema_kind"] != "armi.runtime-admin-control"
             or manifest["environment_id"] != self._environment_id
             or manifest["incarnation"] != self._incarnation
             or manifest["descriptor"] != "runtime-control.json"
@@ -188,7 +188,7 @@ class RuntimeAdminControlServer:
         self._atomic_json(
             self._descriptor,
             {
-                "schema_version": "armi.runtime-admin-control.v1",
+                "schema_kind": "armi.runtime-admin-control",
                 "environment_id": self._environment_id,
                 "incarnation": self._incarnation,
                 "instance_id": self._instance_id,
@@ -264,7 +264,7 @@ class RuntimeAdminControlServer:
 
     async def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         allowed = {
-            "schema_version",
+            "schema_kind",
             "request_id",
             "environment_id",
             "incarnation",
@@ -276,7 +276,7 @@ class RuntimeAdminControlServer:
         if set(request) != allowed:
             raise RuntimeAdminControlError("ADMIN-CONTROL-FIELDS")
         if (
-            request["schema_version"] != "armi.runtime-admin-control.v1"
+            request["schema_kind"] != "armi.runtime-admin-control"
             or request["environment_id"] != self._environment_id
             or request["incarnation"] != self._incarnation
             or request["instance_id"] != self._instance_id

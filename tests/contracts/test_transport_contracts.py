@@ -11,7 +11,6 @@ from uuid import UUID
 
 import pytest
 from armi_kernel.contracts import (
-    CONTRACT_VERSION,
     AcceptedOutcome,
     AppliedOutcome,
     CompletedOutcome,
@@ -77,11 +76,10 @@ def _reject_invalid(kind: object, value: object) -> object:
         return AcceptedOutcome.from_wire(wire)
     if kind == "cursor":
         return OpaqueCursor.from_wire(value)
-    return PageRequest.from_wire({"contract_version": CONTRACT_VERSION, "limit": value})
+    return PageRequest.from_wire({"limit": value})
 
 
-def test_contract_version_and_public_values_round_trip() -> None:
-    assert CONTRACT_VERSION == "1.0"
+def test_public_values_round_trip() -> None:
     assert Digest.from_bytes(b"ARMI").to_wire().startswith("sha256:")
     assert IdempotencyKey.from_wire("retry:0001").to_wire() == "retry:0001"
     assert Purpose.from_wire("birth.acceptance").to_wire() == "birth.acceptance"
@@ -194,9 +192,7 @@ def test_noncanonical_scalars_are_rejected(value: str, expected: str) -> None:
 def test_invalid_page_limits_are_rejected(limit: object) -> None:
     _assert_code(
         "CON-PAGE",
-        lambda: PageRequest.from_wire(
-            {"contract_version": CONTRACT_VERSION, "limit": limit}
-        ),
+        lambda: PageRequest.from_wire({"limit": limit}),
     )
 
 

@@ -568,12 +568,12 @@ class EffectPipeline:
             (
                 CreatorResourceKind("effect"),
                 str(snapshot.request.effect_id.value),
-                "creator-effect.v6",
+                "creator-effect",
             ),
             (
                 CreatorResourceKind("operation"),
                 str(intent.operation_ref),
-                "creator-operation.v8",
+                "creator-operation",
             ),
         ]
         if include_scene:
@@ -582,7 +582,7 @@ class EffectPipeline:
                 (
                     CreatorResourceKind("scene_timeline"),
                     snapshot.scene_key,
-                    "scene-timeline.v6",
+                    "scene-timeline",
                 ),
             )
         await self._notify(invalidations)
@@ -596,14 +596,14 @@ class EffectPipeline:
         from armi_kernel.contracts import Instant
 
         now = Instant(datetime.now(UTC))
-        for resource_kind, resource_ref, projection_version in invalidations:
+        for resource_kind, resource_ref, projection_kind in invalidations:
             try:
                 await self._notifier.notify(
                     CreatorProjectionInvalidation(
                         resource_kind,
                         resource_ref,
                         now,
-                        projection_version,
+                        projection_kind,
                     )
                 )
             except Exception:

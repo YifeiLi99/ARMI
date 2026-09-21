@@ -99,7 +99,7 @@ def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experimen
             {},
             json.dumps(
                 {
-                    "schema_version": "armi.model-response-artifact.v3",
+                    "schema_kind": "armi.model-response-artifact",
                     "output_text": json.dumps({"candidate": candidate}),
                 }
             ).encode(),
@@ -140,7 +140,7 @@ def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experimen
 @pytest.mark.parametrize("phase", ["anticipated", "realized"])
 def test_appraisal_probe_preserves_loss_phase_in_owner_derivation(experiment, phase):
     command = {
-        "schema_version": "armi.mood-appraisal.v3",
+        "schema_kind": "armi.mood-appraisal",
         "transition": "new",
         "event_phase": phase,
         "gist": "重要作品丢失",
@@ -168,7 +168,7 @@ def test_appraisal_probe_preserves_loss_phase_in_owner_derivation(experiment, ph
         {},
         json.dumps(
             {
-                "schema_version": "armi.model-response-artifact.v3",
+                "schema_kind": "armi.model-response-artifact",
                 "output_text": json.dumps({"candidate": {"mind": [], "mood": command}}),
             }
         ).encode(),
@@ -224,7 +224,7 @@ def test_provider_response_uses_production_envelope_extraction(experiment):
     value = {"kind": "no_activity"}
     envelope = json.dumps(
         {
-            "schema_version": "armi.model-response-artifact.v3",
+            "schema_kind": "armi.model-response-artifact",
             "output_text": json.dumps({"candidate": value}),
         }
     ).encode()
@@ -250,7 +250,7 @@ def test_invalid_model_returns_are_rejected_without_repair(experiment, malformed
         )
     )
     raw = json.dumps(
-        {"schema_version": "armi.model-response-artifact.v3", "output_text": output}
+        {"schema_kind": "armi.model-response-artifact", "output_text": output}
     ).encode()
     result = experiment["validate_response"](case, raw)
     assert result["validation"] == "rejected"
@@ -319,7 +319,7 @@ def test_trajectory_carries_owner_state_consumes_signals_and_closes(experiment):
         }
         response = json.dumps(
             {
-                "schema_version": "armi.model-response-artifact.v3",
+                "schema_kind": "armi.model-response-artifact",
                 "output_text": json.dumps({"candidate": candidate}),
             }
         ).encode()

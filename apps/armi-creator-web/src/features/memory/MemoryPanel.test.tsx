@@ -43,8 +43,7 @@ describe("Creator memory panel", () => {
       const url = String(input);
       if (url === "/v1/life-records?limit=20") {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "life-record-query.v2",
+          projection_kind: "life-record-query",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [
@@ -62,8 +61,7 @@ describe("Creator memory panel", () => {
       }
       if (url === "/v1/memories?limit=20") {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-memory.v2",
+          projection_kind: "creator-memory",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [
@@ -85,8 +83,7 @@ describe("Creator memory panel", () => {
       }
       if (url === `/v1/memories/${MEMORY_ID}/timeline?limit=20`) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-memory.v2",
+          projection_kind: "creator-memory",
           retrieval_kind: "creator_view",
           memory_id: MEMORY_ID,
           next_cursor: null,
@@ -138,8 +135,7 @@ describe("Creator memory panel", () => {
       const url = String(input);
       if (url === "/v1/life-records?limit=20") {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "life-record-query.v2",
+          projection_kind: "life-record-query",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [],
@@ -152,8 +148,7 @@ describe("Creator memory panel", () => {
         url === "/v1/life-records?limit=20&kind=activity&q=%E6%95%B4%E7%90%86"
       ) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "life-record-query.v2",
+          projection_kind: "life-record-query",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [],

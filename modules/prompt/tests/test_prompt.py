@@ -44,7 +44,7 @@ def _draft(
             cast(
                 Any,
                 {
-                    "schema_version": "armi.subject-prompt.v1",
+                    "schema_kind": "armi.subject-prompt",
                     "cognition_method": cognition_method,
                     "expression_method": "清楚表达确定与不确定的部分",
                     "reflection_method": "在经历后回看方法是否仍然合适",

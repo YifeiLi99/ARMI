@@ -5,7 +5,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, cast
 
-from armi_kernel.contracts import CONTRACT_VERSION
 from fastapi import FastAPI
 
 from armi_runtime.application.creator_contract import (
@@ -74,7 +73,7 @@ def create_creator_openapi_app() -> FastAPI:
         on_stopping=_unused_async,
     )
     app.title = "ARMI Creator Interface"
-    app.version = CONTRACT_VERSION
+    app.version = "current"
     return app
 
 

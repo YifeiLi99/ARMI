@@ -24,7 +24,7 @@ def main() -> int:
         args.archive_root.resolve(strict=True)
     )
     value = {
-        "schema_version": "armi.semantic-recall-files.v1",
+        "schema_kind": "armi.semantic-recall-files",
         "archives": {
             LLAMA_ARCHIVE: LLAMA_ARCHIVE_SHA256,
             CUDA_ARCHIVE: CUDA_ARCHIVE_SHA256,

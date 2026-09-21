@@ -294,9 +294,9 @@
       "default": null,
       "title": "Runtime Defaults Path"
     },
-    "schema_version": {
-      "const": "armi.admin-config.v10",
-      "title": "Schema Version",
+    "schema_kind": {
+      "const": "armi.admin-config",
+      "title": "Schema Kind",
       "type": "string"
     },
     "template_manifest": {
@@ -318,7 +318,7 @@
     }
   },
   "required": [
-    "schema_version",
+    "schema_kind",
     "operator_id",
     "authorized_operations",
     "environment_kind",

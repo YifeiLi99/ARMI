@@ -7,9 +7,7 @@ from dataclasses import dataclass
 from typing import Self, cast
 
 from ._codec import (
-    CONTRACT_VERSION,
     ContractViolation,
-    require_contract_version,
     require_exact_fields,
     require_mapping,
 )
@@ -32,12 +30,9 @@ class PageRequest:
         wire = require_mapping(value, path=path)
         require_exact_fields(
             wire,
-            required=frozenset({"contract_version", "limit"}),
+            required=frozenset({"limit"}),
             optional=frozenset({"cursor"}),
             path=path,
-        )
-        require_contract_version(
-            wire["contract_version"], path=f"{path}.contract_version"
         )
         limit = wire["limit"]
         if (
@@ -59,7 +54,6 @@ class PageRequest:
 
     def to_wire(self) -> dict[str, object]:
         wire: dict[str, object] = {
-            "contract_version": CONTRACT_VERSION,
             "limit": self.limit,
         }
         if self.cursor is not None:
@@ -87,12 +81,9 @@ class Page[ItemT]:
         wire = require_mapping(value, path=path)
         require_exact_fields(
             wire,
-            required=frozenset({"contract_version", "items"}),
+            required=frozenset({"items"}),
             optional=frozenset({"next_cursor"}),
             path=path,
-        )
-        require_contract_version(
-            wire["contract_version"], path=f"{path}.contract_version"
         )
         raw_items = wire["items"]
         if not isinstance(raw_items, list):
@@ -122,7 +113,6 @@ class Page[ItemT]:
     def to_wire(self, *, item_encoder: Callable[[ItemT], object]) -> dict[str, object]:
         items: Sequence[object] = tuple(item_encoder(item) for item in self.items)
         wire: dict[str, object] = {
-            "contract_version": CONTRACT_VERSION,
             "items": list(items),
         }
         if self.next_cursor is not None:

@@ -30,7 +30,7 @@ def test_codex_prompt_assembles_identity_and_task_once():
     messages = _provider_input(
         json.dumps(
             {
-                "schema_version": "armi.model-request.v1",
+                "schema_kind": "armi.model-request",
                 "compiled_context": {
                     "purpose": "consider_codex_result",
                     "layers": [{"items": items}],
@@ -85,12 +85,12 @@ def test_all_purposes_share_section_order_without_mutating_frozen_data(purpose):
         {"item_kind": "recent_scene_turn", "content": "历史原文"},
         {
             "item_kind": "self",
-            "content": '{"schema_version":"private-wire","name":"ARMI"}',
+            "content": '{"schema_kind":"private-wire","name":"ARMI"}',
         },
         {"item_kind": "fixed_prompt", "content": "固定人格"},
     ]
     document = {
-        "schema_version": "armi.model-request.v1",
+        "schema_kind": "armi.model-request",
         "compiled_context": {"purpose": purpose, "layers": [{"items": items}]},
         "included_context_refs": [{"ref": f"ctx:{n}"} for n in [7, 3, 9, 1]],
     }
@@ -120,19 +120,19 @@ def test_reflection_only_receives_its_target_submission_version():
                     "items": [
                         {
                             "item_kind": "mind",
-                            "content": '{"schema_version":"armi.mind.v1","thoughts":[]}',
+                            "content": '{"schema_kind":"armi.mind.v1","thoughts":[]}',
                             "source": {"reference": "hidden-mind-id", "version": 12},
                         },
                         {
                             "item_kind": "self",
-                            "content": '{"schema_version":"hidden-self-contract"}',
+                            "content": '{"schema_kind":"hidden-self-contract"}',
                             "source": {"reference": "hidden-self-id", "version": 8},
                         },
                     ]
                 }
             ],
         },
-        "output_contract": {"schema_version": "armi.owner-reflection-candidate.v4"},
+        "output_contract": {"schema_kind": "armi.owner-reflection-candidate"},
         "candidate_base": {"context_digest": "hidden-digest"},
         "included_context_refs": [{"ref": "ctx:1"}, {"ref": "ctx:2"}],
     }
@@ -189,13 +189,13 @@ def test_owner_fields_form_nested_markdown_lists():
 
 
 @pytest.mark.parametrize(
-    "schema_version",
+    "schema_kind",
     ("armi.creator-dialogue-input.v6",),
 )
-def test_provider_input_rejects_removed_dialogue_envelope(schema_version: str) -> None:
+def test_provider_input_rejects_removed_dialogue_envelope(schema_kind: str) -> None:
     request = json.dumps(
         {
-            "schema_version": schema_version,
+            "schema_kind": schema_kind,
             "messages": [
                 {"role": "system", "content": "冻结资料"},
                 {"role": "user", "content": "嗨"},
@@ -211,7 +211,7 @@ def test_provider_input_rejects_removed_dialogue_envelope(schema_version: str) -
 def test_provider_input_rejects_invalid_dialogue_message() -> None:
     request = json.dumps(
         {
-            "schema_version": "armi.creator-dialogue-input.v6",
+            "schema_kind": "armi.creator-dialogue-input.v6",
             "messages": [{"role": "tool", "content": "不允许"}],
         },
         ensure_ascii=False,
@@ -242,7 +242,7 @@ def test_current_evidence_follows_history_once_with_its_original_source(
         "privacy": "private",
     }
     request = {
-        "schema_version": "armi.model-request.v1",
+        "schema_kind": "armi.model-request",
         "compiled_context": {
             "purpose": purpose,
             "layers": [
@@ -384,11 +384,11 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
             "item_kind": "capability_catalog",
             "content": json.dumps(
                 {
-                    "schema_version": "internal-schema",
+                    "schema_kind": "internal-schema",
                     "capabilities": [
                         {
                             "capability_ref": "internal-capability",
-                            "schema_version": "internal-schema",
+                            "schema_kind": "internal-schema",
                             "capability_kind": "codex.delegated-work",
                             "enabled": False,
                             "availability_status": "unavailable",
@@ -408,8 +408,8 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
 @pytest.mark.parametrize(
     "version",
     [
-        "armi.other-human-dialogue-candidate.v9",
-        "armi.creator-cognitive-act-candidate.v8",
+        "armi.other-human-dialogue-candidate",
+        "armi.creator-cognitive-act-candidate",
     ],
 )
 def test_all_dialogue_contracts_require_strict_output_and_local_validation(version):
@@ -426,7 +426,7 @@ def test_all_dialogue_contracts_require_strict_output_and_local_validation(versi
     request = SimpleNamespace(
         canonical_bytes=json.dumps(
             {
-                "schema_version": "armi.model-request.v1",
+                "schema_kind": "armi.model-request",
                 "compiled_context": {
                     "purpose": "consider_other_human_input",
                     "layers": [
@@ -446,7 +446,7 @@ def test_all_dialogue_contracts_require_strict_output_and_local_validation(versi
         cast(
             Any,
             SimpleNamespace(
-                model_id="doubao-seed-evolving", response_contract_version=version
+                model_id="doubao-seed-evolving", response_contract_kind=version
             ),
         ),
         cast(Any, request),

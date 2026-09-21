@@ -108,7 +108,7 @@ CREATE TABLE armi.effect_attempts (
     dispatch_runtime_fence_token bigint,
     data_rights_contact_generation bigint,
     data_rights_use_generation bigint,
-    CONSTRAINT effect_attempts_adapter_binding_check CHECK ((adapter_binding = ANY (ARRAY['armi.local-inbox-adapter.postgresql-v1'::text, 'armi.external-message-adapter.v1'::text, 'armi.effect-adapter.live-voice-audio-v1'::text, 'armi.codex-runner.openai-python-sdk-v1'::text]))),
+    CONSTRAINT effect_attempts_adapter_binding_check CHECK ((adapter_binding = ANY (ARRAY['armi.local-inbox-adapter.postgresql'::text, 'armi.external-message-adapter'::text, 'armi.effect-adapter.live-voice-audio'::text, 'armi.codex-runner.openai-python-sdk'::text]))),
     CONSTRAINT effect_attempts_attempt_no_check CHECK (((attempt_no >= 1) AND (attempt_no <= 2))),
     CONSTRAINT effect_attempts_check CHECK ((((dispatch_state = 'prepared'::text) AND (result_status IS NULL) AND (dispatched_at IS NULL) AND (settled_at IS NULL) AND (error_code IS NULL)) OR ((dispatch_state = 'dispatching'::text) AND (result_status IS NULL) AND (dispatched_at IS NOT NULL) AND (settled_at IS NULL) AND (error_code IS NULL)) OR ((dispatch_state = 'settled'::text) AND (result_status IS NOT NULL) AND (settled_at IS NOT NULL) AND ((dispatched_at IS NOT NULL) OR ((result_status = ANY (ARRAY['failed'::text, 'cancelled'::text])) AND (dispatched_at IS NULL)))))),
     CONSTRAINT effect_attempts_check1 CHECK (((result_status = ANY (ARRAY['failed'::text, 'unknown'::text])) = (error_code IS NOT NULL))),

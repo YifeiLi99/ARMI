@@ -23,7 +23,7 @@ def encode(value: CandidateLifeMaterialDraft) -> bytes:
         cast(
             Any,
             {
-                "schema_version": MATERIAL_CANDIDATE_VERSION,
+                "schema_kind": MATERIAL_CANDIDATE_VERSION,
                 "proposal_ref": value.proposal_ref,
                 "atomic_group_ref": value.atomic_group_ref,
                 "basis_ordinals": list(value.basis_ordinals),
@@ -57,7 +57,7 @@ def decode(payload: bytes) -> CandidateLifeMaterialDraft:
         if (
             set(item)
             != {
-                "schema_version",
+                "schema_kind",
                 "proposal_ref",
                 "atomic_group_ref",
                 "basis_ordinals",
@@ -74,7 +74,7 @@ def decode(payload: bytes) -> CandidateLifeMaterialDraft:
                 "revision_kind",
                 "source_kind",
             }
-            or item["schema_version"] != MATERIAL_CANDIDATE_VERSION
+            or item["schema_kind"] != MATERIAL_CANDIDATE_VERSION
         ):
             raise ValueError
         ordinals = item["basis_ordinals"]

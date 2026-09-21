@@ -20,13 +20,7 @@ const statuses = [
   "completed",
 ] as const;
 
-const commonFields = [
-  "contract_version",
-  "message",
-  "occurred_at",
-  "status",
-  "trace_id",
-];
+const commonFields = ["message", "occurred_at", "status", "trace_id"];
 
 const variantFields: Record<(typeof statuses)[number], readonly string[]> = {
   accepted: ["custodian", "details", "result_ref"],
@@ -55,7 +49,7 @@ function list(value: unknown): unknown[] {
 
 function rejectionCode(kind: unknown, value: unknown): string | null {
   if (kind === "contract_version") {
-    return value === "1.0" ? null : "CON-VERSION";
+    return "CON-FIELD-UNKNOWN";
   }
   if (kind === "uuid") {
     return typeof value === "string" &&
@@ -111,7 +105,7 @@ function rejectionCode(kind: unknown, value: unknown): string | null {
 describe("transport v1 shared contract vector", () => {
   it("exhausts the eight statuses with exact variant fields", () => {
     const root = record(vector);
-    expect(root.contract_version).toBe("1.0");
+    expect(root).not.toHaveProperty("contract_version");
     const valid = record(root.valid);
     const outcomes = list(valid.outcomes).map(record);
     expect(outcomes.map((outcome) => outcome.status)).toEqual(statuses);
@@ -121,7 +115,7 @@ describe("transport v1 shared contract vector", () => {
       expect(Object.keys(outcome).sort()).toEqual(
         [...commonFields, ...variantFields[status]].sort(),
       );
-      expect(outcome.contract_version).toBe("1.0");
+      expect(outcome).not.toHaveProperty("contract_version");
     }
   });
 

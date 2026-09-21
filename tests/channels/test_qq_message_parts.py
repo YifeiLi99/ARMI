@@ -52,7 +52,7 @@ from jsonschema import Draft202012Validator
 async def test_model_messages_become_exact_qq_sends(purpose, messages):
     selected = load_purpose_binding(purpose)
     renderer = CompatibleStructuredTransport(
-        candidate_schema(selected.response_contract_version, purpose=purpose),
+        candidate_schema(selected.response_contract_kind, purpose=purpose),
         instructions="",
         schema_name="test",
     )
@@ -75,15 +75,15 @@ async def test_model_messages_become_exact_qq_sends(purpose, messages):
     native = model_response_candidate(
         json.dumps(
             {
-                "schema_version": "armi.model-response-artifact.v3",
+                "schema_kind": "armi.model-response-artifact",
                 "output_text": json.dumps(wire),
             }
         ).encode(),
-        expected_version=selected.response_contract_version,
+        expected_version=selected.response_contract_kind,
     )
     parsed = parse_candidate(
         json.dumps(native).encode(),
-        expected_version=selected.response_contract_version,
+        expected_version=selected.response_contract_kind,
         allowed_context_refs=frozenset(),
     )
     decoded = cast(Any, parsed)

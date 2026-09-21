@@ -79,7 +79,7 @@ def test_format_retry_attempts_preserve_evidence_and_do_not_resume(
             )
             binding = replace(
                 load_active_binding(Path("configs/model-bindings.yaml")),
-                response_contract_version="armi.creator-cognitive-act-candidate.v8",
+                response_contract_kind="armi.creator-cognitive-act-candidate",
             )
             await factory.open()
             try:

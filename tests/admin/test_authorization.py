@@ -21,7 +21,7 @@ def stores(tmp_path: Path):
     key = Ed25519PrivateKey.generate()
     agent = AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v10",
+            "schema_kind": "armi.admin-config",
             "operator_id": "delegated-agent",
             "authorized_operations": ("environment_reset", "authorization_get"),
             "environment_kind": "active",

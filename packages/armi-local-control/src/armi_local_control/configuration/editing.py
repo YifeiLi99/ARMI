@@ -117,7 +117,7 @@ class EnvironmentConfiguration:
         content = self._content()
         if _digest(content) != expected_version:
             raise ValueError("ADMIN-CONFIG-VERSION-CONFLICT")
-        if any(key in patch for key in ("environment", "schema_version")):
+        if any(key in patch for key in ("environment", "schema_kind")):
             raise ValueError("ADMIN-CONFIG-IMMUTABLE")
         if document is not None:
             if patch:

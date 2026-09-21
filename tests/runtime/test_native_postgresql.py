@@ -94,7 +94,7 @@ def test_foreign_system_identifier_prevents_stop(tmp_path: Path) -> None:
     manager.identity_path.write_text(
         json.dumps(
             {
-                "schema_version": "armi.native-postgresql.v1",
+                "schema_kind": "armi.native-postgresql",
                 "environment_id": manager.environment_id,
                 "data_directory": str(manager.data),
                 "port": manager.binding.port,

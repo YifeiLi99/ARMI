@@ -165,7 +165,7 @@ def create_runtime_app(
                         CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v8",
+                        "creator-operation",
                     )
                 )
             except Exception:

@@ -19,13 +19,11 @@ describe("Creator data rights panel", () => {
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
       if (init?.method === "POST") {
         expect(JSON.parse(String(init.body))).toEqual({
-          contract_version: "1.0",
           order_kind: "delete_related",
         });
         return new Response(
           JSON.stringify({
-            contract_version: "1.0",
-            projection_version: "data-rights-order-summary.v3",
+            projection_kind: "data-rights-order-summary",
             order_id: ORDER_ID,
             requester_party_id: ORDER_ID,
             requester_kind: "creator",
@@ -44,12 +42,10 @@ describe("Creator data rights panel", () => {
       }
       return new Response(
         JSON.stringify({
-          contract_version: "1.0",
-          projection_version: "data-rights-order-collection.v3",
+          projection_kind: "data-rights-order-collection",
           orders: [
             {
-              contract_version: "1.0",
-              projection_version: "data-rights-order-detail.v3",
+              projection_kind: "data-rights-order-detail",
               order_id: ORDER_ID,
               requester_party_id: ORDER_ID,
               requester_kind: "creator",

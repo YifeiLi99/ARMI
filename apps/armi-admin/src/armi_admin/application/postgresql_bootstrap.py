@@ -463,7 +463,7 @@ def inspect_policy(
         )
     return {
         "status": "pass",
-        "schema_version": "armi.database-roles.v2",
+        "schema_kind": "armi.database-roles",
         "environment_id": str(environment_id),
         "role_count": len(expected_roles),
         "membership_count": len(expected_memberships),

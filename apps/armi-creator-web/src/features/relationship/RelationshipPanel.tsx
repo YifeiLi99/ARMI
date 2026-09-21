@@ -189,7 +189,6 @@ export function RelationshipPanel({
       return;
     }
     const request: CreatorRelationshipBoundary = {
-      contract_version: "1.0",
       kind,
       action,
       summary: exactSummary,

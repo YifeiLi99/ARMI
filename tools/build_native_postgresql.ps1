@@ -71,7 +71,7 @@ Get-ChildItem -LiteralPath $pgstage -Recurse -File | Sort-Object FullName | ForE
     $relative = [IO.Path]::GetRelativePath($pgstage, $_.FullName).Replace('\', '/')
     $inventory[$relative] = (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()
 }
-$record = [ordered]@{schema_version='armi.native-postgresql-distribution.v1'; postgresql='18.4'; vector='0.8.6'; pg_trgm='1.6'; process_code_page='UTF-8'; compiler=$compilerVersion; source_sha256=$spec.archive_sha256; files=$inventory}
+$record = [ordered]@{schema_kind='armi.native-postgresql-distribution'; postgresql='18.4'; vector='0.8.6'; pg_trgm='1.6'; process_code_page='UTF-8'; compiler=$compilerVersion; source_sha256=$spec.archive_sha256; files=$inventory}
 [IO.File]::WriteAllText((Join-Path $pgstage 'distribution.json'), (($record | ConvertTo-Json -Depth 5) + "`n"), [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
 Move-Item -LiteralPath $pgstage -Destination $destination

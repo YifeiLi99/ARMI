@@ -27,7 +27,7 @@ from armi_runtime_foundation import (
 )
 
 from ._scene_contract import (
-    PROJECTION_VERSION,
+    PROJECTION_KIND,
     SceneQueryViolation,
     SceneTimelineCodexTaskProjectionPort,
     SceneTimelineItem,
@@ -90,8 +90,7 @@ class SceneTimelineCursorCodec:
         before_id: UUID,
     ) -> OpaqueCursor:
         payload = {
-            "contract_version": "1.0",
-            "projection_version": PROJECTION_VERSION,
+            "projection_kind": PROJECTION_KIND,
             "environment_id": str(self._environment_id),
             "creator_party_id": str(self._creator_party_id),
             "scene_id": str(scene_id),
@@ -134,10 +133,7 @@ class SceneTimelineCursorCodec:
             TypeError,
         ):
             raise SceneQueryViolation("SCENE-CURSOR-INVALID") from None
-        if (
-            payload.get("contract_version") != "1.0"
-            or payload.get("projection_version") != PROJECTION_VERSION
-        ):
+        if payload.get("projection_kind") != PROJECTION_KIND:
             raise SceneQueryViolation("SCENE-CURSOR-STALE")
         expected_scope: dict[str, object] = {
             "environment_id": str(self._environment_id),
@@ -150,8 +146,7 @@ class SceneTimelineCursorCodec:
         if any(payload.get(key) != value for key, value in expected_scope.items()):
             raise SceneQueryViolation("SCENE-CURSOR-INVALID")
         if set(payload) != {
-            "contract_version",
-            "projection_version",
+            "projection_kind",
             *expected_scope,
             "before_at",
             "before_id",

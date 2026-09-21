@@ -80,8 +80,8 @@ from ._other_human_contract import (
     RegisterOtherHumanPartyCommand,
 )
 from ._scene_contract import (
-    PROJECTION_VERSION,
-    SCENE_COLLECTION_PROJECTION_VERSION,
+    PROJECTION_KIND,
+    SCENE_COLLECTION_PROJECTION_KIND,
     CreatorSceneCollection,
     CreatorSceneCreateCommand,
     CreatorScenePort,
@@ -843,8 +843,8 @@ async def human_input_activity(
 
 
 __all__ = (
-    "PROJECTION_VERSION",
-    "SCENE_COLLECTION_PROJECTION_VERSION",
+    "PROJECTION_KIND",
+    "SCENE_COLLECTION_PROJECTION_KIND",
     "ConfigureExternalCreatorCommand",
     "CreatorAttachmentStatus",
     "CreatorCodexExecutionSummary",

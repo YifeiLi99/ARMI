@@ -17,8 +17,8 @@ from ._dialogue_contract import ContextRef
 from ._prompt_instructions import creator_instructions
 from ._strict_model_json import strict_model_value
 
-CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v8"
-CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v8"
+CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate"
+CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = creator_instructions("creator")
 CREATOR_VOICE_ACT_INSTRUCTIONS = creator_instructions("voice")
@@ -98,7 +98,7 @@ class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
     changes: tuple[CreatorChange, ...] = Field(default=(), max_length=8)
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return CREATOR_COGNITIVE_ACT_VERSION
 
     @property
@@ -166,7 +166,7 @@ class CreatorVoiceActCandidate(CreatorCognitiveActCandidate, frozen=True):
     changes: tuple[CreatorChange, ...] = Field(default=(), max_length=8, alias="ops")
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return CREATOR_VOICE_ACT_VERSION
 
 

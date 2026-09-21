@@ -104,7 +104,7 @@ def machine(
     (tmp_path / "interaction-access.yaml").write_text(
         json.dumps(
             {
-                "schema_version": "armi.interaction-access.v1",
+                "schema_kind": "armi.interaction-access",
                 "environment_id": str(environment_id),
                 "delegates": [delegate],
             }
@@ -114,7 +114,7 @@ def machine(
     binding = InteractionClientBinding.model_validate(
         {
             **delegate,
-            "schema_version": "armi.interaction-client.v1",
+            "schema_kind": "armi.interaction-client",
             "environment_id": str(environment_id),
             "environment_root": str(tmp_path),
             "endpoint": "http://127.0.0.1:6198",
@@ -558,6 +558,6 @@ async def test_machine_does_not_accept_browser_or_body_identity(tmp_path: Path) 
         response = await client.post(
             "/v1/scenes",
             headers=headers,
-            json={"contract_version": "1.0", "scene_key": "example"},
+            json={"scene_key": "example"},
         )
         assert response.status_code != 201

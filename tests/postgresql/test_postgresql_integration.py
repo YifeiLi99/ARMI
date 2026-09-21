@@ -427,7 +427,7 @@ def _admin_cli_binding(
     binding.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v10",
+                "schema_kind": "armi.admin-config",
                 "operator_id": "isolated-system-agent",
                 "authorized_operations": [
                     "configuration.read",
@@ -549,7 +549,7 @@ def _write_creator_resources(root: Path) -> Path:
     (root / "manifest.json").write_text(
         json.dumps(
             {
-                "schema_version": "armi.creator-static.v1",
+                "schema_kind": "armi.creator-static",
                 "base_path": "/ui/",
                 "entrypoint": "static/index.html",
                 "runtime_discovery": False,
@@ -823,13 +823,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     factory,
                 ).birth(
                     BirthManifest(
-                        schema_version="armi.birth-manifest.v1",
+                        schema_kind="armi.birth-manifest",
                         environment_id=fixture.environment_id,
                         birth_request_id=_uuid7(),
                         creator_party_id=_uuid7(),
                         idempotency_key="voice-playback-results",
                         personality_anchor=PersonalityAnchor(
-                            schema_version="armi.personality-anchor.v1",
+                            schema_kind="armi.personality-anchor",
                             voice_style="约 16 岁少女口吻",
                             traits=("好奇",),
                         ),
@@ -918,7 +918,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         session_id=session_id,
                         turn_id=turn_id,
                         turn_no=number,
-                        context_version="ctx:1",
                     )
                     receipt = pending_receipt()
                     turn_receipts.append(receipt)
@@ -1090,7 +1089,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         session_id=next_session,
                         turn_id=_uuid7(),
                         turn_no=1,
-                        context_version="ctx:1",
                     )
                 async with factory.unit_of_work(read_only=True) as unit:
                     ended = await (
@@ -1279,8 +1277,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 """INSERT INTO armi.creator_exports(
                    creator_export_id,creator_party_id,directory_name,idempotency_key,request_digest,status,
-                   destination_path,snapshot_contract_version,snapshot_status,completed_at)
-                   VALUES (%s,%s,'retry-test','retry-test',%s,'completed',%s,'test','active',statement_timestamp())""",
+                   destination_path,snapshot_status,completed_at)
+                   VALUES (%s,%s,'retry-test','retry-test',%s,'completed',%s,'active',statement_timestamp())""",
                 (
                     export_id,
                     creator,
@@ -1445,7 +1443,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     async with factory.unit_of_work() as unit:
                         row = await (
                             await unit.transaction.execute(
-                                """SELECT snapshot_status,snapshot_contract_version,snapshot_removed_at,snapshot_party_scopes
+                                """SELECT snapshot_status,snapshot_removed_at,snapshot_party_scopes
                                FROM armi.creator_exports WHERE creator_export_id=%s""",
                                 (export_id,),
                             )
@@ -1457,10 +1455,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         refs = {item.ref for item in discovery.related_refs}
                         if status is CreatorExportStatus.FAILED:
-                            self.assertEqual(row, (None, None, None, {}))
+                            self.assertEqual(row, (None, None, {}))
                             self.assertNotIn(export_id, refs)
                         else:
-                            self.assertEqual(row[3], {str(creator_id): [1, 1]})
+                            self.assertEqual(row[2], {str(creator_id): [1, 1]})
                             unrelated = await participant.discover(
                                 unit.transaction,
                                 DataRightsDiscoveryRequest(uuid7(), uuid7(), ()),
@@ -1469,7 +1467,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 export_id, {item.ref for item in unrelated.related_refs}
                             )
                             self.assertEqual(row[0], "active")
-                            self.assertIsNotNone(row[1])
+                            self.assertIsNone(row[1])
                             self.assertIn(export_id, refs)
                             await unit.transaction.execute(
                                 """UPDATE armi.creator_exports
@@ -1742,13 +1740,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 born = await birth.birth(
                     BirthManifest(
-                        schema_version="armi.birth-manifest.v1",
+                        schema_kind="armi.birth-manifest",
                         environment_id=fixture.environment_id,
                         birth_request_id=uuid7(),
                         creator_party_id=uuid7(),
                         idempotency_key="autonomy-fixture",
                         personality_anchor=PersonalityAnchor(
-                            schema_version="armi.personality-anchor.v1",
+                            schema_kind="armi.personality-anchor",
                             voice_style="约 16 岁少女口吻",
                             traits=("清醒",),
                         ),
@@ -1880,12 +1878,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 mood_appraisal_event_id=%s,mood_episode_id=%s,
                                 transition='new',event_phase='ongoing',
                                 gist='有件事还没弄明白',basis_ordinals=ARRAY[1]::smallint[],
-                                appraisal_payload='{"schema_version":"armi.mood-appraisal.v3"}'::jsonb,
+                                appraisal_payload='{"schema_kind":"armi.mood-appraisal"}'::jsonb,
                                 importance=60,derived_vad='{"valence":0,"arousal":20,"dominance":0}'::jsonb,
-                                derived_components=%s::jsonb,derivation_version='cpm-fuzzy.v4',
-                                dynamics_version='recency-reappraisal.v1',
-                                appraisal_mapping_version='semantic-anchors.v1',
-                                derived_appraisal_payload='{"schema_version":"armi.mood-derived-appraisal.v3"}'::jsonb,
+                                derived_components=%s::jsonb,derivation_method='cpm-fuzzy',
+                                dynamics_method='recency-reappraisal',
+                                appraisal_mapping_method='semantic-anchors',
+                                derived_appraisal_payload='{"schema_kind":"armi.mood-derived-appraisal"}'::jsonb,
                                 occurred_at=statement_timestamp()-interval '2 minutes',
                                 affect_intensity=60,affect_half_life_seconds=3600
                                WHERE is_current AND subject_id=%s""",
@@ -2003,7 +2001,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 mechanism_identity,trace_id)
                                SELECT %s,%s,subject_id,'consider_autonomy_check','preparing',
                                       subject_version,state_epoch,current_bundle_activation_id,
-                                      'armi.context-compiler.layered-v3',%s
+                                      'armi.context-compiler.layered',%s
                                FROM armi.subjects WHERE subject_id=%s""",
                             (episode, opportunity_id, "3" * 32, born.subject_id),
                         )
@@ -2229,13 +2227,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=uuid7(),
             creator_party_id=uuid7(),
             idempotency_key="online-admin-birth",
             personality_anchor=PersonalityAnchor(
-                schema_version="armi.personality-anchor.v1",
+                schema_kind="armi.personality-anchor",
                 voice_style="约 16 岁少女口吻",
                 traits=("清醒",),
             ),
@@ -2284,7 +2282,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )[0]
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v10",
+                    "schema_kind": "armi.admin-config",
                     "operator_id": "isolated-content-admin",
                     "authorized_operations": ("content_write",),
                     "environment_kind": "acceptance",
@@ -3116,13 +3114,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     factory,
                 ).birth(
                     BirthManifest(
-                        schema_version="armi.birth-manifest.v1",
+                        schema_kind="armi.birth-manifest",
                         environment_id=fixture.environment_id,
                         birth_request_id=_uuid7(),
                         creator_party_id=_uuid7(),
                         idempotency_key="visual-receipts",
                         personality_anchor=PersonalityAnchor(
-                            schema_version="armi.personality-anchor.v1",
+                            schema_kind="armi.personality-anchor",
                             voice_style="约 16 岁少女口吻",
                             traits=("好奇",),
                         ),
@@ -3351,12 +3349,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
             connection.execute(
-                "ALTER TABLE armi.schema_baseline_identity "
-                "DROP CONSTRAINT schema_baseline_identity_value_check"
-            )
-            connection.execute(
                 "UPDATE armi.schema_baseline_identity "
-                "SET baseline_identity = 'armi.schema-baseline.unsupported'"
+                "SET resource_digest = 'sha256:' || repeat('0', 64)"
             )
         with self.assertRaises(DatabaseViolation) as rejected:
             PostgreSQLSchemaGateway().status(
@@ -3415,13 +3409,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             (bootstrap_root / "birth-manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": "armi.birth-manifest.v1",
+                        "schema_kind": "armi.birth-manifest",
                         "environment_id": str(fixture.environment_id),
                         "birth_request_id": str(_uuid7()),
                         "creator_party_id": str(_uuid7()),
                         "idempotency_key": "creator-system-birth",
                         "personality_anchor": {
-                            "schema_version": "armi.personality-anchor.v1",
+                            "schema_kind": "armi.personality-anchor",
                             "voice_style": "约 16 岁少女口吻",
                             "traits": ["连续", "自主"],
                         },
@@ -3604,7 +3598,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         browser_token = page.evaluate(
                             "() => JSON.parse(sessionStorage.getItem("
-                            "'armi.browser-session.v1')).token"
+                            "'armi.browser-session')).token"
                         )
                         # Isolated phase injection exercises the real Runtime projection
                         # and page without calling a Provider.
@@ -3747,12 +3741,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("自主",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -4510,12 +4504,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("自主",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -4792,12 +4786,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         creator_party_id = _uuid7()
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("自主",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=creator_party_id,
@@ -5082,12 +5076,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         creator_party_id = _uuid7()
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("审慎",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=creator_party_id,
@@ -5269,7 +5263,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v10",
+                "schema_kind": "armi.admin-config",
                 "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                 .public_bytes_raw()
                 .hex(),
@@ -5417,7 +5411,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             template_manifest.write_text(
                 json.dumps(
                     {
-                        "schema_version": "armi.admin-experiment-environment.v1",
+                        "schema_kind": "armi.admin-experiment-environment",
                         "environment_id": str(fixture.environment_id),
                     },
                     separators=(",", ":"),
@@ -5427,7 +5421,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v10",
+                    "schema_kind": "armi.admin-config",
                     "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                     .public_bytes_raw()
                     .hex(),
@@ -5561,12 +5555,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("审慎",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -5692,7 +5686,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v10",
+                    "schema_kind": "armi.admin-config",
                     "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                     .public_bytes_raw()
                     .hex(),
@@ -5739,7 +5733,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             service = new_service()
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
             replacement = {
-                "schema_version": "armi.mind.v4",
+                "schema_kind": "armi.mind",
                 "understanding": ["我知道这次变化来自隔离管理纠正"],
                 "attention": [],
                 "thoughts": [],
@@ -6241,8 +6235,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     'ordinary historical memory',
                     'formed',
                     'available',
-                    'armi.memory-formation.contextual-v1',
-                    'formation-v1',
+                    'armi.memory-formation.contextual',
+                    'formation',
                     %s,
                     false FROM memory_plan_fixture
                 UNION ALL
@@ -6261,8 +6255,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ELSE 'ordinary current memory' END,
                     'recalled',
                     'available',
-                    'armi.memory-revision.contextual-v1',
-                    'natural-dialogue-v1',
+                    'armi.memory-revision.contextual',
+                    'natural-dialogue',
                     %s,
                     true FROM memory_plan_fixture
                 """,
@@ -6322,7 +6316,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     '[]'::jsonb,
                     '[]'::jsonb,
                     'active',
-                    'armi.relationship.contextual-v1',
+                    'armi.relationship.contextual',
                     %s,
                     subject_party_id,
                     other_party_id,
@@ -6479,7 +6473,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 SELECT uuidv7(), uuidv7(), %s, 'consider_autonomous_life',
                        'preparing', 0, 0, uuidv7(),
-                       'armi.context-compiler.layered-v3',
+                       'armi.context-compiler.layered',
                        repeat('2', 32)
                 FROM generate_series(1, 10000)
                 """,
@@ -6911,12 +6905,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("坦率", "好奇"),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -7466,12 +7460,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("坦率", "好奇"),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -7549,7 +7543,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             cast(
                 Any,
                 {
-                    "schema_version": "armi.compiled-context.v3",
+                    "schema_kind": "armi.compiled-context",
                     "purpose": "consider_creator_input",
                     "sections": [
                         {
@@ -7618,7 +7612,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         payloads = {
             "input": evidence_text.encode(),
-            "context_manifest": b'{"schema_version":"armi.context-manifest.v3"}',
+            "context_manifest": b'{"schema_kind":"armi.context-manifest"}',
             "compiled_context": compiled_context,
             "request": b"s026-request",
             "response": b"s026-response",
@@ -7629,7 +7623,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v38",
+                "schema_kind": "armi.subject-change-set",
                 "subject_id": str(born.subject_id),
                 "episode_id": str(ids["episode"]),
                 "model_attempt_id": str(ids["model_attempt"]),
@@ -8160,7 +8154,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 0
         )
-        candidate_contract_version = "armi.cognition-candidate.v18"
+        candidate_contract_kind = "armi.cognition-candidate"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -8310,7 +8304,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     trace_id, prepared_at, model_returned_at,
                     final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'finalizing', 0, 0, %s,
-                          'armi.context-compiler.layered-v3',
+                          'armi.context-compiler.layered',
                           %s, %s, %s, %s, statement_timestamp(),
                           statement_timestamp(), 'change', statement_timestamp())
                 """,
@@ -8434,7 +8428,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 """
-                INSERT INTO armi.cognitive_attempts (model_attempt_id, cognitive_episode_id, work_id, work_attempt_id, attempt_no, provider, model_id, version_policy, profile, request_schema_version, candidate_schema_version, credential_identity, request_artifact_id, dispatch_status, provider_request_id, provider_model_id, response_artifact_id, input_tokens, output_tokens, cached_input_tokens, result_status, dispatched_at, settled_at)
+                INSERT INTO armi.cognitive_attempts (model_attempt_id, cognitive_episode_id, work_id, work_attempt_id, attempt_no, provider, model_id, version_policy, profile, candidate_contract_kind, credential_identity, request_artifact_id, dispatch_status, provider_request_id, provider_model_id, response_artifact_id, input_tokens, output_tokens, cached_input_tokens, result_status, dispatched_at, settled_at)
                     VALUES (%s,
                     %s,
                     %s,
@@ -8444,7 +8438,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     'doubao-seed-evolving',
                     'provider_evolving_alias',
                     'creator_input_cognition',
-                    'armi.model-request.v1',
                     %s,
                     'armi.model.ark-api-key.v1',
                     %s,
@@ -8464,7 +8457,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ids["episode"],
                     ids["commit_work"],
                     ids["commit_attempt"],
-                    candidate_contract_version,
+                    candidate_contract_kind,
                     artifact_ids["request"],
                     provider_request_id,
                     provider_model_id,
@@ -9300,7 +9293,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     base_subject_version=1,
                                     base_state_epoch=0,
                                     bundle_activation_id=born.bundle_activation_id,
-                                    mechanism_identity="armi.context-compiler.layered-v3",
+                                    mechanism_identity="armi.context-compiler.layered",
                                     trace_id=TraceId(trace),
                                     maintenance_trigger_kind="runtime_idle",
                                 ),
@@ -10252,7 +10245,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             root = Path(temporary).resolve()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v10",
+                    "schema_kind": "armi.admin-config",
                     "operator_id": "isolated-cognition-reader",
                     "authorized_operations": ("cognition_read",),
                     "environment_kind": "acceptance",
@@ -10670,12 +10663,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("清醒",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -10915,12 +10908,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         packaged = packaged_birth_digests()
         anchor = PersonalityAnchor(
-            schema_version="armi.personality-anchor.v1",
+            schema_kind="armi.personality-anchor",
             voice_style="约 16 岁少女口吻",
             traits=("连续",),
         )
         manifest = BirthManifest(
-            schema_version="armi.birth-manifest.v1",
+            schema_kind="armi.birth-manifest",
             environment_id=fixture.environment_id,
             birth_request_id=_uuid7(),
             creator_party_id=_uuid7(),
@@ -11269,7 +11262,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     message = "  first creator input\nsecond line  "
                     input_body = json.dumps(
                         {
-                            "contract_version": "1.0",
                             "message": message,
                         },
                         ensure_ascii=False,
@@ -11339,12 +11331,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             operation_event["resource_kind"],
                             operation_event["resource_ref"],
-                            operation_event["projection_version"],
+                            operation_event["projection_kind"],
                         ),
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v8",
+                            "creator-operation",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")

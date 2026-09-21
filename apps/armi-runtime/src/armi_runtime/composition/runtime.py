@@ -1943,7 +1943,6 @@ async def _serve(
                 available=codex_availability.available,
                 reason_code=codex_availability.reason_code,
             ),
-            contract_version="1.0",
             environment_id=snapshot.environment_id,
             runtime_state=snapshot.runtime_state,
             readiness=Readiness.READY if admitted else Readiness.NOT_READY,
@@ -1989,8 +1988,7 @@ async def _serve(
                 environment_root=prepared.root,
             )
         return QQChannelHealthResponse(
-            contract_version="1.0",
-            projection_version="creator-channel-health.v2",
+            projection_kind="creator-channel-health",
             channel="qq",
             driver="napcat",
             configured=configured,
@@ -2072,8 +2070,7 @@ async def _serve(
             None if voice_service is None else await voice_service.recent_turn()
         )
         return LiveVoiceStatusResponse(
-            contract_version="1.0",
-            projection_version="creator-live-voice-status.v2",
+            projection_kind="creator-live-voice-status",
             state=state,
             enabled=voice_config.enabled,
             input_device=input_label,
@@ -2114,7 +2111,7 @@ async def _serve(
         observation: VisualObservation,
     ) -> LiveVisionObservationResponse:
         return LiveVisionObservationResponse(
-            projection_version="creator-live-vision-observation.v2",
+            projection_kind="creator-live-vision-observation",
             observation_id=str(observation.observation_id),
             source_kind=observation.source_kind.value,
             origin_kind=observation.origin_kind.value,
@@ -2213,8 +2210,7 @@ async def _serve(
                 reasons.append(snapshot.reason_code.replace("-", "_"))
             source_responses.append(
                 LiveVisionSourceStatusResponse(
-                    contract_version="1.0",
-                    projection_version="creator-live-vision-source-status.v3",
+                    projection_kind="creator-live-vision-source-status",
                     source_kind=kind.value,
                     state=(
                         "disabled"
@@ -2254,8 +2250,7 @@ async def _serve(
                 )
             )
         return LiveVisionStatusResponse(
-            contract_version="1.0",
-            projection_version="creator-live-vision-status.v3",
+            projection_kind="creator-live-vision-status",
             sources=source_responses,
             observed_at=now,
         )

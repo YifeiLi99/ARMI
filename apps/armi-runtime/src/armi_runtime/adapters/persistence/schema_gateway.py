@@ -13,7 +13,6 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
 from armi_postgresql_contract import (
-    BASELINE_IDENTITY,
     EXPECTED_REVISION,
     PostgreSQLContractError,
     schema_resource_root,
@@ -46,7 +45,6 @@ class SchemaStatus:
     table_count: int
     current_revision: str
     head_revision: str
-    baseline_identity: str = BASELINE_IDENTITY
     resource_digest: str = ""
     catalog_digest: str = ""
     role_policy_digest: str = ""
@@ -57,7 +55,6 @@ class SchemaStatus:
             "table_count": self.table_count,
             "current_revision": self.current_revision,
             "head_revision": self.head_revision,
-            "baseline_identity": self.baseline_identity,
             "resource_digest": self.resource_digest,
             "catalog_digest": self.catalog_digest,
             "role_policy_digest": self.role_policy_digest,
@@ -332,7 +329,6 @@ class PostgreSQLSchemaGateway:
             len(tables),
             current,
             self._head,
-            BASELINE_IDENTITY,
             evidence.resource_digest,
             evidence.catalog_digest,
             evidence.role_policy_digest,

@@ -121,8 +121,7 @@ def register_scene_routes(
                 content=_unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE"),
             )
         response = CreatorSceneCollectionResponse(
-            contract_version="1.0",
-            projection_version="creator-scenes.v1",
+            projection_kind="creator-scenes",
             scenes=[_scene_wire(scene) for scene in collection.scenes],
         )
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))

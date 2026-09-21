@@ -62,7 +62,7 @@ class ProviderCallReceipt:
     finished_at: str | None = None
     error_code: str | None = None
     parent_call_id: str | None = None
-    schema_version: str = "armi.provider-call.v1"
+    schema_kind: str = "armi.provider-call"
 
     @property
     def registration(self) -> bool:

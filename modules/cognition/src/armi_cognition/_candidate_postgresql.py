@@ -89,7 +89,7 @@ class CandidateEpisodeSnapshot:
     creator_party_id: UUID | None
     other_party_id: UUID | None
     response_artifact: ArtifactRef
-    candidate_contract_version: str
+    candidate_contract_kind: str
     trace_id: TraceId
     bases: tuple[CandidateBasis, ...]
     basis_item_ids: tuple[tuple[int, UUID], ...]
@@ -235,7 +235,7 @@ class PostgreSQLCandidateValidationRepository:
                     episode.scene_id,
                     episode.context_party_id,
                     attempt.response_artifact_id,
-                    attempt.candidate_schema_version,
+                    attempt.candidate_contract_kind,
                     episode.trace_id,
                     episode.purpose,
                     episode.opportunity_id

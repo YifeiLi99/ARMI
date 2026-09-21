@@ -828,8 +828,7 @@ class CognitionAdminAttempt:
     attempt_id: UUID
     attempt_no: int
     model_id: str
-    request_schema_version: str
-    candidate_schema_version: str
+    candidate_contract_kind: str
     request_artifact_id: UUID | None
     response_artifact_id: UUID | None
     dispatch_status: str

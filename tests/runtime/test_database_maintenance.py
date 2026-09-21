@@ -20,7 +20,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self.assertEqual(
             report.safe_view(),
             {
-                "schema_version": "armi.database-maintenance.v1",
+                "schema_kind": "armi.database-maintenance",
                 "status": "applied",
                 "table_count": 42,
                 "completed_at": "2026-08-05T10:00:00.000000Z",

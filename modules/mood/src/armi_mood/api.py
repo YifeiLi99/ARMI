@@ -467,8 +467,8 @@ class CandidateMoodDraft:
 
 @dataclass(frozen=True, slots=True)
 class MoodState:
-    dynamics_version: str
-    derivation_version: str
+    dynamics_method: str
+    derivation_method: str
     home_base: VAD
 
 

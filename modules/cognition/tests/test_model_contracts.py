@@ -41,7 +41,7 @@ _PURPOSE_PROFILES = cast(
     dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml"))
 )["purpose_profiles"]
 _CONFIGURED_CANDIDATE_VERSIONS = sorted(
-    {profile["response_contract_version"] for profile in _PURPOSE_PROFILES.values()}
+    {profile["response_contract_kind"] for profile in _PURPOSE_PROFILES.values()}
 )
 
 
@@ -271,7 +271,7 @@ def test_autonomous_activity_progress_preserves_materials_and_schedule() -> None
     assert "activity_id" not in schema_text
     binding = load_purpose_binding("consider_autonomous_life")
     assert binding.profile == "autonomous_activity"
-    assert binding.response_contract_version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
+    assert binding.response_contract_kind == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
     assert binding.output_token_limit == 4096
 
     with pytest.raises(ModelViolation):
@@ -299,7 +299,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
     assert getattr(unchanged, "kind", None) == "memory_unchanged"
     binding = load_purpose_binding("maintain_subjective_memory")
     assert binding.profile == "memory_maintenance"
-    assert binding.response_contract_version == MAINTENANCE_WORK_CANDIDATE_VERSION
+    assert binding.response_contract_kind == MAINTENANCE_WORK_CANDIDATE_VERSION
     assert load_purpose_binding("perform_subject_self_check").profile == (
         "subject_self_check"
     )
@@ -329,7 +329,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v18",
+        "schema_kind": "armi.cognition-candidate",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -364,8 +364,7 @@ def _dialogue_candidate() -> dict[str, object]:
 @pytest.mark.parametrize("version", _CONFIGURED_CANDIDATE_VERSIONS)
 @pytest.mark.parametrize("offset", [-1, 1])
 def test_candidate_schema_and_parser_reject_other_contract_versions(version, offset):
-    family, number = version.rsplit(".v", 1)
-    unsupported = f"{family}.v{int(number) + offset}"
+    unsupported = f"{version}.v{offset}"
     assert candidate_schema(version)
     with pytest.raises(ModelViolation, match="MODEL-BINDING"):
         candidate_schema(unsupported)
@@ -381,13 +380,12 @@ def test_candidate_schema_and_parser_reject_other_contract_versions(version, off
 @pytest.mark.parametrize("offset", [-1, 1])
 def test_candidate_wire_rejects_other_schema_versions(offset):
     value = _candidate()
-    version = str(value["schema_version"])
+    version = str(value["schema_kind"])
     parsed = parse_candidate(
         json.dumps(value).encode(), allowed_context_refs=frozenset({"ctx:1"})
     )
-    assert parsed.schema_version == version
-    family, number = version.rsplit(".v", 1)
-    value["schema_version"] = f"{family}.v{int(number) + offset}"
+    assert parsed.schema_kind == version
+    value["schema_kind"] = f"{version}.v{offset}"
     with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
         parse_candidate(
             json.dumps(value).encode(), allowed_context_refs=frozenset({"ctx:1"})
@@ -398,8 +396,7 @@ def test_candidate_wire_rejects_other_schema_versions(offset):
 def test_purpose_binding_rejects_previous_contract_version(tmp_path: Path, purpose):
     manifest = cast(dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml")))
     profile = manifest["purpose_profiles"][purpose]
-    family, number = profile["response_contract_version"].rsplit(".v", 1)
-    profile["response_contract_version"] = f"{family}.v{int(number) - 1}"
+    profile["response_contract_kind"] += ".v1"
     path = tmp_path / "model-bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
@@ -409,7 +406,7 @@ def test_purpose_binding_rejects_previous_contract_version(tmp_path: Path, purpo
 def _request(binding: ModelBinding):
     context = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v3",
+            "schema_kind": "armi.compiled-context",
             "purpose": "consider_creator_input",
             "layers": [
                 {
@@ -519,16 +516,14 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     dialogue = load_purpose_binding("consider_creator_input")
     assert dialogue.model_id == active.model_id == ACTIVE_MODEL_ID
     assert dialogue.profile == "creator_cognitive_act"
-    assert (
-        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v8"
-    )
+    assert dialogue.response_contract_kind == "armi.creator-cognitive-act-candidate"
     assert dialogue.output_token_limit == 2048
 
     request = json.loads(_request(dialogue).canonical_bytes)
-    assert request["schema_version"] == "armi.model-request.v1"
+    assert request["schema_kind"] == "armi.model-request"
     assert (
-        request["output_contract"]["schema_version"]
-        == "armi.creator-cognitive-act-candidate.v8"
+        request["output_contract"]["schema_kind"]
+        == "armi.creator-cognitive-act-candidate"
     )
     assert request["candidate_base"]["bundle_activation_id"] == str(_BUNDLE_ID)
 
@@ -654,7 +649,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
             )
     compiled = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v3",
+            "schema_kind": "armi.compiled-context",
             "purpose": "consider_creator_input",
             "layers": [
                 {"layer": layer, "items": layer_items[layer]} for layer in layer_names
@@ -678,8 +673,8 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert request["included_context_refs"] == refs
     assert request["context_digest"] == Digest.from_bytes(compiled).value
     assert request["candidate_base"]["subject_version"] == 9
-    assert request["output_contract"]["schema_version"] == (
-        "armi.creator-cognitive-act-candidate.v8"
+    assert request["output_contract"]["schema_kind"] == (
+        "armi.creator-cognitive-act-candidate"
     )
 
 
@@ -688,7 +683,7 @@ def test_other_human_dialogue_uses_the_shared_frozen_request() -> None:
     source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234571"
     compiled = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v3",
+            "schema_kind": "armi.compiled-context",
             "purpose": "consider_other_human_input",
             "layers": [
                 {"layer": "stable_prefix", "items": []},
@@ -777,8 +772,8 @@ def test_other_human_dialogue_uses_the_shared_frozen_request() -> None:
         )
     )
 
-    assert binding.response_contract_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
-    assert request["schema_version"] == "armi.model-request.v1"
+    assert binding.response_contract_kind == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+    assert request["schema_kind"] == "armi.model-request"
     assert request["compiled_context"] == json.loads(compiled)
     assert [ref["ref"] for ref in request["included_context_refs"]] == [
         "ctx:1",
@@ -821,7 +816,7 @@ def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None
         allowed_context_refs=frozenset(),
         expected_version=CREATOR_COGNITIVE_ACT_VERSION,
     )
-    assert parsed.schema_version == CREATOR_COGNITIVE_ACT_VERSION
+    assert parsed.schema_kind == CREATOR_COGNITIVE_ACT_VERSION
     assert parsed.model_dump(mode="json")["decision"] == {
         "kind": "exact_life_query",
         "record_kind": "material",
@@ -851,9 +846,9 @@ def test_creator_manifest_rejects_unsupported_cognitive_act_contract(
 ) -> None:
     source = Path("configs/model-bindings.yaml")
     manifest = cast(dict[str, Any], load_yaml_file(source))
-    manifest["purpose_profiles"]["consider_creator_input"][
-        "response_contract_version"
-    ] = "armi.creator-dialogue-candidate.unsupported"
+    manifest["purpose_profiles"]["consider_creator_input"]["response_contract_kind"] = (
+        "armi.creator-dialogue-candidate.unsupported"
+    )
     path = tmp_path / "model-bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
 

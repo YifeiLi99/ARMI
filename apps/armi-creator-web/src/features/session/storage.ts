@@ -1,4 +1,4 @@
-const STORAGE_KEY = "armi.browser-session.v1";
+const STORAGE_KEY = "armi.browser-session";
 
 export interface StoredBrowserSession {
   token: string;

@@ -15,7 +15,7 @@ def signal_metadata(
 ) -> str:
     return json.dumps(
         {
-            "schema_version": "armi.consideration-signals.v1",
+            "schema_kind": "armi.consideration-signals",
             "frozen_at": None if frozen_at is None else frozen_at.isoformat(),
             "signals": [
                 {

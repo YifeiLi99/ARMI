@@ -32,13 +32,13 @@ def _require_uuid7(value: object) -> None:
 
 @dataclass(frozen=True, slots=True)
 class PersonalityAnchor:
-    schema_version: str
+    schema_kind: str
     voice_style: str
     traits: tuple[str, ...]
 
     def __post_init__(self) -> None:
         if (
-            self.schema_version != "armi.personality-anchor.v1"
+            self.schema_kind != "armi.personality-anchor"
             or self.voice_style != _VOICE_STYLE
             or type(self.traits) is not tuple
             or not 1 <= len(self.traits) <= 8
@@ -56,7 +56,7 @@ class PersonalityAnchor:
 
 @dataclass(frozen=True, slots=True)
 class BirthManifest:
-    schema_version: str
+    schema_kind: str
     environment_id: UUID
     birth_request_id: UUID
     creator_party_id: UUID
@@ -66,7 +66,7 @@ class BirthManifest:
     request_digest: Digest
 
     def __post_init__(self) -> None:
-        if self.schema_version != "armi.birth-manifest.v1":
+        if self.schema_kind != "armi.birth-manifest":
             raise BirthViolation("BIRTH-MANIFEST")
         for value in (
             self.environment_id,

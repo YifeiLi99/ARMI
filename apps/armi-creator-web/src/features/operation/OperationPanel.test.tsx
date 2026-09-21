@@ -16,13 +16,12 @@ afterEach(() => {
 
 function outcome(status: string, codex = false): object {
   const common = {
-    contract_version: "1.0",
     status,
     trace_id: "a".repeat(32),
     occurred_at: "2026-07-30T10:00:00.000000Z",
     message: "safe",
     details: {
-      projection_version: "creator-operation.v8",
+      projection_kind: "creator-operation",
       operation_ref: OPERATION_ID,
       operation_kind: codex
         ? "codex_delegation"

@@ -30,8 +30,8 @@ from .api import (
     FrozenEffectRequest,
 )
 
-_LOCAL_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql-v1"
-_EXTERNAL_MESSAGE_ADAPTER_BINDING = "armi.external-message-adapter.v1"
+_LOCAL_ADAPTER_BINDING = "armi.local-inbox-adapter.postgresql"
+_EXTERNAL_MESSAGE_ADAPTER_BINDING = "armi.external-message-adapter"
 
 
 class _AbsentDisposition(StrEnum):
@@ -281,7 +281,7 @@ class PostgreSQLEffectDispatchRepository:
         digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.effect-predispatch-settlement.v1",
+                    "schema_kind": "armi.effect-predispatch-settlement",
                     "effect_id": str(row[2]),
                     "result_status": result_status,
                     "error_code": error_code,
@@ -1275,7 +1275,7 @@ def _adapter_binding(destination_kind: str) -> str:
     if destination_kind in {"external_group", "external_private"}:
         return _EXTERNAL_MESSAGE_ADAPTER_BINDING
     if destination_kind == "live_voice_audio":
-        return "armi.effect-adapter.live-voice-audio-v1"
+        return "armi.effect-adapter.live-voice-audio"
     raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
 
 
@@ -1287,7 +1287,7 @@ def _observation_digest(
             cast(
                 Any,
                 {
-                    "schema_version": "armi.effect-observation.v1",
+                    "schema_kind": "armi.effect-observation",
                     "effect_id": str(snapshot.request.effect_id.value),
                     "attempt_id": str(snapshot.request.attempt_id.value),
                     "kind": kind,

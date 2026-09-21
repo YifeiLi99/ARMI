@@ -15,7 +15,7 @@ from .api import (
 )
 
 _KEYS = {
-    "schema_version",
+    "schema_kind",
     "proposal_ref",
     "atomic_group_ref",
     "basis_ordinals",
@@ -29,7 +29,7 @@ _KEYS = {
 def encode(value: CandidateSubjectStateDraft) -> bytes:
     next_state = cast(object, json.loads(value.canonical_next_state))
     document: dict[str, object] = {
-        "schema_version": "armi.subject-state-candidate.v3",
+        "schema_kind": "armi.subject-state-candidate",
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,
         "basis_ordinals": list(value.basis_ordinals),
@@ -49,7 +49,7 @@ def decode(payload: bytes) -> CandidateSubjectStateDraft:
         raw = cast(dict[str, object], raw_value)
         if (
             set(raw) != _KEYS
-            or raw["schema_version"] != "armi.subject-state-candidate.v3"
+            or raw["schema_kind"] != "armi.subject-state-candidate"
             or rfc8785.dumps(cast(Any, raw)) != payload
         ):
             raise ValueError

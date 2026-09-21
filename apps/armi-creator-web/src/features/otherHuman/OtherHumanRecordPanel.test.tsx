@@ -16,8 +16,7 @@ describe("OtherHumanRecordPanel", () => {
       const url = String(input);
       const body = url.includes("/timeline?")
         ? {
-            contract_version: "1.0",
-            projection_version: "other-human-record.v1",
+            projection_kind: "other-human-record",
             party_id: PARTY_ID,
             scene_id: SCENE_ID,
             items: [
@@ -33,8 +32,7 @@ describe("OtherHumanRecordPanel", () => {
           }
         : url.includes("/scenes?")
           ? {
-              contract_version: "1.0",
-              projection_version: "other-human-record.v1",
+              projection_kind: "other-human-record",
               party: {
                 party_id: PARTY_ID,
                 party_key: "friend-1",
@@ -52,8 +50,7 @@ describe("OtherHumanRecordPanel", () => {
               ],
             }
           : {
-              contract_version: "1.0",
-              projection_version: "other-human-record.v1",
+              projection_kind: "other-human-record",
               items: [
                 {
                   party_id: PARTY_ID,

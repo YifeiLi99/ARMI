@@ -289,7 +289,7 @@ class ContextCompiler(Protocol):
 
 
 EMBEDDING_DIMENSIONS = 1024
-EMBEDDING_BINDING_ID = "armi.embedding.qwen3-0_6b-q8_0-local-1024.v1"
+EMBEDDING_BINDING_ID = "armi.embedding.qwen3-0_6b-q8_0-local-1024"
 EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
 EMBEDDING_MODEL_REVISION = "370f27d7550e0def9b39c1f16d3fbaa13aa67728"
 EMBEDDING_MODEL_SHA256 = (
@@ -300,7 +300,7 @@ EMBEDDING_QUERY_INSTRUCTION = (
     "memories and life materials that help understand or respond to it.\nQuery:"
 )
 EMBEDDING_QUERY_MAX_CHARS = 700
-SEMANTIC_RECALL_PROFILE_ID = "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v3"
+SEMANTIC_RECALL_PROFILE_ID = "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank"
 
 
 class RecallStatus(StrEnum):

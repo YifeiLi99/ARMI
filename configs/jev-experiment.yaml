@@ -1,5 +1,5 @@
 # Synthetic experiment only; never loaded by Runtime. No API key in this file.
-schema_version: armi.jev-experiment.v1
+schema_kind: armi.jev-experiment
 model: jev-1.13.0
 timeout_seconds: 15
 # Initial experimental threshold, not calibrated for production.

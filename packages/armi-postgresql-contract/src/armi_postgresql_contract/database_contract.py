@@ -8,7 +8,6 @@ from typing import Any
 
 from .catalog_fingerprint import database_catalog_digest
 from .schema_resources import (
-    BASELINE_IDENTITY,
     EXPECTED_REVISION,
     role_policy_digest,
     schema_resource_digest,
@@ -34,7 +33,6 @@ class PostgreSQLContractEvidence:
     locale: str
     extensions: tuple[tuple[str, str, str], ...]
     revision: str
-    baseline_identity: str
     resource_digest: str
     catalog_digest: str
     role_policy_digest: str
@@ -51,7 +49,6 @@ def verify_postgresql_contract(
     root = resource_root or schema_resource_root()
     return verify_contract_identity(
         connection,
-        expected_baseline=BASELINE_IDENTITY,
         expected_resource=schema_resource_digest(root),
         expected_role_policy=role_policy_digest(root),
     )
@@ -60,7 +57,6 @@ def verify_postgresql_contract(
 def verify_contract_identity(
     connection: Any,
     *,
-    expected_baseline: str,
     expected_resource: str,
     expected_role_policy: str,
 ) -> PostgreSQLContractEvidence:
@@ -92,7 +88,7 @@ def verify_contract_identity(
             "SELECT version_num FROM armi.alembic_version"
         ).fetchall()
         identity_rows = connection.execute(
-            "SELECT singleton_key,baseline_identity,resource_digest,"
+            "SELECT singleton_key,resource_digest,"
             "installed_catalog_digest,role_policy_digest "
             "FROM armi.schema_baseline_identity"
         ).fetchall()
@@ -120,7 +116,6 @@ def verify_contract_identity(
     if identity_rows != [
         (
             True,
-            expected_baseline,
             expected_resource,
             current_catalog,
             expected_role_policy,
@@ -135,7 +130,6 @@ def verify_contract_identity(
         locale=locale,
         extensions=extensions,
         revision=EXPECTED_REVISION,
-        baseline_identity=expected_baseline,
         resource_digest=expected_resource,
         catalog_digest=current_catalog,
         role_policy_digest=expected_role_policy,

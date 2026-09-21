@@ -10,7 +10,6 @@ from .api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
     DataRightsCanonicalRecord,
-    DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
@@ -22,7 +21,6 @@ from .api import (
 )
 
 _OWNER = DataRightsOwnerIdentity("data-rights")
-_VERSION = DataRightsContributionVersion(5)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "creator_exports",
@@ -46,10 +44,6 @@ class PostgreSQLDataRightsParticipant:
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity:
         return _OWNER
-
-    @property
-    def schema_version(self) -> DataRightsContributionVersion:
-        return _VERSION
 
     async def discover(
         self,
@@ -109,7 +103,6 @@ class PostgreSQLDataRightsParticipant:
             result.append(
                 DataRightsExportSegment(
                     _OWNER,
-                    _VERSION,
                     name,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(records),

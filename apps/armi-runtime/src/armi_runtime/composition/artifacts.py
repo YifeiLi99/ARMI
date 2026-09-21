@@ -38,13 +38,13 @@ from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 @dataclass(frozen=True, slots=True)
 class ArtifactOrphanReport:
-    schema_version: str
+    schema_kind: str
     findings: tuple[StorageFinding, ...]
     counts: tuple[tuple[str, int], ...]
 
     def safe_view(self) -> dict[str, object]:
         return {
-            "schema_version": self.schema_version,
+            "schema_kind": self.schema_kind,
             "status": "dry_run",
             "counts": dict(self.counts),
             "findings": [
@@ -60,14 +60,14 @@ class ArtifactOrphanReport:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactCleanupReport:
-    schema_version: str
+    schema_kind: str
     removed_counts: tuple[tuple[str, int], ...]
     removed_bytes: int
     remaining_counts: tuple[tuple[str, int], ...]
 
     def safe_view(self) -> dict[str, object]:
         return {
-            "schema_version": self.schema_version,
+            "schema_kind": self.schema_kind,
             "status": "applied",
             "removed_counts": dict(self.removed_counts),
             "removed_bytes": self.removed_bytes,
@@ -193,7 +193,7 @@ class ContentAddressedArtifactCoordinator:
         )
         counts = Counter(finding.category for finding in findings)
         return ArtifactOrphanReport(
-            schema_version="armi.artifact-report.v1",
+            schema_kind="armi.artifact-report",
             findings=findings,
             counts=tuple(sorted(counts.items())),
         )
@@ -218,7 +218,7 @@ class ContentAddressedArtifactCoordinator:
         )
         remaining = Counter(finding.category for finding in result.remaining)
         return ArtifactCleanupReport(
-            schema_version="armi.artifact-cleanup.v1",
+            schema_kind="armi.artifact-cleanup",
             removed_counts=result.removed_counts,
             removed_bytes=result.removed_bytes,
             remaining_counts=tuple(sorted(remaining.items())),

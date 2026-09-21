@@ -367,7 +367,7 @@ class CandidateValidationService:
                     if snapshot.current_subject_prompt is None
                     else CandidateSubjectPromptContext(*snapshot.current_subject_prompt)
                 ),
-                candidate_contract_version=snapshot.candidate_contract_version,
+                candidate_contract_kind=snapshot.candidate_contract_kind,
                 current_maintenance_session_id=(
                     snapshot.current_maintenance_session_id
                 ),
@@ -399,7 +399,7 @@ class CandidateValidationService:
         )
         try:
             candidate_value = model_response_candidate(
-                response_bytes, expected_version=snapshot.candidate_contract_version
+                response_bytes, expected_version=snapshot.candidate_contract_kind
             )
         except CandidateViolation as error:
             result = contract_rejection(error)
@@ -501,8 +501,8 @@ def model_response_candidate(
             raise CandidateViolation("CANDIDATE-CONTRACT")
         response = cast(dict[str, Any], raw_response)
         if response.get(
-            "schema_version"
-        ) != "armi.model-response-artifact.v3" or not isinstance(
+            "schema_kind"
+        ) != "armi.model-response-artifact" or not isinstance(
             response.get("output_text"), str
         ):
             raise CandidateViolation("CANDIDATE-CONTRACT")

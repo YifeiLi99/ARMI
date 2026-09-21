@@ -17,7 +17,7 @@ class _StrictModel(BaseModel, frozen=True):
 
 
 class MindState(_StrictModel, frozen=True):
-    schema_version: Literal["armi.mind.v4"]
+    schema_kind: Literal["armi.mind"]
     understanding: tuple[Summary, ...] = Field(max_length=16)
     attention: tuple[Summary, ...] = Field(max_length=16)
     thoughts: tuple[Summary, ...] = Field(max_length=16)

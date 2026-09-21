@@ -23,7 +23,7 @@ from armi_runtime_foundation import (
 from ._application import MemoryApplication
 from ._domain import validate_transition
 from .api import (
-    CREATOR_MEMORY_PROJECTION_VERSION,
+    CREATOR_MEMORY_PROJECTION_KIND,
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     CreatorMemoryItem,
@@ -230,7 +230,7 @@ class PostgreSQLMemoryOwner:
             try:
                 page = self._codec.decode(
                     cursor,
-                    projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                    projection_kind=CREATOR_MEMORY_PROJECTION_KIND,
                     resource_kind="memory-current",
                     resource_ref=None,
                     page_limit=limit,
@@ -310,7 +310,7 @@ class PostgreSQLMemoryOwner:
         next_cursor = None
         if len(visible_rows) > limit and visible:
             next_cursor = self._codec.encode(
-                projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                projection_kind=CREATOR_MEMORY_PROJECTION_KIND,
                 resource_kind="memory-current",
                 resource_ref=None,
                 page_limit=limit,
@@ -354,7 +354,7 @@ class PostgreSQLMemoryOwner:
             try:
                 page = self._codec.decode(
                     cursor,
-                    projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                    projection_kind=CREATOR_MEMORY_PROJECTION_KIND,
                     resource_kind="memory-timeline",
                     resource_ref=str(memory_id),
                     page_limit=limit,
@@ -423,7 +423,7 @@ class PostgreSQLMemoryOwner:
         next_cursor = None
         if len(rows) > limit and visible:
             next_cursor = self._codec.encode(
-                projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                projection_kind=CREATOR_MEMORY_PROJECTION_KIND,
                 resource_kind="memory-timeline",
                 resource_ref=str(memory_id),
                 page_limit=limit,
@@ -520,7 +520,7 @@ class PostgreSQLMemoryOwner:
                         mechanism_config_identity)
                        VALUES (%s,%s,%s,statement_timestamp(),1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
                                'formed','available',%s,
-                               'formation-v1')""",
+                               'formation')""",
                     (
                         revision_id,
                         memory_id,

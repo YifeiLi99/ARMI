@@ -12,13 +12,13 @@ from uuid import UUID
 
 from armi_kernel.contracts import OpaqueCursor
 
-_CONTRACT = "armi.projection-cursor.v1"
+_CONTRACT = "armi.projection-cursor"
 _FIELDS = frozenset(
     {
         "contract",
         "environment_id",
         "creator_party_id",
-        "projection_version",
+        "projection_kind",
         "resource_kind",
         "resource_ref",
         "page_limit",
@@ -58,7 +58,7 @@ class ProjectionCursorCodec:
     def encode(
         self,
         *,
-        projection_version: str,
+        projection_kind: str,
         resource_kind: str,
         resource_ref: str | None,
         page_limit: int,
@@ -67,7 +67,7 @@ class ProjectionCursorCodec:
         boundary: dict[str, object],
     ) -> OpaqueCursor:
         payload = self._scope(
-            projection_version=projection_version,
+            projection_kind=projection_kind,
             resource_kind=resource_kind,
             resource_ref=resource_ref,
             page_limit=page_limit,
@@ -86,7 +86,7 @@ class ProjectionCursorCodec:
         self,
         cursor: OpaqueCursor,
         *,
-        projection_version: str,
+        projection_kind: str,
         resource_kind: str,
         resource_ref: str | None,
         page_limit: int,
@@ -116,7 +116,7 @@ class ProjectionCursorCodec:
         except UnicodeError, ValueError, TypeError, json.JSONDecodeError:
             raise ProjectionCursorInvalid from None
         expected = self._scope(
-            projection_version=projection_version,
+            projection_kind=projection_kind,
             resource_kind=resource_kind,
             resource_ref=resource_ref,
             page_limit=page_limit,
@@ -135,7 +135,7 @@ class ProjectionCursorCodec:
     def _scope(
         self,
         *,
-        projection_version: str,
+        projection_kind: str,
         resource_kind: str,
         resource_ref: str | None,
         page_limit: int,
@@ -145,7 +145,7 @@ class ProjectionCursorCodec:
             "contract": _CONTRACT,
             "environment_id": str(self._environment_id),
             "creator_party_id": str(self._creator_party_id),
-            "projection_version": projection_version,
+            "projection_kind": projection_kind,
             "resource_kind": resource_kind,
             "resource_ref": resource_ref,
             "page_limit": page_limit,

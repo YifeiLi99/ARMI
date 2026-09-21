@@ -112,18 +112,15 @@ def create_subject_life_use_cases(
             )
         return creator_result(
             content=SubjectSummaryResponse(
-                contract_version="1.0",
-                projection_version="subject-summary.v1",
+                projection_kind="subject-summary",
                 subject_version=summary.subject_version,
                 components=[
                     SubjectComponentSummaryResponse(
                         kind=item.kind.value,
                         version=item.version,
-                        schema_version=cast(
-                            Literal[
-                                "armi.self.v1", "armi.mind.v4", "armi.life-mode.v1"
-                            ],
-                            item.schema_version,
+                        schema_kind=cast(
+                            Literal["armi.self", "armi.mind", "armi.life-mode"],
+                            item.schema_kind,
                         ),
                         content_visibility="private",
                     )
@@ -226,8 +223,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE"),
             )
         response = CreatorActivityPageResponse(
-            contract_version="1.0",
-            projection_version="creator-activity.v3",
+            projection_kind="creator-activity",
             items=[
                 CreatorActivityItemResponse(
                     activity_id=str(item.activity_id),
@@ -303,8 +299,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE"),
             )
         response = CreatorActivityTimelineResponse(
-            contract_version="1.0",
-            projection_version="creator-activity.v3",
+            projection_kind="creator-activity",
             activity_id=str(timeline.activity_id),
             items=[
                 CreatorActivityTimelineItemResponse(
@@ -341,8 +336,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE"),
             )
         response = CreatorRelationshipCurrentResponse(
-            contract_version="1.0",
-            projection_version="creator-relationship.v3",
+            projection_kind="creator-relationship",
             relationship=None
             if item is None
             else CreatorRelationshipItemResponse(
@@ -400,8 +394,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_RELATIONSHIP_QUERY_UNAVAILABLE"),
             )
         response = CreatorRelationshipTimelineResponse(
-            contract_version="1.0",
-            projection_version="creator-relationship.v3",
+            projection_kind="creator-relationship",
             relationship_id=str(timeline.relationship_id),
             items=[_relationship_revision_response(item) for item in timeline.items],
             next_cursor=None
@@ -454,7 +447,7 @@ def create_subject_life_use_cases(
                         CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v8",
+                        "creator-operation",
                     )
                 )
             except Exception:
@@ -499,8 +492,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_LIFE_QUERY_UNAVAILABLE"),
             )
         response = LifeRecordPageResponse(
-            contract_version="1.0",
-            projection_version="life-record-query.v2",
+            projection_kind="life-record-query",
             retrieval_kind="creator_view",
             items=[
                 LifeRecordItemResponse(
@@ -548,8 +540,7 @@ def create_subject_life_use_cases(
                 status_code=404, content=_rejected("SCOPE_LIFE_MATERIAL_NOT_VISIBLE")
             )
         response = CreatorLifeMaterialResponse(
-            contract_version="1.0",
-            projection_version="creator-life-material.v1",
+            projection_kind="creator-life-material",
             material_id=str(item.material_id),
             material_kind=item.material_kind.value,
             revision_no=item.revision_no,
@@ -607,8 +598,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
             )
         response = CreatorMemoryPageResponse(
-            contract_version="1.0",
-            projection_version="creator-memory.v2",
+            projection_kind="creator-memory",
             retrieval_kind="creator_view",
             items=[
                 CreatorMemoryItemResponse(
@@ -694,8 +684,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
             )
         response = CreatorMemoryTimelineResponse(
-            contract_version="1.0",
-            projection_version="creator-memory.v2",
+            projection_kind="creator-memory",
             retrieval_kind="creator_view",
             memory_id=str(timeline.memory_id),
             items=[
@@ -739,8 +728,7 @@ def create_subject_life_use_cases(
             )
         session = status.session
         response = CreatorMaintenanceStatusResponse(
-            contract_version="1.0",
-            projection_version="creator-maintenance.v3",
+            projection_kind="creator-maintenance",
             session=None
             if session is None
             else CreatorMaintenanceSessionResponse(
@@ -806,8 +794,7 @@ def create_subject_life_use_cases(
                 content=_unavailable("DEPENDENCY_MAINTENANCE_QUERY_UNAVAILABLE"),
             )
         response = CreatorMaintenanceTimelineResponse(
-            contract_version="1.0",
-            projection_version="creator-maintenance.v3",
+            projection_kind="creator-maintenance",
             maintenance_session_id=str(timeline.session_id),
             items=[
                 CreatorMaintenanceTimelineItemResponse(

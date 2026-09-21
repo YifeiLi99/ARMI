@@ -84,7 +84,6 @@ class LifeRecordCursorCodec:
         boundary: Mapping[str, object],
     ) -> OpaqueCursor:
         payload = {
-            "contract_version": "1.0",
             "environment_id": str(self._environment_id),
             "creator_party_id": str(self._creator_party_id),
             **scope,
@@ -118,7 +117,6 @@ class LifeRecordCursorCodec:
         except UnicodeDecodeError, ValueError, json.JSONDecodeError, TypeError:
             raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID") from None
         fixed = {
-            "contract_version": "1.0",
             "environment_id": str(self._environment_id),
             "creator_party_id": str(self._creator_party_id),
             **scope,
@@ -190,7 +188,7 @@ class PostgreSQLLifeRecordQuery:
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
         memories = self._memories
         scope = {
-            "projection_version": "life-record-query.v2",
+            "projection_kind": "life-record-query",
             "resource": "life_records",
             "actor": request.actor.value,
             "retrieval_kind": request.retrieval_kind.value,

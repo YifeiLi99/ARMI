@@ -46,7 +46,7 @@ class ConsiderationSignalItem(AutonomyResponse):
 
 
 class ConsiderationSignals(AutonomyResponse):
-    schema_version: Literal["armi.consideration-signals.v1"]
+    schema_kind: Literal["armi.consideration-signals"]
     signals: list[ConsiderationSignalItem]
     frozen_at: str | None
 

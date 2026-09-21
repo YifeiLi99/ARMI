@@ -1,9 +1,7 @@
 {
-  "contract_version": "1.0",
   "valid": {
     "outcomes": [
       {
-        "contract_version": "1.0",
         "status": "accepted",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:01.000001Z",
@@ -15,7 +13,6 @@
         "custodian": "runtime"
       },
       {
-        "contract_version": "1.0",
         "status": "applied",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:02.000002Z",
@@ -24,7 +21,6 @@
         "state_version": 0
       },
       {
-        "contract_version": "1.0",
         "status": "waiting",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:03.000003Z",
@@ -34,7 +30,6 @@
         "resume_condition": "a verified creator decision is recorded"
       },
       {
-        "contract_version": "1.0",
         "status": "rejected",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:04.000004Z",
@@ -45,7 +40,6 @@
         }
       },
       {
-        "contract_version": "1.0",
         "status": "unavailable",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:05.000005Z",
@@ -57,7 +51,6 @@
         "recovery_hint": "prepare the capability before retrying"
       },
       {
-        "contract_version": "1.0",
         "status": "failed",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:06.000006Z",
@@ -69,7 +62,6 @@
         }
       },
       {
-        "contract_version": "1.0",
         "status": "unknown",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:07.000007Z",
@@ -79,7 +71,6 @@
         "verification_action": "query the durable effect receipt"
       },
       {
-        "contract_version": "1.0",
         "status": "completed",
         "trace_id": "0123456789abcdef0123456789abcdef",
         "occurred_at": "2026-07-29T08:00:08.000008Z",
@@ -88,12 +79,10 @@
       }
     ],
     "page_request": {
-      "contract_version": "1.0",
       "limit": 100,
       "cursor": "v1.cXVlcnktc3RhdGU.c2lnbmF0dXJl"
     },
     "page": {
-      "contract_version": "1.0",
       "items": [
         {
           "name": "first"
@@ -104,10 +93,10 @@
   },
   "invalid": [
     {
-      "id": "unknown-version",
+      "id": "removed-version-field",
       "kind": "contract_version",
       "value": "1",
-      "expected_code": "CON-VERSION"
+      "expected_code": "CON-FIELD-UNKNOWN"
     },
     {
       "id": "uuid-v4",

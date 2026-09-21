@@ -32,7 +32,7 @@ def active_mood_episodes(
         if not isinstance(decoded, dict):
             raise ValueError("invalid mood projection")
         document = cast(dict[str, object], decoded)
-        if document.get("schema_version") != ("armi.mood-snapshot.v2"):
+        if document.get("schema_kind") != ("armi.mood-snapshot"):
             raise ValueError("invalid mood projection")
         raw_episodes = document.get("active_episodes")
         if not isinstance(raw_episodes, list):
@@ -60,7 +60,7 @@ def active_mood_episodes(
                     episode_id,
                     rfc8785.dumps(
                         {
-                            "schema_version": "armi.active-affective-episode.v1",
+                            "schema_kind": "armi.active-affective-episode",
                             "gist": gist,
                             "event_phase": phase,
                             "intensity": intensity,
@@ -124,7 +124,7 @@ def mood_dialogue_text(mapping: dict[str, object]) -> str:
 def mood_snapshot_bytes(mood: MoodSnapshot) -> bytes:
     return rfc8785.dumps(
         {
-            "schema_version": "armi.mood-snapshot.v2",
+            "schema_kind": "armi.mood-snapshot",
             "as_of": mood.as_of.isoformat(),
             "home_base": {
                 "valence": mood.home_base.valence,

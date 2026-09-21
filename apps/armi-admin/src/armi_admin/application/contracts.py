@@ -31,11 +31,10 @@ class _StrictModel(BaseModel):
 
 
 class HealthRequest(_StrictModel):
-    contract_version: Literal["7.0"] = "7.0"
+    pass
 
 
 class EnvironmentRequest(_StrictModel):
-    contract_version: Literal["7.0"] = "7.0"
     environment_id: str
 
     _environment_id = field_validator("environment_id")(_uuid7)
@@ -515,7 +514,6 @@ class SchemaStatusPayload(_StrictModel):
     table_count: int
     missing_tables: tuple[str, ...] = ()
     revision: str | None = None
-    baseline_identity: str | None = None
     resource_digest: str | None = None
     catalog_digest: str | None = None
     role_policy_digest: str | None = None
@@ -524,7 +522,6 @@ class SchemaStatusPayload(_StrictModel):
 
 class AdminToolResult[PayloadT](_StrictModel):
     operator_id: str | None = None
-    contract_version: Literal["7.0"] = "7.0"
     operation_id: str
     status: Literal["succeeded", "rejected", "conflict", "failed", "unknown"]
     result: PayloadT | None = None

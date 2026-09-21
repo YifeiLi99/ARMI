@@ -68,8 +68,7 @@ class OtherHumanRecordCursorCodec:
         self, resource: str, scope: str, boundary: dict[str, str]
     ) -> OpaqueCursor:
         payload = {
-            "contract_version": "1.0",
-            "projection_version": "other-human-record.v1",
+            "projection_kind": "other-human-record",
             "environment_id": str(self._environment_id),
             "resource": resource,
             "scope": scope,
@@ -95,15 +94,13 @@ class OtherHumanRecordCursorCodec:
                 prefix != "v1"
                 or not hmac.compare_digest(_b64decode(signature), expected)
                 or rfc8785.dumps(cast(Any, payload)) != raw
-                or payload.get("contract_version") != "1.0"
-                or payload.get("projection_version") != "other-human-record.v1"
+                or payload.get("projection_kind") != "other-human-record"
                 or payload.get("environment_id") != str(self._environment_id)
                 or payload.get("resource") != resource
                 or payload.get("scope") != scope
                 or set(payload)
                 != {
-                    "contract_version",
-                    "projection_version",
+                    "projection_kind",
                     "environment_id",
                     "resource",
                     "scope",

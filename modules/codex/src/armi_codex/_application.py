@@ -195,7 +195,7 @@ class CodexTaskSourceGateway(
                 cast(
                     Any,
                     {
-                        "schema_version": "armi.creator-codex-task.v3",
+                        "schema_kind": "armi.creator-codex-task",
                         "environment_id": str(self._factory.environment_id),
                         "subject_id": str(context.subject_id),
                         "scene_id": str(context.scene_id),
@@ -339,7 +339,7 @@ class CodexTaskSourceGateway(
                     CreatorResourceKind("scene_timeline"),
                     scene_key,
                     now,
-                    "scene-timeline.v6",
+                    "scene-timeline",
                 )
             )
             await self._notifier.notify(
@@ -347,7 +347,7 @@ class CodexTaskSourceGateway(
                     CreatorResourceKind("operation"),
                     str(acceptance.opportunity_id),
                     now,
-                    "creator-operation.v8",
+                    "creator-operation",
                 )
             )
         except Exception:
@@ -807,7 +807,7 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
             raise ValueError
         document = cast(dict[str, Any], parsed)
         if set(document) != {
-            "schema_version",
+            "schema_kind",
             "task_source_id",
             "objective",
             "deadline_seconds",
@@ -817,7 +817,7 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
         }:
             raise ValueError
         if (
-            document["schema_version"] != "armi.codex-task-source.v3"
+            document["schema_kind"] != "armi.codex-task-source"
             or document["task_source_id"] != str(snapshot.task_source_id)
             or document["deadline_seconds"] != snapshot.deadline_seconds
         ):

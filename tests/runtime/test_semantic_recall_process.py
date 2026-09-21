@@ -28,7 +28,7 @@ def _environment_root(tmp_path: Path) -> Path:
 
 def _profile(*, gpu_layers: int = 28, gpu_uuid: str = "GPU-test") -> dict[str, object]:
     return {
-        "schema_version": "armi.semantic-recall-profile.v2",
+        "schema_kind": "armi.semantic-recall-profile",
         "model_id": "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0",
         "model_revision": "370f27d7550e0def9b39c1f16d3fbaa13aa67728",
         "model_sha256": (
@@ -186,7 +186,7 @@ def test_old_or_cpu_profile_requires_calibration(
     tool_root.mkdir(parents=True)
     (tool_root / "install.json").write_text("{}", encoding="utf-8")
     (tool_root / "profile.json").write_text(
-        '{"schema_version":"armi.semantic-recall-profile.unsupported","gpu_layers":0}',
+        '{"schema_kind":"armi.semantic-recall-profile.unsupported","gpu_layers":0}',
         encoding="utf-8",
     )
     monkeypatch.setattr(
@@ -355,7 +355,7 @@ def test_calibration_publishes_profile_only_after_all_gates_pass(
     stored = json.loads(
         (root / "tools/semantic-recall/profile.json").read_text(encoding="utf-8")
     )
-    assert stored["schema_version"] == "armi.semantic-recall-profile.v2"
+    assert stored["schema_kind"] == "armi.semantic-recall-profile"
 
 
 def test_failed_calibration_keeps_previous_profile_and_stops_service(

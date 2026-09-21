@@ -107,7 +107,7 @@ class RuntimeObservationDriver:
             )
             diagnostic = self._diagnostic_status()
             snapshot: dict[str, object] = {
-                "schema_version": "armi.runtime-observability.v1",
+                "schema_kind": "armi.runtime-observability",
                 "status": "available",
                 "observed_at": Instant(datetime.now(UTC)).to_wire(),
                 "authority": {
@@ -166,7 +166,7 @@ class RuntimeObservationDriver:
 
     def _unavailable_snapshot(self, reason: str) -> dict[str, object]:
         return {
-            "schema_version": "armi.runtime-observability.v1",
+            "schema_kind": "armi.runtime-observability",
             "status": "unavailable",
             "observed_at": Instant(datetime.now(UTC)).to_wire(),
             "reason_code": reason,

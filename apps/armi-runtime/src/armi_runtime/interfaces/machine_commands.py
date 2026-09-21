@@ -103,8 +103,7 @@ async def invoke_command(
                 return InteractionResult(
                     "returned",
                     {
-                        "contract_version": "1.0",
-                        "projection_version": "creator-scenes.v1",
+                        "projection_kind": "creator-scenes",
                         "scenes": [
                             _scene_wire(scene).model_dump(
                                 mode="json", exclude_none=True
@@ -137,7 +136,6 @@ async def invoke_command(
             case "codex_submit":
                 body = CreatorCodexTaskRequest.model_validate(
                     {
-                        "contract_version": "1.0",
                         **{
                             key: value
                             for key, value in args.items()

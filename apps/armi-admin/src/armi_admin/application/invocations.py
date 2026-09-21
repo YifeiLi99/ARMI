@@ -44,8 +44,8 @@ class InvocationReferences(BaseModel):
 
 class InvocationEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.admin-invocation-evidence.v1"] = (
-        "armi.admin-invocation-evidence.v1"
+    schema_kind: Literal["armi.admin-invocation-evidence"] = (
+        "armi.admin-invocation-evidence"
     )
     operation: str
     idempotency_key: str
@@ -118,7 +118,7 @@ class InvocationJournal:
                     return receipt["result"]
                 raise ValueError("ADMIN-INVOCATION-UNKNOWN")
             metadata = {
-                "schema_version": "armi.admin-invocation.v2",
+                "schema_kind": "armi.admin-invocation",
                 "operation": name,
                 "idempotency_key": key,
                 "audit": audit or {},
@@ -307,7 +307,7 @@ class InvocationJournal:
             raise ValueError("ADMIN-JOURNAL-PATH")
         result: dict[str, Any] = json.loads(path.read_bytes())
         if (
-            result.get("schema_version") != "armi.admin-invocation.v2"
+            result.get("schema_kind") != "armi.admin-invocation"
             or result.get("operation") != name
             or result.get("idempotency_key") != key
             or result.get("state") not in {"started", "finished"}

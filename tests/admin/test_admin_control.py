@@ -37,7 +37,7 @@ def _config(root: Path) -> AdminConfig:
     template.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-experiment-environment.v1",
+                "schema_kind": "armi.admin-experiment-environment",
                 "environment_id": ENVIRONMENT_ID,
             }
         ),
@@ -48,7 +48,7 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v10",
+            "schema_kind": "armi.admin-config",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -232,7 +232,7 @@ class RuntimeControlProtocolTests(unittest.TestCase):
             (run_root / "runtime-control.manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": "armi.runtime-admin-control.v1",
+                        "schema_kind": "armi.runtime-admin-control",
                         "environment_id": ENVIRONMENT_ID,
                         "incarnation": 3,
                         "descriptor": "runtime-control.json",
@@ -263,7 +263,7 @@ class RuntimeControlProtocolTests(unittest.TestCase):
             )
             request = json.dumps(
                 {
-                    "schema_version": "armi.runtime-admin-control.v1",
+                    "schema_kind": "armi.runtime-admin-control",
                     "request_id": "0198f3f4-7b8c-7def-9abc-1234567890ab",
                     "environment_id": ENVIRONMENT_ID,
                     "incarnation": 3,
@@ -295,7 +295,7 @@ class RuntimeControlProtocolTests(unittest.TestCase):
             (run_root / "runtime-control.manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": "armi.runtime-admin-control.v1",
+                        "schema_kind": "armi.runtime-admin-control",
                         "environment_id": ENVIRONMENT_ID,
                         "incarnation": 3,
                         "descriptor": "runtime-control.json",
@@ -328,7 +328,7 @@ class RuntimeControlProtocolTests(unittest.TestCase):
             )
             request = json.dumps(
                 {
-                    "schema_version": "armi.runtime-admin-control.v1",
+                    "schema_kind": "armi.runtime-admin-control",
                     "request_id": "0198f3f4-7b8c-7def-9abc-1234567890ab",
                     "environment_id": ENVIRONMENT_ID,
                     "incarnation": 3,
@@ -368,7 +368,7 @@ class RuntimeControlProtocolTests(unittest.TestCase):
             (run_root / "runtime-control.manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": "armi.runtime-admin-control.v1",
+                        "schema_kind": "armi.runtime-admin-control",
                         "environment_id": ENVIRONMENT_ID,
                         "incarnation": 3,
                         "descriptor": "runtime-control.json",

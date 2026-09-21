@@ -130,7 +130,6 @@ class LiveVoiceService:
             )
             await self._transition(
                 LiveVoiceSessionState.LISTENING,
-                context_version="armi.creator-voice-act-candidate.v8",
             )
             self._ready.set()
             while not self._stop.is_set():
@@ -163,7 +162,6 @@ class LiveVoiceService:
             session_id=self._session_id,
             turn_id=turn_id,
             turn_no=self._turn_no,
-            context_version="armi.creator-voice-act-candidate.v8",
         )
         try:
             outcome, _spoken, silent = await self._execute_turn(turn_id)
@@ -521,15 +519,12 @@ class LiveVoiceService:
     async def _transition(
         self,
         state: LiveVoiceSessionState,
-        *,
-        context_version: str | None = None,
     ) -> None:
         self._machine.transition(state)
         assert self._session_id is not None
         await self._journal.set_session_state(
             session_id=self._session_id,
             state=state,
-            context_version=context_version,
         )
 
 

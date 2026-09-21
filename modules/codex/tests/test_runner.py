@@ -207,7 +207,7 @@ def test_task_options_use_luna_medium_reasoning_and_live_search(
 
 def test_task_codec_rejects_duplicate_keys() -> None:
     with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-FORMAT"):
-        decode_task(b'{"schema_version":"a","schema_version":"b"}')
+        decode_task(b'{"schema_kind":"a","schema_kind":"b"}')
 
 
 @pytest.mark.parametrize("model", [CodexModel.SOL, CodexModel.TERRA])

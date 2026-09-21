@@ -22,7 +22,6 @@ def updater(tmp_path, monkeypatch):
         postgresql="18.4",
         vector="0.8.6",
         pg_trgm="1.6",
-        baseline="0000",
         schema_digest="schema",
         role_policy_digest="roles",
     )
@@ -34,7 +33,7 @@ def updater(tmp_path, monkeypatch):
     actual = {"version": "1.0.0.0", "deployment_in_progress": False}
     payload = b"signed-package-test-boundary"
     candidate = {
-        "schema_version": "armi.update.v1",
+        "schema_kind": "armi.update",
         "name": identity.name,
         "publisher": identity.publisher,
         "version": "1.0.0.1",

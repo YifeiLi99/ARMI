@@ -95,7 +95,7 @@ async def _model_check(key: str, binding: Any) -> dict[str, Any]:
         try:
             request_bytes = json.dumps(
                 {
-                    "schema_version": "armi.model-request.v1",
+                    "schema_kind": "armi.model-request",
                     "compiled_context": {
                         "purpose": "consider_creator_input",
                         "layers": [

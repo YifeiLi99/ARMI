@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 def initial_mind_state() -> bytes:
     return rfc8785.dumps(
         {
-            "schema_version": "armi.mind.v4",
+            "schema_kind": "armi.mind",
             "understanding": [],
             "attention": [],
             "thoughts": [],
@@ -37,8 +37,8 @@ def initial_mind_state() -> bytes:
 def validate_state(value: dict[str, object]) -> None:
     fields = {"understanding", "attention", "thoughts", "wishes", "motivations"}
     if (
-        set(value) - {"concerns", "motivation_states"} != fields | {"schema_version"}
-        or value["schema_version"] != "armi.mind.v4"
+        set(value) - {"concerns", "motivation_states"} != fields | {"schema_kind"}
+        or value["schema_kind"] != "armi.mind"
     ):
         raise ValueError("invalid Mind state")
     for field in fields:

@@ -16,14 +16,13 @@ class BundleDatabase(BaseModel):
     postgresql: str
     vector: str
     pg_trgm: str
-    baseline: str
     schema_digest: str
     role_policy_digest: str
 
 
 class ProgramBundle(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.windows-bundle.v3"]
+    schema_kind: Literal["armi.windows-bundle"]
     target: Literal["windows-11-x64"]
     database: BundleDatabase
     package_id: str = Field(pattern=r"^[a-f0-9]{24}$")

@@ -13,7 +13,7 @@ from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import AdminContentPort as PromptAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
-CREATOR_PROMPT_PROJECTION_VERSION = "creator-prompt.v1"
+CREATOR_PROMPT_PROJECTION_KIND = "creator-prompt"
 MAX_CREATOR_PROMPT_BYTES = 65_536
 _CREATOR_CODE = re.compile(
     r"^(?:ART|CON|CONFLICT|DB|SCOPE)-PROMPT-[A-Z0-9-]+$", re.ASCII
@@ -278,7 +278,7 @@ class PromptAdminReferencePort(Protocol):
 
 
 __all__ = (
-    "CREATOR_PROMPT_PROJECTION_VERSION",
+    "CREATOR_PROMPT_PROJECTION_KIND",
     "MAX_CREATOR_PROMPT_BYTES",
     "CandidatePromptDraft",
     "CreatorPromptDeactivateCommand",

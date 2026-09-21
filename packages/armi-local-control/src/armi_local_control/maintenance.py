@@ -79,16 +79,14 @@ class MaintenanceParameters(BaseModel):
 
 
 class MaintenanceInvocation(MaintenanceParameters):
-    schema_version: Literal["armi.local-maintenance.v2"] = "armi.local-maintenance.v2"
+    schema_kind: Literal["armi.local-maintenance"] = "armi.local-maintenance"
     environment_root: AbsolutePath
     environment_id: Uuid7
 
 
 class ConfigurationInvocation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.local-configuration.v3"] = (
-        "armi.local-configuration.v3"
-    )
+    schema_kind: Literal["armi.local-configuration"] = "armi.local-configuration"
     environment_root: AbsolutePath
     environment_id: Uuid7
     target: Literal["model-bindings", "provider-pricing", "qq", "mood-display"]

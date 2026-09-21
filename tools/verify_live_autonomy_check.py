@@ -159,7 +159,7 @@ def prepare_check(
     )
     compiled = rfc8785.dumps(
         {
-            "schema_version": "armi.compiled-context.v3",
+            "schema_kind": "armi.compiled-context",
             "purpose": "consider_autonomy_check",
             "layers": [
                 {
@@ -311,12 +311,12 @@ async def verify(
                                     raise ModelViolation("MODEL-RESPONSE-EMPTY")
                                 candidate = model_response_candidate(
                                     result.response_bytes,
-                                    expected_version=binding.response_contract_version,
+                                    expected_version=binding.response_contract_kind,
                                 )
                                 if full:
                                     parse_candidate(
                                         candidate,
-                                        expected_version=binding.response_contract_version,
+                                        expected_version=binding.response_contract_kind,
                                         purpose=purpose,
                                         allowed_context_refs=frozenset(
                                             str(r["ref"]) for r in refs

@@ -67,7 +67,7 @@ Case = Annotated[AutonomyCase | MemoryCase, Field(discriminator="kind")]
 
 
 class ExperimentConfig(StrictModel):
-    schema_version: Literal["armi.jev-experiment.v1"]
+    schema_kind: Literal["armi.jev-experiment"]
     model: Literal["jev-1.13.0"]
     timeout_seconds: Annotated[int, Field(ge=1, le=60)]
     threshold: Probability

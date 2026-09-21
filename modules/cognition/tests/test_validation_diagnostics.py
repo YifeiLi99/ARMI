@@ -98,7 +98,7 @@ def test_accepted_proposals_keep_ordered_context_basis_without_storage():
 
 def test_invalid_json_is_distinguished_from_wrong_field_type():
     raw = json.dumps(
-        {"schema_version": "armi.model-response-artifact.v3", "output_text": "{broken"}
+        {"schema_kind": "armi.model-response-artifact", "output_text": "{broken"}
     ).encode()
     with pytest.raises(CandidateViolation) as caught:
         model_response_candidate(raw)
@@ -110,7 +110,7 @@ def test_invalid_json_is_distinguished_from_wrong_field_type():
         parse_candidate(
             {"decision": {"kind": "reply", "content": 42}},
             allowed_context_refs=frozenset(),
-            expected_version="armi.creator-cognitive-act-candidate.v8",
+            expected_version="armi.creator-cognitive-act-candidate",
         )
     result = contract_rejection(caught_model.value)
     assert result.diagnostics[0].stage == "structure"
@@ -123,7 +123,7 @@ def test_saved_response_has_only_one_candidate_body():
     value = {"decision": {"kind": "no_action"}}
     raw = json.dumps(
         {
-            "schema_version": "armi.model-response-artifact.v3",
+            "schema_kind": "armi.model-response-artifact",
             "output_text": json.dumps({"candidate": value}),
         }
     ).encode()

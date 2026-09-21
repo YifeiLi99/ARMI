@@ -54,9 +54,9 @@
 - 当前开发阶段暂不使用 GitHub Releases。用户要求“更新本机”时，默认通过 [本地构建安装入口](tools/install_local_msix.ps1) 从当前源码构建、签名并安装或原位升级独立验收包；沿用已建立的证书信任，不逐次重新要求打包授权。已有安装不得以先卸载再重装代替升级，不删除、重建数据库或重复出生；数据库合同不同时，在部署前停止并报告；清空并重建目标数据库须另获明确授权。保持验收版 GitHub 自动更新关闭，不自行发布 Release、配置正式签名或购买服务。修改源码本身不代表需要立即更新本机；具体命令与产物位置见 [README](README.md)。
 - 凭据通过设置或同一 setup 凭据用例写入所属环境的私有文件，配置只引用 locator，不写进项目文档或仓库。主文本模型只选 Qwen 或 DeepSeek，分别使用 `model.qwen_api_key` 与 `model.deepseek_api_key`；方舟不再作为主文本选择或回退。`model.ark_api_key` 保留给独立豆包语音认知、视觉识别；语音识别/合成、Codex、QQ 保持独立凭据。当前存储保护方式和生效步骤见 [运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
-- [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 Alembic revision、autogenerate 或 downgrade。只维护最新数据库，不保留历史 schema 快照、升级资源或升级入口；已有数据库合同不匹配时停止。普通启动不升级，修改 schema 的授权不包含删除目标库。
-- Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
-- ARMI 持续演进，只支持当前内部合同，不提供旧合同兼容。合同标识只用于核验当前格式，不能据此保留多代 ARMI、旧格式分支或历史版本运行模式。变更同步生产者、消费者、DDL、配置、OpenAPI、生成代码、工具和测试，删除旧解析器、字段、旧格式容纳约束、双读双写及缺字段补默认值；不兼容时明确拒绝，不自动迁移或降级。第三方协议遵守其自身合同。
+- [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、资源摘要核验、owner registry、ACL 和消费者；不增加历史 Alembic revision、autogenerate 或 downgrade。只维护最新数据库，不保留历史 schema 快照、升级资源或升级入口；已有数据库合同不匹配时停止。普通启动不升级，修改 schema 的授权不包含删除目标库。
+- Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证唯一 revision、资源/目录摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
+- ARMI 持续演进，只支持当前内部合同，不提供旧合同兼容。内部合同用稳定的 schema_kind/合同类型标识区分用途，不维护人工递增的 vN 或通用 contract_version；主体并发版本、第三方协议、安装包版本及密码学格式保持各自职责。合同标识只用于核验当前类型和格式，不能据此保留多代 ARMI、旧格式分支或历史版本运行模式。变更同步生产者、消费者、DDL、配置、OpenAPI、生成代码、工具和测试，删除旧解析器、字段、旧格式容纳约束、双读双写及缺字段补默认值；不兼容时明确拒绝，不自动迁移或降级。第三方协议遵守其自身合同。
 - 人工业务/部署配置集中在 `configs/`，环境配置也使用严格 YAML；Codex MCP TOML、OpenAPI、JSON Schema、lock 与 wire 保留要求的格式。Runtime 按仓库默认 → `environment.yaml` → 登记的 `ARMI_*` 合并，拒绝 unknown/extra、错误类型和敏感明文。Secret 只用 scoped locator。
 - 接线由 Python composition root 定义，不维护重复清单或把接线摘要当成主体连续性。JSON 使用 UTF-8、2 空格、末尾换行；只在真实消费者需要时使用摘要或 RFC 8785。
 

@@ -69,8 +69,7 @@ class ModelBinding:
     version_policy: str
     response_model_identity_required: bool
     profile: str
-    request_contract_version: str
-    response_contract_version: str
+    response_contract_kind: str
     credential_identity: str
     input_token_limit: int
     output_token_limit: int
@@ -82,8 +81,7 @@ class ModelBinding:
             self.provider,
             self.version_policy,
             self.profile,
-            self.request_contract_version,
-            self.response_contract_version,
+            self.response_contract_kind,
             self.credential_identity,
         ):
             _require_token(value)

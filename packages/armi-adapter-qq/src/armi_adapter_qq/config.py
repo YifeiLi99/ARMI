@@ -10,7 +10,7 @@ from armi_kernel import load_yaml_file
 
 from .adapter import QQAdapterConfig
 
-QQ_NAPCAT_CONFIG_SCHEMA = "armi.qq-napcat-channel.v4"
+QQ_NAPCAT_CONFIG_SCHEMA = "armi.qq-napcat-channel"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +35,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     except OSError, ValueError:
         raise ValueError("QQ channel configuration is unreadable") from None
     expected = {
-        "schema_version",
+        "schema_kind",
         "enabled",
         "account_id",
         "creator_user_id",
@@ -47,7 +47,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     }
     if set(document) != expected:
         raise ValueError("QQ channel configuration shape is invalid")
-    if document["schema_version"] != QQ_NAPCAT_CONFIG_SCHEMA:
+    if document["schema_kind"] != QQ_NAPCAT_CONFIG_SCHEMA:
         raise ValueError("QQ channel configuration version is invalid")
     if type(document["enabled"]) is not bool:
         raise ValueError("QQ channel enabled flag is invalid")

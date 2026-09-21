@@ -226,7 +226,7 @@ def test_new_device_configuration_uses_owner_validation(tmp_path: Path) -> None:
     assert before["configuration_state"] == "missing"
     config.apply(
         {
-            "schema_version": "armi.mood-display-config.v1",
+            "schema_kind": "armi.mood-display-config",
             "enabled": False,
             "port": "COM7",
             "expected_device_id": "test-display",

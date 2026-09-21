@@ -30,12 +30,12 @@ CREATOR_PARTY_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234569")
 
 def manifest_value() -> dict[str, object]:
     anchor = {
-        "schema_version": "armi.personality-anchor.v1",
+        "schema_kind": "armi.personality-anchor",
         "voice_style": "约 16 岁少女口吻",
         "traits": ["好奇", "坦率"],
     }
     return {
-        "schema_version": "armi.birth-manifest.v1",
+        "schema_kind": "armi.birth-manifest",
         "environment_id": str(ENVIRONMENT_ID),
         "birth_request_id": str(BIRTH_REQUEST_ID),
         "creator_party_id": str(CREATOR_PARTY_ID),
@@ -143,7 +143,7 @@ class BirthContractTests(unittest.TestCase):
     def test_anchor_and_result_are_strict_and_redacted(self) -> None:
         with self.assertRaises(BirthViolation):
             PersonalityAnchor(
-                "armi.personality-anchor.v1",
+                "armi.personality-anchor",
                 "other",
                 ("好奇",),
             )

@@ -210,7 +210,7 @@ def _live(root: Path) -> dict[str, object]:
     started = time.perf_counter()
     dispatched = False
     evidence: dict[str, object] = {
-        "schema_version": "armi.codex-runner-live-evidence.v2",
+        "schema_kind": "armi.codex-runner-live-evidence",
         "gate_id": _GATE_ID,
         "result": "blocked",
         "invocation_count": 0,
@@ -249,7 +249,7 @@ def _live(root: Path) -> dict[str, object]:
         platform_home = data_root / "codex-runner" / "platform-home"
         _validate_platform_home(platform_home)
         evidence = {
-            "schema_version": "armi.codex-runner-live-evidence.v2",
+            "schema_kind": "armi.codex-runner-live-evidence",
             "gate_id": _GATE_ID,
             "result": "pass",
             "invocation_count": 1,
@@ -302,7 +302,7 @@ def _preflight(root: Path) -> dict[str, object]:
     started = time.perf_counter()
     preflight_root = Path(tempfile.mkdtemp(prefix="armi-s038-sdk-preflight-"))
     evidence: dict[str, object] = {
-        "schema_version": "armi.codex-runner-preflight-evidence.v2",
+        "schema_kind": "armi.codex-runner-preflight-evidence",
         "gate_id": _PREFLIGHT_ID,
         "result": "blocked",
         "model_invocation_count": 0,
@@ -366,7 +366,7 @@ def _preflight(root: Path) -> dict[str, object]:
         _sanitize_platform_home(platform_home)
         _validate_platform_home(platform_home)
         evidence = {
-            "schema_version": "armi.codex-runner-preflight-evidence.v2",
+            "schema_kind": "armi.codex-runner-preflight-evidence",
             "gate_id": _PREFLIGHT_ID,
             "result": "pass",
             "model_invocation_count": 0,

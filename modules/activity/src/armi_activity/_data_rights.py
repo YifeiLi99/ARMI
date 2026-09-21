@@ -8,7 +8,6 @@ from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
     DataRightsCanonicalRecord,
-    DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
@@ -21,7 +20,6 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("activity")
-_VERSION = DataRightsContributionVersion(4)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "activity_revisions",
@@ -35,10 +33,6 @@ class PostgreSQLActivityDataRightsParticipant:
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity:
         return _OWNER
-
-    @property
-    def schema_version(self) -> DataRightsContributionVersion:
-        return _VERSION
 
     async def discover(
         self,
@@ -137,7 +131,6 @@ class PostgreSQLActivityDataRightsParticipant:
             segments.append(
                 DataRightsExportSegment(
                     _OWNER,
-                    _VERSION,
                     segment_name,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(records),

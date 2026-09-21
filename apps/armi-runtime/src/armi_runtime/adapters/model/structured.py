@@ -267,7 +267,7 @@ def _provider_input(request_bytes: bytes) -> list[dict[str, str]]:
     if not isinstance(request_value, dict):
         raise ModelViolation("MODEL-REQUEST")
     request_document = cast(dict[object, object], request_value)
-    if request_document.get("schema_version") == "armi.model-request.v1":
+    if request_document.get("schema_kind") == "armi.model-request":
         from .context_text import context_messages
 
         return context_messages(cast(dict[str, Any], request_document))
@@ -317,7 +317,7 @@ class StructuredModelAdapter(ModelPort):
         return (
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.model-input-evidence.v1",
+                    "schema_kind": "armi.model-input-evidence",
                     "execution": "provider",
                     "provider_request": self._renderer.request_parameters(
                         self._binding, request
@@ -459,7 +459,7 @@ class StructuredModelAdapter(ModelPort):
             cached_tokens,
         )
         safe_response = {
-            "schema_version": "armi.model-response-artifact.v3",
+            "schema_kind": "armi.model-response-artifact",
             "provider_request_id": provider_request_id,
             "provider_model_id": model_id,
             "output_text": output_text,

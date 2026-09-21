@@ -9,12 +9,12 @@ from armi_cognition._dialogue_output import flatten_dialogue_output
 from armi_cognition._model_contract import parse_candidate
 from armi_kernel.application import CandidateViolation, ModelViolation
 
-CREATOR = "armi.creator-cognitive-act-candidate.v8"
-OTHER = "armi.other-human-dialogue-candidate.v9"
+CREATOR = "armi.creator-cognitive-act-candidate"
+OTHER = "armi.other-human-dialogue-candidate"
 
 
 @pytest.mark.parametrize(
-    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate.v12"]
+    "version", [CREATOR, OTHER, "armi.autonomous-activity-candidate"]
 )
 @pytest.mark.parametrize(
     "messages",
@@ -51,7 +51,7 @@ def test_message_boundary_contract_rejects_ambiguous_or_invalid_outputs(
 def decode(value, version) -> Any:
     artifact = json.dumps(
         {
-            "schema_version": "armi.model-response-artifact.v3",
+            "schema_kind": "armi.model-response-artifact",
             "output_text": json.dumps(value),
         }
     ).encode()

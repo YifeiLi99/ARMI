@@ -23,7 +23,7 @@ _OTHER_RESOURCE_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7"
 
 def _encode(codec: ProjectionCursorCodec) -> OpaqueCursor:
     return codec.encode(
-        projection_version="creator-memory.v2",
+        projection_kind="creator-memory",
         resource_kind="memory-current",
         resource_ref=None,
         page_limit=50,
@@ -36,7 +36,7 @@ def _encode(codec: ProjectionCursorCodec) -> OpaqueCursor:
 def _decode(codec: ProjectionCursorCodec, cursor: OpaqueCursor) -> None:
     codec.decode(
         cursor,
-        projection_version="creator-memory.v2",
+        projection_kind="creator-memory",
         resource_kind="memory-current",
         resource_ref=None,
         page_limit=50,
@@ -80,18 +80,18 @@ def test_cursor_rejects_signature_and_authenticated_field_shape_changes() -> Non
     ("projection", "resource", "resource_ref", "limit", "query"),
     (
         ("creator-memory.v3", "memory-current", None, 50, {"query_text": "\uff21"}),
-        ("creator-memory.v2", "memory-timeline", None, 50, {"query_text": "\uff21"}),
+        ("creator-memory", "memory-timeline", None, 50, {"query_text": "\uff21"}),
         (
-            "creator-memory.v2",
+            "creator-memory",
             "memory-current",
             _OTHER_RESOURCE_ID,
             50,
             {"query_text": "\uff21"},
         ),
-        ("creator-memory.v2", "memory-current", None, 51, {"query_text": "\uff21"}),
-        ("creator-memory.v2", "memory-current", None, 50, {"query_text": "A"}),
-        ("creator-memory.v2", "memory-current", None, 50, {"query_text": "\uff41"}),
-        ("creator-memory.v2", "memory-current", None, 50, {"query_text": None}),
+        ("creator-memory", "memory-current", None, 51, {"query_text": "\uff21"}),
+        ("creator-memory", "memory-current", None, 50, {"query_text": "A"}),
+        ("creator-memory", "memory-current", None, 50, {"query_text": "\uff41"}),
+        ("creator-memory", "memory-current", None, 50, {"query_text": None}),
     ),
 )
 def test_cursor_rejects_every_scope_change_as_stale(
@@ -106,7 +106,7 @@ def test_cursor_rejects_every_scope_change_as_stale(
     with pytest.raises(ProjectionCursorStale):
         codec.decode(
             cursor,
-            projection_version=projection,
+            projection_kind=projection,
             resource_kind=resource,
             resource_ref=resource_ref,
             page_limit=limit,

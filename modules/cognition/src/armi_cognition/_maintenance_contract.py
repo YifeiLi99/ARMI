@@ -9,14 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from ._dialogue_contract import ContextRef
 from ._text_contract import Text512
 
-MAINTENANCE_WORK_CANDIDATE_VERSION = "armi.maintenance-work-candidate.v3"
+MAINTENANCE_WORK_CANDIDATE_VERSION = "armi.maintenance-work-candidate"
 
 
 class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return MAINTENANCE_WORK_CANDIDATE_VERSION
 
 

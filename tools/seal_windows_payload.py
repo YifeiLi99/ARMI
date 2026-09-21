@@ -12,7 +12,6 @@ import struct
 from pathlib import Path
 
 from armi_postgresql_contract import (
-    BASELINE_IDENTITY,
     role_policy_digest,
     schema_resource_digest,
 )
@@ -114,13 +113,12 @@ def seal(root: Path) -> None:
                     stream, "sha256"
                 ).hexdigest()
     manifest: dict[str, object] = {
-        "schema_version": "armi.windows-bundle.v3",
+        "schema_kind": "armi.windows-bundle",
         "target": "windows-11-x64",
         "database": {
             "postgresql": "18.4",
             "vector": "0.8.6",
             "pg_trgm": "1.6",
-            "baseline": BASELINE_IDENTITY,
             "schema_digest": schema_resource_digest(),
             "role_policy_digest": role_policy_digest(),
         },

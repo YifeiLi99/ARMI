@@ -92,7 +92,7 @@ class RuntimeCapacityReport:
             if sample.process_rss_bytes is not None
         )
         return {
-            "schema_version": "armi.runtime-capacity-baseline.v2",
+            "schema_kind": "armi.runtime-capacity-baseline",
             "status": self.status,
             "requested_duration_seconds": self.requested_duration_seconds,
             "sample_interval_seconds": self.sample_interval_seconds,

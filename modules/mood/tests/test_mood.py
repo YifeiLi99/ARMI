@@ -266,7 +266,7 @@ def test_semantic_mood_candidate_round_trips_without_model_scores() -> None:
     cognition = bootstrap_mood_cognition()
     candidate = _candidate(appraisal=_semantic_event())
     payload = cognition.bind(candidate).canonical_payload
-    assert b"armi.mood-candidate.v5" in payload
+    assert b"armi.mood-candidate" in payload
     assert b"semantic" not in payload
     assert cognition.decode(payload) == candidate
 
@@ -1042,13 +1042,13 @@ def test_home_base_moves_at_most_two_points_per_axis() -> None:
 def test_state_contract_is_current_and_rejects_extra_fields() -> None:
     state = parse_state(
         {
-            "schema_version": "armi.mood.v5",
-            "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v4",
+            "schema_kind": "armi.mood",
+            "dynamics_method": "recency-reappraisal",
+            "derivation_method": "cpm-fuzzy",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )
-    assert state_to_wire(state)["schema_version"] == "armi.mood.v5"
+    assert state_to_wire(state)["schema_kind"] == "armi.mood"
     with pytest.raises(MoodViolation):
         parse_state({**state_to_wire(state), "mood": "平静"})
 
@@ -1060,7 +1060,7 @@ def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias(
     episode_ids = (uuid7(), uuid7(), uuid7())
     mood = rfc8785.dumps(
         {
-            "schema_version": "armi.mood-snapshot.v2",
+            "schema_kind": "armi.mood-snapshot",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
             "current": {"valence": 10, "arousal": 20, "dominance": 0},
             "active_emotions": [],
@@ -1091,7 +1091,7 @@ def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias(
 
 def test_old_appraisal_contract_is_rejected_without_filling_fields() -> None:
     current = semantic_appraisal_to_wire(_semantic_event())
-    previous = {**current, "schema_version": "armi.mood-appraisal.v2"}
+    previous = {**current, "schema_kind": "armi.mood-appraisal.v2"}
     appraisal = current["appraisal"]
     assert isinstance(appraisal, dict)
     previous["appraisal"] = {

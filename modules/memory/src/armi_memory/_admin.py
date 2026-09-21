@@ -68,7 +68,7 @@ class PostgreSQLMemoryAdmin:
             "source_kind,source_fact_class,summary,uncertainty,revision_kind,accessibility,"
             "mechanism_identity,mechanism_config_identity) "
             "VALUES (%s,%s,%s,COALESCE(%s,statement_timestamp()),%s,%s,%s,'administrator','external_claim',%s,%s,%s,%s,"
-            "'armi.memory.admin-v1','admin-v1')",
+            "'armi.memory.admin','admin')",
             (
                 revision,
                 command.object_id,

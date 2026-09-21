@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import cast
 
-CONTRACT_VERSION = "1.0"
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_JSON_DEPTH = 8
 MAX_JSON_CONTAINER_ITEMS = 64
@@ -65,15 +64,6 @@ def require_exact_fields(
         raise ContractViolation(
             "CON-FIELD-UNKNOWN",
             f"unknown field(s): {', '.join(unknown)}",
-            path=path,
-        )
-
-
-def require_contract_version(value: object, *, path: str) -> None:
-    if value != CONTRACT_VERSION or not isinstance(value, str):
-        raise ContractViolation(
-            "CON-VERSION",
-            f"contract_version must be exactly {CONTRACT_VERSION!r}",
             path=path,
         )
 

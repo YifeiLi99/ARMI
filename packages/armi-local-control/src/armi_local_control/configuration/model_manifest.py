@@ -22,8 +22,7 @@ class PrimaryModelSettings(ManifestSection):
     model_id: str
     version_policy: str
     profile: str
-    request_contract_version: str
-    response_contract_version: str
+    response_contract_kind: str
     response_model_identity_required: bool
     credential_identity: str
     credential_locator: str
@@ -40,8 +39,7 @@ class VoiceModelSettings(ManifestSection):
     model_id: str
     version_policy: str
     profile: str
-    request_contract_version: str
-    response_contract_version: str
+    response_contract_kind: str
     credential_identity: str
     credential_locator: str
     credential_purpose: str
@@ -54,7 +52,7 @@ class VoiceModelSettings(ManifestSection):
 
 class PurposeModelSettings(ManifestSection):
     profile: str
-    response_contract_version: str
+    response_contract_kind: str
     output_token_limit: Positive
 
 
@@ -101,7 +99,7 @@ class RecognitionModelSettings(ManifestSection):
 
 
 class ModelManifest(ManifestSection):
-    schema_version: Literal["armi.model-bindings.v4"]
+    schema_kind: Literal["armi.model-bindings"]
     active_binding: str
     bindings: Annotated[list[PrimaryModelSettings], Field(min_length=1, max_length=1)]
     voice_binding: VoiceModelSettings

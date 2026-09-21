@@ -36,7 +36,6 @@ from armi_local_control.maintenance import (
     MaintenanceParameters,
 )
 from armi_local_control.runtime_errors import RuntimeViolation
-from armi_postgresql_contract import BASELINE_IDENTITY
 from psycopg import Error as PostgreSQLError
 from pydantic import BaseModel, JsonValue
 
@@ -874,9 +873,7 @@ class AdminToolService:
                         arguments.get("offset", 0),
                     )
                 elif name in {"usage_summary", "usage_list", "usage_read"}:
-                    arguments = request.model_dump(
-                        exclude={"contract_version", "environment_id"}
-                    )
+                    arguments = request.model_dump(exclude={"environment_id"})
                     filters = UsageFilter.from_strings(
                         **{
                             key: arguments[key]
@@ -1960,7 +1957,6 @@ class AdminToolService:
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
             or snapshot.revision != "0000"
-            or snapshot.baseline_identity != BASELINE_IDENTITY
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 
@@ -1970,7 +1966,6 @@ class AdminToolService:
             environment_id=self._config.environment_id,
             table_count=len(snapshot.tables),
             revision=snapshot.revision,
-            baseline_identity=snapshot.baseline_identity,
             resource_digest=snapshot.resource_digest,
             catalog_digest=snapshot.catalog_digest,
             role_policy_digest=snapshot.role_policy_digest,

@@ -50,7 +50,6 @@ def read_case():
             uuid7(),
             1,
             "test-model",
-            "historical-request",
             "historical-candidate",
             request,
             response,
@@ -107,7 +106,7 @@ def test_directory_and_lossless_unicode_pages(read_case):
         episode_id=str(episode), artifact_id=None, offset=0, length=4
     )
     CognitionReadPayload.model_validate(listing)
-    assert listing["attempts"][0]["candidate_schema_version"] == "historical-candidate"
+    assert listing["attempts"][0]["candidate_contract_kind"] == "historical-candidate"
     assert {item["role"] for item in listing["artifacts"]} == {
         "context_manifest",
         "request",

@@ -25,14 +25,14 @@
       "default": null,
       "title": "Interaction Config"
     },
-    "schema_version": {
-      "const": "armi.mcp-binding.v1",
-      "title": "Schema Version",
+    "schema_kind": {
+      "const": "armi.mcp-binding",
+      "title": "Schema Kind",
       "type": "string"
     }
   },
   "required": [
-    "schema_version"
+    "schema_kind"
   ],
   "title": "MCPBinding",
   "type": "object"

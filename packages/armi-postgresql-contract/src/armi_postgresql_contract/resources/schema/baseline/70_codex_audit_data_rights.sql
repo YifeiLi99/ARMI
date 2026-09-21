@@ -91,12 +91,11 @@ CREATE TABLE armi.codex_task_sources (
 CREATE TABLE armi.creator_exports (
     creator_export_id uuid NOT NULL,
     snapshot_party_scopes jsonb DEFAULT '{}'::jsonb NOT NULL CHECK (jsonb_typeof(snapshot_party_scopes)='object'),
-    snapshot_contract_version text,
     snapshot_status text,
     snapshot_removed_at timestamp(6) with time zone,
     CONSTRAINT creator_exports_snapshot_check CHECK (
-        (snapshot_contract_version IS NULL AND snapshot_status IS NULL AND snapshot_removed_at IS NULL)
-        OR (snapshot_contract_version IS NOT NULL AND snapshot_status IS NOT NULL
+        (snapshot_status IS NULL AND snapshot_removed_at IS NULL)
+        OR (snapshot_status IS NOT NULL
             AND status IN ('completed','partial')
             AND ((snapshot_status='active' AND snapshot_removed_at IS NULL)
                 OR (snapshot_status='removed' AND snapshot_removed_at IS NOT NULL)))

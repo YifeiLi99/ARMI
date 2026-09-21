@@ -59,7 +59,7 @@ def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v10",
+            "schema_kind": "armi.admin-config",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -247,7 +247,6 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "subjects",
         ),
         revision="0000",
-        baseline_identity="armi.schema-baseline.v71",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,
@@ -276,8 +275,8 @@ class AdminConfigurationTests(unittest.TestCase):
             (resources / "admin-config.schema.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
-            schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v10",
+            schema["properties"]["schema_kind"]["const"],
+            "armi.admin-config",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -546,8 +545,7 @@ class AdminToolServiceTests(unittest.TestCase):
             encoding=current.encoding,
             timezone=current.timezone,
             tables=current.tables,
-            revision=current.revision,
-            baseline_identity="armi.schema-baseline.legacy",
+            revision="unsupported",
             resource_digest=current.resource_digest,
             catalog_digest=current.catalog_digest,
             role_policy_digest=current.role_policy_digest,
@@ -593,7 +591,7 @@ class AdminProtocolTests(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        "schema_version: armi.admin-config.v10",
+                        "schema_kind: armi.admin-config",
                         "operator_id: isolated-test-agent",
                         "authorized_operations: [health]",
                         "environment_kind: system_test",
@@ -625,7 +623,7 @@ class AdminProtocolTests(unittest.TestCase):
             mcp_binding.write_text(
                 json.dumps(
                     {
-                        "schema_version": "armi.mcp-binding.v1",
+                        "schema_kind": "armi.mcp-binding",
                         "admin_config": str(config_path),
                     }
                 ),
@@ -656,7 +654,7 @@ class AdminProtocolTests(unittest.TestCase):
                         "component_kind": "self",
                         "expected_component_version": 1,
                         "replacement": {
-                            "schema_version": "armi.self.v1",
+                            "schema_kind": "armi.self",
                             "identity_kind": "electronic_person",
                             "creator_role_awareness": "unique_primary_creator",
                             "name": None,
@@ -696,9 +694,9 @@ class AdminProtocolTests(unittest.TestCase):
                     "component_kind": "mood",
                     "expected_component_version": 1,
                     "replacement": {
-                        "schema_version": "armi.mood.v5",
-                        "dynamics_version": "recency-reappraisal.v1",
-                        "derivation_version": "cpm-fuzzy.v4",
+                        "schema_kind": "armi.mood",
+                        "dynamics_method": "recency-reappraisal",
+                        "derivation_method": "cpm-fuzzy",
                         "home_base": {
                             "valence": 10,
                             "arousal": 0,
@@ -779,7 +777,7 @@ class AdminProtocolTests(unittest.TestCase):
             async with Client(_server(_service())) as client:
                 result = await client.call_tool(
                     "admin_health",
-                    {"contract_version": "1.0", "unknown": True},
+                    {"unknown": True},
                 )
                 return bool(result.is_error)
 
@@ -791,7 +789,7 @@ def test_mcp_scope_arrays_retain_strict_elements_and_reach_the_owner() -> None:
         service = _service()
         gateway = Mock(spec=AdminObservationGateway)
         gateway.inspect_scope.return_value = {
-            "schema_version": "armi.admin-scope-graph.v2",
+            "schema_kind": "armi.admin-scope-graph",
             "nodes": [
                 {
                     "kind": "subject",

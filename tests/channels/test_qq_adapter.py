@@ -451,7 +451,7 @@ class QQConfigTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             path = Path(root) / "qq-napcat.yaml"
             path.write_text(
-                """schema_version: armi.qq-napcat-channel.v4
+                """schema_kind: armi.qq-napcat-channel
 enabled: true
 account_id: 10001
 creator_user_id: 90009

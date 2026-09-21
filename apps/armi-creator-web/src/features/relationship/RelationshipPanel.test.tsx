@@ -19,8 +19,7 @@ function jsonResponse(value: object, status = 200): Response {
 
 function currentRelationship() {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-relationship.v3",
+    projection_kind: "creator-relationship",
     relationship: {
       relationship_id: RELATIONSHIP_ID,
       current_revision_id: REVISION_ID,
@@ -107,8 +106,7 @@ describe("Creator relationship panel", () => {
       }
       if (path.startsWith(`/v1/relationships/${RELATIONSHIP_ID}/timeline?`)) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-relationship.v3",
+          projection_kind: "creator-relationship",
           relationship_id: RELATIONSHIP_ID,
           items: [currentRelationship().relationship.current],
           next_cursor: null,
@@ -118,7 +116,6 @@ describe("Creator relationship panel", () => {
         requests.push(init ?? {});
         return jsonResponse(
           {
-            contract_version: "1.0",
             status: "accepted",
             trace_id: "0123456789abcdef0123456789abcdef",
             occurred_at: "2026-08-05T10:00:00.000000Z",
@@ -159,7 +156,6 @@ describe("Creator relationship panel", () => {
     expect(onOperationAccepted).toHaveBeenCalledWith(OPERATION_ID);
     expect(requests).toHaveLength(1);
     expect(JSON.parse(String(requests[0]?.body))).toEqual({
-      contract_version: "1.0",
       kind: "privacy",
       action: "refuse",
       summary: "不要披露我的私密信息",
@@ -171,8 +167,7 @@ describe("Creator relationship panel", () => {
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-relationship.v3",
+          projection_kind: "creator-relationship",
           relationship: null,
         }),
       ),
@@ -197,7 +192,6 @@ describe("Creator relationship panel", () => {
       if (keys.length === 1) throw new TypeError("acknowledgement lost");
       return jsonResponse(
         {
-          contract_version: "1.0",
           status: "accepted",
           trace_id: "0123456789abcdef0123456789abcdef",
           occurred_at: "2026-08-05T10:00:00.000000Z",

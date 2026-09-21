@@ -893,7 +893,7 @@ def _context_request(
                 "private",
                 rfc8785.dumps(
                     {
-                        "schema_version": "armi.experience-context.v1",
+                        "schema_kind": "armi.experience-context",
                         "fact_class": experience.fact_class,
                         "first_person_gist": experience.first_person_gist,
                         "occurred_at": experience.occurred_at.isoformat(),
@@ -1461,7 +1461,7 @@ def _capability_catalog_bytes(
         capabilities = [json.loads(item[2]) for item in capability_states]
         return rfc8785.dumps(
             {
-                "schema_version": "armi.capability-catalog.v2",
+                "schema_kind": "armi.capability-catalog",
                 "runtime_discovery_allowed": False,
                 "capabilities": capabilities,
             }

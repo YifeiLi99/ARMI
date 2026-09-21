@@ -18,8 +18,7 @@ function jsonResponse(value: object, status = 200): Response {
 
 function materialList(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "life-record-query.v2",
+    projection_kind: "life-record-query",
     retrieval_kind: "creator_view",
     next_cursor: null,
     items: [
@@ -67,8 +66,7 @@ describe("Creator life material panel", () => {
       }
       if (url === `/v1/materials/${MATERIAL_ID}`) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-life-material.v1",
+          projection_kind: "creator-life-material",
           material_id: MATERIAL_ID,
           material_kind: "diary",
           revision_no: 2,
@@ -111,7 +109,6 @@ describe("Creator life material panel", () => {
       if (url === `/v1/materials/${MATERIAL_ID}`) {
         return jsonResponse(
           {
-            contract_version: "1.0",
             status: "rejected",
             error: { code: "SCOPE_LIFE_MATERIAL_NOT_VISIBLE" },
           },

@@ -62,7 +62,7 @@ def _signal():
 )
 def test_mood_gist_schema_parser_and_owner_agree_without_trimming(text, accepted):
     value = dict(
-        schema_version="armi.mood-appraisal.v3",
+        schema_kind="armi.mood-appraisal",
         transition="new",
         previous_episode_id=None,
         event_phase="ongoing",
@@ -94,7 +94,7 @@ def test_mood_conflicting_assessments_remain_an_owner_semantic_rejection():
     )
     typed = AppraisalSemanticSignal.model_validate_json(json.dumps(value))
     command = MoodSemanticAppraisalCommand(
-        schema_version="armi.mood-appraisal.v3",
+        schema_kind="armi.mood-appraisal",
         transition="new",
         previous_episode_id=None,
         event_phase="ongoing",
@@ -134,22 +134,22 @@ def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, ac
     "version,value,path",
     [
         (
-            "armi.creator-cognitive-act-candidate.v8",
+            "armi.creator-cognitive-act-candidate",
             {"decision": {"kind": "reply", "content": "ok"}},
             ("decision", "content"),
         ),
         (
-            "armi.creator-voice-act-candidate.v8",
+            "armi.creator-voice-act-candidate",
             {"d": {"kind": "reply", "content": "ok"}},
             ("d", "content"),
         ),
         (
-            "armi.other-human-dialogue-candidate.v9",
+            "armi.other-human-dialogue-candidate",
             {"decision": {"kind": "reply", "content": "ok"}},
             ("decision", "content"),
         ),
         (
-            "armi.autonomous-activity-candidate.v12",
+            "armi.autonomous-activity-candidate",
             {
                 "kind": "no_activity",
                 "expression": "ok",
@@ -157,7 +157,7 @@ def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, ac
             ("expression",),
         ),
         (
-            "armi.maintenance-work-candidate.v3",
+            "armi.maintenance-work-candidate",
             {"kind": "memory_unchanged", "summary": "ok"},
             ("summary",),
         ),
@@ -204,7 +204,7 @@ def test_expression_and_summary_rules_match_on_all_channels(
     [(60, True), (60.0, True), (60.5, False), ("60", False), (True, False)],
 )
 def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted):
-    version = "armi.autonomous-activity-candidate.v12"
+    version = "armi.autonomous-activity-candidate"
     value = {
         "kind": "no_result",
         "reason": "No new evidence",

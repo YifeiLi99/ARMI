@@ -20,7 +20,7 @@ class EnvironmentProgramBinding(BaseModel):
 
 class EnvironmentIndex(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    schema_version: Literal["armi.installation-environments.v2"]
+    schema_kind: Literal["armi.installation-environments"]
     installation_root: str
     environments: list[str]
 
@@ -71,7 +71,7 @@ def register_environment(program: Path, environment: Path) -> None:
         write_control(
             path,
             {
-                "schema_version": "armi.installation-environments.v2",
+                "schema_kind": "armi.installation-environments",
                 "installation_root": str(installation),
                 "environments": sorted(str(root) for root in roots),
             },

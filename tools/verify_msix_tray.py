@@ -48,7 +48,7 @@ async def main() -> None:
                 "setup_birth",
                 {
                     "personality_anchor": {
-                        "schema_version": "armi.personality-anchor.v1",
+                        "schema_kind": "armi.personality-anchor",
                         "traits": ["isolated lifecycle test"],
                         "voice_style": "约 16 岁少女口吻",
                     }

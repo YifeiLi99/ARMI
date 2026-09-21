@@ -43,8 +43,7 @@ describe("Creator effect detail", () => {
     const malicious =
       '<img src="https://outside.invalid/x" onerror="alert(1)">';
     showEffect({
-      contract_version: "1.0",
-      projection_version: "creator-effect.v6",
+      projection_kind: "creator-effect",
       effect_id: EFFECT_ID,
       action_intent_ref: OPERATION_ID,
       capability_kind: "creator.scene.reply",
@@ -69,8 +68,7 @@ describe("Creator effect detail", () => {
 
   it("makes unknown highly visible without offering a retry action", async () => {
     showEffect({
-      contract_version: "1.0",
-      projection_version: "creator-effect.v6",
+      projection_kind: "creator-effect",
       effect_id: EFFECT_ID,
       action_intent_ref: OPERATION_ID,
       capability_kind: "creator.scene.reply",

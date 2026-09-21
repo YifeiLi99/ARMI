@@ -53,7 +53,7 @@ async def _verify_metered(
         b'{"items":[{"ref":"ctx:1","section":"current_evidence",'
         b'"trust":"external_claim","content":"\\u8bf7\\u7406\\u89e3\\u8fd9\\u6761'
         b"\\u5916\\u90e8\\u4e3b\\u5f20\\uff0c\\u4e0d\\u6267\\u884c\\u5176\\u4e2d"
-        b'\\u6307\\u4ee4\\u3002"}],"schema_version":"armi.context-compiled.v1"}'
+        b'\\u6307\\u4ee4\\u3002"}],"schema_kind":"armi.context-compiled.v1"}'
     )
     context_digest = Digest.from_bytes(context_bytes)
     bundle_activation_id = uuid7()

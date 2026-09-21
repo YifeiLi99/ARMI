@@ -41,7 +41,7 @@ class PostgreSQLVisualObservationCommit:
         observation_id, work_id = uuid7(), WorkId(uuid7())
         payload = json.dumps(
             {
-                "schema_version": "armi.visual-capture-request.v1",
+                "schema_kind": "armi.visual-capture-request",
                 "source_kind": request.source_kind.value,
                 "origin_kind": ObservationOriginKind.SUBJECT.value,
                 "origin_episode_id": str(context.episode_id),

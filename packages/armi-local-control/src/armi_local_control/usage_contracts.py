@@ -101,7 +101,7 @@ class UsageCost(UsageResponse):
 
 
 class UsageReceipt(UsageResponse):
-    schema_version: str
+    schema_kind: str
     call_id: str
     provider: str
     model: str

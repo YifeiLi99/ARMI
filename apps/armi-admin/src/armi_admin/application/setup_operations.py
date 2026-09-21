@@ -29,14 +29,12 @@ class SetupUpdateRequest(BaseModel):
 class SetupAnchor(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: Literal["armi.personality-anchor.v1"]
+    schema_kind: Literal["armi.personality-anchor"]
     voice_style: str
     traits: list[str] = Field(min_length=1, max_length=8)
 
     def domain(self) -> PersonalityAnchor:
-        return PersonalityAnchor(
-            self.schema_version, self.voice_style, tuple(self.traits)
-        )
+        return PersonalityAnchor(self.schema_kind, self.voice_style, tuple(self.traits))
 
 
 class SetupRequest(BaseModel):

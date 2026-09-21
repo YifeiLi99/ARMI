@@ -52,7 +52,7 @@ class CapabilityCatalog:
                 int(row[3]),
                 rfc8785.dumps(
                     {
-                        "schema_version": "armi.capability-state.v2",
+                        "schema_kind": "armi.capability-state",
                         "capability_ref": str(row[0]),
                         "capability_kind": str(row[1]),
                         "operation": str(row[2]),

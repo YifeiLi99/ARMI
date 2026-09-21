@@ -106,8 +106,7 @@ def create_governance_use_cases(
             return _data_rights_error(error)
         return creator_result(
             content=DataRightsOrderCollectionResponse(
-                contract_version="1.0",
-                projection_version="data-rights-order-collection.v3",
+                projection_kind="data-rights-order-collection",
                 orders=[_data_rights_detail_response(detail) for detail in details],
             ).model_dump(mode="json")
         )

@@ -7,13 +7,11 @@ from dataclasses import dataclass
 from typing import ClassVar, Self, TypedDict
 
 from ._codec import (
-    CONTRACT_VERSION,
     MAX_SAFE_INTEGER,
     ContractViolation,
     FrozenJson,
     optional_details,
     require_ascii_token,
-    require_contract_version,
     require_exact_fields,
     require_mapping,
     require_string,
@@ -23,9 +21,7 @@ from .errors import ErrorDescriptor
 from .ids import ResultRef, TraceId
 from .values import Instant
 
-_COMMON_REQUIRED = frozenset(
-    {"contract_version", "status", "trace_id", "occurred_at", "message"}
-)
+_COMMON_REQUIRED = frozenset({"status", "trace_id", "occurred_at", "message"})
 _COMMON_OPTIONAL = frozenset({"details"})
 
 
@@ -68,7 +64,6 @@ def _decode_common(
         optional=_COMMON_OPTIONAL | variant_optional,
         path=path,
     )
-    require_contract_version(wire["contract_version"], path=f"{path}.contract_version")
     if wire["status"] != status or not isinstance(wire["status"], str):
         raise ContractViolation(
             "CON-OUTCOME",
@@ -90,7 +85,6 @@ def _decode_common(
 
 def _common_wire(outcome: _OutcomeBase) -> dict[str, object]:
     wire: dict[str, object] = {
-        "contract_version": CONTRACT_VERSION,
         "status": outcome.status,
         "trace_id": outcome.trace_id.to_wire(),
         "occurred_at": outcome.occurred_at.to_wire(),

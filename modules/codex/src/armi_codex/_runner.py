@@ -376,7 +376,7 @@ def _validate_platform_home(platform_home: Path) -> None:
     if value != {
         "runtime_version": _SDK_VERSION,
         "sandbox": "unelevated",
-        "schema_version": "armi.codex-runner-platform-state.v1",
+        "schema_kind": "armi.codex-runner-platform-state",
         "sdk_version": _SDK_VERSION,
         "usable": True,
     }:
@@ -390,7 +390,7 @@ def _write_platform_state(platform_home: Path, *, usable: bool) -> None:
     value = {
         "runtime_version": _SDK_VERSION,
         "sandbox": "unelevated",
-        "schema_version": "armi.codex-runner-platform-state.v1",
+        "schema_kind": "armi.codex-runner-platform-state",
         "sdk_version": _SDK_VERSION,
         "usable": usable,
     }

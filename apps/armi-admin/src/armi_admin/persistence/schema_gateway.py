@@ -16,7 +16,6 @@ class AdminSchemaSnapshot:
     timezone: str
     tables: tuple[str, ...]
     revision: str
-    baseline_identity: str
     resource_digest: str
     catalog_digest: str
     role_policy_digest: str
@@ -50,7 +49,6 @@ class AdminSchemaGateway:
             timezone=evidence.timezone,
             tables=tuple(str(row[0]) for row in rows),
             revision=evidence.revision,
-            baseline_identity=evidence.baseline_identity,
             resource_digest=evidence.resource_digest,
             catalog_digest=evidence.catalog_digest,
             role_policy_digest=evidence.role_policy_digest,

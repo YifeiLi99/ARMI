@@ -186,7 +186,7 @@ class NativePostgreSQL:
                 "cluster must be initialized explicitly",
             ) from None
         if not isinstance(value, dict) or value != {
-            "schema_version": "armi.native-postgresql.v1",
+            "schema_kind": "armi.native-postgresql",
             "environment_id": self.environment_id,
             "data_directory": str(self.data),
             "port": self.binding.port,
@@ -262,7 +262,7 @@ class NativePostgreSQL:
                     "log_statement = 'none'\nlog_min_error_statement = 'panic'\n"
                 )
             identity: dict[str, object] = {
-                "schema_version": "armi.native-postgresql.v1",
+                "schema_kind": "armi.native-postgresql",
                 "environment_id": self.environment_id,
                 "data_directory": str(self.data),
                 "port": self.binding.port,

@@ -696,7 +696,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     CreatorResourceKind("data_rights"),
                     str(order_id),
                     Instant(datetime.now(UTC)),
-                    "data-rights-order-collection.v3",
+                    "data-rights-order-collection",
                 )
             )
         except Exception:

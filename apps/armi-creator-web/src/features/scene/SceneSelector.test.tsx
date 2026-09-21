@@ -12,8 +12,7 @@ function scene(sceneKey: string, status: "open" | "closed", isDefault = false) {
   const suffix =
     sceneKey === "default" ? "7" : sceneKey === "night-talk" ? "8" : "9";
   return {
-    contract_version: "1.0",
-    projection_version: "creator-scenes.v1",
+    projection_kind: "creator-scenes",
     scene_id: `018f47a6-7b2d-7c35-8b18-684e38ab6ef${suffix}`,
     scene_key: sceneKey,
     status,
@@ -49,8 +48,7 @@ it("loads, selects, reopens and creates stable Creator scenes", async () => {
     }
     if (url === "/v1/scenes") {
       return Response.json({
-        contract_version: "1.0",
-        projection_version: "creator-scenes.v1",
+        projection_kind: "creator-scenes",
         scenes,
       });
     }

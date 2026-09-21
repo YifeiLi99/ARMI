@@ -19,9 +19,9 @@ from .api import (
     ContextViolation,
 )
 
-CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v3"
-CONTEXT_POLICY_VERSION = "armi.context-policy.v5"
-CONTEXT_MECHANISM = "armi.context-compiler.layered-v3"
+CONTEXT_MANIFEST_VERSION = "armi.context-manifest"
+CONTEXT_POLICY_VERSION = "armi.context-policy"
+CONTEXT_MECHANISM = "armi.context-compiler.layered"
 
 _LAYER_ORDER = tuple(ContextLayer)
 _LAYER_RANK = {layer: index for index, layer in enumerate(_LAYER_ORDER)}
@@ -143,9 +143,9 @@ class DeterministicContextCompiler(ContextCompiler):
 
         compiled = CompiledContext(compiled_bytes)
         manifest = {
-            "schema_version": CONTEXT_MANIFEST_VERSION,
+            "schema_kind": CONTEXT_MANIFEST_VERSION,
             "policy": {
-                "schema_version": CONTEXT_POLICY_VERSION,
+                "schema_kind": CONTEXT_POLICY_VERSION,
                 "version": request.policy_version,
                 "max_items": request.max_items,
                 "max_item_bytes": request.max_item_bytes,
@@ -285,7 +285,7 @@ def _compiled_bytes(
         ]
         layers.append({"layer": layer.value, "items": items})
     value = {
-        "schema_version": "armi.compiled-context.v3",
+        "schema_kind": "armi.compiled-context",
         "purpose": request.purpose.value,
         "layers": layers,
     }

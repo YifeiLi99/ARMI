@@ -32,7 +32,7 @@ def prepare(
 ) -> None:
     release = yaml.safe_load(config.read_text(encoding="utf-8"))
     fields = {
-        "schema_version",
+        "schema_kind",
         "name",
         "publisher",
         "publisher_display_name",
@@ -44,7 +44,7 @@ def prepare(
     }
     if not isinstance(release, dict) or set(release) != fields:
         raise ValueError("MSIX-RELEASE-CONFIG-FIELDS")
-    if release["schema_version"] != "armi.windows-release.v1":
+    if release["schema_kind"] != "armi.windows-release":
         raise ValueError("MSIX-RELEASE-CONFIG-VERSION")
     if isolated_acceptance and not development:
         raise ValueError("MSIX-ISOLATED-ACCEPTANCE-REQUIRES-DEVELOPMENT")

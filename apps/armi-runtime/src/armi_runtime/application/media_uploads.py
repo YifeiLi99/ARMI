@@ -35,7 +35,7 @@ class UploadDeclaration(BaseModel):
 
 class UploadRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    schema_version: Literal["armi.local-upload.v2"] = "armi.local-upload.v2"
+    schema_kind: Literal["armi.local-upload"] = "armi.local-upload"
     upload_id: UUID
     environment_id: UUID
     subject_id: UUID

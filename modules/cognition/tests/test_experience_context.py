@@ -129,7 +129,7 @@ def _maintenance_draft() -> CognitionContextEpisodeDraft:
         base_subject_version=3,
         base_state_epoch=4,
         bundle_activation_id=uuid7(),
-        mechanism_identity="armi.context-compiler.layered-v3",
+        mechanism_identity="armi.context-compiler.layered",
         trace_id=TraceId("0123456789abcdef0123456789abcdef"),
         maintenance_trigger_kind="runtime_idle",
     )

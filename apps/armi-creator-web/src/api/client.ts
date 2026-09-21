@@ -174,7 +174,6 @@ export async function createCreatorExport(
       "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify({
-      contract_version: "1.0",
       directory_name: directoryName,
     }),
   });
@@ -207,7 +206,7 @@ export async function createDataRightsOrder(
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
     },
-    body: JSON.stringify({ contract_version: "1.0", order_kind: orderKind }),
+    body: JSON.stringify({ order_kind: orderKind }),
   });
   return requireJson(response);
 }
@@ -396,7 +395,7 @@ export async function observeLiveVision(
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
     },
-    body: JSON.stringify({ contract_version: "1.0", source_kind: source }),
+    body: JSON.stringify({ source_kind: source }),
   });
   return requireJson(response);
 }
@@ -477,7 +476,7 @@ export async function createCreatorScene(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ contract_version: "1.0", scene_key: sceneKey }),
+    body: JSON.stringify({ scene_key: sceneKey }),
   });
   return requireJson(response);
 }
@@ -804,7 +803,7 @@ export async function acceptCreatorMessage(
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify({ contract_version: "1.0", message }),
+      body: JSON.stringify({ message }),
       ...(signal === undefined ? {} : { signal }),
     },
   );
@@ -828,7 +827,7 @@ export async function acceptCreatorCodexTask(
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify({ contract_version: "1.0", objective }),
+      body: JSON.stringify({ objective }),
       ...(signal === undefined ? {} : { signal }),
     },
   );
@@ -889,7 +888,6 @@ export async function reviseCreatorPrompt(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      contract_version: "1.0",
       expected_revision_id: expectedRevisionId,
       content,
     }),
@@ -911,7 +909,6 @@ export async function deactivateCreatorPrompt(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      contract_version: "1.0",
       expected_revision_id: expectedRevisionId,
     }),
     ...(signal === undefined ? {} : { signal }),

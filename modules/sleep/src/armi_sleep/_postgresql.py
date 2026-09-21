@@ -16,7 +16,7 @@ from armi_runtime_foundation import (
 )
 
 from .api import (
-    MAINTENANCE_PROJECTION_VERSION,
+    MAINTENANCE_PROJECTION_KIND,
     CreatorMaintenanceSession,
     CreatorMaintenanceStatus,
     CreatorMaintenanceTimeline,
@@ -163,7 +163,7 @@ class PostgreSQLSleepRead:
             try:
                 page = self._cursor.decode(
                     cursor,
-                    projection_version=MAINTENANCE_PROJECTION_VERSION,
+                    projection_kind=MAINTENANCE_PROJECTION_KIND,
                     resource_kind="maintenance-timeline",
                     resource_ref=str(session_id),
                     page_limit=limit,
@@ -220,7 +220,7 @@ class PostgreSQLSleepRead:
         next_cursor = None
         if len(rows) > limit and page_rows:
             next_cursor = self._cursor.encode(
-                projection_version=MAINTENANCE_PROJECTION_VERSION,
+                projection_kind=MAINTENANCE_PROJECTION_KIND,
                 resource_kind="maintenance-timeline",
                 resource_ref=str(session_id),
                 page_limit=limit,

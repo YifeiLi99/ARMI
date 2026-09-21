@@ -76,13 +76,12 @@ def compose_runtime_live_voice(
         model_locator_name = str(voice_binding["credential_locator"])
         model_purpose = CredentialPurpose(str(voice_binding["credential_purpose"]))
         if (
-            bindings.get("schema_version") != "armi.model-bindings.v4"
+            bindings.get("schema_kind") != "armi.model-bindings"
             or voice_provider != "volcengine_ark"
             or not voice_api_base.startswith("https://")
             or voice_binding.get("profile") != "creator_voice_act"
-            or voice_binding.get("request_contract_version") != "armi.model-request.v1"
-            or voice_binding.get("response_contract_version")
-            != "armi.creator-voice-act-candidate.v8"
+            or voice_binding.get("response_contract_kind")
+            != "armi.creator-voice-act-candidate"
             or voice_binding.get("output_token_limit") != 512
             or voice_binding.get("thinking") != "disabled"
             or voice_binding.get("tools") != "disabled"

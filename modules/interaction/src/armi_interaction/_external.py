@@ -231,11 +231,11 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 command.conversation_kind.value,
                 command.conversation_key.value,
             )
-            projection = "scene-timeline.v6"
+            projection = "scene-timeline"
         else:
             kind = CreatorResourceKind("other_human_record")
             resource_ref = str(context.sender_party_id)
-            projection = "other-human-record.v1"
+            projection = "other-human-record"
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
@@ -443,7 +443,7 @@ def _request_digest(
     return Digest.from_bytes(
         rfc8785.dumps(
             {
-                "schema_version": "armi.external-message-input.v3",
+                "schema_kind": "armi.external-message-input",
                 "environment_id": str(environment_id),
                 "subject_id": str(context.subject_id),
                 "scene_id": str(context.scene_id),

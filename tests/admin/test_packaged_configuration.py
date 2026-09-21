@@ -19,7 +19,6 @@ def test_package_upgrade_resolves_resources_without_rewriting_admin_identity(
         postgresql="18.4",
         vector="0.8.6",
         pg_trgm="1.6",
-        baseline="0000",
         schema_digest="schema",
         role_policy_digest="roles",
     )
@@ -30,7 +29,7 @@ def test_package_upgrade_resolves_resources_without_rewriting_admin_identity(
         encoding="utf-8",
     )
     value = {
-        "schema_version": "armi.admin-config.v10",
+        "schema_kind": "armi.admin-config",
         "operator_id": "acceptance-admin",
         "authorized_operations": ["environment_status"],
         "environment_kind": "active",

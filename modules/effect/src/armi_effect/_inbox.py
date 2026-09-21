@@ -160,8 +160,8 @@ def _receipt_digest(request: FrozenEffectRequest, delivery_id: object) -> Digest
             cast(
                 Any,
                 {
-                    "schema_version": "armi.effect-receipt.v1",
-                    "adapter_binding": ("armi.local-inbox-adapter.postgresql-v1"),
+                    "schema_kind": "armi.effect-receipt",
+                    "adapter_binding": ("armi.local-inbox-adapter.postgresql"),
                     "delivery_id": str(delivery_id),
                     "effect_id": str(request.effect_id.value),
                     "payload_digest": request.payload_digest.value,

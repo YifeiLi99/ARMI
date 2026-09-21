@@ -27,7 +27,6 @@ class InteractionRoute:
     query_names: tuple[str, ...]
     header_names: tuple[tuple[str, str], ...]
     body_names: tuple[str, ...]
-    body_version: str | None
 
 
 def _local_refs(value: Any) -> Any:
@@ -98,7 +97,6 @@ def interaction_routes() -> tuple[InteractionRoute, ...]:
                 else:
                     parameters[parameter["in"]].append(name)
             body_names: tuple[str, ...] = ()
-            body_version: str | None = None
             body = (
                 spec.get("requestBody", {})
                 .get("content", {})
@@ -114,18 +112,11 @@ def interaction_routes() -> tuple[InteractionRoute, ...]:
                         ]
                     )
                 body_properties = body.get("properties", {})
-                version = body_properties.pop("contract_version", None)
-                if version is not None:
-                    body_version = version.get("const", version.get("default"))
                 body_names = tuple(body_properties)
                 if set(properties) & set(body_properties):
                     raise ValueError("INTERACTION-CONTRACT-PARAMETER-COLLISION")
                 properties.update(_local_refs(body_properties))
-                required.extend(
-                    name
-                    for name in body.get("required", [])
-                    if name != "contract_version"
-                )
+                required.extend(name for name in body.get("required", []))
             machine_arguments = spec.get("machineArguments")
             if machine_arguments is not None:
                 properties.update(machine_arguments["properties"])
@@ -203,7 +194,6 @@ def interaction_routes() -> tuple[InteractionRoute, ...]:
                     tuple(parameters["query"]),
                     tuple(headers),
                     body_names,
-                    body_version,
                 )
             )
     if found != set(OPERATION_NAMES):
@@ -211,7 +201,7 @@ def interaction_routes() -> tuple[InteractionRoute, ...]:
     from .media_uploads import upload_operations
 
     routes.extend(
-        InteractionRoute(operation, operation.name, "LOCAL", "", (), (), (), (), None)
+        InteractionRoute(operation, operation.name, "LOCAL", "", (), (), (), ())
         for operation in upload_operations()
     )
     return tuple(routes)

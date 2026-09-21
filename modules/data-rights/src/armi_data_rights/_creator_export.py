@@ -48,7 +48,7 @@ from .api import (
     DataRightsUnitOfWorkFactory,
 )
 
-_EXPORT_FORMAT = "armi.creator-export.v5"
+_EXPORT_FORMAT = "armi.creator-export"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +60,6 @@ class _ArtifactSnapshot:
 @dataclass(frozen=True, slots=True)
 class _SegmentSnapshot:
     owner: DataRightsOwnerIdentity
-    schema_version: int
     name: str
     path: str
     media_type: str
@@ -421,7 +420,6 @@ class CreatorExportService(CreatorExportPort):
                         segments.append(
                             _SegmentSnapshot(
                                 owner,
-                                segment.schema_version.value,
                                 segment.segment_name,
                                 relative_path,
                                 segment.media_type,
@@ -651,10 +649,9 @@ class CreatorExportService(CreatorExportPort):
                 )
                 await unit.transaction.execute(
                     """UPDATE armi.creator_exports
-                       SET snapshot_contract_version=%s,snapshot_status='active',snapshot_party_scopes=%s::jsonb
+                       SET snapshot_status='active',snapshot_party_scopes=%s::jsonb
                        WHERE creator_export_id=%s AND snapshot_status IS NULL""",
                     (
-                        _EXPORT_FORMAT,
                         json.dumps(
                             {
                                 str(party_id): [contact, use]
@@ -730,10 +727,9 @@ class CreatorExportService(CreatorExportPort):
                     # DESIGN.md: file removal and export completion are separate facts.
                     await connection.execute(
                         """UPDATE armi.creator_exports
-                           SET snapshot_contract_version=%s,snapshot_status='active',snapshot_party_scopes=%s::jsonb
+                           SET snapshot_status='active',snapshot_party_scopes=%s::jsonb
                            WHERE creator_export_id=%s AND snapshot_status IS NULL""",
                         (
-                            _EXPORT_FORMAT,
                             json.dumps(
                                 {
                                     str(party_id): [contact, use]
@@ -813,7 +809,6 @@ class CreatorExportService(CreatorExportPort):
             "segments": [
                 {
                     "owner": segment.owner.value,
-                    "schema_version": segment.schema_version,
                     "path": segment.path,
                     "media_type": segment.media_type,
                     "record_count": segment.record_count,

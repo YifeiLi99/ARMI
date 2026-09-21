@@ -147,14 +147,14 @@ def _text_structure_error(
     try:
         value = model_response_candidate(
             cast(bytes, result.response_bytes),
-            expected_version=binding.response_contract_version,
+            expected_version=binding.response_contract_kind,
         )
-        if binding.response_contract_version == AUTONOMY_CHECK_VERSION:
+        if binding.response_contract_kind == AUTONOMY_CHECK_VERSION:
             parse_autonomy_check(value)
             return None
         parse_candidate(
             value,
-            expected_version=binding.response_contract_version,
+            expected_version=binding.response_contract_kind,
             purpose=snapshot.purpose,
             allowed_context_refs=frozenset(
                 str(item["ref"]) for item in snapshot.included_context_refs
@@ -192,7 +192,7 @@ class _DeterministicMoodReflectionAdapter:
         return (
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.model-input-evidence.v1",
+                    "schema_kind": "armi.model-input-evidence",
                     "execution": "deterministic",
                     "canonical_request": request.canonical_bytes.decode("utf-8"),
                     "provider_request": None,
@@ -243,7 +243,7 @@ class _DeterministicMoodReflectionAdapter:
             self._binding.model_id,
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.model-response-artifact.v3",
+                    "schema_kind": "armi.model-response-artifact",
                     "provider_request_id": "local-mood-reflection",
                     "provider_model_id": self._binding.model_id,
                     "output_text": '{"candidate":' + response.decode("utf-8") + "}",
@@ -443,7 +443,7 @@ class ModelPipeline:
             "consider_codex_task": build_adapter(
                 binding=codex_task_binding,
                 candidate_schema=candidate_schema(
-                    codex_task_binding.response_contract_version
+                    codex_task_binding.response_contract_kind
                 ),
             ),
             "consider_codex_result": build_adapter(
@@ -462,16 +462,14 @@ class ModelPipeline:
             ),
             "consider_sleep": build_adapter(
                 binding=sleep_binding,
-                candidate_schema=candidate_schema(
-                    sleep_binding.response_contract_version
-                ),
+                candidate_schema=candidate_schema(sleep_binding.response_contract_kind),
                 instructions=SLEEP_DECISION_INSTRUCTIONS,
                 schema_name="armi_sleep_decision_candidate_v1",
             ),
             "maintain_subjective_memory": build_adapter(
                 binding=memory_maintenance_binding,
                 candidate_schema=candidate_schema(
-                    memory_maintenance_binding.response_contract_version,
+                    memory_maintenance_binding.response_contract_kind,
                     purpose="maintain_subjective_memory",
                 ),
                 instructions=MEMORY_MAINTENANCE_INSTRUCTIONS,
@@ -480,7 +478,7 @@ class ModelPipeline:
             "perform_subject_self_check": build_adapter(
                 binding=self_check_binding,
                 candidate_schema=candidate_schema(
-                    self_check_binding.response_contract_version,
+                    self_check_binding.response_contract_kind,
                     purpose="perform_subject_self_check",
                 ),
                 instructions=SUBJECT_SELF_CHECK_INSTRUCTIONS,
@@ -1025,19 +1023,18 @@ class ModelPipeline:
                 "consider_life_query_result",
                 "consider_codex_result",
             }
-            and adapter.binding.response_contract_version
-            != CREATOR_COGNITIVE_ACT_VERSION
+            and adapter.binding.response_contract_kind != CREATOR_COGNITIVE_ACT_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")
         if (
             purpose == "consider_creator_voice_input"
-            and adapter.binding.response_contract_version
-            != "armi.creator-voice-act-candidate.v8"
+            and adapter.binding.response_contract_kind
+            != "armi.creator-voice-act-candidate"
         ):
             raise ModelViolation("MODEL-BINDING")
         if (
             purpose == "consider_other_human_input"
-            and adapter.binding.response_contract_version
+            and adapter.binding.response_contract_kind
             != OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")

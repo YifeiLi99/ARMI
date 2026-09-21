@@ -1,4 +1,4 @@
-schema_version: armi.provider-pricing.v1
+schema_kind: armi.provider-pricing
 currency: CNY
 # Public list prices, not account charges. Missing rates are deliberately absent.
 # Source: https://www.volcengine.com/product/ark (verified 2026-09-16).

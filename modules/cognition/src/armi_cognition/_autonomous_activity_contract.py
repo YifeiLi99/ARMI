@@ -25,7 +25,7 @@ from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v12"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate"
 
 
 class _StrictModel(BaseModel):
@@ -36,7 +36,7 @@ class _StrictModel(BaseModel):
     expression: Text65536 | None = None
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
 
 

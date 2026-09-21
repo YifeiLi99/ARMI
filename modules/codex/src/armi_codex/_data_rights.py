@@ -9,7 +9,6 @@ from armi_data_rights.api import (
     DataRightsApplyRequest,
     DataRightsArtifactUsage,
     DataRightsCanonicalRecord,
-    DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
@@ -23,7 +22,6 @@ from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("codex")
-_VERSION = DataRightsContributionVersion(3)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "codex_task_sources",
@@ -37,10 +35,6 @@ class PostgreSQLCodexDataRightsParticipant:
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity:
         return _OWNER
-
-    @property
-    def schema_version(self) -> DataRightsContributionVersion:
-        return _VERSION
 
     async def discover(
         self,
@@ -125,7 +119,6 @@ class PostgreSQLCodexDataRightsParticipant:
             segments.append(
                 DataRightsExportSegment(
                     _OWNER,
-                    _VERSION,
                     segment_name,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(records),

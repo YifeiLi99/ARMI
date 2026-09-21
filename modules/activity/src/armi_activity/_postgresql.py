@@ -18,7 +18,7 @@ from armi_runtime_foundation import (
 )
 
 from .api import (
-    ACTIVITY_PROJECTION_VERSION,
+    ACTIVITY_PROJECTION_KIND,
     ActivityCandidateSnapshot,
     ActivityContextTarget,
     ActivityFocusReadPort,
@@ -101,7 +101,7 @@ class PostgreSQLActivityRead:
             try:
                 page = self._cursor.decode(
                     cursor,
-                    projection_version=ACTIVITY_PROJECTION_VERSION,
+                    projection_kind=ACTIVITY_PROJECTION_KIND,
                     resource_kind="activity-current",
                     resource_ref=None,
                     page_limit=limit,
@@ -179,7 +179,7 @@ class PostgreSQLActivityRead:
         next_cursor = None
         if len(rows) > limit and visible:
             next_cursor = self._cursor.encode(
-                projection_version=ACTIVITY_PROJECTION_VERSION,
+                projection_kind=ACTIVITY_PROJECTION_KIND,
                 resource_kind="activity-current",
                 resource_ref=None,
                 page_limit=limit,
@@ -203,7 +203,7 @@ class PostgreSQLActivityRead:
             try:
                 page = self._cursor.decode(
                     cursor,
-                    projection_version=ACTIVITY_PROJECTION_VERSION,
+                    projection_kind=ACTIVITY_PROJECTION_KIND,
                     resource_kind="activity-timeline",
                     resource_ref=str(activity_id),
                     page_limit=limit,
@@ -283,7 +283,7 @@ class PostgreSQLActivityRead:
         next_cursor = None
         if len(rows) > limit and page_rows:
             next_cursor = self._cursor.encode(
-                projection_version=ACTIVITY_PROJECTION_VERSION,
+                projection_kind=ACTIVITY_PROJECTION_KIND,
                 resource_kind="activity-timeline",
                 resource_ref=str(activity_id),
                 page_limit=limit,
@@ -355,7 +355,7 @@ class PostgreSQLActivityRead:
             ).fetchall()
         return rfc8785.dumps(
             {
-                "schema_version": "armi.activity-context-summary.v1",
+                "schema_kind": "armi.activity-context-summary",
                 "activities": [
                     {
                         "activity_id": str(item[0]),
@@ -403,7 +403,7 @@ class PostgreSQLActivityRead:
             status=ActivityStatus(str(row[3])),
             canonical_state=rfc8785.dumps(
                 {
-                    "schema_version": "armi.activity-context-target.v1",
+                    "schema_kind": "armi.activity-context-target",
                     "activity_id": str(row[0]),
                     "revision_id": str(row[1]),
                     "head_version": int(row[2]),

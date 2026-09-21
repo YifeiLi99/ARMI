@@ -10,35 +10,23 @@ const UUID_V7 =
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d\.\d{6}Z$/;
 const MAX_EVENT_BYTES = 4096;
 const RESOURCES = {
-  activity: ["activity.invalidated", "creator-activity.v3", UUID_V7],
-  memory: ["memory.invalidated", "creator-memory.v2", UUID_V7],
-  maintenance: ["maintenance.invalidated", "creator-maintenance.v3", UUID_V7],
-  material: ["material.invalidated", "life-record-query.v2", UUID_V7],
-  relationship: [
-    "relationship.invalidated",
-    "creator-relationship.v3",
-    UUID_V7,
-  ],
-  scene_timeline: [
-    "scene.timeline.invalidated",
-    "scene-timeline.v6",
-    SCENE_KEY,
-  ],
-  operation: ["operation.invalidated", "creator-operation.v8", UUID_V7],
+  activity: ["activity.invalidated", "creator-activity", UUID_V7],
+  memory: ["memory.invalidated", "creator-memory", UUID_V7],
+  maintenance: ["maintenance.invalidated", "creator-maintenance", UUID_V7],
+  material: ["material.invalidated", "life-record-query", UUID_V7],
+  relationship: ["relationship.invalidated", "creator-relationship", UUID_V7],
+  scene_timeline: ["scene.timeline.invalidated", "scene-timeline", SCENE_KEY],
+  operation: ["operation.invalidated", "creator-operation", UUID_V7],
   other_human_record: [
     "other_human.record.invalidated",
-    "other-human-record.v1",
+    "other-human-record",
     UUID_V7,
   ],
-  effect: ["effect.invalidated", "creator-effect.v6", UUID_V7],
-  subject_summary: [
-    "subject.summary.invalidated",
-    "subject-summary.v1",
-    UUID_V7,
-  ],
+  effect: ["effect.invalidated", "creator-effect", UUID_V7],
+  subject_summary: ["subject.summary.invalidated", "subject-summary", UUID_V7],
   data_rights: [
     "data.rights.invalidated",
-    "data-rights-order-collection.v3",
+    "data-rights-order-collection",
     UUID_V7,
   ],
 } as const;
@@ -77,11 +65,10 @@ function parseEventData(value: string): CreatorProjectionEvent {
   }
   const keys = Object.keys(decoded).sort();
   const expected = [
-    "contract_version",
     "event_id",
     "event_kind",
     "occurred_at",
-    "projection_version",
+    "projection_kind",
     "resource_kind",
     "resource_ref",
   ];
@@ -97,14 +84,13 @@ function parseEventData(value: string): CreatorProjectionEvent {
       ? RESOURCES[decoded.resource_kind as keyof typeof RESOURCES]
       : undefined;
   if (
-    decoded.contract_version !== "1.0" ||
     typeof decoded.event_id !== "string" ||
     !EVENT_ID.test(decoded.event_id) ||
     resource === undefined ||
     decoded.event_kind !== resource[0] ||
     typeof decoded.resource_ref !== "string" ||
     !resource[2].test(decoded.resource_ref) ||
-    decoded.projection_version !== resource[1] ||
+    decoded.projection_kind !== resource[1] ||
     typeof decoded.occurred_at !== "string" ||
     !INSTANT.test(decoded.occurred_at)
   ) {

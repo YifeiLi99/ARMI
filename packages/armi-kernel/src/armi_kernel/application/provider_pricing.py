@@ -28,11 +28,9 @@ def _integer(value: object) -> int:
 
 
 def load_price_catalog(path: Path) -> PriceCatalog:
-    document = _mapping(
-        load_yaml_file(path), {"schema_version", "currency", "snapshots"}
-    )
+    document = _mapping(load_yaml_file(path), {"schema_kind", "currency", "snapshots"})
     if (
-        document["schema_version"] != "armi.provider-pricing.v1"
+        document["schema_kind"] != "armi.provider-pricing"
         or document["currency"] != "CNY"
     ):
         raise ValueError("USAGE-PRICING-CONFIG")

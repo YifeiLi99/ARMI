@@ -56,7 +56,7 @@ if ($LASTEXITCODE -ne 0) { throw 'MSIX-SIGN' }
 if ($LASTEXITCODE -ne 0) { throw 'MSIX-TRUST' }
 $bundle = Get-Content -LiteralPath (Join-Path $staging 'bundle.json') -Raw -Encoding utf8 | ConvertFrom-Json
 $update = [ordered]@{
-    schema_version = 'armi.update.v1'
+    schema_kind = 'armi.update'
     name = $release.name
     publisher = $certificate.Subject
     version = $release.version

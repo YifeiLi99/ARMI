@@ -21,11 +21,11 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("scene_timeline"),
             resource_ref="default",
             occurred_at=Instant(datetime(2026, 7, 30, tzinfo=UTC)),
-            projection_version="scene-timeline.v6",
+            projection_kind="scene-timeline",
         )
         self.assertEqual(str(invalidation.resource_kind), "scene_timeline")
         self.assertEqual(invalidation.resource_ref, "default")
-        self.assertEqual(invalidation.projection_version, "scene-timeline.v6")
+        self.assertEqual(invalidation.projection_kind, "scene-timeline")
 
     def test_projection_and_resource_are_strict(self) -> None:
         instant = Instant(datetime(2026, 7, 30, tzinfo=UTC))
@@ -37,7 +37,7 @@ class CreatorEventContractTests(unittest.TestCase):
                 resource_kind=cast(CreatorResourceKind, "scene_timeline"),
                 resource_ref="default",
                 occurred_at=instant,
-                projection_version="scene-timeline.v6",
+                projection_kind="scene-timeline",
             )
         with self.assertRaisesRegex(
             CreatorEventViolation,
@@ -47,7 +47,7 @@ class CreatorEventContractTests(unittest.TestCase):
                 resource_kind=CreatorResourceKind("scene_timeline"),
                 resource_ref="default",
                 occurred_at=instant,
-                projection_version="INVALID",
+                projection_kind="INVALID",
             )
 
     def test_activity_invalidation_uses_activity_identity(self) -> None:
@@ -56,7 +56,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("activity"),
             resource_ref=str(activity_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-activity.v3",
+            projection_kind="creator-activity",
         )
         self.assertEqual(invalidation.resource_ref, str(activity_id))
 
@@ -66,7 +66,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("maintenance"),
             resource_ref=str(session_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-maintenance.v3",
+            projection_kind="creator-maintenance",
         )
         self.assertEqual(invalidation.resource_ref, str(session_id))
 
@@ -76,7 +76,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("memory"),
             resource_ref=str(memory_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-memory.v2",
+            projection_kind="creator-memory",
         )
         self.assertEqual(invalidation.resource_ref, str(memory_id))
 
@@ -86,7 +86,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("relationship"),
             resource_ref=str(relationship_id),
             occurred_at=Instant(datetime(2026, 8, 5, tzinfo=UTC)),
-            projection_version="creator-relationship.v3",
+            projection_kind="creator-relationship",
         )
         self.assertEqual(invalidation.resource_ref, str(relationship_id))
 
@@ -96,7 +96,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("material"),
             resource_ref=str(material_id),
             occurred_at=Instant(datetime(2026, 8, 5, tzinfo=UTC)),
-            projection_version="life-record-query.v2",
+            projection_kind="life-record-query",
         )
         self.assertEqual(invalidation.resource_ref, str(material_id))
 
@@ -106,7 +106,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("data_rights"),
             resource_ref=str(order_id),
             occurred_at=Instant(datetime(2026, 8, 8, tzinfo=UTC)),
-            projection_version="data-rights-order-collection.v3",
+            projection_kind="data-rights-order-collection",
         )
         self.assertEqual(invalidation.resource_ref, str(order_id))
 

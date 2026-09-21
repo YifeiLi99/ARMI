@@ -50,7 +50,7 @@ from ._delegation_contract import (
 )
 from .api import CodexTaskSourceReadPort
 
-_BINDING = "armi.codex-runner.openai-python-sdk-v1"
+_BINDING = "armi.codex-runner.openai-python-sdk"
 
 
 @dataclass(frozen=True, slots=True)

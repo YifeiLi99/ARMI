@@ -20,14 +20,14 @@ from armi_local_control.configuration.paths import has_reparse_point
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _MAXIMUM_BYTES = 64 * 1024
 _ROOT_FIELDS = {
-    "schema_version",
+    "schema_kind",
     "environment_id",
     "birth_request_id",
     "creator_party_id",
     "idempotency_key",
     "personality_anchor",
 }
-_ANCHOR_FIELDS = {"schema_version", "voice_style", "traits"}
+_ANCHOR_FIELDS = {"schema_kind", "voice_style", "traits"}
 _FORBIDDEN_FIELDS = {
     "experiences",
     "goals",
@@ -111,14 +111,14 @@ def load_birth_manifest(
     traits = tuple(cast(list[str], traits_value))
     try:
         anchor = PersonalityAnchor(
-            schema_version=cast(str, anchor_fields["schema_version"]),
+            schema_kind=cast(str, anchor_fields["schema_kind"]),
             voice_style=cast(str, anchor_fields["voice_style"]),
             traits=traits,
         )
         packaged = packaged_birth_digests()
         environment_id = UUID(cast(str, value["environment_id"]))
         manifest = BirthManifest(
-            schema_version=cast(str, value["schema_version"]),
+            schema_kind=cast(str, value["schema_kind"]),
             environment_id=environment_id,
             birth_request_id=UUID(cast(str, value["birth_request_id"])),
             creator_party_id=UUID(cast(str, value["creator_party_id"])),

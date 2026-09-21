@@ -218,7 +218,7 @@ def derive(choices: dict, case: dict) -> dict:
     command = MoodSemanticAppraisalCommand.model_validate_json(
         json.dumps(
             {
-                "schema_version": "armi.mood-appraisal.v3",
+                "schema_kind": "armi.mood-appraisal",
                 "transition": transition,
                 "previous_episode_id": None if transition == "new" else PREVIOUS_ID,
                 "change_from_previous": None if transition == "new" else change,

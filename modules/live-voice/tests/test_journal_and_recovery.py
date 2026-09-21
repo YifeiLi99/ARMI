@@ -123,9 +123,7 @@ async def test_turn_binds_model_and_first_playback_marks_turn() -> None:
 
     session_id = uuid7()
     await journal.open_session(session_id=session_id)
-    await journal.begin_turn(
-        session_id=session_id, turn_id=uuid7(), turn_no=1, context_version="ctx:1"
-    )
+    await journal.begin_turn(session_id=session_id, turn_id=uuid7(), turn_no=1)
     attempt_id = uuid7()
     await journal.mark_playback_first_frame(turn_id=attempt_id)
 
@@ -297,9 +295,7 @@ async def test_session_is_local_and_close_blocks_turns_and_new_calls() -> None:
     assert activity.session_id is None
     timeline.record_voice_session_end.assert_awaited_once()
     with pytest.raises(LiveVoiceViolation, match="closed"):
-        await journal.begin_turn(
-            session_id=session_id, turn_id=uuid7(), turn_no=1, context_version="ctx"
-        )
+        await journal.begin_turn(session_id=session_id, turn_id=uuid7(), turn_no=1)
     with pytest.raises(LiveVoiceViolation, match="closed"):
         await journal.record_provider_call(
             turn_id=None, session_id=session_id, receipt=receipt

@@ -32,9 +32,7 @@ class AuthorizationError(ValueError):
 
 class AuthorizationIntent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.admin-authorization.v1"] = (
-        "armi.admin-authorization.v1"
-    )
+    schema_kind: Literal["armi.admin-authorization"] = "armi.admin-authorization"
     request_id: str
     environment_id: str
     incarnation: int = Field(ge=1)

@@ -126,7 +126,7 @@ def test_creator_view_accepts_only_projected_material_summary_shape() -> None:
 
     page = LifeRecordPage((material,))
     assert page.items[0].record_kind == LifeRecordKind("material")
-    assert page.projection_version == "life-record-query.v2"
+    assert page.projection_kind == "life-record-query"
 
 
 def test_cursor_is_signed_and_bound_to_query_scope() -> None:
@@ -138,7 +138,7 @@ def test_cursor_is_signed_and_bound_to_query_scope() -> None:
         creator_party_id=creator_id,
     )
     scope = {
-        "projection_version": "creator-memory.v2",
+        "projection_kind": "creator-memory",
         "resource": "memory_current",
         "query_text": "旧理解",
         "limit": 20,

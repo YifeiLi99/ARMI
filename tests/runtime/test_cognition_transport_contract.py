@@ -40,7 +40,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     )
     clients = ark.ModelClients()
     monkeypatch.setattr(clients, "get", lambda *_args: client)
-    schema = candidate_schema("armi.cognition-candidate.v18")
+    schema = candidate_schema("armi.cognition-candidate")
     transport = ark.OfficialArkTransport(
         schema,
         clients=clients,
@@ -50,7 +50,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     request = SimpleNamespace(
         canonical_bytes=json.dumps(
             {
-                "schema_version": "armi.model-request.v1",
+                "schema_kind": "armi.model-request",
                 "compiled_context": {
                     "purpose": purpose,
                     "layers": [
@@ -82,7 +82,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
                 SimpleNamespace(
                     provider="volcengine_ark",
                     model_id="doubao-seed-evolving",
-                    response_contract_version="armi.cognition-candidate.v18",
+                    response_contract_kind="armi.cognition-candidate",
                 ),
             ),
             request=cast(Any, request),
@@ -96,7 +96,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
             Any,
             SimpleNamespace(
                 model_id="doubao-seed-evolving",
-                response_contract_version="armi.cognition-candidate.v18",
+                response_contract_kind="armi.cognition-candidate",
             ),
         ),
         cast(Any, request),

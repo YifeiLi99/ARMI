@@ -24,7 +24,7 @@ from .api import (
 _REF = re.compile(r"^[a-z][a-z0-9_.-]{0,63}:[A-Za-z0-9_.:@/-]{1,191}$", re.ASCII)
 _GROUP = re.compile(r"^group:[A-Za-z0-9_.:@/-]{1,191}$", re.ASCII)
 _CONTENT_KEYS = {
-    "schema_version",
+    "schema_kind",
     "cognition_method",
     "expression_method",
     "reflection_method",
@@ -37,7 +37,7 @@ def canonical_subject_content(document: object) -> bytes:
     document = cast(dict[str, Any], document)
     if (
         set(document) != _CONTENT_KEYS
-        or document["schema_version"] != "armi.subject-prompt.v1"
+        or document["schema_kind"] != "armi.subject-prompt"
         or any(
             type(document[key]) is not str
             or not 1 <= len(document[key]) <= 512

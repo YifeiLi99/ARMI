@@ -66,7 +66,7 @@ class QQChannelHealth:
 
     def safe_view(self) -> dict[str, object]:
         return {
-            "projection_version": "creator-channel-health.v2",
+            "projection_kind": "creator-channel-health",
             "channel": "qq",
             "driver": "napcat",
             "state": self.state,

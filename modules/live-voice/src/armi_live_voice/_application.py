@@ -141,7 +141,6 @@ class PostgreSQLLiveVoiceJournal:
         *,
         session_id: UUID,
         state: LiveVoiceSessionState,
-        context_version: str | None = None,
     ) -> None:
         if state in {LiveVoiceSessionState.IDLE, LiveVoiceSessionState.UNAVAILABLE}:
             raise LiveVoiceViolation("VOICE-JOURNAL-STATE", "voice state is terminal")
@@ -151,7 +150,6 @@ class PostgreSQLLiveVoiceJournal:
             extra={
                 "session_id": str(session_id),
                 "voice_state": state.value,
-                "context_version": context_version,
             },
         )
 
@@ -182,16 +180,15 @@ class PostgreSQLLiveVoiceJournal:
         session_id: UUID,
         turn_id: UUID,
         turn_no: int,
-        context_version: str,
     ) -> None:
         self._require_session(session_id)
         async with self._factory.unit_of_work() as unit:
             self._require_session(session_id)
             result = await unit.transaction.execute(
                 """INSERT INTO armi.live_voice_turns
-                   (turn_id,session_id,turn_no,model_identity,context_version,
+                   (turn_id,session_id,turn_no,model_identity,
                     result_status,subject_id,creator_party_id,scene_id)
-                   SELECT %s,%s,%s,%s,%s,'recognizing',%s,%s,%s
+                   SELECT %s,%s,%s,%s,'recognizing',%s,%s,%s
                    WHERE NOT EXISTS (SELECT 1 FROM armi.live_voice_turns
                      WHERE session_id=%s AND data_rights_redacted_at IS NOT NULL)""",
                 (
@@ -199,7 +196,6 @@ class PostgreSQLLiveVoiceJournal:
                     session_id,
                     turn_no,
                     self._binding.llm.model_identity,
-                    context_version,
                     self._subject_id,
                     self._creator_party_id,
                     self._scene_id,

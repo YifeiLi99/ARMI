@@ -20,8 +20,8 @@ from armi_runtime_foundation import (
 
 from ._domain import valid_metadata
 
-CREATOR_LIFE_MATERIAL_PROJECTION_VERSION = "creator-life-material.v1"
-MATERIAL_CANDIDATE_VERSION = "armi.material-candidate.v1"
+CREATOR_LIFE_MATERIAL_PROJECTION_KIND = "creator-life-material"
+MATERIAL_CANDIDATE_VERSION = "armi.material-candidate"
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 
@@ -502,7 +502,7 @@ class MaterialProjectionPort(Protocol):
 
 
 __all__ = (
-    "CREATOR_LIFE_MATERIAL_PROJECTION_VERSION",
+    "CREATOR_LIFE_MATERIAL_PROJECTION_KIND",
     "MATERIAL_CANDIDATE_VERSION",
     "CandidateLifeMaterialDraft",
     "CreatorLifeMaterialItem",

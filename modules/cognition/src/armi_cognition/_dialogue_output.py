@@ -370,7 +370,7 @@ def expand_dialogue_output(
     Never repair JSON, drop unknown fields, infer state or supply missing content.
     Raw provider output remains in the response artifact. See DESIGN.md.
     """
-    if expected_version == "armi.autonomy-check-candidate.v1":
+    if expected_version == "armi.autonomy-check-candidate":
         # The check has its own single-field wire contract, no candidate wrapper.
         return value
     other = expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION

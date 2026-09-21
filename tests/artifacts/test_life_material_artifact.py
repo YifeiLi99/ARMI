@@ -18,10 +18,10 @@ def test_life_material_artifact_round_trips_canonical_utf8_body() -> None:
 @pytest.mark.parametrize(
     "artifact",
     (
-        b'{"schema_version":"armi.life-material-content.v1","body":"x"}',
-        b'{"body":"x","schema_version":"armi.life-material-content.v1"}\n',
-        b'{"body":"x","extra":true,"schema_version":"armi.life-material-content.v1"}',
-        b'{"body":"x","schema_version":"armi.life-material-content.unsupported"}',
+        b'{"schema_kind":"armi.life-material-content","body":"x"}',
+        b'{"body":"x","schema_kind":"armi.life-material-content"}\n',
+        b'{"body":"x","extra":true,"schema_kind":"armi.life-material-content"}',
+        b'{"body":"x","schema_kind":"armi.life-material-content.unsupported"}',
     ),
 )
 def test_life_material_artifact_rejects_noncanonical_or_corrupt_content(

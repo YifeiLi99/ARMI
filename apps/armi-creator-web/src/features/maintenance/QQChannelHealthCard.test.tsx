@@ -9,8 +9,7 @@ import { QQChannelHealthCard } from "./QQChannelHealthCard";
 function response(state: string, reasonCodes: string[] = []): Response {
   return new Response(
     JSON.stringify({
-      contract_version: "1.0",
-      projection_version: "creator-channel-health.v2",
+      projection_kind: "creator-channel-health",
       channel: "qq",
       driver: "napcat",
       configured: true,

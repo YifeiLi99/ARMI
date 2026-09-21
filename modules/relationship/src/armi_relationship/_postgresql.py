@@ -35,7 +35,7 @@ from ._codec import (
     resolution_to_dict,
 )
 from .api import (
-    RELATIONSHIP_PROJECTION_VERSION,
+    RELATIONSHIP_PROJECTION_KIND,
     CandidateRelationshipDraft,
     CreatorRelationshipItem,
     CreatorRelationshipRevision,
@@ -129,7 +129,7 @@ class PostgreSQLRelationshipOwner:
             try:
                 page = self._cursor.decode(
                     cursor,
-                    projection_version=RELATIONSHIP_PROJECTION_VERSION,
+                    projection_kind=RELATIONSHIP_PROJECTION_KIND,
                     resource_kind="relationship-timeline",
                     resource_ref=str(relationship_id),
                     page_limit=limit,
@@ -194,7 +194,7 @@ class PostgreSQLRelationshipOwner:
         next_cursor = None
         if len(rows) > limit and page_rows:
             next_cursor = self._cursor.encode(
-                projection_version=RELATIONSHIP_PROJECTION_VERSION,
+                projection_kind=RELATIONSHIP_PROJECTION_KIND,
                 resource_kind="relationship-timeline",
                 resource_ref=str(relationship_id),
                 page_limit=limit,

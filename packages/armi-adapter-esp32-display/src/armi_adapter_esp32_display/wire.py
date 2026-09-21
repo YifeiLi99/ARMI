@@ -1,4 +1,4 @@
-"""Strict JSON Lines codec for ``armi.mood-display.v2``."""
+"""Strict JSON Lines codec for ``armi.mood-display``."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from .api import DisplayState, MoodDisplayViolation, ProbeResult
 
-PROTOCOL_VERSION = "armi.mood-display.v2"
+PROTOCOL_VERSION = "armi.mood-display"
 MAX_FRAME_BYTES = 512
 
 

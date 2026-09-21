@@ -8,7 +8,6 @@ from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
     DataRightsCanonicalRecord,
-    DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
@@ -21,7 +20,6 @@ from armi_data_rights.api import (
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("live-voice")
-_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "live_voice_turns",
@@ -33,7 +31,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
 
 class PostgreSQLLiveVoiceDataRightsParticipant:
     owner_identity = _OWNER
-    schema_version = _VERSION
 
     async def discover(
         self,
@@ -96,7 +93,6 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
             result.append(
                 DataRightsExportSegment(
                     _OWNER,
-                    _VERSION,
                     name,
                     "application/x-ndjson",
                     DataRightsTupleRecordStream(records),

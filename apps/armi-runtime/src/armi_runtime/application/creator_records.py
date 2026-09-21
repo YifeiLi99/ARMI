@@ -97,8 +97,7 @@ def create_record_use_cases(
                 content=_unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE"),
             )
         response = SceneTimelinePageResponse(
-            contract_version="1.0",
-            projection_version="scene-timeline.v6",
+            projection_kind="scene-timeline",
             scene_key=page.scene_key.value,
             items=[
                 SceneTimelineItemResponse(
@@ -172,8 +171,7 @@ def create_record_use_cases(
                 else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE"),
             )
         response = OtherHumanPartyRecordPageResponse(
-            contract_version="1.0",
-            projection_version="other-human-record.v1",
+            projection_kind="other-human-record",
             items=[_other_human_party_wire(item) for item in page.items],
             next_cursor=None if page.next_cursor is None else page.next_cursor.value,
         )
@@ -210,8 +208,7 @@ def create_record_use_cases(
                 else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE"),
             )
         response = OtherHumanSceneRecordPageResponse(
-            contract_version="1.0",
-            projection_version="other-human-record.v1",
+            projection_kind="other-human-record",
             party=_other_human_party_wire(page.party),
             items=[
                 OtherHumanSceneRecordResponse(
@@ -260,8 +257,7 @@ def create_record_use_cases(
                 else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE"),
             )
         response = OtherHumanTimelineRecordPageResponse(
-            contract_version="1.0",
-            projection_version="other-human-record.v1",
+            projection_kind="other-human-record",
             party_id=str(page.party_id),
             scene_id=str(page.scene_id),
             items=[

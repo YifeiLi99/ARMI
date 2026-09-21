@@ -56,8 +56,8 @@ from .api import (
 
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
-_DYNAMICS_VERSION = "recency-reappraisal.v1"
-_DERIVATION_VERSION = "cpm-fuzzy.v4"
+_DYNAMICS_METHOD = "recency-reappraisal"
+_DERIVATION_METHOD = "cpm-fuzzy"
 _BASE_WEIGHT = 30.0
 
 
@@ -123,14 +123,14 @@ class SemanticFeatures:
 
 
 def initial_state() -> MoodState:
-    return MoodState(_DYNAMICS_VERSION, _DERIVATION_VERSION, VAD(0, 0, 0))
+    return MoodState(_DYNAMICS_METHOD, _DERIVATION_METHOD, VAD(0, 0, 0))
 
 
 def state_to_wire(state: MoodState) -> dict[str, object]:
     return {
-        "schema_version": "armi.mood.v5",
-        "dynamics_version": state.dynamics_version,
-        "derivation_version": state.derivation_version,
+        "schema_kind": "armi.mood",
+        "dynamics_method": state.dynamics_method,
+        "derivation_method": state.derivation_method,
         "home_base": vad_to_wire(state.home_base),
     }
 
@@ -144,16 +144,15 @@ def parse_state(value: object) -> MoodState:
         raise MoodViolation("MOOD-STATE")
     raw = cast(dict[str, object], value)
     if (
-        set(raw)
-        != {"schema_version", "dynamics_version", "derivation_version", "home_base"}
-        or raw["schema_version"] != "armi.mood.v5"
-        or raw["dynamics_version"] != _DYNAMICS_VERSION
-        or raw["derivation_version"] != _DERIVATION_VERSION
+        set(raw) != {"schema_kind", "dynamics_method", "derivation_method", "home_base"}
+        or raw["schema_kind"] != "armi.mood"
+        or raw["dynamics_method"] != _DYNAMICS_METHOD
+        or raw["derivation_method"] != _DERIVATION_METHOD
     ):
         raise MoodViolation("MOOD-STATE")
     return MoodState(
-        _DYNAMICS_VERSION,
-        cast(str, raw["derivation_version"]),
+        _DYNAMICS_METHOD,
+        cast(str, raw["derivation_method"]),
         parse_vad(raw["home_base"], step=None),
     )
 
@@ -229,7 +228,7 @@ def parse_component(value: object) -> EmotionComponent:
 def semantic_appraisal_to_wire(value: SemanticAppraisalEvent) -> dict[str, object]:
     appraisal = value.appraisal
     return {
-        "schema_version": "armi.mood-appraisal.v3",
+        "schema_kind": "armi.mood-appraisal",
         "transition": value.transition.value,
         "previous_episode_id": (
             None
@@ -315,7 +314,7 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
     if (
         set(raw)
         != {
-            "schema_version",
+            "schema_kind",
             "transition",
             "previous_episode_id",
             "event_phase",
@@ -323,7 +322,7 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
             "change_from_previous",
             "appraisal",
         }
-        or raw.get("schema_version") != "armi.mood-appraisal.v3"
+        or raw.get("schema_kind") != "armi.mood-appraisal"
         or type(appraisal_value) is not dict
     ):
         raise MoodViolation("MOOD-APPRAISAL")
@@ -587,7 +586,7 @@ def semantic_features_to_wire(value: SemanticAppraisal) -> dict[str, object]:
         ]
 
     return {
-        "schema_version": "armi.mood-derived-appraisal.v3",
+        "schema_kind": "armi.mood-derived-appraisal",
         "engagement": value.engagement,
         "concerns": [
             {

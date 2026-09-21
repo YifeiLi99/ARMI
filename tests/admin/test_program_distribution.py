@@ -9,13 +9,12 @@ from armi_admin.application.updates import UpdateManifest, version_parts
 def test_bundle_rejects_changed_program_and_escaped_inventory(tmp_path):
     (tmp_path / "program.txt").write_bytes(b"program")
     value = {
-        "schema_version": "armi.windows-bundle.v3",
+        "schema_kind": "armi.windows-bundle",
         "target": "windows-11-x64",
         "database": {
             "postgresql": "18.4",
             "vector": "0.8.6",
             "pg_trgm": "1.6",
-            "baseline": "0000",
             "schema_digest": "schema-a",
             "role_policy_digest": "roles-a",
         },

@@ -21,7 +21,7 @@ async def admin_stdio(
     mcp_binding.write_text(
         json.dumps(
             {
-                "schema_version": "armi.mcp-binding.v1",
+                "schema_kind": "armi.mcp-binding",
                 "admin_config": str(binding),
             }
         ),

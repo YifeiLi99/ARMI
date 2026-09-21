@@ -231,8 +231,7 @@ def _unavailable(code: str) -> dict[str, object]:
 
 def _scene_wire(view: CreatorSceneView) -> CreatorSceneResponse:
     return CreatorSceneResponse(
-        contract_version="1.0",
-        projection_version="creator-scenes.v1",
+        projection_kind="creator-scenes",
         scene_id=str(view.scene_id),
         scene_key=view.scene_key.value,
         status=view.status.value,
@@ -261,8 +260,7 @@ def _boundary_message(call: CreatorRelationshipBoundaryRequest) -> str:
 
 def _creator_prompt_response(view: CreatorPromptView) -> CreatorPromptResponse:
     return CreatorPromptResponse(
-        contract_version="1.0",
-        projection_version="creator-prompt.v1",
+        projection_kind="creator-prompt",
         prompt_document_id=None
         if view.prompt_document_id is None
         else str(view.prompt_document_id),
@@ -301,8 +299,7 @@ def _creator_prompt_error(error: CreatorPromptViolation) -> InteractionResult:
 
 def _creator_export_response(result: CreatorExportResult) -> CreatorExportResponse:
     return CreatorExportResponse(
-        contract_version="1.0",
-        projection_version="creator-export.v5",
+        projection_kind="creator-export",
         export_id=str(result.export_id),
         status=result.status.value,
         directory_name=result.directory_name,
@@ -344,8 +341,7 @@ def _creator_export_error(error: CreatorExportViolation) -> InteractionResult:
 
 def _data_rights_response(result: DataRightsOrderResult) -> DataRightsOrderResponse:
     return DataRightsOrderResponse(
-        contract_version="1.0",
-        projection_version="data-rights-order-summary.v3",
+        projection_kind="data-rights-order-summary",
         order_id=str(result.order_id),
         requester_party_id=str(result.requester_party_id),
         requester_kind=result.requester_kind.value,
@@ -408,8 +404,7 @@ def _data_rights_detail_response(
     )
     timeline.sort(key=lambda item: (item.occurred_at, item.item_id or ""))
     return DataRightsOrderDetailResponse(
-        contract_version="1.0",
-        projection_version="data-rights-order-detail.v3",
+        projection_kind="data-rights-order-detail",
         order_id=str(order.order_id),
         requester_party_id=str(order.requester_party_id),
         requester_kind=order.requester_kind.value,
@@ -782,7 +777,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     stage = _operation_stage(phase)
     outcome = _operation_outcome(phase)
     wire["details"] = {
-        "projection_version": "creator-operation.v8",
+        "projection_kind": "creator-operation",
         "operation_ref": str(operation.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,

@@ -21,7 +21,7 @@ def task_manifest(
     return (
         json.dumps(
             {
-                "schema_version": "armi.codex-task-source.v3",
+                "schema_kind": "armi.codex-task-source",
                 "task_source_id": str(task_source_id.value),
                 "objective": objective,
                 "deadline_seconds": 900,

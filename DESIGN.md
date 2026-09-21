@@ -214,11 +214,11 @@ frozen Context + expected subject/owner versions
 
 执行器将实际模型响应、usage 与模型成功以短事务保存；文本格式重试期间认知保持 `calling_model`，选定最终返回后进入 `finalizing`。最终响应直接传入校验器，类型化变更集直接传入提交服务；受治理存档保留，正常执行不重读存档接续工作。制品在事务外准备，最终事务原子登记校验、应用事实、主体变化、意图、Effect（含待执行状态） 并结算工作；全程共享同一租约、续租和取消信号。后续失败不改写已成功的模型调用。
 
-模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 使用原合同解析器判断文本是否需要格式重试，选定最终返回后仍由正式校验器绑定 Owner 命令。最终校验的阶段、错误码、字段路径和责任 Owner 只写诊断日志，以 episode/attempt ID 关联原始返回；不生成诊断制品。格式错误返回仍保留独立 attempt 与原文，格式拒绝写日志，不追加技术审计。调用成功事实与内容拒绝分开记录，不改写为网络失败，也不提交被放弃的候选。
+模型响应制品使用 `armi.model-response-artifact`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 使用原合同解析器判断文本是否需要格式重试，选定最终返回后仍由正式校验器绑定 Owner 命令。最终校验的阶段、错误码、字段路径和责任 Owner 只写诊断日志，以 episode/attempt ID 关联原始返回；不生成诊断制品。格式错误返回仍保留独立 attempt 与原文，格式拒绝写日志，不追加技术审计。调用成功事实与内容拒绝分开记录，不改写为网络失败，也不提交被放弃的候选。
 
 Admin `cognition_read`（CLI `cognition-read` / MCP `admin_cognition_read`）按 episode ID 返回 Context manifest、compiled Context、各 attempt 的请求/响应引用；给定其中的 artifact ID 后分段读取经过完整性核验的 UTF-8 正文。offset/length 以 Unicode 字符计，默认 16384、单页最多 65536 字符；返回 next_offset，不解析或执行历史候选。独立 `cognition_read` scope 授权正文读取，本机拥有者包含此权限，普通 trace/diagnostics 权限不自动获得正文。只读取该 episode 直接引用且仍 retained 的制品；文件 I/O 在事务外，返回前重验退役状态，缺失、损坏、越轮引用分别明确失败。
 
-新调用的 `model.request` 制品采用 `armi.model-input-evidence.v1`，保存实际 provider_request（系统指令、输入、输出 Schema、模型及生成参数），由与 SDK 发送共用的参数构造方法生成，不重复保存相同输入，不含凭据或认证头。确定性心情计算明确标记 deterministic，只保存 canonical_request，没有 provider_request。历史请求仍按原始字节读取，缺失的旧系统指令不按当前配置重建；attempt 的 dispatched/result 状态用于区分已准备输入和真正发生的模型调用。
+新调用的 `model.request` 制品采用 `armi.model-input-evidence`，保存实际 provider_request（系统指令、输入、输出 Schema、模型及生成参数），由与 SDK 发送共用的参数构造方法生成，不重复保存相同输入，不含凭据或认证头。确定性心情计算明确标记 deterministic，只保存 canonical_request，没有 provider_request。历史请求仍按原始字节读取，缺失的旧系统指令不按当前配置重建；attempt 的 dispatched/result 状态用于区分已准备输入和真正发生的模型调用。
 
 Owner draft 在进程内携带已绑定的不可变领域对象。Subject Commit 直接按 Owner 收集这些对象，不从存档 JSON 重建命令，也不再注入八个仅供重复解码使用的 Cognition ports。canonical payload 用于已接纳提议的留证与摘要，不作为恢复或执行入口。
 
@@ -300,17 +300,17 @@ Embedding、关键词索引、列表投影、游标和前端缓存可删除重�
 
 ### 处境评价合同与算法
 
-Mind 的 `MindAppraisal` 已接入正式认知，模型返回对象/依据引用、期望结果（理解、交流、有意义投入）、重要性、差距、理解程度、进展、行动机会、结束状态及解释，不填写情绪名称或强度增量。Mind v4 保存 `motivation_states`；Owner 绑定身份、时间、版本并在共同 Subject Commit 中计算。每轮最多四项评价，不限制跨轮保留的未结束动机数量，不能因积累到四条就拒绝整个认知提交。同一事项的后续消息与再次尝试应引用已有 current_motivation 更新，新消息作为依据；不按文字相似度自动合并不同对象。普通文字替换与管理修正不能清空已有动机。初次观察也可以确认当前愿望已满足，不补造过去的需求。
+Mind 的 `MindAppraisal` 已接入正式认知，模型返回对象/依据引用、期望结果（理解、交流、有意义投入）、重要性、差距、理解程度、进展、行动机会、结束状态及解释，不填写情绪名称或强度增量。Mind 保存 `motivation_states`；Owner 绑定身份、时间、版本并在共同 Subject Commit 中计算。每轮最多四项评价，不限制跨轮保留的未结束动机数量，不能因积累到四条就拒绝整个认知提交。同一事项的后续消息与再次尝试应引用已有 current_motivation 更新，新消息作为依据；不按文字相似度自动合并不同对象。普通文字替换与管理修正不能清空已有动机。初次观察也可以确认当前愿望已满足，不补造过去的需求。
 
 Mind 公开投影进入 Context；开放且有非零目标的动机在 30 分钟后产生普通 `review_time_reached` 信号，由 Attention 合并与消费。未评价时保留状态，结束后退出当前 Context，历史保留。HTTP/CLI/MCP 自主状态共用 `motivations` 投影。没有第二次模型评价或独立调度器。
 
 联系愿望通过上述同一路径进入自主认知；ARMI 可以表达，也可以继续等待。选择表达时使用已配置的 QQ 出口、Expression、Effect（含待执行状态） 和发送核验，不以动机数值直接触发消息。安装升级不补造联系愿望，也不提前改写已有自主计划。隔离机制验收与安装版自然产生联系并成功交付分别记录，QQ 在线不等于后一项已经通过。
 
-Mood v5 / cpm-fuzzy.v4 包含 `engagement`：满足的投入、投入不足、负荷过大、不适用、未知。只有明确投入不足并满足既有条件才推导 boredom；平静等待不自动成为无聊。中性评价可留存而无情绪成分。Mind 联系倾向不直接增加悲伤。厌恶需明确强烈排斥；不明意图不充当有意造成后果的证据以推导愤怒。
+Mood v5 / cpm-fuzzy 包含 `engagement`：满足的投入、投入不足、负荷过大、不适用、未知。只有明确投入不足并满足既有条件才推导 boredom；平静等待不自动成为无聊。中性评价可留存而无情绪成分。Mind 联系倾向不直接增加悲伤。厌恶需明确强烈排斥；不明意图不充当有意造成后果的证据以推导愤怒。
 
 同一 episode 的重评修正：`new` 和有依据的新刺激 `reinforce` 追加感受；`reappraise/resolve` 更新已有贡献，不叠加完整新刺激。整体事件感受与各情绪家族分别按新旧推导强度之比调整当前余量、更新方向和半衰期；原样重评保留原衰减起点，只改变应对能力不额外增加悲伤。新家族开始感受；退出评价的家族保留余绪，半衰期在重评时乘 0.5、解决时乘 0.25，后续无关重评不重复加速；家族重新出现时替换其余绪。整体事件感受变为零时同样加速消退。解决后不再是可续接 episode；最新 gist/phase 仍用于未解决 episode 的投影。算法根据已保存的逐次推导结果重建轨迹，不改历史记录或输入/存储结构。模型共享指令明确：仅重复思考不应选 `new/reinforce`；误判为新刺激仍会加强，不能靠此算法证明语义理解正确。
 
-连续事件感受：每次评价独立保存 `derived_vad`、`affect_intensity` 与 `affect_half_life_seconds`。强度为重要程度乘以目标/体验/准则影响、意外性、紧迫性、努力或明确投入不足中的最大信号（投入不足暂取 0.5），按 0–100 整数保存；未知或无变化本身不生成刺激。当前 VAD 与活动 episode 强度只累计事件感受一次，不再累计其情绪名称。无情绪名称的事件仍可影响心情与进入活动 episode；名称仍独立衰减，用于 top-3 情绪和行动倾向。情绪匹配取消 0.5 硬门槛，非零匹配形成有界强度，允许轻微感受及强弱不同的混合情绪。确定损失可产生悲伤，应对能力独立影响掌控感，不作为悲伤存在的前提。VAD 目标、指数衰减形状、重评/解决加速比例和行动倾向映射保持原公式；新事件感受沿用重要性、强度与事件阶段的半衰期公式。这些权重仍是待校准的工程假设，不构成人类心理效度证明。状态合同为 `armi.mood.v5`，候选输入不变；当前 baseline 不兼容旧数据库，不能在安装更新时自动改库或重算历史。
+连续事件感受：每次评价独立保存 `derived_vad`、`affect_intensity` 与 `affect_half_life_seconds`。强度为重要程度乘以目标/体验/准则影响、意外性、紧迫性、努力或明确投入不足中的最大信号（投入不足暂取 0.5），按 0–100 整数保存；未知或无变化本身不生成刺激。当前 VAD 与活动 episode 强度只累计事件感受一次，不再累计其情绪名称。无情绪名称的事件仍可影响心情与进入活动 episode；名称仍独立衰减，用于 top-3 情绪和行动倾向。情绪匹配取消 0.5 硬门槛，非零匹配形成有界强度，允许轻微感受及强弱不同的混合情绪。确定损失可产生悲伤，应对能力独立影响掌控感，不作为悲伤存在的前提。VAD 目标、指数衰减形状、重评/解决加速比例和行动倾向映射保持原公式；新事件感受沿用重要性、强度与事件阶段的半衰期公式。这些权重仍是待校准的工程假设，不构成人类心理效度证明。状态合同为 `armi.mood`，候选输入不变；当前 baseline 不兼容旧数据库，不能在安装更新时自动改库或重算历史。
 
 实验策略为：目标强度 = 100 × 重要性 × 差距 × 与期望结果有关的条件。理解使用未解释程度，投入使用停滞/重复程度，交流使用关系愿望的差距；可行机会单独保留，不把不能行动当作没有愿望。重要性映射 0/0.25/0.65/1，差距映射 0/0.3/1；部分理解取 0.5，停滞取 0.6。状态按实际时间以 30 分钟半衰期趋近有界目标，重复评价不累加刺激；初始强度为 0，满足/放下立即结束。已明确无差距、无重要性、已理解或持续有效投入时，目标为零，即使其他维度未知也不能保留旧增长目标；没有此类明确依据的未知评价才保留已有目标并标记不确定。这些数值是待检验的工程假设，不是心理学常数。更改评估频率不得改变恒定处境下的轨迹，时间本身不创建未满足愿望。
 
@@ -326,7 +326,7 @@ Mind 与 Mood 各自拥有评价提示语义。Mood 公开 `MOOD_APPRAISAL_INSTR
 
 文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。两家均通过 OpenAI SDK 使用官方 Responses 接口，`reasoning.effort:none`。Qwen Responses 当前未列出 JSON 格式约束参数，因此只通过提示词要求 JSON，并显式设置 `store:false`；不发送可能被忽略的格式参数。DeepSeek 使用官方 `text.format.type:json_object`，不发送 `strict` 或服务端 Schema。两家共用候选生成 Schema，无变化的可选字段省略，不套用严格供应商的全字段必填扩展。Creator 文本认知及复用该合同的结果处理、普通他人对话采用浅层输出：根对象直接放 action/content，删除 candidate、decision、social、relationship_change 包装；experience 为经历正文，experience_uncertainty、memory_summary 按用途保留，关系解释、事实、边界与承诺各自为顶层可选字段。事件描述、评价维度与轨迹统一为根对象的 event_ 前缀字段，不再创建 event_appraisal；多条关注目标及主体变化仍用对象列表，保留关联关系。其他 purpose 和独立方舟语音合同不变。
 
-浅层投影由 Cognition 所有：生成 Schema 从已绑定的原合同机械投影，解析入口按冻结的 candidate_contract_version 选择对应编码，严格拒绝旧包装、未知字段及缺失依赖，不根据返回形状猜测版本。映射只重组字段，不补状态、不推断身份、不吞非法字段；模型原始文本仍原样保存在 response artifact，映射后交给原后端类型及各 Owner 校验。业务候选版本和数据库合同不变，无历史候选重放或数据迁移。普通回复最少为 `{"action":"reply","content":"在呢"}`；无评价省略全部 event_ 字段，有关系变化时保留经历和非空关系解释。承诺引用只指向冻结 Context 中的关系承诺。Context 隔离、原子 Subject Commit 和 Effect 链不变；格式错误按上述五次预算显式记录并重新生成，不能靠关闭校验、修补 JSON、隐匿失败或切换模型解决。
+浅层投影由 Cognition 所有：生成 Schema 从已绑定的原合同机械投影，解析入口按冻结的 candidate_contract_kind 选择对应编码，严格拒绝旧包装、未知字段及缺失依赖，不根据返回形状猜测版本。映射只重组字段，不补状态、不推断身份、不吞非法字段；模型原始文本仍原样保存在 response artifact，映射后交给原后端类型及各 Owner 校验。业务候选版本和数据库合同不变，无历史候选重放或数据迁移。普通回复最少为 `{"action":"reply","content":"在呢"}`；无评价省略全部 event_ 字段，有关系变化时保留经历和非空关系解释。承诺引用只指向冻结 Context 中的关系承诺。Context 隔离、原子 Subject Commit 和 Effect 链不变；格式错误按上述五次预算显式记录并重新生成，不能靠关闭校验、修补 JSON、隐匿失败或切换模型解决。
 
 DeepSeek 的 JSON Output 指南同时要求 JSON 指令与样例，完整 Schema 不能代替样例。两家聊天都给最小回复和带评价的浅层示例，引用取自本轮 Context，不要求复制示例判断。event_coping_*、event_demand_*、event_causality_* 按原组保留完整性依赖；event_self_compatibility 为字符串，冲突分支才带 event_self_scope，并与 event_norm_compatibility 配套。已有事件的 event_transition 分支必须同时提供 event_episode_ref 和 event_change_from_previous，无变化也须明确 unchanged。评价意义、动机重要性、自我卷入仍保留各自枚举，不合并不同心理含义。Mood 指令在文本适配时同步为真实 wire 字段名，明确 expectedness 枚举不可同义改写。非思考采样按用户选择保持 Qwen temperature:1.0、默认 top_p，DeepSeek temperature:1.3、top_p:1.0。浅层结构不保证消除模型错误；不得把降低温度作为替代合同修正的兜底。
 
@@ -400,7 +400,7 @@ Mind、Mood、Self/生活模式的当前状态直接由各自 revision 表的 is
 
 同一问题沿原关注更新；新认识和无新信息必须区分，重复表达、工具失败、空结果和消息送达不能算作答案。解决结论说明依据如何满足原解决条件，放下可以说明不再值得投入；Owner 校验引用与状态，不运行额外语义评分模型。真实实验仍只验证过自发形成，完整形成→自主行动/询问→反馈后结束的模型轨迹尚未验证成功。本轮离线闭环不证明拟人效果成立。
 
-模型只给有 Context 依据的语义 appraisal；Mood owner 确定性推导事件感受、情绪成分、VAD target、half-life、当前 top emotions 和 action tendencies。权威状态当前为 `armi.mood.v5`，候选为 `armi.mood-candidate.v5`。
+模型只给有 Context 依据的语义 appraisal；Mood owner 确定性推导事件感受、情绪成分、VAD target、half-life、当前 top emotions 和 action tendencies。权威状态当前为 `armi.mood`，候选为 `armi.mood-candidate`。
 
 事件以 new/reinforce/reappraise/resolve 形成 episode 轨迹。当前快照按数据库 `as_of` 从 home base 和仍有效事件推导，不按秒写库；同一事实和时间得到同一结果。Mood 不能直接改变 Self、Memory、Relationship、Capability 或 Effect。Home base 只在 sleep maintenance 的确定性 `reflect_mood` 阶段小步调整。
 
@@ -416,7 +416,7 @@ Work 以 ready/leased/completed/failed/cancelled 管理执行资格；业务 own
 
 活动注意与内部工作在模型并发为 1 且空闲时仍可获得执行机会；容量不足不登记活动机会，也不记作主体选择沉默。模型并发配置是 worker 上限，不允许同一主体同时冻结多轮 Context；已有认知时，其他机会留待上一轮结束后再选取。
 
-Creator export 使用 `armi.creator-export.v5`，由 Data Rights 管理导出路径及涉及的 party scope；外部副本无法删除时必须保持 partial/operator action，而非伪报完成。
+Creator export 使用 `armi.creator-export`，由 Data Rights 管理导出路径及涉及的 party scope；外部副本无法删除时必须保持 partial/operator action，而非伪报完成。
 
 ## 10. 意愿、授权与 Effect
 
@@ -523,7 +523,7 @@ WASAPI 精确设备 → 16kHz mono PCM16 → streaming ASR → 正式 Creator in
 
 Admin 的 `database_catalog/query/batch` 提供结构化表维护。目录来自 PostgreSQL 实际字段、主键、关系和随包的显式表策略；表写入持有环境锁、停止业务进程、保留 PostgreSQL，并在单事务内执行全部行变更及 `admin_data_changes` 回执。回执记录管理员、环境、幂等键、请求摘要、影响对象和新版本，不复制整段内容或伪造认知。中断后复用 Admin invocation 核验数据库回执。
 
-`content_write` 将记忆、关系、资料、主体组件、心情、提示文档和活动的在线管理交给所属模块的公开 Admin port。实体追加版本并按 owner 语义删除；主体组件和心情只修改，固定人格锚点不可修改。管理员来源通过 `admin_change_id` 与同事务回执关联，不制造 Subject Commit、Experience 或 Creator 作者。资料/提示制品在写事务外发布，事务内注册引用；失败的未消费发布由既有孤儿治理回收。提交使用 Runtime 的 custody/authority/subject 锁顺序，核验处理中认知、Effect、治理任务及对象版本，推进 state_epoch；占用或版本冲突直接拒绝，不强停 Runtime 或取消工作。Activity 展示合同升级到 `creator-activity.v3`，明确管理员修改和删除事件。
+`content_write` 将记忆、关系、资料、主体组件、心情、提示文档和活动的在线管理交给所属模块的公开 Admin port。实体追加版本并按 owner 语义删除；主体组件和心情只修改，固定人格锚点不可修改。管理员来源通过 `admin_change_id` 与同事务回执关联，不制造 Subject Commit、Experience 或 Creator 作者。资料/提示制品在写事务外发布，事务内注册引用；失败的未消费发布由既有孤儿治理回收。提交使用 Runtime 的 custody/authority/subject 锁顺序，核验处理中认知、Effect、治理任务及对象版本，推进 state_epoch；占用或版本冲突直接拒绝，不强停 Runtime 或取消工作。Activity 展示合同 `creator-activity`，明确管理员修改和删除事件。
 
 Creator HTTP 仅绑定 `127.0.0.1`。浏览器建立 process-local bearer session，token 存在 `sessionStorage`；API 拒绝 cookie，客户端 `credentials: omit`。Runtime 验证 same-origin/Fetch Metadata/Host，限制 header/body/连接，提供 CSP/COOP/Permissions Policy，并只托管 manifest 枚举且 digest 匹配的静态资源。
 
@@ -537,7 +537,7 @@ Effect 的 Creator 制品读取用例统一返回实际交付内容及其摘要�
 
 Admin 因果追踪从输入、认知、操作或效果引用沿 owner ports 连接 Evidence、Opportunity、冻结 Context 制品、Subject Commit、Effect 及其执行状态 与交付，不读取私有制品正文。私有主体快照另需 `subject_snapshot.private`。Agent 的相关数据删除通过 `data_deletion_preview/apply`：预览和执行复用 Data Rights participant 的目标发现逻辑，授权绑定目标摘要；owner 在短事务中重算摘要，确认范围未变后才登记及执行删除。Creator Web 的本人申请保留，受限机器交互及混合 other-human 删除请求不能扩大授权；本地拥有者由管理服务核验本机绑定，不逐次签发应用内审批。
 
-Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v10`，请求/结果合同为 `7.0`。安装版绑定稳定包 family，程序资源由当前包内清单解析，日常调用不扫描程序或第三方依赖内容；源码与隔离测试通过 `expected.source_root` 绑定实际 `armi_admin` 包目录，修改源码不使绑定失效，错绑其他目录仍拒绝。安装与升级边界保留可信签名、文件完整性和数据库合同检查，包清单为 `armi.windows-bundle.v3`，不再保存依赖集合摘要。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
+Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config`，请求/结果合同为 `7.0`。安装版绑定稳定包 family，程序资源由当前包内清单解析，日常调用不扫描程序或第三方依赖内容；源码与隔离测试通过 `expected.source_root` 绑定实际 `armi_admin` 包目录，修改源码不使绑定失效，错绑其他目录仍拒绝。安装与升级边界保留可信签名、文件完整性和数据库合同检查，包清单为 `armi.windows-bundle`，不再保存依赖集合摘要。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
 
 管理 wire 为 `7.0`。生命周期、配置应用及管理写请求用稳定环境、incarnation、操作者和幂等键保存耐久回执；包升级和普通配置修改不改变回执身份。读取与预览获取当前事实，不复用写回执。`invocation get/wait` 返回阶段；运行中、已结算和中断后的 unknown 分开，不自动重放副作用，读取旧回执仍核验当前权限。
 
@@ -551,13 +551,15 @@ Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 
 
 配置使用完整消费者模型、文件版本和进程锁原子保存。无效文件可安全读取版本及错误码，并使用完整候选文档修复；候选不能更换绑定环境和 data root。消费者验证并采用配置后登记当前版本，重载替换原登记，准备失败不发布新版本。状态区分已生效、部分消费者生效、需要重启、未运行、环境变量覆盖和无法核验；仅文件读取或保存不证明生效。模型配置的环境覆盖从 `<root>/configs/` 加载。综合诊断读取获授权凭据的可解析性、渠道状态、设备枚举与绑定比较，以及 owner 的 work、lease、恢复与制品状态；物理制品核验在数据库事务之外，有明确对象/字节预算并报告抽样覆盖，不触发模型或设备采集。
 
-Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验返回值，维护和其他人管理进一步按子操作核验。`invocation_reconcile` 重新核验原操作权限，使用环境互斥锁及独立执行证据恢复中断调用：生命周期完成阶段、配置原子替换前登记的文件身份和版本、owner 校正状态及删除请求幂等记录。控制目录不随重置清除，不保存配置或主体内容副本；证据不足保持 unknown，不重新执行效果。scope graph v2 另行报告关系展开上限与截断，分页结束不代表完整展开。
+Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验返回值，维护和其他人管理进一步按子操作核验。`invocation_reconcile` 重新核验原操作权限，使用环境互斥锁及独立执行证据恢复中断调用：生命周期完成阶段、配置原子替换前登记的文件身份和版本、owner 校正状态及删除请求幂等记录。控制目录不随重置清除，不保存配置或主体内容副本；证据不足保持 unknown，不重新执行效果。scope graph 另行报告关系展开上限与截断，分页结束不代表完整展开。
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v71` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
+内部合同只保留当前结构，不维护人工递增版本、历史候选白名单或兼容选择。多种数据的判别使用稳定的 `schema_kind`、`candidate_contract_kind`、`response_contract_kind` 和 `projection_kind`；算法来源使用稳定的 method/identity，不附带递增后缀。请求和响应不携带通用 `contract_version`，导出参与者不维护独立格式版本。数据库通过 SQL 资源摘要、实际目录摘要和精确 ACL 核验，移除重复的 baseline 名称版本；旧结构仍会被拒绝，不自动迁移。主体/记录的并发版本、租约 fence、权限 generation、依赖与第三方协议版本、安装包升级版本和密码学格式标识保留。
 
-配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、当前 SQL 资源摘要 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
+
+配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。配置按当前唯一类型严格校验，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
 ## 14. 失败语义
 
@@ -595,7 +597,7 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 - 新能力先判断事实 owner；没有独立生命周期、关系、权限/保留或查询模式，不新增模块/表。
 - 慢 I/O 保持事务外；先登记稳定 identity，回库重新验证 current state。
 - 公共合同变化原子同步生产者、消费者、baseline/constraint、配置、OpenAPI/生成代码和 tests，并删除旧版本/别名/双读。
-- Schema 直接更新唯一 baseline 并替换 identity；不增加历史 revision、downgrade 或迁移兼容。
+- Schema 直接更新唯一 baseline，资源摘要随内容变化；不增加历史 revision、downgrade 或迁移兼容。
 - 新适配器只在 composition root 选择；没有第二个真实实现时不建通用框架。
 - 设计正文只描述当前有效结论。外部研究先作为证据，未吸收前不进入产品合同。
 
@@ -621,7 +623,7 @@ Effect 仅持久化效果类型和具体目的地；能力名、操作类别、�
 
 Codex 的任务来源与执行结果共用 `codex_task_sources` 一条记录。未交回结果时结果字段为空，结算时同事务登记执行状态、独立清理状态、正文 Artifact、证据和后续机会；一个任务只接受一次结果，不覆盖已有结果或重跑。合并表包含核验事实，Admin 表维护只读。
 
-Creator 导出文件的合同版本、存在/移除状态直接保存在 `creator_exports`。完成或部分完成后才登记文件状态，移除文件不改写原导出结果；涉及人员及导出时的权限计数直接保存在 `snapshot_party_scopes`，格式为 party ID → [contact, use]；按人员撤回权限时仍可查出受影响的有效导出。
+Creator 导出文件的存在/移除状态直接保存在 `creator_exports`。完成或部分完成后才登记文件状态，移除文件不改写原导出结果；涉及人员及导出时的权限计数直接保存在 `snapshot_party_scopes`，格式为 party ID → [contact, use]；按人员撤回权限时仍可查出受影响的有效导出。
 
 主体提交回执保存在对应 cognitive_episodes 的 subject_commit_id、new_subject_version、commit_runtime_instance_id 和 commit_fence_token 中，复用来源、基准版本和追踪字段。Runtime 仍协调同一原子事务，由 Cognition owner 写入；各业务事实继续外键关联提交 ID。该表不允许管理端物理改写，避免修改已提交事实。
 

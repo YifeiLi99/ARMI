@@ -47,7 +47,7 @@ _OPTIONAL_SETUP = {"status", "check", "login_startup", "uninstall"}
 
 class MCPBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.mcp-binding.v1"]
+    schema_kind: Literal["armi.mcp-binding"]
     admin_config: str | None = None
     interaction_config: str | None = None
 

@@ -17,7 +17,7 @@ from .api import (
 )
 
 _COMMON_KEYS = {
-    "schema_version",
+    "schema_kind",
     "proposal_ref",
     "atomic_group_ref",
     "basis_ordinals",
@@ -43,7 +43,7 @@ def encode(value: CandidateMoodDraft) -> bytes:
         cast(
             Any,
             {
-                "schema_version": "armi.mood-candidate.v5",
+                "schema_kind": "armi.mood-candidate",
                 "proposal_ref": value.proposal_ref,
                 "atomic_group_ref": value.atomic_group_ref,
                 "basis_ordinals": list(value.basis_ordinals),
@@ -66,7 +66,7 @@ def decode(payload: bytes) -> CandidateMoodDraft:
         command: object = raw["command"]
         if (
             set(raw) != _COMMON_KEYS | {"command"}
-            or raw["schema_version"] != "armi.mood-candidate.v5"
+            or raw["schema_kind"] != "armi.mood-candidate"
             or rfc8785.dumps(cast(Any, raw)) != payload
             or type(ordinals) is not list
             or any(type(item) is not int for item in cast(list[object], ordinals))

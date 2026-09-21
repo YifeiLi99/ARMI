@@ -96,7 +96,7 @@ def test_configuration_is_optional_disabled_or_strict(tmp_path: Path) -> None:
     devices.mkdir()
     config = devices / "mood-display.yaml"
     config.write_text(
-        "schema_version: armi.mood-display-config.v1\n"
+        "schema_kind: armi.mood-display-config\n"
         "enabled: false\n"
         "port: COM7\n"
         "expected_device_id: mood-window-1\n",
@@ -149,7 +149,7 @@ def test_probe_reads_identity_and_closes_port() -> None:
         json.dumps(
             {
                 "type": "hello",
-                "protocol_version": "armi.mood-display.v2",
+                "protocol_version": "armi.mood-display",
                 "device_id": "mood-window-1",
                 "firmware_version": "0.1.0",
                 "boot_id": "boot-1",
@@ -161,7 +161,7 @@ def test_probe_reads_identity_and_closes_port() -> None:
     serial_port = _ProbeSerial(frame)
     result = probe_device("COM7", serial_factory=lambda _port: serial_port)
     assert result.device_id == "mood-window-1"
-    assert result.protocol_version == "armi.mood-display.v2"
+    assert result.protocol_version == "armi.mood-display"
     assert serial_port.closed
 
 
@@ -223,7 +223,7 @@ def test_unchanged_state_is_renewed_before_device_expiry(
 
 def test_state_ack_timeout_reuses_same_frame_once() -> None:
     ack = (
-        b'{"protocol_version":"armi.mood-display.v2","state_id":"state-1",'
+        b'{"protocol_version":"armi.mood-display","state_id":"state-1",'
         b'"status":"applied","type":"ack"}\n'
     )
     serial_port = _ScriptedSerial([b"", ack])
@@ -244,7 +244,7 @@ def test_device_identity_mismatch_is_unavailable(
     hello = (
         b'{"boot_id":"boot-1","device_id":"other-device",'
         b'"firmware_version":"0.1.0",'
-        b'"protocol_version":"armi.mood-display.v2","type":"hello"}\n'
+        b'"protocol_version":"armi.mood-display","type":"hello"}\n'
     )
     serial_port = _ScriptedSerial([hello])
     adapter = MoodDisplayAdapter(
@@ -299,7 +299,7 @@ def test_snapshot_failure_revokes_available_and_reconnects(
     hello = (
         b'{"boot_id":"boot-1","device_id":"mood-window-1",'
         b'"firmware_version":"0.1.0",'
-        b'"protocol_version":"armi.mood-display.v2","type":"hello"}\n'
+        b'"protocol_version":"armi.mood-display","type":"hello"}\n'
     )
     connections: list[_ScriptedSerial] = []
 
@@ -335,8 +335,7 @@ def test_snapshot_failure_revokes_available_and_reconnects(
 def test_heartbeat_requires_matching_pong(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("armi_adapter_esp32_display.service.uuid4", lambda: "ping-1")
     pong = (
-        b'{"ping_id":"ping-1","protocol_version":"armi.mood-display.v2",'
-        b'"type":"pong"}\n'
+        b'{"ping_id":"ping-1","protocol_version":"armi.mood-display","type":"pong"}\n'
     )
     serial_port = _ScriptedSerial([pong])
     adapter = MoodDisplayAdapter(

@@ -73,9 +73,9 @@ def test_creator_timeline_projection_reads_only_the_verified_objective(
 ) -> None:
     manifest = rfc8785.dumps(
         {
-            "schema_version": "armi.codex-task-source.v2"
+            "schema_kind": "armi.codex-task-source.v2"
             if historical
-            else "armi.codex-task-source.v3",
+            else "armi.codex-task-source",
             "objective": "  保留原始目标\n并生成交付物。  ",
             "task_source_id": str(uuid7()),
             "deadline_seconds": 900,

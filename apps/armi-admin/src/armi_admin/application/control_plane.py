@@ -84,7 +84,7 @@ class AdminControlPlane:
             raise AdminControlError("ADMIN-RUNTIME-NOT-STOPPED")
         now = datetime.now(UTC)
         payload = {
-            "schema_version": "armi.environment-reset-preview.v2",
+            "schema_kind": "armi.environment-reset-preview",
             "management_session_id": self._management_session_id,
             "environment_id": self._config.environment_id,
             "incarnation": self._config.environment_incarnation,
@@ -147,8 +147,8 @@ class AdminControlPlane:
             )
             if (
                 not isinstance(decoded, dict)
-                or cast(dict[str, Any], decoded).get("schema_version")
-                != "armi.environment-reset-preview.v2"
+                or cast(dict[str, Any], decoded).get("schema_kind")
+                != "armi.environment-reset-preview"
             ):
                 raise ValueError
             payload = cast(dict[str, Any], decoded)
@@ -298,7 +298,7 @@ class AdminControlPlane:
         request_id = str(uuid7())
         request = _canonical(
             {
-                "schema_version": "armi.runtime-admin-control.v1",
+                "schema_kind": "armi.runtime-admin-control",
                 "request_id": request_id,
                 "environment_id": self._config.environment_id,
                 "incarnation": self._config.environment_incarnation,
@@ -395,7 +395,7 @@ class AdminControlPlane:
             self._config.template_manifest, "ADMIN-TEMPLATE-MANIFEST"
         )
         if (
-            manifest.get("schema_version") != "armi.admin-experiment-environment.v1"
+            manifest.get("schema_kind") != "armi.admin-experiment-environment"
             or manifest.get("environment_id") != self._config.environment_id
         ):
             raise AdminControlError("ADMIN-TEMPLATE-IDENTITY")

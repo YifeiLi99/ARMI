@@ -53,8 +53,7 @@ class CognitionAttemptPayload(Payload):
     attempt_id: str
     attempt_no: int
     model_id: str
-    request_schema_version: str
-    candidate_schema_version: str
+    candidate_contract_kind: str
     request_artifact_id: str | None
     response_artifact_id: str | None
     dispatch_status: str
@@ -142,14 +141,14 @@ class GraphPage(Payload):
 
 
 class FlowGraphPayload(GraphPage):
-    schema_version: Literal["armi.admin-flow-graph.v2"]
+    schema_kind: Literal["armi.admin-flow-graph"]
     selector: GraphReference
     expansion_limit: int
     expansion_truncated: bool
 
 
 class ScopeGraphPayload(GraphPage):
-    schema_version: Literal["armi.admin-scope-graph.v2"]
+    schema_kind: Literal["armi.admin-scope-graph"]
     expansion_limit: int
     expansion_truncated: bool
     relations: list[
@@ -672,14 +671,13 @@ class OperatorSchemaPayload(Payload):
     table_count: int
     current_revision: str
     head_revision: str
-    baseline_identity: str
     resource_digest: str
     catalog_digest: str
     role_policy_digest: str
 
 
 class DatabaseMaintenancePayload(Payload):
-    schema_version: Literal["armi.database-maintenance.v1"]
+    schema_kind: Literal["armi.database-maintenance"]
     status: Literal["applied"]
     table_count: int
     completed_at: str
@@ -699,14 +697,14 @@ class ArtifactFinding(Payload):
 
 
 class ArtifactCleanupPreview(Payload):
-    schema_version: str
+    schema_kind: str
     status: Literal["dry_run"]
     counts: dict[str, int]
     findings: list[ArtifactFinding]
 
 
 class ArtifactCleanupApplied(Payload):
-    schema_version: str
+    schema_kind: str
     status: Literal["applied"]
     removed_counts: dict[str, int]
     removed_bytes: int
@@ -761,7 +759,7 @@ class CapacityThreshold(Payload):
 
 
 class CapacityPayload(Payload):
-    schema_version: Literal["armi.runtime-capacity-baseline.v2"]
+    schema_kind: Literal["armi.runtime-capacity-baseline"]
     status: Literal["pass", "attention"]
     requested_duration_seconds: int
     sample_interval_seconds: int
@@ -839,7 +837,7 @@ class MoodDisplayProbePayload(Payload):
 
 
 class QQChannelPayload(Payload):
-    projection_version: Literal["creator-channel-health.v2"]
+    projection_kind: Literal["creator-channel-health"]
     channel: Literal["qq"]
     driver: Literal["napcat"]
     state: Literal[
@@ -1006,7 +1004,7 @@ class ReconciliationPayload(Payload):
 
 class InvocationPayload(Payload):
     state: Literal["not_found", "started", "running", "unknown", "finished"]
-    schema_version: Literal["armi.admin-invocation.v2"] | None = None
+    schema_kind: Literal["armi.admin-invocation"] | None = None
     operation: str | None = None
     idempotency_key: str | None = None
     audit: InvocationAudit | None = None

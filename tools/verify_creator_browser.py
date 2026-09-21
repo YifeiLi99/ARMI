@@ -52,7 +52,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     @classmethod
     def _session_metadata(cls) -> dict[str, object]:
         return {
-            "contract_version": "1.0",
             "environment_id": cls.environment_id,
             "creator_party_id": cls.creator_party_id,
             "default_scene_key": "default",
@@ -79,7 +78,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(400)
                 return
             if request != {
-                "contract_version": "1.0",
                 "message": "精确保留的 Creator 输入",
             }:
                 self.send_error(400)
@@ -101,7 +99,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     @classmethod
     def _accepted_operation(cls) -> dict[str, object]:
         return {
-            "contract_version": "1.0",
             "status": "accepted",
             "trace_id": "a" * 32,
             "occurred_at": "2026-07-30T10:03:00.000000Z",
@@ -119,14 +116,13 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     @classmethod
     def _operation_projection(cls) -> dict[str, object]:
         return {
-            "contract_version": "1.0",
             "status": "completed",
             "trace_id": "d" * 32,
             "occurred_at": "2026-07-30T10:03:02.000000Z",
             "message": "Creator response verified.",
             "result_ref": cls.effect_id,
             "details": {
-                "projection_version": "creator-operation.v8",
+                "projection_kind": "creator-operation",
                 "operation_ref": cls.opportunity_id,
                 "operation_kind": "creator_response",
                 "stage": "completed",
@@ -143,7 +139,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(
                 200,
                 {
-                    "contract_version": "1.0",
                     "environment_id": self.environment_id,
                     "runtime_state": "ready",
                     "readiness": "ready",
@@ -169,26 +164,25 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(
                 200,
                 {
-                    "contract_version": "1.0",
-                    "projection_version": "subject-summary.v1",
+                    "projection_kind": "subject-summary",
                     "subject_version": 1,
                     "components": [
                         {
                             "kind": "self",
                             "version": 1,
-                            "schema_version": "armi.self.v1",
+                            "schema_kind": "armi.self",
                             "content_visibility": "private",
                         },
                         {
                             "kind": "mind",
                             "version": 1,
-                            "schema_version": "armi.mind.v4",
+                            "schema_kind": "armi.mind",
                             "content_visibility": "private",
                         },
                         {
                             "kind": "life_mode",
                             "version": 1,
-                            "schema_version": "armi.life-mode.v1",
+                            "schema_kind": "armi.life-mode",
                             "content_visibility": "private",
                         },
                     ],
@@ -224,8 +218,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(
                 200,
                 {
-                    "contract_version": "1.0",
-                    "projection_version": "scene-timeline.v6",
+                    "projection_kind": "scene-timeline",
                     "scene_key": "default",
                     "items": items,
                 },
@@ -239,8 +232,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(
                 200,
                 {
-                    "contract_version": "1.0",
-                    "projection_version": "creator-effect.v6",
+                    "projection_kind": "creator-effect",
                     "effect_id": self.effect_id,
                     "action_intent_ref": self.opportunity_id,
                     "capability_kind": "creator.scene.reply",
@@ -268,12 +260,11 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             event_id = f"sse-v1.{self.event_epoch}.1"
             data = json.dumps(
                 {
-                    "contract_version": "1.0",
                     "event_id": event_id,
                     "event_kind": "scene.timeline.invalidated",
                     "resource_kind": "scene_timeline",
                     "resource_ref": "default",
-                    "projection_version": "scene-timeline.v6",
+                    "projection_kind": "scene-timeline",
                     "occurred_at": "2026-07-30T10:02:00.000000Z",
                 },
                 separators=(",", ":"),
@@ -473,7 +464,7 @@ def main() -> int:
                             )
                         storage = page.evaluate(
                             "() => JSON.parse("
-                            "sessionStorage.getItem('armi.browser-session.v1'))"
+                            "sessionStorage.getItem('armi.browser-session'))"
                         )
                         if storage != {
                             "token": QuietHandler.session_token,

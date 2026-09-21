@@ -1,4 +1,4 @@
-"""Strict immutable models for ``armi.runtime-config.v6``."""
+"""Strict immutable models for ``armi.runtime-config``."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v6"
+RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config"
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -330,7 +330,7 @@ class AutonomyConfig(_FrozenModel):
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
-    schema_version: Literal["armi.runtime-config.v6"]
+    schema_kind: Literal["armi.runtime-config"]
     environment: EnvironmentConfig
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()

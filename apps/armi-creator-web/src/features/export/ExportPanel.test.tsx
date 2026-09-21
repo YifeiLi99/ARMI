@@ -33,7 +33,6 @@ describe("Creator local export panel", () => {
         "Idempotency-Key": expect.stringMatching(/^creator-export-/),
       });
       expect(JSON.parse(String(init?.body))).toEqual({
-        contract_version: "1.0",
         directory_name: "creator-export-20260808",
       });
       const requestKey = (
@@ -45,8 +44,7 @@ describe("Creator local export panel", () => {
       requestKeys.push(requestKey);
       return new Response(
         JSON.stringify({
-          contract_version: "1.0",
-          projection_version: "creator-export.v5",
+          projection_kind: "creator-export",
           export_id: "0198a000-0000-7000-8000-000000000001",
           status: "partial",
           directory_name: "creator-export-20260808",

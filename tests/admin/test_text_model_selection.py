@@ -36,7 +36,7 @@ def test_provider_switch_is_one_versioned_patch_and_preserves_business_settings(
     assert save["expected_version"] == "current-version"
     assert save["target"] == "model-bindings"
     assert set(save["patch"]) == {"active_binding", "bindings"}
-    assert save["patch"]["active_binding"] == "armi.model-adapter.deepseek-responses-v1"
+    assert save["patch"]["active_binding"] == "armi.model-adapter.deepseek-responses"
     row = save["patch"]["bindings"][0]
     assert row["provider"] == "deepseek" and row["model_id"] == "deepseek-flash"
     assert row["credential_locator"] == "model.deepseek_api_key"
@@ -44,7 +44,7 @@ def test_provider_switch_is_one_versioned_patch_and_preserves_business_settings(
     for key in (
         "input_token_limit",
         "output_token_limit",
-        "response_contract_version",
+        "response_contract_kind",
         "attempt_cost_limit_microyuan",
     ):
         assert row[key] == before["bindings"][0][key]

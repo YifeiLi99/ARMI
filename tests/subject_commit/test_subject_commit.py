@@ -30,10 +30,10 @@ def test_subject_summary_is_private_and_ordered() -> None:
     summary = SubjectSummary(
         2,
         (
-            SubjectComponentSummary(SubjectComponentKind.SELF, 2, "armi.self.v1"),
-            SubjectComponentSummary(SubjectComponentKind.MIND, 1, "armi.mind.v4"),
+            SubjectComponentSummary(SubjectComponentKind.SELF, 2, "armi.self"),
+            SubjectComponentSummary(SubjectComponentKind.MIND, 1, "armi.mind"),
             SubjectComponentSummary(
-                SubjectComponentKind.LIFE_MODE, 1, "armi.life-mode.v1"
+                SubjectComponentKind.LIFE_MODE, 1, "armi.life-mode"
             ),
         ),
         uuid7(),
@@ -68,7 +68,7 @@ def test_commit_result_requires_exact_applied_shape_and_redacts_error() -> None:
 
 
 def test_cognition_acceptance_proves_payload_and_ordered_unique_basis() -> None:
-    payload = b'{"schema_version":"armi.memory.candidate.v1"}'
+    payload = b'{"schema_kind":"armi.memory.candidate.v1"}'
     accepted = CognitionAcceptedCandidate(
         "proposal:1",
         "group:1",

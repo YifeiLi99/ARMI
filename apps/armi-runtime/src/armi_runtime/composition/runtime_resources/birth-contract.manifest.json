@@ -7,25 +7,25 @@
     "life_mode": {
       "active_activities": [],
       "mode": "awake",
-      "schema_version": "armi.life-mode.v1"
+      "schema_kind": "armi.life-mode"
     },
     "mind": {
       "attention": [],
       "concerns": [],
       "motivations": [],
-      "schema_version": "armi.mind.v4",
+      "schema_kind": "armi.mind",
       "thoughts": [],
       "understanding": [],
       "wishes": []
     },
     "mood": {
-      "dynamics_version": "exponential.v1",
+      "dynamics_method": "exponential.v1",
       "home_base": {
         "arousal": 0,
         "dominance": 0,
         "valence": 0
       },
-      "schema_version": "armi.mood.v5"
+      "schema_kind": "armi.mood"
     },
     "self": {
       "creator_role_awareness": "unique_primary_creator",
@@ -34,7 +34,7 @@
       "interests": [],
       "name": null,
       "preferences": [],
-      "schema_version": "armi.self.v1",
+      "schema_kind": "armi.self",
       "self_description": null,
       "self_narrative": null,
       "tensions": [],
@@ -56,5 +56,5 @@
     "no_runtime_authority",
     "no_automatic_birth"
   ],
-  "schema_version": "armi.birth-contract.v2"
+  "schema_kind": "armi.birth-contract.v2"
 }

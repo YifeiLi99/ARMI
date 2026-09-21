@@ -9,8 +9,7 @@ import { LiveVoiceCard } from "./LiveVoiceCard";
 function response(state: string, reasons: string[] = []): Response {
   return new Response(
     JSON.stringify({
-      contract_version: "1.0",
-      projection_version: "creator-live-voice-status.v2",
+      projection_kind: "creator-live-voice-status",
       state,
       enabled: true,
       input_device: "Windows WASAPI / USB Audio",

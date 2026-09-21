@@ -124,7 +124,7 @@ class BrowserSessionStore:
             )
             self._session = _StoredSession(
                 token,
-                _digest(b"armi.browser-session.v1", token),
+                _digest(b"armi.browser-session", token),
                 metadata,
                 self._monotonic() + self._session_ttl,
                 self._generation,
@@ -139,7 +139,7 @@ class BrowserSessionStore:
                 and self._monotonic() < stored.expires_monotonic
                 and _SESSION_BEARER.fullmatch(token) is not None
                 and secrets.compare_digest(
-                    _digest(b"armi.browser-session.v1", token), stored.digest
+                    _digest(b"armi.browser-session", token), stored.digest
                 )
             )
             if not valid:

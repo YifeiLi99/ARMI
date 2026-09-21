@@ -41,7 +41,6 @@ function finiteStreamResponse(value: string): Response {
 
 function sessionResponse(includeToken: boolean): object {
   return {
-    contract_version: "1.0",
     environment_id: ENVIRONMENT_ID,
     creator_party_id: CREATOR_ID,
     default_scene_key: "default",
@@ -53,7 +52,6 @@ function sessionResponse(includeToken: boolean): object {
 
 function runtimeStatusResponse(): object {
   return {
-    contract_version: "1.0",
     environment_id: ENVIRONMENT_ID,
     runtime_state: "ready",
     authority_state: "active",
@@ -71,7 +69,6 @@ function runtimeStatusResponse(): object {
 
 function acceptedOperation(): object {
   return {
-    contract_version: "1.0",
     status: "accepted",
     trace_id: "a".repeat(32),
     occurred_at: "2026-07-30T10:02:00.000000Z",
@@ -89,7 +86,6 @@ function acceptedOperation(): object {
 
 function acceptedOperationProjection(): object {
   return {
-    contract_version: "1.0",
     status: "accepted",
     trace_id: "a".repeat(32),
     occurred_at: "2026-07-30T10:02:00.000000Z",
@@ -97,7 +93,7 @@ function acceptedOperationProjection(): object {
     result_ref: OPPORTUNITY_ID,
     custodian: "runtime",
     details: {
-      projection_version: "creator-operation.v8",
+      projection_kind: "creator-operation",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "accepted",
@@ -108,7 +104,6 @@ function acceptedOperationProjection(): object {
 
 function preparedContextOperation(): object {
   return {
-    contract_version: "1.0",
     status: "waiting",
     trace_id: "b".repeat(32),
     occurred_at: "2026-07-30T10:02:01.000000Z",
@@ -117,7 +112,7 @@ function preparedContextOperation(): object {
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
     details: {
-      projection_version: "creator-operation.v8",
+      projection_kind: "creator-operation",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "context_preparing",
@@ -128,8 +123,7 @@ function preparedContextOperation(): object {
 
 function activityPageResponse(goal?: string): object {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-activity.v3",
+    projection_kind: "creator-activity",
     items:
       goal === undefined
         ? []
@@ -166,8 +160,7 @@ function autonomyStatusResponse(): object {
 
 function lifeRecordPageResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "life-record-query.v2",
+    projection_kind: "life-record-query",
     retrieval_kind: "creator_view",
     items: [],
     next_cursor: null,
@@ -176,8 +169,7 @@ function lifeRecordPageResponse(): object {
 
 function memoryPageResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-memory.v2",
+    projection_kind: "creator-memory",
     retrieval_kind: "creator_view",
     items: [],
     next_cursor: null,
@@ -186,16 +178,14 @@ function memoryPageResponse(): object {
 
 function relationshipCurrentResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-relationship.v3",
+    projection_kind: "creator-relationship",
     relationship: null,
   };
 }
 
 function promptResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-prompt.v1",
+    projection_kind: "creator-prompt",
     prompt_document_id: ENVIRONMENT_ID,
     prompt_kind: "creator_guidance",
     status: "active",
@@ -210,8 +200,7 @@ function promptResponse(): object {
 
 function dataRightsResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "data-rights-order-collection.v3",
+    projection_kind: "data-rights-order-collection",
     orders: [],
   };
 }
@@ -222,19 +211,16 @@ function optionalLifeProjectionResponse(url: string): Response | undefined {
   }
   if (url === "/v1/data-rights/orders") {
     return jsonResponse({
-      contract_version: "1.0",
-      projection_version: "data-rights-order-collection.v3",
+      projection_kind: "data-rights-order-collection",
       orders: [],
     });
   }
   if (url === "/v1/scenes") {
     return jsonResponse({
-      contract_version: "1.0",
-      projection_version: "creator-scenes.v1",
+      projection_kind: "creator-scenes",
       scenes: [
         {
-          contract_version: "1.0",
-          projection_version: "creator-scenes.v1",
+          projection_kind: "creator-scenes",
           scene_id: ENVIRONMENT_ID,
           scene_key: "default",
           status: "open",
@@ -261,8 +247,7 @@ function optionalLifeProjectionResponse(url: string): Response | undefined {
 
 function maintenanceStatusResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "creator-maintenance.v3",
+    projection_kind: "creator-maintenance",
     session: null,
     waiting_input_count: 0,
   };
@@ -270,26 +255,25 @@ function maintenanceStatusResponse(): object {
 
 function subjectSummaryResponse(): object {
   return {
-    contract_version: "1.0",
-    projection_version: "subject-summary.v1",
+    projection_kind: "subject-summary",
     subject_version: 0,
     components: [
       {
         kind: "self",
         version: 1,
-        schema_version: "armi.self.v1",
+        schema_kind: "armi.self",
         content_visibility: "private",
       },
       {
         kind: "mind",
         version: 1,
-        schema_version: "armi.mind.v4",
+        schema_kind: "armi.mind",
         content_visibility: "private",
       },
       {
         kind: "life_mode",
         version: 1,
-        schema_version: "armi.life-mode.v1",
+        schema_kind: "armi.life-mode",
         content_visibility: "private",
       },
     ],
@@ -330,8 +314,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [],
         }),
@@ -353,7 +336,7 @@ describe("Creator local connection shell", () => {
 
     expect(await screen.findByText("必需组件")).toBeInTheDocument();
     expect(screen.getAllByText("健康")).toHaveLength(3);
-    const stored = sessionStorage.getItem("armi.browser-session.v1");
+    const stored = sessionStorage.getItem("armi.browser-session");
     expect(stored).toContain(TOKEN);
     expect(document.body.textContent).not.toContain(TOKEN);
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
@@ -370,7 +353,7 @@ describe("Creator local connection shell", () => {
 
   it("clears an invalid restored connection and retries automatically", async () => {
     sessionStorage.setItem(
-      "armi.browser-session.v1",
+      "armi.browser-session",
       JSON.stringify({
         token: TOKEN,
         expiresAt: "2026-07-30T18:00:00.000000Z",
@@ -389,13 +372,13 @@ describe("Creator local connection shell", () => {
       await screen.findByText("本机连接已失效，正在重新连接。"),
     ).toBeInTheDocument();
     await waitFor(() =>
-      expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull(),
+      expect(sessionStorage.getItem("armi.browser-session")).toBeNull(),
     );
   });
 
   it("retains the restored session when the Runtime is temporarily unreachable", async () => {
     sessionStorage.setItem(
-      "armi.browser-session.v1",
+      "armi.browser-session",
       JSON.stringify({
         token: TOKEN,
         expiresAt: "2026-07-30T18:00:00.000000Z",
@@ -414,7 +397,7 @@ describe("Creator local connection shell", () => {
     expect(
       screen.getByRole("button", { name: "重新连接" }),
     ).toBeInTheDocument();
-    expect(sessionStorage.getItem("armi.browser-session.v1")).toContain(TOKEN);
+    expect(sessionStorage.getItem("armi.browser-session")).toContain(TOKEN);
     expect(
       screen.queryByRole("button", { name: "建立浏览器会话" }),
     ).not.toBeInTheDocument();
@@ -429,8 +412,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [
             {
@@ -457,8 +439,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(streamResponse())
       .mockResolvedValueOnce(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [
             {
@@ -494,18 +475,17 @@ describe("Creator local connection shell", () => {
     expect(
       await screen.findByText("当前无法连接本机 Runtime，请稍后重试。"),
     ).toBeInTheDocument();
-    expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull();
+    expect(sessionStorage.getItem("armi.browser-session")).toBeNull();
   });
 
   it("uses an invalidation only to refetch the authoritative timeline", async () => {
     const eventId = `sse-v1.${"e".repeat(22)}.1`;
     const event = JSON.stringify({
-      contract_version: "1.0",
       event_id: eventId,
       event_kind: "scene.timeline.invalidated",
       resource_kind: "scene_timeline",
       resource_ref: "default",
-      projection_version: "scene-timeline.v6",
+      projection_kind: "scene-timeline",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     const fetchMock = vi
@@ -515,8 +495,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [],
         }),
@@ -538,8 +517,7 @@ describe("Creator local connection shell", () => {
       )
       .mockResolvedValueOnce(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [
             {
@@ -562,12 +540,11 @@ describe("Creator local connection shell", () => {
   it("uses an Activity invalidation only to refetch its read projection", async () => {
     const eventId = `sse-v1.${"f".repeat(22)}.1`;
     const event = JSON.stringify({
-      contract_version: "1.0",
       event_id: eventId,
       event_kind: "activity.invalidated",
       resource_kind: "activity",
       resource_ref: ENVIRONMENT_ID,
-      projection_version: "creator-activity.v3",
+      projection_kind: "creator-activity",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     let activityReads = 0;
@@ -596,8 +573,7 @@ describe("Creator local connection shell", () => {
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [],
         });
@@ -632,12 +608,11 @@ describe("Creator local connection shell", () => {
   it("uses a maintenance invalidation to recover the current phase", async () => {
     const eventId = `sse-v1.${"g".repeat(22)}.1`;
     const event = JSON.stringify({
-      contract_version: "1.0",
       event_id: eventId,
       event_kind: "maintenance.invalidated",
       resource_kind: "maintenance",
       resource_ref: ENVIRONMENT_ID,
-      projection_version: "creator-maintenance.v3",
+      projection_kind: "creator-maintenance",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     let maintenanceReads = 0;
@@ -658,8 +633,7 @@ describe("Creator local connection shell", () => {
       }
       if (url.startsWith("/v1/scenes/default/timeline")) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [],
         });
@@ -673,8 +647,7 @@ describe("Creator local connection shell", () => {
           maintenanceReads === 1
             ? maintenanceStatusResponse()
             : {
-                contract_version: "1.0",
-                projection_version: "creator-maintenance.v3",
+                projection_kind: "creator-maintenance",
                 session: {
                   maintenance_session_id: ENVIRONMENT_ID,
                   trigger_kind: "system_deadline",
@@ -693,8 +666,7 @@ describe("Creator local connection shell", () => {
       }
       if (url.startsWith(`/v1/maintenance/${ENVIRONMENT_ID}/timeline?`)) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-maintenance.v3",
+          projection_kind: "creator-maintenance",
           maintenance_session_id: ENVIRONMENT_ID,
           items: [],
           next_cursor: null,
@@ -735,8 +707,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [],
         }),
@@ -757,7 +728,7 @@ describe("Creator local connection shell", () => {
     expect(
       await screen.findByText("当前无法连接本机 Runtime，请稍后重试。"),
     ).toBeInTheDocument();
-    expect(sessionStorage.getItem("armi.browser-session.v1")).toBeNull();
+    expect(sessionStorage.getItem("armi.browser-session")).toBeNull();
   });
 
   it("accepts an input, clears its body, and verifies the operation", async () => {
@@ -786,8 +757,7 @@ describe("Creator local connection shell", () => {
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: acceptedMessage
             ? [
@@ -832,8 +802,7 @@ describe("Creator local connection shell", () => {
       }
       if (url === `/v1/effects/${EFFECT_ID}`) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-effect.v6",
+          projection_kind: "creator-effect",
           effect_id: EFFECT_ID,
           action_intent_ref: OPPORTUNITY_ID,
           capability_kind: "creator.scene.reply",
@@ -911,8 +880,7 @@ describe("Creator local connection shell", () => {
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "scene-timeline.v6",
+          projection_kind: "scene-timeline",
           scene_key: "default",
           items: [],
         });

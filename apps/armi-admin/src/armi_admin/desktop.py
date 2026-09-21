@@ -910,7 +910,7 @@ class Desktop:
                 {
                     "action": "birth",
                     "personality_anchor": {
-                        "schema_version": "armi.personality-anchor.v1",
+                        "schema_kind": "armi.personality-anchor",
                         "voice_style": "约 16 岁少女口吻",
                         "traits": [
                             part.strip()
@@ -1052,7 +1052,7 @@ class Desktop:
                     "target": "model-bindings",
                     "action": "apply",
                     "patch": {
-                        "active_binding": f"armi.model-adapter.{provider}-responses-v1",
+                        "active_binding": f"armi.model-adapter.{provider}-responses",
                         "bindings": [binding],
                     },
                     "expected_version": payload["version"],

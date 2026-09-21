@@ -949,11 +949,6 @@ export interface components {
     /** AcceptedOutcomeResponse */
     AcceptedOutcomeResponse: {
       /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
        * Custodian
        * @constant
        */
@@ -1149,11 +1144,6 @@ export interface components {
     };
     /** BrowserSessionCurrentResponse */
     BrowserSessionCurrentResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Creator Party Id */
       creator_party_id: string;
       /** Default Scene Key */
@@ -1169,11 +1159,6 @@ export interface components {
     BrowserSessionResponse: {
       /** Browser Session Token */
       browser_session_token: string;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Creator Party Id */
       creator_party_id: string;
       /** Default Scene Key */
@@ -1248,10 +1233,10 @@ export interface components {
       /** Frozen At */
       frozen_at: string | null;
       /**
-       * Schema Version
+       * Schema Kind
        * @constant
        */
-      schema_version: "armi.consideration-signals.v1";
+      schema_kind: "armi.consideration-signals";
       /** Signals */
       signals: components["schemas"]["ConsiderationSignalItem"][];
     };
@@ -1293,20 +1278,15 @@ export interface components {
     };
     /** CreatorActivityPageResponse */
     CreatorActivityPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorActivityItemResponse"][];
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-activity.v3";
+      projection_kind: "creator-activity";
     };
     /** CreatorActivityTimelineItemResponse */
     CreatorActivityTimelineItemResponse: {
@@ -1325,20 +1305,15 @@ export interface components {
     CreatorActivityTimelineResponse: {
       /** Activity Id */
       activity_id: string;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorActivityTimelineItemResponse"][];
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-activity.v3";
+      projection_kind: "creator-activity";
     };
     /** CreatorCodexExecutionDetails */
     CreatorCodexExecutionDetails: {
@@ -1359,11 +1334,6 @@ export interface components {
     };
     /** CreatorCodexTaskRequest */
     CreatorCodexTaskRequest: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /**
        * Model Id
        * @default gpt-5.6-luna
@@ -1386,11 +1356,6 @@ export interface components {
     };
     /** CreatorExportRequest */
     CreatorExportRequest: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Directory Name */
       directory_name: string;
     };
@@ -1400,11 +1365,6 @@ export interface components {
       artifact_count: number;
       /** Completed At */
       completed_at: string | null;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Created At */
       created_at: string;
       /** Destination Path */
@@ -1420,10 +1380,10 @@ export interface components {
       /** Newly Created */
       newly_created: boolean;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-export.v5";
+      projection_kind: "creator-export";
       /** Record Count */
       record_count: number;
       /** Segment Count */
@@ -1453,11 +1413,6 @@ export interface components {
     };
     /** CreatorInputRequest */
     CreatorInputRequest: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Message */
       message: string;
     };
@@ -1465,11 +1420,6 @@ export interface components {
     CreatorLifeMaterialResponse: {
       /** Body */
       body: string;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Created At */
       created_at: string;
       /** Material Id */
@@ -1494,10 +1444,10 @@ export interface components {
        */
       privacy_status: "creator_visible";
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-life-material.v1";
+      projection_kind: "creator-life-material";
       /** Revision No */
       revision_no: number;
       /** Title */
@@ -1532,15 +1482,10 @@ export interface components {
     /** CreatorMaintenanceStatusResponse */
     CreatorMaintenanceStatusResponse: {
       /**
-       * Contract Version
+       * Projection Kind
        * @constant
        */
-      contract_version: "1.0";
-      /**
-       * Projection Version
-       * @constant
-       */
-      projection_version: "creator-maintenance.v3";
+      projection_kind: "creator-maintenance";
       session:
         components["schemas"]["CreatorMaintenanceSessionResponse"] | null;
       /** Waiting Input Count */
@@ -1563,11 +1508,6 @@ export interface components {
     };
     /** CreatorMaintenanceTimelineResponse */
     CreatorMaintenanceTimelineResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorMaintenanceTimelineItemResponse"][];
       /** Maintenance Session Id */
@@ -1575,10 +1515,10 @@ export interface components {
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-maintenance.v3";
+      projection_kind: "creator-maintenance";
     };
     /** CreatorMemoryItemResponse */
     CreatorMemoryItemResponse: {
@@ -1605,20 +1545,15 @@ export interface components {
     };
     /** CreatorMemoryPageResponse */
     CreatorMemoryPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorMemoryItemResponse"][];
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-memory.v2";
+      projection_kind: "creator-memory";
       /**
        * Retrieval Kind
        * @constant
@@ -1650,11 +1585,6 @@ export interface components {
     };
     /** CreatorMemoryTimelineResponse */
     CreatorMemoryTimelineResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorMemoryTimelineItemResponse"][];
       /** Memory Id */
@@ -1662,10 +1592,10 @@ export interface components {
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-memory.v2";
+      projection_kind: "creator-memory";
       /**
        * Retrieval Kind
        * @constant
@@ -1728,10 +1658,10 @@ export interface components {
       /** Owner Reason */
       owner_reason?: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-operation.v8";
+      projection_kind: "creator-operation";
       /** Reason Code */
       reason_code?: string | null;
       /**
@@ -1764,11 +1694,6 @@ export interface components {
     };
     /** CreatorProjectionEventResponse */
     CreatorProjectionEventResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Event Id */
       event_id: string;
       /**
@@ -1790,21 +1715,21 @@ export interface components {
       /** Occurred At */
       occurred_at: string;
       /**
-       * Projection Version
+       * Projection Kind
        * @enum {string}
        */
-      projection_version:
-        | "creator-activity.v3"
-        | "creator-memory.v2"
-        | "creator-maintenance.v3"
-        | "life-record-query.v2"
-        | "creator-relationship.v3"
-        | "scene-timeline.v6"
-        | "creator-operation.v8"
-        | "other-human-record.v1"
-        | "creator-effect.v6"
-        | "subject-summary.v1"
-        | "data-rights-order-collection.v3";
+      projection_kind:
+        | "creator-activity"
+        | "creator-memory"
+        | "creator-maintenance"
+        | "life-record-query"
+        | "creator-relationship"
+        | "scene-timeline"
+        | "creator-operation"
+        | "other-human-record"
+        | "creator-effect"
+        | "subject-summary"
+        | "data-rights-order-collection";
       /**
        * Resource Kind
        * @enum {string}
@@ -1826,11 +1751,6 @@ export interface components {
     };
     /** CreatorPromptDeactivateRequest */
     CreatorPromptDeactivateRequest: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Expected Revision Id */
       expected_revision_id: string;
     };
@@ -1840,20 +1760,15 @@ export interface components {
       activated_at: string | null;
       /** Content */
       content: string | null;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Current Revision Id */
       current_revision_id: string | null;
       /** Previous Revision Id */
       previous_revision_id: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-prompt.v1";
+      projection_kind: "creator-prompt";
       /** Prompt Document Id */
       prompt_document_id: string | null;
       /**
@@ -1875,22 +1790,12 @@ export interface components {
     CreatorPromptRevisionRequest: {
       /** Content */
       content: string;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Expected Revision Id */
       expected_revision_id: string | null;
     };
     /** CreatorRelationshipBoundaryRequest */
     CreatorRelationshipBoundaryRequest: {
       action: components["schemas"]["RelationshipBoundaryActionValue"];
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       kind: components["schemas"]["RelationshipBoundaryKindValue"];
       /** Summary */
       summary: string;
@@ -1930,15 +1835,10 @@ export interface components {
     /** CreatorRelationshipCurrentResponse */
     CreatorRelationshipCurrentResponse: {
       /**
-       * Contract Version
+       * Projection Kind
        * @constant
        */
-      contract_version: "1.0";
-      /**
-       * Projection Version
-       * @constant
-       */
-      projection_version: "creator-relationship.v3";
+      projection_kind: "creator-relationship";
       relationship:
         components["schemas"]["CreatorRelationshipItemResponse"] | null;
     };
@@ -2029,45 +1929,30 @@ export interface components {
     };
     /** CreatorRelationshipTimelineResponse */
     CreatorRelationshipTimelineResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorRelationshipRevisionResponse"][];
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-relationship.v3";
+      projection_kind: "creator-relationship";
       /** Relationship Id */
       relationship_id: string;
     };
     /** CreatorSceneCollectionResponse */
     CreatorSceneCollectionResponse: {
       /**
-       * Contract Version
+       * Projection Kind
        * @constant
        */
-      contract_version: "1.0";
-      /**
-       * Projection Version
-       * @constant
-       */
-      projection_version: "creator-scenes.v1";
+      projection_kind: "creator-scenes";
       /** Scenes */
       scenes: components["schemas"]["CreatorSceneResponse"][];
     };
     /** CreatorSceneCreateRequest */
     CreatorSceneCreateRequest: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Scene Key */
       scene_key: string;
     };
@@ -2075,20 +1960,15 @@ export interface components {
     CreatorSceneResponse: {
       /** Closed At */
       closed_at?: string | null;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Is Default */
       is_default: boolean;
       /** Opened At */
       opened_at: string;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-scenes.v1";
+      projection_kind: "creator-scenes";
       /** Recent Context Boundary */
       recent_context_boundary?: string | null;
       /** Scene Id */
@@ -2103,28 +1983,18 @@ export interface components {
     };
     /** DataRightsOrderCollectionResponse */
     DataRightsOrderCollectionResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Orders */
       orders: components["schemas"]["DataRightsOrderDetailResponse"][];
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "data-rights-order-collection.v3";
+      projection_kind: "data-rights-order-collection";
     };
     /** DataRightsOrderDetailResponse */
     DataRightsOrderDetailResponse: {
       /** Completed At */
       completed_at: string | null;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Effective At */
       effective_at: string;
       /**
@@ -2144,10 +2014,10 @@ export interface components {
        */
       order_kind: "stop_contact" | "stop_use" | "delete_related";
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "data-rights-order-detail.v3";
+      projection_kind: "data-rights-order-detail";
       /** Request Digest */
       request_digest: string;
       /**
@@ -2258,11 +2128,6 @@ export interface components {
     /** DataRightsOrderRequest */
     DataRightsOrderRequest: {
       /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
        * Order Kind
        * @enum {string}
        */
@@ -2272,11 +2137,6 @@ export interface components {
     DataRightsOrderResponse: {
       /** Completed At */
       completed_at: string | null;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Effective At */
       effective_at: string;
       /**
@@ -2294,10 +2154,10 @@ export interface components {
        */
       order_kind: "stop_contact" | "stop_use" | "delete_related";
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "data-rights-order-summary.v3";
+      projection_kind: "data-rights-order-summary";
       /** Request Digest */
       request_digest: string;
       /**
@@ -2356,11 +2216,6 @@ export interface components {
        * @enum {string}
        */
       capability_kind: "creator.scene.reply" | "codex.delegated-work";
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Current Attempt No */
       current_attempt_no?: number | null;
       /** Current Attempt Ref */
@@ -2400,10 +2255,10 @@ export interface components {
       /** Observation Reason */
       observation_reason?: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-effect.v6";
+      projection_kind: "creator-effect";
       /** Registered At */
       registered_at: string;
       /** Response Text */
@@ -2502,20 +2357,15 @@ export interface components {
       | "self_change";
     /** LifeRecordPageResponse */
     LifeRecordPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["LifeRecordItemResponse"][];
       /** Next Cursor */
       next_cursor: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "life-record-query.v2";
+      projection_kind: "life-record-query";
       /**
        * Retrieval Kind
        * @enum {string}
@@ -2533,12 +2383,6 @@ export interface components {
     /** LiveVisionObservationRequest */
     LiveVisionObservationRequest: {
       /**
-       * Contract Version
-       * @default 1.0
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
        * Source Kind
        * @enum {string}
        */
@@ -2554,12 +2398,6 @@ export interface components {
     LiveVisionObservationResponse: {
       /** Change Score */
       change_score: number | null;
-      /**
-       * Contract Version
-       * @default 1.0
-       * @constant
-       */
-      contract_version: "1.0";
       error_code: components["schemas"]["ReasonCode"] | null;
       /** Observation Id */
       observation_id: string;
@@ -2569,10 +2407,10 @@ export interface components {
        */
       origin_kind: "automatic" | "creator" | "subject";
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-live-vision-observation.v2";
+      projection_kind: "creator-live-vision-observation";
       /** Registered At */
       registered_at: string;
       /**
@@ -2609,11 +2447,6 @@ export interface components {
     LiveVisionSourceStatusResponse: {
       /** Capture Ready */
       capture_ready: boolean;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Current Manual Observation Ref */
       current_manual_observation_ref: string | null;
       /** Enabled */
@@ -2635,10 +2468,10 @@ export interface components {
       /** Perception Ready */
       perception_ready: boolean;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-live-vision-source-status.v3";
+      projection_kind: "creator-live-vision-source-status";
       /** Reason Codes */
       reason_codes: components["schemas"]["ReasonCode"][];
       /**
@@ -2661,18 +2494,13 @@ export interface components {
     };
     /** LiveVisionStatusResponse */
     LiveVisionStatusResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Observed At */
       observed_at: string;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-live-vision-status.v3";
+      projection_kind: "creator-live-vision-status";
       /** Sources */
       sources: components["schemas"]["LiveVisionSourceStatusResponse"][];
     };
@@ -2680,11 +2508,6 @@ export interface components {
     LiveVoiceStatusResponse: {
       /** Asr Ready */
       asr_ready: boolean;
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Enabled */
       enabled: boolean;
       /** Frames Written */
@@ -2702,10 +2525,10 @@ export interface components {
       playback_extent:
         ("none" | "partial_prefix" | "complete" | "unknown_completion") | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-live-voice-status.v2";
+      projection_kind: "creator-live-voice-status";
       /** Reason Codes */
       reason_codes: components["schemas"]["ReasonCode"][];
       /** Recent Turn Ref */
@@ -2799,11 +2622,6 @@ export interface components {
     /** OperationAcceptedOutcomeResponse */
     OperationAcceptedOutcomeResponse: {
       /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
        * Custodian
        * @constant
        */
@@ -2825,11 +2643,6 @@ export interface components {
     };
     /** OperationAppliedOutcomeResponse */
     OperationAppliedOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       details: components["schemas"]["CreatorOperationDetails"];
       /** Message */
       message: string;
@@ -2849,11 +2662,6 @@ export interface components {
     };
     /** OperationCompletedOutcomeResponse */
     OperationCompletedOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       details: components["schemas"]["CreatorOperationDetails"];
       /** Message */
       message: string;
@@ -2871,11 +2679,6 @@ export interface components {
     };
     /** OperationFailedOutcomeResponse */
     OperationFailedOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       details: components["schemas"]["CreatorOperationDetails"];
       error: components["schemas"]["ErrorDescriptorResponse"];
       /** Message */
@@ -2901,11 +2704,6 @@ export interface components {
       | components["schemas"]["OperationUnknownOutcomeResponse"];
     /** OperationRejectedOutcomeResponse */
     OperationRejectedOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       details: components["schemas"]["CreatorOperationDetails"];
       error: components["schemas"]["ErrorDescriptorResponse"];
       /** Message */
@@ -2922,11 +2720,6 @@ export interface components {
     };
     /** OperationUnavailableOutcomeResponse */
     OperationUnavailableOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       details: components["schemas"]["CreatorOperationDetails"];
       error: components["schemas"]["ErrorDescriptorResponse"];
       /** Message */
@@ -2945,11 +2738,6 @@ export interface components {
     };
     /** OperationUnknownOutcomeResponse */
     OperationUnknownOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /**
        * Custodian
        * @constant
@@ -2980,11 +2768,6 @@ export interface components {
     };
     /** OperationWaitingOutcomeResponse */
     OperationWaitingOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       details: components["schemas"]["CreatorOperationDetails"];
       /** Message */
       message: string;
@@ -3032,20 +2815,15 @@ export interface components {
     };
     /** OtherHumanPartyRecordPageResponse */
     OtherHumanPartyRecordPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["OtherHumanPartyRecordResponse"][];
       /** Next Cursor */
       next_cursor?: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "other-human-record.v1";
+      projection_kind: "other-human-record";
     };
     /** OtherHumanPartyRecordResponse */
     OtherHumanPartyRecordResponse: {
@@ -3064,21 +2842,16 @@ export interface components {
     };
     /** OtherHumanSceneRecordPageResponse */
     OtherHumanSceneRecordPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["OtherHumanSceneRecordResponse"][];
       /** Next Cursor */
       next_cursor?: string | null;
       party: components["schemas"]["OtherHumanPartyRecordResponse"];
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "other-human-record.v1";
+      projection_kind: "other-human-record";
     };
     /** OtherHumanSceneRecordResponse */
     OtherHumanSceneRecordResponse: {
@@ -3098,11 +2871,6 @@ export interface components {
     };
     /** OtherHumanTimelineRecordPageResponse */
     OtherHumanTimelineRecordPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["OtherHumanTimelineRecordResponse"][];
       /** Next Cursor */
@@ -3110,10 +2878,10 @@ export interface components {
       /** Party Id */
       party_id: string;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "other-human-record.v1";
+      projection_kind: "other-human-record";
       /** Scene Id */
       scene_id: string;
     };
@@ -3154,11 +2922,6 @@ export interface components {
       /** Configured */
       configured: boolean;
       /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
        * Driver
        * @constant
        */
@@ -3170,10 +2933,10 @@ export interface components {
       /** Observed At */
       observed_at: string;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "creator-channel-health.v2";
+      projection_kind: "creator-channel-health";
       /** Reason Codes */
       reason_codes: components["schemas"]["ReasonCode"][];
       /**
@@ -3202,11 +2965,6 @@ export interface components {
     ReasonCode: string;
     /** RejectedOutcomeResponse */
     RejectedOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Details */
       details?: {
         [key: string]: components["schemas"]["JsonValue"];
@@ -3282,11 +3040,6 @@ export interface components {
       codex: components["schemas"]["CodexAvailabilityResponse"];
       /** Components */
       components: components["schemas"]["RuntimeComponentHealthResponse"][];
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Environment Id */
       environment_id: string;
       /** Observed At */
@@ -3322,20 +3075,15 @@ export interface components {
     };
     /** SceneTimelinePageResponse */
     SceneTimelinePageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Items */
       items: components["schemas"]["SceneTimelineItemResponse"][];
       /** Next Cursor */
       next_cursor?: string | null;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "scene-timeline.v6";
+      projection_kind: "scene-timeline";
       /** Scene Key */
       scene_key: string;
     };
@@ -3352,10 +3100,10 @@ export interface components {
        */
       kind: "self" | "mind" | "life_mode";
       /**
-       * Schema Version
+       * Schema Kind
        * @enum {string}
        */
-      schema_version: "armi.self.v1" | "armi.mind.v4" | "armi.life-mode.v1";
+      schema_kind: "armi.self" | "armi.mind" | "armi.life-mode";
       /** Version */
       version: number;
     };
@@ -3363,20 +3111,15 @@ export interface components {
     SubjectSummaryResponse: {
       /** Components */
       components: components["schemas"]["SubjectComponentSummaryResponse"][];
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Latest Commit Ref */
       latest_commit_ref?: string | null;
       /** Observed At */
       observed_at: string;
       /**
-       * Projection Version
+       * Projection Kind
        * @constant
        */
-      projection_version: "subject-summary.v1";
+      projection_kind: "subject-summary";
       /** Subject Version */
       subject_version: number;
     };
@@ -3392,11 +3135,6 @@ export interface components {
       | "completed";
     /** UnavailableOutcomeResponse */
     UnavailableOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
       /** Details */
       details?: {
         [key: string]: components["schemas"]["JsonValue"];
@@ -3567,8 +3305,8 @@ export interface components {
       received_at?: string | null;
       /** Response Model */
       response_model: string | null;
-      /** Schema Version */
-      schema_version: string;
+      /** Schema Kind */
+      schema_kind: string;
       /** Service */
       service: string;
       /** Started At */

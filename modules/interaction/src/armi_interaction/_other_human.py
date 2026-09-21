@@ -226,7 +226,7 @@ class OtherHumanInputService(OtherHumanInputPort):
                     CreatorResourceKind("other_human_record"),
                     str(party_id),
                     Instant(datetime.now(UTC)),
-                    "other-human-record.v1",
+                    "other-human-record",
                 )
             )
         except Exception:

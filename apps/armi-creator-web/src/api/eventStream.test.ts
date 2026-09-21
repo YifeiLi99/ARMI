@@ -9,12 +9,11 @@ import {
 const EPOCH = "a".repeat(22);
 const EVENT_ID = `sse-v1.${EPOCH}.1`;
 const DATA = JSON.stringify({
-  contract_version: "1.0",
   event_id: EVENT_ID,
   event_kind: "scene.timeline.invalidated",
   resource_kind: "scene_timeline",
   resource_ref: "default",
-  projection_version: "scene-timeline.v6",
+  projection_kind: "scene-timeline",
   occurred_at: "2026-07-30T10:00:00.000000Z",
 });
 const FRAME = `: keepalive\n\nid: ${EVENT_ID}\nevent: scene.timeline.invalidated\ndata: ${DATA}\n\n`;
@@ -39,66 +38,65 @@ describe("authenticated Creator event stream parser", () => {
       "activity.invalidated",
       "activity",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef6",
-      "creator-activity.v3",
+      "creator-activity",
     ],
     [
       "memory.invalidated",
       "memory",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef5",
-      "creator-memory.v2",
+      "creator-memory",
     ],
     [
       "maintenance.invalidated",
       "maintenance",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
-      "creator-maintenance.v3",
+      "creator-maintenance",
     ],
     [
       "material.invalidated",
       "material",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef3",
-      "life-record-query.v2",
+      "life-record-query",
     ],
     [
       "relationship.invalidated",
       "relationship",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef4",
-      "creator-relationship.v3",
+      "creator-relationship",
     ],
     [
       "scene.timeline.invalidated",
       "scene_timeline",
       "default",
-      "scene-timeline.v6",
+      "scene-timeline",
     ],
     [
       "operation.invalidated",
       "operation",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
-      "creator-operation.v8",
+      "creator-operation",
     ],
     [
       "effect.invalidated",
       "effect",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
-      "creator-effect.v6",
+      "creator-effect",
     ],
     [
       "subject.summary.invalidated",
       "subject_summary",
       "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
-      "subject-summary.v1",
+      "subject-summary",
     ],
   ] as const)(
     "accepts %s only with its exact resource binding",
     async (eventKind, resourceKind, resourceRef, projectionVersion) => {
       const data = JSON.stringify({
-        contract_version: "1.0",
         event_id: EVENT_ID,
         event_kind: eventKind,
         resource_kind: resourceKind,
         resource_ref: resourceRef,
-        projection_version: projectionVersion,
+        projection_kind: projectionVersion,
         occurred_at: "2026-07-30T10:00:00.000000Z",
       });
       const frame = `id: ${EVENT_ID}\nevent: ${eventKind}\ndata: ${data}\n\n`;

@@ -9,12 +9,10 @@ import { LiveVisionCard } from "./LiveVisionCard";
 function response(state: string): Response {
   return new Response(
     JSON.stringify({
-      contract_version: "1.0",
-      projection_version: "creator-live-vision-status.v3",
+      projection_kind: "creator-live-vision-status",
       sources: [
         {
-          contract_version: "1.0",
-          projection_version: "creator-live-vision-source-status.v3",
+          projection_kind: "creator-live-vision-source-status",
           source_kind: "camera",
           state,
           enabled: true,
@@ -40,8 +38,7 @@ function response(state: string): Response {
 function observationResponse(): Response {
   return new Response(
     JSON.stringify({
-      contract_version: "1.0",
-      projection_version: "creator-live-vision-observation.v2",
+      projection_kind: "creator-live-vision-observation",
       observation_id: "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
       source_kind: "camera",
       origin_kind: "creator",
@@ -106,7 +103,6 @@ describe("live vision card", () => {
           "Idempotency-Key": expect.any(String),
         }),
         body: JSON.stringify({
-          contract_version: "1.0",
           source_kind: "camera",
         }),
       }),

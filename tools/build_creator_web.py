@@ -256,7 +256,7 @@ def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path, Path
     if not vite_manifest.is_file():
         raise CreatorBuildError("WEB-ASSET-MANIFEST", "Vite manifest is missing")
     manifest = {
-        "schema_version": "armi.creator-static.v1",
+        "schema_kind": "armi.creator-static",
         "base_path": "/ui/",
         "entrypoint": "static/index.html",
         "toolchain": {

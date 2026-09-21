@@ -120,9 +120,9 @@ def prepare_case(
     )
     mood = rfc8785.dumps(
         {
-            "schema_version": "armi.mood.v5",
-            "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v4",
+            "schema_kind": "armi.mood",
+            "dynamics_method": "recency-reappraisal",
+            "derivation_method": "cpm-fuzzy",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )
@@ -197,7 +197,7 @@ def prepare_case(
         for i, entry in enumerate(entries, 1)
     )
     context = {
-        "schema_version": "armi.compiled-context.v3",
+        "schema_kind": "armi.compiled-context",
         "purpose": "consider_autonomous_life",
         "synthetic": True,
         "layers": [
@@ -249,7 +249,7 @@ def prepare_case(
         ),
         purpose="consider_autonomous_life",
         opportunity_id=identity(3),
-        candidate_contract_version=binding.response_contract_version,
+        candidate_contract_kind=binding.response_contract_kind,
     )
     return {
         "compiled": compiled,
@@ -293,7 +293,7 @@ def appraisal_case(text: str) -> dict[str, Any]:
     case["schema"] = PsychologicalEvaluation.model_json_schema()
     case["request"] = rfc8785.dumps(
         {
-            "schema_version": "armi.model-request.v1",
+            "schema_kind": "armi.model-request",
             "compiled_context": {
                 "purpose": "consider_autonomous_life",
                 "layers": [

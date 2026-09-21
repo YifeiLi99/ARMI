@@ -1,6 +1,6 @@
 """The only public cross-distribution transport contract entry point."""
 
-from ._codec import CONTRACT_VERSION, ContractViolation
+from ._codec import ContractViolation
 from .errors import ErrorCategory, ErrorDescriptor
 from .ids import (
     ErrorInstanceId,
@@ -25,7 +25,6 @@ from .text import NONBLANK_TEXT_PATTERN, NUL_FREE_TEXT_PATTERN
 from .values import Digest, IdempotencyKey, Instant, OpaqueCursor, Purpose
 
 __all__ = (
-    "CONTRACT_VERSION",
     "NONBLANK_TEXT_PATTERN",
     "NUL_FREE_TEXT_PATTERN",
     "AcceptedOutcome",

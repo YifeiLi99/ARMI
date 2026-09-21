@@ -369,7 +369,7 @@ def encode_exact_life_query_result(
 ) -> bytes:
     items = () if page is None else page.items
     value = {
-        "schema_version": "armi.exact-life-query-result.v1",
+        "schema_kind": "armi.exact-life-query-result",
         "status": status,
         "retrieval_kind": "exact_query",
         "record_kind": snapshot.record_kind,

@@ -166,12 +166,11 @@ class CreatorEventBroker:
             event_id = f"sse-v1.{self._epoch}.{sequence}"
             event_kind = EVENT_KINDS[str(invalidation.resource_kind)]
             wire = {
-                "contract_version": "1.0",
                 "event_id": event_id,
                 "event_kind": event_kind,
                 "resource_kind": str(invalidation.resource_kind),
                 "resource_ref": invalidation.resource_ref,
-                "projection_version": invalidation.projection_version,
+                "projection_kind": invalidation.projection_kind,
                 "occurred_at": invalidation.occurred_at.to_wire(),
             }
             data = json.dumps(

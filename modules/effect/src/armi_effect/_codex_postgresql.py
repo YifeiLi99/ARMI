@@ -11,7 +11,7 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTrans
 
 from .api import EffectCodexClaim, EffectViolation
 
-_BINDING = "armi.codex-runner.openai-python-sdk-v1"
+_BINDING = "armi.codex-runner.openai-python-sdk"
 
 
 class PostgreSQLEffectCodexLifecycle:
@@ -234,7 +234,7 @@ class PostgreSQLEffectCodexLifecycle:
                 conclusion, reason_code, evidence_kind, evidence_digest,
                 source_identity)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'codex_verification',%s,
-                    'armi.codex-runner.openai-python-sdk-v1')
+                    'armi.codex-runner.openai-python-sdk')
             """,
             (
                 observation_id,

@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v71`，只维护最新数据库 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；按 SQL 资源摘要验证当前合同，只维护最新数据库 |
 | 物理 schema | 当前 baseline 44 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -204,7 +204,7 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 主文本模型在“功能与模型”页选择 `qwen` 或 `deepseek`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持千问 `qwen3.8-flash`（默认）、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`，以及 DeepSeek `deepseek-flash`、`deepseek-v4-pro`；两家统一使用官方 Responses 接口并关闭思考。Qwen 通过提示词提供完整 Schema 和格式要求，DeepSeek 另启用 JSON Object 模式；后端始终使用同一套严格候选校验。新增型号必须先确认其 Responses 与非思考能力，不能仅换名字猜测兼容。
 
-机器沿用 Admin `configuration` 的 `model-bindings` target，读取当前版本后以同一个 apply 补丁更新 `active_binding` 和唯一 `bindings` 项（保留所有 purpose、预算和独立 voice binding）。千问 adapter 为 `armi.model-adapter.qwen-responses-v1`，北京地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`；也允许官方北京 Workspace 域名。DeepSeek adapter 为 `armi.model-adapter.deepseek-responses-v1`，地址 `https://api.deepseek.com`。各自使用 `armi.model.qwen-api-key.v1` / `armi.model.deepseek-api-key.v1` 的 credential identity、上述 locator 和 `model.request.qwen` / `model.request.deepseek` purpose。设置页保存模型也调用同一用例。协议和官方来源见 [模型设计](DESIGN.md)；缺少价格继续按现有规则显示待计价，不继承方舟单价。
+机器沿用 Admin `configuration` 的 `model-bindings` target，读取当前版本后以同一个 apply 补丁更新 `active_binding` 和唯一 `bindings` 项（保留所有 purpose、预算和独立 voice binding）。千问 adapter 为 `armi.model-adapter.qwen-responses`，北京地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`；也允许官方北京 Workspace 域名。DeepSeek adapter 为 `armi.model-adapter.deepseek-responses`，地址 `https://api.deepseek.com`。各自使用 `armi.model.qwen-api-key.v1` / `armi.model.deepseek-api-key.v1` 的 credential identity、上述 locator 和 `model.request.qwen` / `model.request.deepseek` purpose。设置页保存模型也调用同一用例。协议和官方来源见 [模型设计](DESIGN.md)；缺少价格继续按现有规则显示待计价，不继承方舟单价。
 
 语音凭据名称保持 `speech.volc_credentials`，CLI/MCP setup 的 `credential.put.value` 直接接收 API Key 文本，不再接收 App ID/Access Token JSON。流式 ASR、双向 TTS 和录音识别共用该语音 Key，通过 `X-Api-Key` 鉴权；资源 ID 和音色仍由配置指定。请在[豆包语音新版控制台](https://console.volcengine.com/speech/new/setting/apikeys?projectName=default)创建 Key 并开通所需服务，不自动复用方舟模型 Key。已有旧格式文件须重新录入语音 Key，不会自动转换或删除。依据：[流式识别](https://docs.volcengine.com/docs/6561/1354869)、[双向合成](https://docs.volcengine.com/docs/6561/1329505)、[录音识别](https://docs.volcengine.com/docs/6561/1354868)官方鉴权说明（2026-09-11 核对）。
 
@@ -227,7 +227,7 @@ QQ 页面分别显示组件安装、账号登录和连接状态；进度条仅�
 本地拥有者经私有目录 ACL、环境身份及本机绑定验证后获得完整 ARMI 管理范围，无需 Windows 提权或逐次应用内审批。受限连接使用 `--config <绝对路径>`，绑定文件为严格 YAML，格式如下；至少指定一个配置，路径必须绝对，不接受管理员声明：
 
 ```yaml
-schema_version: armi.mcp-binding.v1
+schema_kind: armi.mcp-binding
 admin_config: C:/path/to/restricted-admin.yaml
 interaction_config: C:/path/to/client.yaml
 ```

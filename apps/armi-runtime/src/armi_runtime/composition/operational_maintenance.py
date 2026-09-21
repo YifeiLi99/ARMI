@@ -141,7 +141,7 @@ async def run_artifact_retention(
                             registered=registered,
                         )
                         return ArtifactCleanupReport(
-                            schema_version="armi.artifact-cleanup.v1",
+                            schema_kind="armi.artifact-cleanup",
                             removed_counts=result.removed_counts,
                             removed_bytes=result.removed_bytes,
                             remaining_counts=tuple(

@@ -64,7 +64,7 @@ from armi_runtime.application.opportunity_origin import (
     RuntimeOpportunityOrigin,
 )
 
-_MECHANISM = "armi.context-compiler.layered-v3"
+_MECHANISM = "armi.context-compiler.layered"
 
 
 class RuntimeCognitionState:

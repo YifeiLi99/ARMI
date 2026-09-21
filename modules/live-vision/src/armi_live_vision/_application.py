@@ -211,7 +211,7 @@ class DurableVisualObservationCoordinator:
         if frames:
             raise RuntimeError("VISION-CAPTURE-MUST-BE-DURABLE")
         request_document: dict[str, object] = {
-            "schema_version": "armi.visual-capture-request.v1",
+            "schema_kind": "armi.visual-capture-request",
             "source_kind": self._source_kind.value,
             "origin_kind": origin_kind.value,
             "trigger": trigger.value,
@@ -638,7 +638,7 @@ class DurableVisualObservationCoordinator:
         trace_id = TraceId(uuid7().hex)
         request_bytes = json.dumps(
             {
-                "schema_version": "armi.visual-observation-request.v2",
+                "schema_kind": "armi.visual-observation-request",
                 "source_kind": self._source_kind.value,
                 "origin_kind": origin_kind.value,
                 "trigger": trigger.value,

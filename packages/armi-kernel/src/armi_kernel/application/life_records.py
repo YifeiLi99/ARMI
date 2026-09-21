@@ -10,7 +10,7 @@ from uuid import UUID
 
 from armi_kernel.contracts import Instant, OpaqueCursor
 
-LIFE_RECORD_PROJECTION_VERSION = "life-record-query.v2"
+LIFE_RECORD_PROJECTION_KIND = "life-record-query"
 _CODE = re.compile(r"^(?:CON-)?LIFE-QUERY-[A-Z0-9-]+$", re.ASCII)
 
 
@@ -124,7 +124,7 @@ class LifeRecordItem:
 class LifeRecordPage:
     items: tuple[LifeRecordItem, ...]
     next_cursor: OpaqueCursor | None = None
-    projection_version: str = LIFE_RECORD_PROJECTION_VERSION
+    projection_kind: str = LIFE_RECORD_PROJECTION_KIND
 
     def __post_init__(self) -> None:
         if (
@@ -135,7 +135,7 @@ class LifeRecordPage:
                 self.next_cursor is not None
                 and type(self.next_cursor) is not OpaqueCursor
             )
-            or self.projection_version != LIFE_RECORD_PROJECTION_VERSION
+            or self.projection_kind != LIFE_RECORD_PROJECTION_KIND
         ):
             raise LifeRecordQueryViolation("CON-LIFE-QUERY-PAGE")
 
@@ -146,7 +146,7 @@ class LifeRecordQueryPort(Protocol):
 
 
 __all__ = (
-    "LIFE_RECORD_PROJECTION_VERSION",
+    "LIFE_RECORD_PROJECTION_KIND",
     "LifeRecordActor",
     "LifeRecordItem",
     "LifeRecordKind",

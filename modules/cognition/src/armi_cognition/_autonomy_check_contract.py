@@ -8,7 +8,7 @@ from typing import Any
 from armi_kernel.application import ModelViolation
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-AUTONOMY_CHECK_VERSION = "armi.autonomy-check-candidate.v1"
+AUTONOMY_CHECK_VERSION = "armi.autonomy-check-candidate"
 
 AUTONOMY_CHECK_INSTRUCTIONS = """根据当前处境，判断现在是否值得进入完整自主思考。
 兴趣、愿望、关切、可推进的活动都可以成为理由，不要求一定有外部任务。

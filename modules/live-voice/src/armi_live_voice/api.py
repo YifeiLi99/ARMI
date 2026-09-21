@@ -247,7 +247,6 @@ class VoiceJournalPort(Protocol):
         *,
         session_id: UUID,
         state: LiveVoiceSessionState,
-        context_version: str | None = None,
     ) -> None: ...
     async def close_session(
         self, *, session_id: UUID, error_code: str | None = None
@@ -258,7 +257,6 @@ class VoiceJournalPort(Protocol):
         session_id: UUID,
         turn_id: UUID,
         turn_no: int,
-        context_version: str,
     ) -> None: ...
     async def record_input(
         self,

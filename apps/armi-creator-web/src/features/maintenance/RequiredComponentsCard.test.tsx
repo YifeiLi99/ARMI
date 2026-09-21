@@ -7,7 +7,6 @@ import type { RuntimeStatus } from "../../api/client";
 import { RequiredComponentsCard } from "./RequiredComponentsCard";
 
 const runtime: RuntimeStatus = {
-  contract_version: "1.0",
   environment_id: "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
   runtime_state: "ready",
   readiness: "ready",

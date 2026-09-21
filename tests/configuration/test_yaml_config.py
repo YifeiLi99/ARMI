@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_yaml_config_supports_standard_yaml_features() -> None:
     assert load_yaml_mapping(
         b"""
-schema_version: armi.example.v1
+schema_kind: armi.example.v1
 enabled: true
 limits:
   count: 4
@@ -28,7 +28,7 @@ description: |
 empty: {}
 """
     ) == {
-        "schema_version": "armi.example.v1",
+        "schema_kind": "armi.example.v1",
         "enabled": True,
         "limits": {"count": 4, "ratio": 0.5},
         "defaults": {"timeout": 30},
@@ -58,10 +58,8 @@ def test_yaml_config_rejects_invalid_or_unsafe_yaml(raw: bytes) -> None:
 
 
 def test_json_object_remains_valid_yaml_input() -> None:
-    assert load_yaml_mapping(
-        b'{"schema_version":"armi.example.v1","enabled":true}'
-    ) == {
-        "schema_version": "armi.example.v1",
+    assert load_yaml_mapping(b'{"schema_kind":"armi.example.v1","enabled":true}') == {
+        "schema_kind": "armi.example.v1",
         "enabled": True,
     }
 

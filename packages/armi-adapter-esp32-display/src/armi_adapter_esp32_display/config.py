@@ -9,7 +9,7 @@ from armi_kernel import load_yaml_file
 
 from .api import MoodDisplayConfig, MoodDisplayViolation
 
-_FIELDS = frozenset({"schema_version", "enabled", "port", "expected_device_id"})
+_FIELDS = frozenset({"schema_kind", "enabled", "port", "expected_device_id"})
 
 
 def load_mood_display_config(environment_root: Path) -> MoodDisplayConfig | None:
@@ -25,7 +25,7 @@ def load_mood_display_config(environment_root: Path) -> MoodDisplayConfig | None
     document = cast(dict[str, object], raw)
     if frozenset(document) != _FIELDS:
         raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG")
-    if document.get("schema_version") != "armi.mood-display-config.v1":
+    if document.get("schema_kind") != "armi.mood-display-config":
         raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG")
     enabled = document.get("enabled")
     port = document.get("port")

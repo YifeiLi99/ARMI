@@ -58,7 +58,7 @@ def test_all_actions_have_the_same_text_and_voice_semantics(decision):
     text = parse_creator_cognitive_act(text_value, allowed_context_refs=frozenset())
     voice = parse_creator_voice_act(voice_value, allowed_context_refs=frozenset())
     assert isinstance(text, CreatorCognitiveActCandidate)
-    assert text.schema_version == CREATOR_COGNITIVE_ACT_VERSION
+    assert text.schema_kind == CREATOR_COGNITIVE_ACT_VERSION
     assert text.model_dump() == voice.model_dump()
 
 

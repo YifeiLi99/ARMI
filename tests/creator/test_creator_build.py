@@ -59,7 +59,7 @@ class CreatorBuildTests(unittest.TestCase):
             manifest = json.loads(
                 (first_resources / "manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(manifest["schema_version"], "armi.creator-static.v1")
+            self.assertEqual(manifest["schema_kind"], "armi.creator-static")
             self.assertEqual(manifest["base_path"], "/ui/")
             self.assertEqual(manifest["entrypoint"], "static/index.html")
             self.assertFalse(manifest["runtime_discovery"])

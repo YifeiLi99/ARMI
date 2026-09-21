@@ -191,7 +191,7 @@ public static class ArmiProbeActivation {
             $probeState = Join-Path $probeEnvironment '.setup/operation.json'
             $probeIndex = Join-Path $probeControl 'environments.yaml'
             [IO.File]::WriteAllText($probeState, (@{environment_id=$environmentId} | ConvertTo-Json))
-            [IO.File]::WriteAllText($probeIndex, (@{schema_version='armi.installation-environments.v2'; environments=@($probeEnvironment)} | ConvertTo-Json))
+            [IO.File]::WriteAllText($probeIndex, (@{schema_kind='armi.installation-environments'; environments=@($probeEnvironment)} | ConvertTo-Json))
             & $alias host-child $environmentId
             if ($LASTEXITCODE -ne 0) { throw 'MSIX-PROBE-UNINSTALL-BUSY-SETUP' }
             & $alias native 10 delete

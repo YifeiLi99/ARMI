@@ -220,7 +220,7 @@ class PostgreSQLMindAdmin:
         if (
             current is None
             or target is None
-            or target.get("schema_version") != "armi.mind.v4"
+            or target.get("schema_kind") != "armi.mind"
             or current.get("concerns") != target.get("concerns")
             or current.get("motivation_states") != target.get("motivation_states")
         ):

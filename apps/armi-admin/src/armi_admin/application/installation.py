@@ -125,7 +125,7 @@ class SetupPaths(BaseModel):
 class SetupIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal["armi.setup-state.v1"] = "armi.setup-state.v1"
+    schema_kind: Literal["armi.setup-state"] = "armi.setup-state"
     operation_id: str
     environment_id: str
     creator_party_id: str
@@ -374,13 +374,13 @@ class SetupApplication:
             if state.stage != "ready":
                 raise SetupError("SETUP-INITIALIZATION-INCOMPLETE")
             manifest: dict[str, object] = {
-                "schema_version": "armi.birth-manifest.v1",
+                "schema_kind": "armi.birth-manifest",
                 "environment_id": state.environment_id,
                 "birth_request_id": state.birth_request_id,
                 "creator_party_id": state.creator_party_id,
                 "idempotency_key": state.birth_request_id,
                 "personality_anchor": {
-                    "schema_version": anchor.schema_version,
+                    "schema_kind": anchor.schema_kind,
                     "voice_style": anchor.voice_style,
                     "traits": list(anchor.traits),
                 },
@@ -464,7 +464,7 @@ class SetupApplication:
         write_control(self.root / "environment.yaml", environment)
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v10",
+                "schema_kind": "armi.admin-config",
                 "operator_id": "native-local-admin",
                 "authorized_operations": list(_DAILY_SCOPES),
                 "environment_kind": "active",
@@ -526,7 +526,7 @@ class SetupApplication:
         write_control(
             self.root / "interaction-access.yaml",
             {
-                "schema_version": "armi.interaction-access.v1",
+                "schema_kind": "armi.interaction-access",
                 "environment_id": state.environment_id,
                 "delegates": [delegate],
             },
@@ -535,7 +535,7 @@ class SetupApplication:
             self.root / "client.yaml",
             {
                 **delegate,
-                "schema_version": "armi.interaction-client.v1",
+                "schema_kind": "armi.interaction-client",
                 "environment_id": state.environment_id,
                 "environment_root": str(self.root),
                 "endpoint": f"http://127.0.0.1:{state.creator_port}",
@@ -973,7 +973,7 @@ class SetupApplication:
             for listener in sockets:
                 listener.close()
         document: dict[str, Any] = values or {
-            "schema_version": "armi.qq-napcat-channel.v4",
+            "schema_kind": "armi.qq-napcat-channel",
             "account_id": account_id,
             "creator_user_id": request.creator_user_id,
             "api_base_url": f"http://127.0.0.1:{ports[0]}",

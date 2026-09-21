@@ -248,7 +248,6 @@ class CreatorLifeMaterialQueryPort(Protocol):
 
 
 class _SessionMetadataWire(TypedDict):
-    contract_version: Literal["1.0"]
     environment_id: str
     creator_party_id: str
     default_scene_key: str
@@ -266,7 +265,6 @@ def _bearer(request: Request) -> str | None:
 
 def _metadata_wire(metadata: SessionMetadata) -> _SessionMetadataWire:
     return {
-        "contract_version": "1.0",
         "environment_id": str(metadata.environment_id),
         "creator_party_id": str(metadata.creator_party_id),
         "default_scene_key": metadata.default_scene_key,

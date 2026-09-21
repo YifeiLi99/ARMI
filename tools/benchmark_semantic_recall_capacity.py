@@ -16,7 +16,7 @@ import psycopg
 from isolated_postgresql import isolated_postgresql
 from psycopg import sql
 
-_MODEL_BINDING = "armi.embedding.qwen3-0_6b-q8_0-local-1024.v1"
+_MODEL_BINDING = "armi.embedding.qwen3-0_6b-q8_0-local-1024"
 
 
 def _nearest_rank_p95(values: list[float]) -> float:

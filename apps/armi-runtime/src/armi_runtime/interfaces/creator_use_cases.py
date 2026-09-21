@@ -51,8 +51,6 @@ async def invoke_creator_use_case(
     actor: CreatorActor,
 ) -> InteractionResult:
     body = {name: arguments[name] for name in route.body_names if name in arguments}
-    if route.body_version is not None:
-        body["contract_version"] = route.body_version
     pairs = tuple(
         (
             name,

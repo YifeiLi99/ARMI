@@ -21,7 +21,7 @@ from ._dialogue_contract import ContextRef, Summary
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v9"
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate"
 
 type CommitmentContent = Annotated[
     str, StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN)
@@ -32,7 +32,7 @@ class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     @property
-    def schema_version(self) -> str:
+    def schema_kind(self) -> str:
         return OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
 
 

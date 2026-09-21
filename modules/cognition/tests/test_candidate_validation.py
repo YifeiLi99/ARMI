@@ -238,7 +238,7 @@ def _subject_states(change_set: Any) -> tuple[Any, ...]:
 
 def _self_state(*, name: str | None = None) -> dict[str, object]:
     return {
-        "schema_version": "armi.self.v1",
+        "schema_kind": "armi.self",
         "identity_kind": "electronic_person",
         "creator_role_awareness": "unique_primary_creator",
         "name": name,
@@ -291,7 +291,7 @@ def test_empty_relationship_slot_is_not_loaded_as_persisted_relationship() -> No
 
 def _mind_state(*, thoughts: list[str] | None = None) -> dict[str, object]:
     return {
-        "schema_version": "armi.mind.v4",
+        "schema_kind": "armi.mind",
         "understanding": [],
         "attention": [],
         "thoughts": thoughts or [],
@@ -306,7 +306,7 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v8",
+        candidate_contract_kind="armi.creator-cognitive-act-candidate",
     )
     concern_id = uuid7()
     bases = (
@@ -363,7 +363,7 @@ def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v8",
+        candidate_contract_kind="armi.creator-cognitive-act-candidate",
         current_components=tuple(
             (
                 owner,
@@ -410,9 +410,9 @@ def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
 
 def _mood_state() -> dict[str, object]:
     return {
-        "schema_version": "armi.mood.v5",
-        "dynamics_version": "recency-reappraisal.v1",
-        "derivation_version": "cpm-fuzzy.v4",
+        "schema_kind": "armi.mood",
+        "dynamics_method": "recency-reappraisal",
+        "derivation_method": "cpm-fuzzy",
         "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
     }
 
@@ -448,7 +448,7 @@ def _appraisal_signal(*, basis_ref: str = "ctx:2") -> dict[str, object]:
 
 def _life_mode_state() -> dict[str, object]:
     return {
-        "schema_version": "armi.life-mode.v1",
+        "schema_kind": "armi.life-mode",
         "mode": "awake",
         "active_activities": [],
     }
@@ -470,7 +470,7 @@ def test_creator_decision_with_expression_reaches_expression_owner(kind, purpose
     context = replace(
         context,
         purpose=purpose,
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v8",
+        candidate_contract_kind="armi.creator-cognitive-act-candidate",
     )
     bases = (
         *bases,
@@ -521,8 +521,8 @@ def test_creator_combined_changes_keep_unique_refs_and_shared_experience(voice, 
         context,
         subject_party_id=uuid7(),
         purpose="consider_creator_voice_input" if voice else "consider_creator_input",
-        candidate_contract_version=(
-            "armi.creator-voice-act-candidate.v8"
+        candidate_contract_kind=(
+            "armi.creator-voice-act-candidate"
             if voice
             else CREATOR_COGNITIVE_ACT_VERSION
         ),
@@ -762,7 +762,7 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
         None,
         (),
         purpose="consider_other_human_input",
-        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        candidate_contract_kind=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
         other_party_id=ids[6],
     )
     bases = (
@@ -792,7 +792,7 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     validated = result.change_set
     assert validated.disposition.value == disposition
     if draft_type is not None:
@@ -817,7 +817,7 @@ def test_other_human_expression_rejection_has_owner_and_content_path(
     context = replace(
         context,
         purpose="consider_other_human_input",
-        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        candidate_contract_kind=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
         other_party_id=uuid7(),
         creator_party_id=None,
     )
@@ -866,7 +866,7 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
         None,
         (),
         purpose="consider_other_human_input",
-        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        candidate_contract_kind=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
         other_party_id=ids[6],
         subject_party_id=ids[7],
     )
@@ -983,7 +983,7 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
             None,
             (),
             purpose="consider_other_human_input",
-            candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            candidate_contract_kind=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
             other_party_id=other_party_id,
             subject_party_id=subject_party_id,
         )
@@ -1048,7 +1048,7 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
         None,
         (),
         purpose="consider_other_human_input",
-        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        candidate_contract_kind=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
         other_party_id=ids[6],
         subject_party_id=ids[7],
         current_relationship=CandidateRelationshipContext(
@@ -1124,7 +1124,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
         None,
         (),
         purpose="consider_other_human_input",
-        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        candidate_contract_kind=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
         other_party_id=ids[6],
         subject_party_id=ids[7],
         current_relationship=CandidateRelationshipContext(
@@ -1258,7 +1258,7 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert result.change_set is not None
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
 
 
 def _maintenance_fixture(
@@ -1344,12 +1344,12 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     assert changed.change_set is not None
     assert _memories(changed.change_set)[0].memory_id == memory.memory_id
     assert _memories(changed.change_set)[0].mechanism_config_identity == (
-        "sleep-maintenance-v1"
+        "sleep-maintenance"
     )
     decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v38" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in changed.change_set.canonical_bytes
 
     unchanged = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "memory_unchanged", "summary": "界" * 512}),
@@ -1522,7 +1522,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v18",
+        "schema_kind": "armi.cognition-candidate",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -1707,7 +1707,7 @@ def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> N
     assert (
         bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
     )
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
 
@@ -1902,7 +1902,7 @@ def test_autonomous_progress_binds_activity_authority_without_permission_round()
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
@@ -2042,7 +2042,7 @@ def test_autonomous_activity_work_maps_real_outcomes_atomically(
 
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
     if decision_kind == "complete":
         assert len(_materials(result.change_set)) == 1
@@ -2432,7 +2432,7 @@ def test_wrong_base_and_unsupported_contract_are_rejected() -> None:
     mismatch = validator.validate(_bytes(candidate), bases=bases)
     assert mismatch.error_code == "CANDIDATE-BASE-MISMATCH"
     unsupported = validator.validate(
-        json.dumps({"schema_version": "armi.cognition-candidate.unsupported"}).encode(),
+        json.dumps({"schema_kind": "armi.cognition-candidate.unsupported"}).encode(),
         bases=bases,
     )
     assert unsupported.error_code == "CANDIDATE-CONTRACT"
@@ -2451,7 +2451,7 @@ def test_external_claim_cannot_be_declared_objective_fact() -> None:
 
 def test_creator_dialogue_can_delegate_without_a_precreated_codex_task() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     candidate = {
         "decision": {
             "kind": "codex_delegation",
@@ -2488,7 +2488,7 @@ def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope
         else basis
         for basis in bases
     )
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     extended = (
         *bases,
         CandidateBasis(
@@ -2518,7 +2518,7 @@ def test_creator_cognitive_act_exact_life_query_is_typed_and_rejects_audit_scope
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
     assert query.record_kind == LifeRecordKind("memory")
@@ -2547,7 +2547,7 @@ def test_retired_outreach_contract_cannot_execute() -> None:
     context = replace(
         context,
         purpose="consider_creator_outreach",
-        candidate_contract_version="armi.creator-dialogue-candidate.v26",
+        candidate_contract_kind="armi.creator-dialogue-candidate.v26",
     )
     result = DeterministicCandidateValidator(context).validate(
         _bytes({"decision": {"kind": "reply", "content": "old candidate"}}),
@@ -2563,7 +2563,7 @@ def test_codex_result_uses_normal_act_without_automatic_memory(kind: str) -> Non
     context = replace(
         context,
         purpose="consider_codex_result",
-        candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION,
+        candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION,
         codex_active=True,
     )
     extended = (
@@ -2636,7 +2636,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v18"
+    candidate["schema_kind"] = "armi.cognition-candidate"
     candidate["understanding"] = {
         "text": "我刚查到一条相关记录。",
         "fact_class": "objective_fact",
@@ -2731,7 +2731,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
         "private",
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v18"
+    candidate["schema_kind"] = "armi.cognition-candidate"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2777,7 +2777,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     assert {item.proposal_ref for item in persisted_drafts} == {
         item.proposal_ref for item in (*first.change_set.codex_delegations,)
     }
-    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in first.change_set.canonical_bytes
 
     mismatched = replace(active_context, codex_task_sources=())
     rejected = DeterministicCandidateValidator(mismatched).validate(
@@ -2811,7 +2811,7 @@ def test_creator_reply_capability_request_is_not_in_the_contract() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v18"
+    candidate["schema_kind"] = "armi.cognition-candidate"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2865,7 +2865,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v18"
+    candidate["schema_kind"] = "armi.cognition-candidate"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2898,7 +2898,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -2921,7 +2921,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
 
 def test_creator_cognitive_act_reply_is_bound_to_authority_deterministically() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     extended = (
         *bases,
         CandidateBasis(
@@ -2958,12 +2958,12 @@ def test_creator_cognitive_act_reply_is_bound_to_authority_deterministically() -
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in first.change_set.canonical_bytes
 
 
 def test_creator_cognitive_act_no_change_does_not_create_component_revision() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     result = DeterministicCandidateValidator(context).validate(
         b'{"decision":{"kind":"no_change"}}', bases=bases
     )
@@ -2976,7 +2976,7 @@ def test_creator_cognitive_act_no_change_does_not_create_component_revision() ->
 
 def test_creator_cognitive_act_cannot_request_codex_permission() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     candidate = {
         "decision": {
             "kind": "reply",
@@ -2994,7 +2994,7 @@ def test_creator_cognitive_act_creates_runtime_owned_life_material_deterministic
     None
 ):
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     subject_party_id = uuid7()
     context = replace(context, subject_party_id=subject_party_id)
     extended = (
@@ -3042,7 +3042,7 @@ def test_creator_cognitive_act_creates_runtime_owned_life_material_deterministic
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v38" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in first.change_set.canonical_bytes
     assert len(_materials(first.change_set)) == 1
     material = _materials(first.change_set)[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -3060,7 +3060,7 @@ def test_creator_cognitive_act_creates_runtime_owned_life_material_deterministic
 
 def test_creator_cognitive_act_material_update_requires_frozen_current_head() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     subject_party_id = uuid7()
     material_id = uuid7()
     revision_id = uuid7()
@@ -3198,7 +3198,7 @@ def test_creator_cognitive_act_material_state_changes_reuse_current_content(
     revision_kind: LifeMaterialRevisionKind,
 ) -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     subject_party_id = uuid7()
     material_id, revision_id = uuid7(), uuid7()
     current = CandidateLifeMaterialContext(
@@ -3310,7 +3310,7 @@ def test_creator_cognitive_act_material_state_changes_reuse_current_content(
 
 def test_creator_cognitive_act_establishes_relationship_from_same_experience() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     subject_party_id = uuid7()
     context = replace(context, subject_party_id=subject_party_id)
     extended = (
@@ -3364,7 +3364,7 @@ def test_creator_cognitive_act_establishes_relationship_from_same_experience() -
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -3399,7 +3399,7 @@ def test_creator_cognitive_act_establishes_relationship_from_same_experience() -
 
 def test_dialogue_establishes_armi_commitment_without_granting_authority() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     context = replace(context, subject_party_id=uuid7())
     extended = (
         *bases,
@@ -3505,7 +3505,7 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
     expected_event: RelationshipCommitmentEventKind,
 ) -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     relationship_id = uuid7()
     revision_id = uuid7()
     commitment_id = uuid7()
@@ -3619,7 +3619,7 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
 
 def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     relationship_id, revision_id = uuid7(), uuid7()
     commitment_ids = (uuid7(), uuid7())
     commitments = tuple(
@@ -3795,7 +3795,7 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
 
 def test_ended_relationship_blocks_later_creator_reply() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     relationship_id = uuid7()
     revision_id = uuid7()
     context = replace(
@@ -3864,7 +3864,7 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
 
 def test_creator_cognitive_act_revises_only_current_context_relationship() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     relationship_id = uuid7()
     revision_id = uuid7()
     original_fact = RelationshipFact(
@@ -3957,7 +3957,7 @@ def test_creator_cognitive_act_forms_grounded_reported_memory_in_same_change_set
     None
 ):
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     extended = (
         *bases,
         CandidateBasis(
@@ -3999,8 +3999,8 @@ def test_creator_cognitive_act_forms_grounded_reported_memory_in_same_change_set
     memory = _memories(result.change_set)[0]
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
-    assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v38" in result.change_set.canonical_bytes
+    assert memory.mechanism_identity == "armi.memory-formation.contextual"
+    assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "memory"
         for item in _validation_drafts(result.change_set)
@@ -4081,7 +4081,7 @@ def test_memory_source_classification_is_runtime_bound(
 
 def test_creator_cognitive_act_no_action_remains_a_subjective_decision() -> None:
     context, bases = _fixture()
-    context = replace(context, candidate_contract_version=CREATOR_COGNITIVE_ACT_VERSION)
+    context = replace(context, candidate_contract_kind=CREATOR_COGNITIVE_ACT_VERSION)
     extended = (
         *bases,
         CandidateBasis(
@@ -4130,7 +4130,7 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v18"
+    candidate["schema_kind"] = "armi.cognition-candidate"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4178,7 +4178,7 @@ def test_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v18"
+    candidate["schema_kind"] = "armi.cognition-candidate"
     candidate["disposition"] = "no_action"
     candidate["experiences"] = []
     candidate["component_changes"] = []

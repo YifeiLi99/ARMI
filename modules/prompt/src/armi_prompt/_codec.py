@@ -12,7 +12,7 @@ from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 from .api import CandidatePromptDraft, PromptViolation
 
 _KEYS = {
-    "schema_version",
+    "schema_kind",
     "proposal_ref",
     "atomic_group_ref",
     "basis_ordinals",
@@ -29,7 +29,7 @@ def encode(value: CandidatePromptDraft) -> bytes:
         cast(
             Any,
             {
-                "schema_version": "armi.prompt-candidate.v1",
+                "schema_kind": "armi.prompt-candidate",
                 "proposal_ref": value.proposal_ref,
                 "atomic_group_ref": value.atomic_group_ref,
                 "basis_ordinals": list(value.basis_ordinals),
@@ -57,7 +57,7 @@ def decode(payload: bytes) -> CandidatePromptDraft:
         current = raw["current_revision_id"]
         if (
             set(raw) != _KEYS
-            or raw["schema_version"] != "armi.prompt-candidate.v1"
+            or raw["schema_kind"] != "armi.prompt-candidate"
             or rfc8785.dumps(cast(Any, raw)) != payload
             or type(ordinals) is not list
             or any(type(item) is not int for item in cast(list[object], ordinals))

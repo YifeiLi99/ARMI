@@ -44,8 +44,7 @@ describe("Creator maintenance panel", () => {
       const url = String(input);
       if (url === "/v1/maintenance/status") {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-maintenance.v3",
+          projection_kind: "creator-maintenance",
           session: {
             maintenance_session_id: SESSION_ID,
             trigger_kind: "system_deadline",
@@ -63,8 +62,7 @@ describe("Creator maintenance panel", () => {
       }
       if (url.startsWith(`/v1/maintenance/${SESSION_ID}/timeline?`)) {
         return jsonResponse({
-          contract_version: "1.0",
-          projection_version: "creator-maintenance.v3",
+          projection_kind: "creator-maintenance",
           maintenance_session_id: SESSION_ID,
           next_cursor: null,
           items: [
