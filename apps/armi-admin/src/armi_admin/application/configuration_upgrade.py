@@ -29,16 +29,20 @@ def prepare_configuration_upgrade(
         values = cast(dict[str, Any], dict(load_yaml_mapping(original)))
         changed = False
         if relative == "environment.yaml":
-            if values.get("schema_version") == "armi.runtime-config.v4":
-                values["schema_version"] = "armi.runtime-config.v5"
+            # Environment files may omit the version and inherit packaged defaults.
+            if values.get("schema_version") in {None, "armi.runtime-config.v4"}:
+                if "schema_version" in values:
+                    values["schema_version"] = "armi.runtime-config.v5"
+                    changed = True
                 autonomy = values.get("autonomy", {})
                 for key in (
                     "daily_request_limit",
                     "minimum_consideration_seconds",
                     "maximum_consideration_seconds",
                 ):
-                    autonomy.pop(key, None)
-                changed = True
+                    if key in autonomy:
+                        del autonomy[key]
+                        changed = True
             validate_environment_values(defaults_path=defaults, values=values)
         else:
             if values.get("schema_version") == "armi.model-bindings.v3":

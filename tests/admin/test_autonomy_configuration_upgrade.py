@@ -14,7 +14,8 @@ from armi_admin.application.installation import SetupError
 from armi_kernel import load_yaml_file
 
 
-def test_configuration_upgrade_preserves_credentials_and_model(tmp_path):
+@pytest.mark.parametrize("explicit_version", [True, False])
+def test_configuration_upgrade_preserves_credentials_and_model(tmp_path, explicit_version):
     defaults = Path("configs/runtime.yaml")
     environment = {
         "schema_version": "armi.runtime-config.v4",
@@ -29,6 +30,8 @@ def test_configuration_upgrade_preserves_credentials_and_model(tmp_path):
         },
         "secret_locators": {"model.deepseek_api_key": "env:ARMI_TEST_PRIVATE_KEY"},
     }
+    if not explicit_version:
+        del environment["schema_version"]
     path = tmp_path / "environment.yaml"
     path.write_text(json.dumps(environment), encoding="utf-8")
     manifest = cast(dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml")))
@@ -46,6 +49,7 @@ def test_configuration_upgrade_preserves_credentials_and_model(tmp_path):
     assert len(changes) == 2
     publish_configuration_upgrade(changes)
     current = load_yaml_file(path)
+    assert ("schema_version" in current) == explicit_version
     assert current["autonomy"] == {"enabled": False, "outlet": "creator_web"}
     assert current["secret_locators"] == environment["secret_locators"]
     model = cast(dict[str, Any], load_yaml_file(model_path))
