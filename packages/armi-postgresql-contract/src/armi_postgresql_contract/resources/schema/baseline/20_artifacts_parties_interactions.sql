@@ -95,26 +95,6 @@ CREATE TABLE armi.artifact_object_deletions (
 );
 
 --
--- Name: artifact_object_deletion_attempts; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.artifact_object_deletion_attempts (
-    artifact_object_deletion_attempt_id uuid NOT NULL,
-    artifact_object_deletion_id uuid NOT NULL,
-    retry_cycle integer NOT NULL,
-    attempt_no integer NOT NULL,
-    result_status text NOT NULL,
-    error_code text,
-    started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    settled_at timestamp(6) with time zone,
-    CONSTRAINT artifact_object_deletion_attempts_attempt_no_check CHECK (((attempt_no >= 1) AND (attempt_no <= 8))),
-    CONSTRAINT artifact_object_deletion_attempts_id_check CHECK ((uuid_extract_version(artifact_object_deletion_attempt_id) = 7)),
-    CONSTRAINT artifact_object_deletion_attempts_result_check CHECK ((result_status = ANY (ARRAY['started'::text, 'retryable'::text, 'completed'::text, 'cancelled'::text, 'blocked'::text, 'unknown'::text]))),
-    CONSTRAINT artifact_object_deletion_attempts_retry_cycle_check CHECK ((retry_cycle >= 1)),
-    CONSTRAINT artifact_object_deletion_attempts_state_check CHECK ((((result_status = 'started'::text) AND (settled_at IS NULL) AND (error_code IS NULL)) OR ((result_status <> 'started'::text) AND (settled_at IS NOT NULL))))
-);
-
---
 -- Name: external_channel_bindings; Type: TABLE; Schema: armi; Owner: -
 --
 

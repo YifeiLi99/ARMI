@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from armi_artifact_store.api import ArtifactDeletionDiagnostic
 from armi_context.api import EmbeddingFailureDiagnostic
 from armi_runtime.application.creator_contract import RuntimeState
 from armi_runtime.composition.diagnostics import StructuredDiagnosticLog
@@ -23,6 +24,25 @@ class _WriteFailure(io.StringIO):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_deletion_attempt_reaches_rotating_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root, environment_id=_ENVIRONMENT, instance_id="instance"
+            )
+            diagnostic.artifact_deletion(
+                ArtifactDeletionDiagnostic(
+                    "deletion", "attempt", 2, "retryable", "ART-IO"
+                )
+            )
+            diagnostic.close()
+            record = json.loads(
+                next((root / "logs").glob("*.jsonl")).read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["event"], "artifact.deletion.attempt")
+            self.assertEqual(record["details"]["error_code"], "ART-IO")
+            self.assertEqual(record["details"]["attempt_no"], 2)
+
     def test_embedding_failure_details_reach_rotating_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

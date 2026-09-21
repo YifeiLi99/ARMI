@@ -665,6 +665,7 @@ async def _serve(
                 artifact_storage,
                 runtime_unit_of_work_factory,
                 PostgreSQLDurableWorkGateway(runtime_unit_of_work_factory),
+                diagnostic=diagnostic.artifact_deletion,
             )
             live_vision_retention = compose_live_vision_retention(
                 runtime_unit_of_work_factory,

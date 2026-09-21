@@ -24,8 +24,8 @@ GRANT SELECT ON TABLE armi.activity_revisions TO armi_runtime;
 GRANT SELECT ON TABLE armi.alembic_version TO armi_admin;
 GRANT SELECT ON TABLE armi.alembic_version TO armi_migrator;
 GRANT SELECT ON TABLE armi.alembic_version TO armi_runtime;
-GRANT SELECT ON TABLE armi.artifact_object_deletion_attempts, armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
-GRANT SELECT ON TABLE armi.artifact_object_deletion_attempts, armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_runtime;
+GRANT SELECT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
+GRANT SELECT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_runtime;
 GRANT SELECT ON TABLE armi.audit_events TO armi_admin;
 GRANT SELECT ON TABLE armi.audit_events TO armi_runtime;
 GRANT SELECT ON TABLE armi.capabilities TO armi_admin;
@@ -206,12 +206,12 @@ GRANT SELECT ON TABLE armi.web_research_intents TO armi_runtime;
 GRANT DELETE ON TABLE armi.artifacts, armi.audit_events, armi.dialogue_decisions, armi.external_content_recognition_attempts, armi.external_evidence, armi.external_message_parts, armi.local_inbox_deliveries, armi.opportunities, armi.party_input_interactions, armi.scene_timeline_items TO armi_admin;
 GRANT INSERT ON TABLE armi.deployment_environments, armi.durable_work, armi.effect_observations, armi.mood_revisions, armi.subject_component_revisions TO armi_admin;
 GRANT UPDATE ON TABLE armi.durable_work, armi.effect_outbox_items, armi.effects, armi.mood_heads, armi.runtime_instances, armi.subject_component_heads, armi.subjects TO armi_admin;
-GRANT INSERT ON TABLE armi.artifact_object_deletion_attempts, armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
+GRANT INSERT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
 GRANT UPDATE ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications, armi.artifacts TO armi_admin;
 GRANT DELETE ON TABLE armi.context_embedding_projections TO armi_runtime;
 
 
-GRANT INSERT ON TABLE armi.artifact_object_deletion_attempts, armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications TO armi_runtime;
+GRANT INSERT ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications TO armi_runtime;
 GRANT INSERT ON TABLE armi.data_rights_order_retry_attempts TO armi_runtime;
 GRANT INSERT ON TABLE armi.data_rights_identity_keys TO armi_runtime;
 GRANT UPDATE ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications TO armi_runtime;

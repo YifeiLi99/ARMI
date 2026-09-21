@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -20,6 +21,18 @@ from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactDeletionDiagnostic:
+    deletion_id: str
+    attempt_id: str
+    attempt_no: int
+    result_status: str
+    error_code: str | None
+
+
+ArtifactDeletionSink = Callable[[ArtifactDeletionDiagnostic], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +224,8 @@ __all__ = (
     "ArtifactAdminRetirement",
     "ArtifactAdminSnapshot",
     "ArtifactCatalogPort",
+    "ArtifactDeletionDiagnostic",
+    "ArtifactDeletionSink",
     "ArtifactDeletionState",
     "ArtifactLifecyclePort",
     "ArtifactRetirement",

@@ -175,20 +175,6 @@ ALTER TABLE ONLY armi.artifact_object_deletions
     ADD CONSTRAINT artifact_object_deletions_pkey PRIMARY KEY (artifact_object_deletion_id);
 
 --
--- Name: artifact_object_deletion_attempts artifact_object_deletion_attempts_cycle_attempt_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.artifact_object_deletion_attempts
-    ADD CONSTRAINT artifact_object_deletion_attempts_cycle_attempt_key UNIQUE (artifact_object_deletion_id, retry_cycle, attempt_no);
-
---
--- Name: artifact_object_deletion_attempts artifact_object_deletion_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.artifact_object_deletion_attempts
-    ADD CONSTRAINT artifact_object_deletion_attempts_pkey PRIMARY KEY (artifact_object_deletion_attempt_id);
-
---
 -- Name: audit_events audit_events_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2108,9 +2094,6 @@ ALTER TABLE ONLY armi.artifact_publications
 
 ALTER TABLE ONLY armi.artifact_object_deletions
     ADD CONSTRAINT artifact_object_deletions_object_fkey FOREIGN KEY (artifact_object_id) REFERENCES armi.artifact_objects(artifact_object_id);
-
-ALTER TABLE ONLY armi.artifact_object_deletion_attempts
-    ADD CONSTRAINT artifact_object_deletion_attempts_deletion_fkey FOREIGN KEY (artifact_object_deletion_id) REFERENCES armi.artifact_object_deletions(artifact_object_deletion_id);
 
 ALTER TABLE ONLY armi.accepted_experiences
     ADD CONSTRAINT accepted_experiences_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);

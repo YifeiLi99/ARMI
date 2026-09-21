@@ -16,6 +16,7 @@ from .api import (
     ArtifactAdminContentPort,
     ArtifactAdminPort,
     ArtifactCatalogPort,
+    ArtifactDeletionSink,
     ArtifactLifecyclePort,
 )
 from .content_store import ContentAddressedArtifactStore
@@ -43,8 +44,11 @@ def bootstrap_artifact_lifecycle(
     storage: ContentAddressedArtifactStore,
     unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     durable_work: DurableWorkPort,
+    diagnostic: ArtifactDeletionSink | None = None,
 ) -> ArtifactLifecyclePort:
-    return ArtifactLifecycleCoordinator(storage, unit_of_work_factory, durable_work)
+    return ArtifactLifecycleCoordinator(
+        storage, unit_of_work_factory, durable_work, diagnostic
+    )
 
 
 __all__ = (

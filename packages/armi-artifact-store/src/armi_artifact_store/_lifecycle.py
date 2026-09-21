@@ -28,7 +28,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
-from .api import ArtifactDeletionState
+from .api import ArtifactDeletionDiagnostic, ArtifactDeletionSink, ArtifactDeletionState
 from .content_store import ContentAddressedArtifactStore
 
 _DELETE_RETRY_DELAYS = (5, 15, 30, 60, 120, 300, 600)
@@ -43,14 +43,16 @@ _DETERMINISTIC_DELETE_ERRORS = {
 class ArtifactLifecycleCoordinator:
     """Own generation-fenced physical deletion and crash recovery."""
 
-    __slots__ = ("_factory", "_stop", "_storage", "_work", "_worker_id")
+    __slots__ = ("_diagnostic", "_factory", "_stop", "_storage", "_work", "_worker_id")
 
     def __init__(
         self,
         storage: ContentAddressedArtifactStore,
         unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
         durable_work: DurableWorkPort,
+        diagnostic: ArtifactDeletionSink | None = None,
     ) -> None:
+        self._diagnostic = diagnostic
         self._storage = storage
         self._factory = unit_of_work_factory
         self._work = durable_work
@@ -328,22 +330,16 @@ class ArtifactLifecycleCoordinator:
                          AND o.generation=d.object_generation""",
                     (deletion_id,),
                 )
-                await unit.transaction.execute(
-                    """INSERT INTO armi.artifact_object_deletion_attempts
-                       (artifact_object_deletion_attempt_id,
-                        artifact_object_deletion_id,retry_cycle,attempt_no,
-                        result_status,settled_at)
-                       SELECT %s,d.artifact_object_deletion_id,d.retry_cycle,%s,
-                              'completed',clock_timestamp()
-                       FROM armi.artifact_object_deletions d
-                       WHERE d.artifact_object_deletion_id=%s
-                       ON CONFLICT (artifact_object_deletion_id,retry_cycle,attempt_no)
-                       DO NOTHING""",
-                    (
-                        record.lease.attempt_id.value,
+            # Attempt details are logs; deletion state is durable (DESIGN.md).
+            if self._diagnostic is not None:
+                self._diagnostic(
+                    ArtifactDeletionDiagnostic(
+                        str(deletion_id),
+                        str(record.lease.attempt_id.value),
                         record.attempt_count,
-                        deletion_id,
-                    ),
+                        "completed",
+                        None,
+                    )
                 )
             await self._work.complete(
                 record.lease,
@@ -370,24 +366,15 @@ class ArtifactLifecycleCoordinator:
                        WHERE artifact_object_deletion_id=%s""",
                     (status, error_code, blocked, deletion_id),
                 )
-                await unit.transaction.execute(
-                    """INSERT INTO armi.artifact_object_deletion_attempts
-                       (artifact_object_deletion_attempt_id,
-                        artifact_object_deletion_id,retry_cycle,attempt_no,
-                        result_status,error_code,settled_at)
-                       SELECT %s,d.artifact_object_deletion_id,d.retry_cycle,%s,
-                              %s,%s,clock_timestamp()
-                       FROM armi.artifact_object_deletions d
-                       WHERE d.artifact_object_deletion_id=%s
-                       ON CONFLICT (artifact_object_deletion_id,retry_cycle,attempt_no)
-                       DO NOTHING""",
-                    (
-                        record.lease.attempt_id.value,
+            if self._diagnostic is not None:
+                self._diagnostic(
+                    ArtifactDeletionDiagnostic(
+                        str(deletion_id),
+                        str(record.lease.attempt_id.value),
                         record.attempt_count,
                         attempt_status,
                         error_code,
-                        deletion_id,
-                    ),
+                    )
                 )
             if blocked:
                 await self._work.fail(record.lease, error_code=error_code)

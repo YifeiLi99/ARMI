@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
+from armi_artifact_store.api import ArtifactDeletionDiagnostic
 from armi_context.api import EmbeddingFailureDiagnostic
 from armi_kernel.contracts import Instant
 from armi_local_control.runtime_errors import RuntimeViolation
@@ -320,6 +321,15 @@ class StructuredDiagnosticLog:
         if details is not None:
             payload["details"] = details
         self._logger.log(level, payload)
+
+    def artifact_deletion(self, attempt: ArtifactDeletionDiagnostic) -> None:
+        self.emit(
+            "artifact.deletion.attempt",
+            level=logging.INFO
+            if attempt.result_status == "completed"
+            else logging.WARNING,
+            details=asdict(attempt),
+        )
 
     def embedding_failure(self, failure: EmbeddingFailureDiagnostic) -> None:
         self.emit(

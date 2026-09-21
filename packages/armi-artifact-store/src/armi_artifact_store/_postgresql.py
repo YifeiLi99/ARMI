@@ -53,10 +53,6 @@ class PostgreSQLArtifactCatalog:
                 "artifact_object_deletions",
                 "SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.artifact_object_deletions AS source ORDER BY to_jsonb(source)::text",
             ),
-            (
-                "artifact_object_deletion_attempts",
-                "SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.artifact_object_deletion_attempts AS source ORDER BY to_jsonb(source)::text",
-            ),
         )
         result: list[tuple[str, tuple[bytes, ...]]] = []
         for name, statement in statements:

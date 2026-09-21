@@ -19,7 +19,7 @@ def _capabilities(
 _RUNTIME_INSERT = """
 autonomy_plans
 accepted_experiences action_intents activities
-activity_decisions activity_revisions artifact_object_deletion_attempts
+activity_decisions activity_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts audit_events
 codex_result_sources codex_task_sources codex_verification_results
 cognition_maintenance_batch_sources cognition_maintenance_batches
@@ -82,7 +82,7 @@ visual_recognition_attempts web_observation_requests web_research_intents
 _ADMIN_INSERT = """
 admin_data_changes
 deployment_environments durable_work effect_observations mood_revisions
-mind_revisions subject_component_revisions artifact_object_deletion_attempts
+mind_revisions subject_component_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts
 """
 

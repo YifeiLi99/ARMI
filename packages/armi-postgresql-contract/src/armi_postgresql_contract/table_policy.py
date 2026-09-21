@@ -29,9 +29,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "subject_commits": TableOwnership("runtime", maintenance_writable=False),
     "subjects": TableOwnership("runtime", maintenance_writable=False),
     # Technical artifact catalog.
-    "artifact_object_deletion_attempts": TableOwnership(
-        "artifact-store", maintenance_writable=False
-    ),
     "artifact_object_deletions": TableOwnership(
         "artifact-store", maintenance_writable=False
     ),

@@ -2352,7 +2352,6 @@ def check_repository(root: Path) -> list[Violation]:
         "artifact_objects",
         "artifact_publications",
         "artifact_object_deletions",
-        "artifact_object_deletion_attempts",
     ):
         export_tables[table] = [
             (
