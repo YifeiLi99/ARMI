@@ -157,13 +157,38 @@ def _weighted_impact(importance: float | None, extent: float | None) -> float:
 
 
 def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Response:
+    return _derive_response(value, previous)
+
+
+def _derive_response(
+    value: Appraisal, previous: Appraisal | None = None, *, novelty: float | None = None
+) -> Response:
+    if novelty is None:
+        onset = _known_max(
+            value.suddenness,
+            value.discrepancy,
+            _supported_min(
+                None if value.familiarity is None else 1 - value.familiarity,
+                None if value.predictability is None else 1 - value.predictability,
+            ),
+        )
+        significance = _known_max(
+            value.relevance,
+            value.pleasantness,
+            value.unpleasantness,
+            value.urgency,
+            *(goal.relevance for goal in value.goals),
+        )
+        # A small orienting response remains possible without known stakes.
+        # The 0.25 floor is an engineering parameter, not a human constant.
+        novelty = onset * (0.25 + 0.75 * significance)
     if value.goals:
         # Keep goal phases separate: a realized loss and anticipated gain cannot
         # borrow each other's certainty or become a fabricated realized benefit.
         base = value.model_copy(
             update={"goals": (), "gain": None, "loss": None, "relevance": None}
         )
-        responses = [("event", derive_response(base))]
+        responses = [("event", _derive_response(base, novelty=novelty))]
         previous_goals = (
             {}
             if previous is None
@@ -229,19 +254,30 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
     negative = max(
         _weighted_impact(value.relevance, value.loss), value.unpleasantness or 0
     )
-    novelty = _known_max(
-        value.suddenness,
-        value.discrepancy,
-        _supported_min(
-            None if value.familiarity is None else 1 - value.familiarity,
-            None if value.predictability is None else 1 - value.predictability,
-        ),
-    )
     realized = value.phase == "realized" and value.epistemic == "confirmed"
     prospective = value.phase in {"anticipated", "ongoing"} or (
         value.phase == "realized" and value.epistemic in {"reported", "imagined"}
     )
-    threat = _supported_min(negative, value.likelihood) if prospective else 0.0
+    # Unknown probability supplies no expected outcome, while intrinsic stimulus
+    # properties remain independent evidence (Mood design: 本地计算).
+    if not realized:
+        probability = (value.likelihood or 0.0) if prospective else 0.0
+        positive = max(gain * probability, value.pleasantness or 0.0)
+        negative = max(
+            _weighted_impact(value.relevance, value.loss) * probability,
+            value.unpleasantness or 0.0,
+        )
+    threat = (
+        _weighted_impact(
+            value.likelihood,
+            max(
+                _weighted_impact(value.relevance, value.loss),
+                value.unpleasantness or 0.0,
+            ),
+        )
+        if prospective
+        else 0.0
+    )
     helplessness = (
         _supported_min(
             negative,
@@ -290,7 +326,7 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
     if prospective:
         add(
             EmotionKind.HOPE,
-            _supported_min(positive, value.likelihood),
+            _weighted_impact(value.likelihood, max(gain, value.pleasantness or 0.0)),
             "gain",
             "likelihood",
             "phase",
@@ -340,7 +376,16 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
                 "self_scope",
                 "self_violation",
             )
-    add(EmotionKind.SURPRISE, novelty, "suddenness", "discrepancy")
+    add(
+        EmotionKind.SURPRISE,
+        novelty,
+        "suddenness",
+        "discrepancy",
+        "relevance",
+        "pleasantness",
+        "unpleasantness",
+        "urgency",
+    )
     add(EmotionKind.RELIEF, relief, "previous.loss", "phase", "outcome_change")
     add(EmotionKind.DISAPPOINTMENT, disappointment, "previous.gain", "outcome_change")
     return Response(
@@ -445,15 +490,18 @@ def apply_appraisal(
     # Same unchanged interpretation must not recharge a fading emotional episode.
     if previous is not None and previous.appraisal == appraisal:
         return projected
+    response = derive_response(
+        appraisal, None if previous is None else previous.appraisal
+    )
+    if previous is not None:
+        response = _reappraise_response(previous, response, at, state.parameters)
     episode = AffectiveEpisode(
         event_id=event_id,
         situation_id=situation_id,
         observed_at=at,
         summary=summary,
         appraisal=appraisal,
-        response=derive_response(
-            appraisal, None if previous is None else previous.appraisal
-        ),
+        response=response,
     )
     return projected.model_copy(
         update={
@@ -464,6 +512,67 @@ def apply_appraisal(
                     if item.situation_id != situation_id
                 ),
                 episode,
+            ),
+        }
+    )
+
+
+def _reappraise_response(
+    previous: AffectiveEpisode,
+    new: Response,
+    at: datetime,
+    parameters: DynamicsParameters,
+) -> Response:
+    """Retain elapsed decay for unchanged evidence; inject only increased impact.
+
+    Response stores the effective contribution at observed_at. Recompute the
+    prior appraisal potential separately so repeated updates cannot recharge it.
+    """
+    old = derive_response(previous.appraisal)
+    decay = 2 ** (
+        -(at - previous.observed_at).total_seconds() / parameters.fast_half_life_seconds
+    )
+
+    def update(before: float, remaining: float, after: float) -> float:
+        if before * after <= 0:
+            return after
+        # One-off relief/disappointment may have amplified or reversed the prior
+        # response; it must not be carried forward as evidence for this impact.
+        remaining = math.copysign(
+            min(abs(before), abs(remaining)) if remaining * before > 0 else 0.0,
+            before,
+        )
+        if abs(after) <= abs(before):
+            return remaining * decay * abs(after / before)
+        return remaining * decay + after - before
+
+    old_components = {(e.kind, e.basis): e.intensity for e in old.emotions}
+    remaining_components = {
+        (e.kind, e.basis): e.intensity for e in previous.response.emotions
+    }
+    return new.model_copy(
+        update={
+            "affect": Affect(
+                **{
+                    axis: update(
+                        getattr(old.affect, axis),
+                        getattr(previous.response.affect, axis),
+                        getattr(new.affect, axis),
+                    )
+                    for axis in ("valence", "arousal")
+                }
+            ),
+            "emotions": tuple(
+                e.model_copy(
+                    update={
+                        "intensity": update(
+                            old_components.get((e.kind, e.basis), 0.0),
+                            remaining_components.get((e.kind, e.basis), 0.0),
+                            e.intensity,
+                        )
+                    }
+                )
+                for e in new.emotions
             ),
         }
     )

@@ -109,6 +109,148 @@ def test_unknown_coping_does_not_create_helplessness():
     assert "control" in response.unknown
 
 
+@pytest.mark.parametrize("direction", ["gain", "loss"])
+def test_uncertain_outcomes_scale_feeling_and_emotion_together(direction):
+    responses = [
+        derive_response(
+            appraisal(
+                relevance=0.5, phase="anticipated", likelihood=p, **{direction: 1}
+            )
+        )
+        for p in (0, 0.25, 0.75, 1)
+    ]
+    magnitudes = [abs(r.affect.valence) for r in responses]
+    assert magnitudes[0] == 0
+    assert magnitudes[0] < magnitudes[1] < magnitudes[2] < magnitudes[3]
+    for response in responses[1:]:
+        assert response.emotions[0].intensity == abs(response.affect.valence)
+    unknown = derive_response(
+        appraisal(relevance=1, phase="anticipated", **{direction: 1})
+    )
+    assert unknown.affect.valence == 0
+    assert "likelihood" in unknown.unknown
+
+
+def test_uncertainty_does_not_discount_direct_stimulus_or_confirmed_outcome():
+    direct = derive_response(
+        appraisal(phase="anticipated", likelihood=0, unpleasantness=0.5)
+    )
+    assert direct.affect.valence == -0.5
+    confirmed = derive_response(
+        appraisal(phase="realized", likelihood=None, relevance=1, gain=1)
+    )
+    assert confirmed.affect.valence == 1
+
+
+def test_minor_surprise_is_smaller_but_strong_stimulus_can_still_startle():
+    minor = derive_response(appraisal(suddenness=1, relevance=0.25))
+    major = derive_response(appraisal(suddenness=1, relevance=1))
+    sensory = derive_response(appraisal(suddenness=1, relevance=0, unpleasantness=1))
+    assert 0 < minor.affect.arousal < major.affect.arousal
+    assert sensory.affect.arousal == major.affect.arousal
+    scoped = derive_response(
+        appraisal(
+            suddenness=1,
+            goals=(
+                GoalAppraisal(
+                    reference="important",
+                    relevance=1,
+                    gain=1,
+                    loss=0,
+                    likelihood=1,
+                    phase="realized",
+                ),
+            ),
+        )
+    )
+    assert scoped.affect.arousal == major.affect.arousal
+
+
+def test_coping_updates_preserve_decay_in_feeling_and_displayed_sadness():
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    value = appraisal(relevance=1, loss=1, phase="realized")
+    original = apply_appraisal(
+        initial_dynamics(now, DynamicsParameters()),
+        event_id="loss",
+        situation_id="file",
+        appraisal=value,
+        at=now,
+    )
+    state = original
+    for minute, control in ((2, 0.25), (3, 0.5), (4, 1)):
+        at = now + timedelta(minutes=minute)
+        state = apply_appraisal(
+            state,
+            event_id=str(minute),
+            situation_id="file",
+            appraisal=value.model_copy(update={"control": control}),
+            at=at,
+        )
+        assert current_affect(state, at).valence == pytest.approx(
+            current_affect(original, at).valence
+        )
+        sadness = next(
+            e.intensity
+            for e in state.episodes[0].response.emotions
+            if e.kind == EmotionKind.SADNESS
+        )
+        assert sadness == pytest.approx(2 ** (-minute / 5))
+
+
+def test_reduced_risk_improves_feeling_and_new_loss_can_reverse_direction():
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    value = appraisal(relevance=1, loss=1, phase="anticipated", likelihood=0.75)
+    state = apply_appraisal(
+        initial_dynamics(now, DynamicsParameters()),
+        event_id="risk",
+        situation_id="file",
+        appraisal=value,
+        at=now,
+    )
+    at = now + timedelta(minutes=2)
+    before = current_affect(state, at)
+    state = apply_appraisal(
+        state,
+        event_id="reduced",
+        situation_id="file",
+        appraisal=value.model_copy(update={"likelihood": 0.25}),
+        at=at,
+    )
+    assert before.valence < current_affect(state, at).valence < 0
+    at += timedelta(minutes=1)
+    state = apply_appraisal(
+        state,
+        event_id="confirmed",
+        situation_id="file",
+        appraisal=appraisal(relevance=1, gain=1, phase="realized"),
+        at=at,
+    )
+    assert current_affect(state, at).valence > 0
+
+
+def test_disappointment_does_not_amplify_followup_loss_beyond_bounds():
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    state = initial_dynamics(now, DynamicsParameters())
+    for minute, value in enumerate(
+        (
+            appraisal(relevance=1, gain=1, phase="anticipated", likelihood=1),
+            appraisal(
+                relevance=1, loss=0.25, phase="realized", outcome_change="benefit_lost"
+            ),
+            appraisal(relevance=1, loss=0.5, phase="realized"),
+        )
+    ):
+        state = apply_appraisal(
+            state,
+            event_id=str(minute),
+            situation_id="plan",
+            appraisal=value,
+            at=now + timedelta(minutes=minute),
+        )
+    assert -0.5 <= state.episodes[0].response.affect.valence < 0
+    assert all(0 <= e.intensity <= 1 for e in state.episodes[0].response.emotions)
+
+
 def test_mixed_emotions_are_not_cancelled_by_neutral_valence():
     response = derive_response(appraisal(relevance=1, loss=1, gain=1, phase="realized"))
     assert response.affect.valence == 0
