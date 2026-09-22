@@ -305,7 +305,10 @@ def test_freezing_context_rejects_ambiguous_reference_identity(
     assert transaction.calls == []
 
 
-def test_preparation_freezes_references_with_artifact_identity_in_one_write() -> None:
+@pytest.mark.parametrize("section", ["evidence", "focus"])
+def test_preparation_freezes_references_with_artifact_identity_in_one_write(
+    section: str,
+) -> None:
     episode_id, opportunity_id, subject_id = uuid7(), uuid7(), uuid7()
     transaction = _Transaction(
         _Result(
@@ -330,6 +333,7 @@ def test_preparation_freezes_references_with_artifact_identity_in_one_write() ->
         cast(Any, _Experiences(())), cast(Any, _Maintenance())
     )
     item = _frozen_item()
+    item["section"] = section
     snapshot = asyncio.run(
         owner.mark_context_prepared(
             cast(Any, transaction),

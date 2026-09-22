@@ -10760,8 +10760,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_missing_selected_model_credential_runtime_degrades(self) -> None:
         self._exercise_born_runtime(configured_models=True, missing_model=True)
 
+    @pytest.mark.test_group("runtime", "cognition", "context", "mind", "mood")
+    def test_born_runtime_shared_appraisal_through_reply_delivery(self) -> None:
+        self._exercise_born_runtime(configured_models=True, provider_roundtrip=True)
+
     def _exercise_born_runtime(
-        self, *, configured_models: bool, missing_model: bool = False
+        self,
+        *,
+        configured_models: bool,
+        missing_model: bool = False,
+        provider_roundtrip: bool = False,
     ) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -11009,8 +11017,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             process = subprocess.Popen(
                 (
                     sys.executable,
-                    "-m",
-                    "armi_runtime.runtime_entrypoint",
+                    *(
+                        (str(Path("tests/fixtures/runtime_provider.py").resolve()),)
+                        if provider_roundtrip
+                        else ("-m", "armi_runtime.runtime_entrypoint")
+                    ),
                     "runtime",
                     "start",
                     "--environment-root",
@@ -11123,6 +11134,69 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             runtime_status["reason_codes"],
                             ["RUNTIME_MODEL_UNAVAILABLE"] if missing_model else [],
                         )
+                        if provider_roundtrip:
+                            connection.request(
+                                "POST",
+                                "/v1/scenes/default/messages",
+                                body=json.dumps(
+                                    {"message": "你好。请回一句。"}
+                                ).encode(),
+                                headers={
+                                    **authenticated_headers,
+                                    "Content-Type": "application/json",
+                                    "Idempotency-Key": "isolated-provider-roundtrip",
+                                },
+                            )
+                            response = connection.getresponse()
+                            accepted = json.loads(response.read())
+                            self.assertEqual(response.status, 202, accepted)
+                            interaction_id = accepted["details"]["interaction_id"]
+                            from tools.verify_live_creator_roundtrip import (
+                                _read_state,
+                                _verified_reply,
+                            )
+
+                            with psycopg.connect(
+                                fixture.runtime_dsn, autocommit=True
+                            ) as db:
+                                deadline = time.monotonic() + 30
+                                while time.monotonic() < deadline:
+                                    state = _read_state(db, interaction_id)
+                                    if state.delivery_status == "delivered":
+                                        break
+                                    self.assertNotEqual(
+                                        state.episode_status, "failed", state
+                                    )
+                                    self.assertIsNone(process.poll())
+                                    time.sleep(0.1)
+                                self.assertEqual(
+                                    state.episode_status, "completed", state
+                                )
+                                self.assertEqual(
+                                    state.effect_status, "completed", state
+                                )
+                                self.assertEqual(
+                                    state.verification_status, "verified", state
+                                )
+                                self.assertEqual(
+                                    state.delivery_status, "delivered", state
+                                )
+                                self.assertEqual(
+                                    _verified_reply(environment_root, state),
+                                    "隔离测试收到。",
+                                )
+                                self.assertEqual(
+                                    db.execute(
+                                        "SELECT count(*) FROM armi.event_appraisals"
+                                    ).fetchone(),
+                                    (1,),
+                                )
+                                self.assertEqual(
+                                    db.execute(
+                                        "SELECT count(*) FROM armi.cognitive_attempts"
+                                    ).fetchone(),
+                                    (1,),
+                                )
                         process.send_signal(signal.CTRL_BREAK_EVENT)
                         process.communicate(timeout=35)
                         if missing_model:

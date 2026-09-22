@@ -401,7 +401,7 @@ flowchart TD
 
 Cognition 的 Focus 以 `focus_revisions` 持久保存有依据的问题、未实施意向、理由、结束条件、当前认识、等待与复查。每轮最多四项变更，不限制长期保留数。新认识在正常主认知形成；维护中的 `reflect_focus` 使用相同关注变更合同，不新增每轮反思调用。关注不强制成为 Activity。
 
-Runtime 启动时构建所有主认知适配器，`reflect_focus` 只使用 Focus 反思合同。隔离启动检查同时覆盖已配置模型与缺少所选模型凭据：后者以 `RUNTIME_MODEL_UNAVAILABLE` 降级，具体模型错误码写入诊断，不充当生命周期状态码。
+Runtime 启动时构建所有主认知适配器，`reflect_focus` 只使用 Focus 反思合同。冻结 Context 接受独立的 `focus` 分区，保留条目来源与版本。隔离启动检查同时覆盖已配置模型与缺少所选模型凭据：后者以 `RUNTIME_MODEL_UNAVAILABLE` 降级，具体模型错误码写入诊断，不充当生命周期状态码。完整隔离对话只替换外部 HTTP 返回，检查共享评价、主认知、Subject Commit 和回复交付，并断言一轮只有一份评价记录与一次主模型尝试。
 
 Focus 到期复查将冻结的来源提交与复查时间作为稳定复查键，经 Jev 目标和解析结果传到 Mind owner；相同复查键不重复产生条件版本。已知活动对象省去联系缺口题，联系需求仍在具体事件或联系意向对象上评价，不能由活动身份创造联系人。其余领域没有结构依据判定不适用时保留题目，由 Jev 返回 unknown 或 not_applicable。
 

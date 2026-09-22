@@ -490,6 +490,7 @@ def _validate_context_items(items: tuple[dict[str, object], ...]) -> None:
                     "purpose",
                     "self",
                     "mind",
+                    "focus",
                     "mood",
                     "life_mode",
                     "scene",
