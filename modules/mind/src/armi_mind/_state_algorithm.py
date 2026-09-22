@@ -214,27 +214,22 @@ def derive_mind(
     def complete(*keys: str) -> bool:
         return all(known.get(key) is not None for key in keys)
 
-    exploration = None
-    # Known annihilators determine the formula without imputing unknown inputs.
-    # A demonstrably incomprehensible object cannot gain exploration from novelty.
-    if known.get("information_gap") == 0 or known.get("comprehensibility") == 0:
-        exploration = 0.0
-    elif complete(
-        "information_gap",
-        "comprehensibility",
-        "information_value",
-        "learning_progress",
-        "novelty",
-    ):
-        exploration = (
-            known["information_gap"]
-            * known["comprehensibility"]
+    # The formula is monotone on [0, 1]. Equal endpoint results mean every
+    # completion of missing inputs agrees; no unknown fact is filled in.
+    # See DESIGN's Mind offline mechanism experiments.
+    def exploration_bound(missing: float) -> float:
+        return (
+            known.get("information_gap", missing)
+            * known.get("comprehensibility", missing)
             * max(
-                known["information_value"],
-                known["learning_progress"],
-                parameters.novelty_weight * known["novelty"],
+                known.get("information_value", missing),
+                known.get("learning_progress", missing),
+                parameters.novelty_weight * known.get("novelty", missing),
             )
         )
+
+    low, high = exploration_bound(0.0), exploration_bound(1.0)
+    exploration = low if low == high else None
     fit = adjustment = None
     if (
         known.get("meaning") == 0
@@ -329,19 +324,41 @@ def update_mind_object(
         previous.last_review_key if previous else None,
         previous.condition_reason if previous else None,
     )
+    unknown = {v.variable.value for v in variables if v.quality == MindChoice.UNKNOWN}
+    known_motives = dict(derived.motives)
+    # A missing input only blocks rearming if its motive is unresolved. For
+    # example G=0 fixes exploration at zero even when novelty is unknown.
     unresolved_trigger_evidence = any(
-        variable.quality == MindChoice.UNKNOWN
-        and variable.variable
-        not in {
-            MindVariable.AUTONOMY_SATISFACTION,
-            MindVariable.COMPETENCE_SATISFACTION,
-            MindVariable.RELATEDNESS_SATISFACTION,
-        }
-        for variable in variables
+        value is None and unknown.intersection(inputs)
+        for value, inputs in (
+            (
+                derived.exploration,
+                (
+                    "information_gap",
+                    "comprehensibility",
+                    "information_value",
+                    "learning_progress",
+                    "novelty",
+                ),
+            ),
+            (
+                derived.engagement_adjustment,
+                ("meaning", "understimulation", "overload"),
+            ),
+            (derived.contact_need, ("contact_gap",)),
+            *(
+                (known_motives.get(name), (name,))
+                for name in (
+                    "autonomy_frustration",
+                    "competence_frustration",
+                    "relatedness_frustration",
+                )
+            ),
+        )
     )
     if (
         derived.priority is not None
-        and derived.priority <= parameters.rearm_threshold
+        and derived.priority < parameters.rearm_threshold
         and not unresolved_trigger_evidence
     ):
         state = replace(state, armed=True)
@@ -354,11 +371,11 @@ def update_mind_object(
         return state
     last_motives = dict(state.condition_motives)
     prior_motives = dict(before.motives) if before else {}
+    # An intervening unknown does not erase the last trigger's known baseline.
     material = any(
         key in last_motives
-        and key in prior_motives
         and abs(value - last_motives[key]) >= parameters.material_change
-        and value != prior_motives[key]
+        and value != prior_motives.get(key)
         for key, value in derived.motives
     )
     restored = previous is not None and previous.opportunity in {

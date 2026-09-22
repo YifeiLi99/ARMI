@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import pytest
 from armi_mind.api import (
+    MIND_PARAMETERS,
     Association,
     GroundedObject,
     MindChoice,
@@ -172,6 +173,90 @@ def test_due_review_is_explicit_and_one_time():
     assert state.condition_version == 2
 
 
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        (
+            {
+                "information_gap": "level_3",
+                "comprehensibility": "level_4",
+                "information_value": "level_4",
+                "learning_progress": "unknown",
+                "novelty": "unknown",
+            },
+            0.75,
+        ),
+        (
+            {
+                "information_gap": "level_4",
+                "comprehensibility": "level_4",
+                "information_value": "level_0",
+                "learning_progress": "level_2",
+                "novelty": "unknown",
+            },
+            0.5,
+        ),
+        (
+            {
+                "information_gap": "unknown",
+                "comprehensibility": "unknown",
+                "information_value": "level_0",
+                "learning_progress": "level_0",
+                "novelty": "level_0",
+            },
+            0.0,
+        ),
+        (
+            {
+                "information_gap": "level_4",
+                "comprehensibility": "level_4",
+                "information_value": "unknown",
+                "learning_progress": "level_2",
+                "novelty": "level_0",
+            },
+            None,
+        ),
+    ],
+)
+def test_exploration_uses_only_mathematically_determined_unknown_completions(
+    values, expected
+):
+    state = update_mind_object(evidence(**values))
+    assert derive_mind(state.variables).exploration == expected
+    for variable in state.variables:
+        if values[variable.variable.value] == "unknown":
+            assert variable.quality == MindChoice.UNKNOWN
+            assert variable.value is None
+
+
+def test_material_change_after_unknown_uses_last_trigger_evidence():
+    first = update_mind_object(evidence(contact_gap="level_4", importance="level_4"))
+    uncertain = update_mind_object(
+        evidence(key="2", contact_gap="unknown"), previous=first
+    )
+    changed = update_mind_object(
+        evidence(key="3", contact_gap="level_3"), previous=uncertain
+    )
+    assert changed.condition_version == 2
+    assert changed.condition_reason == "material_change"
+    assert mind_condition_eligible(changed, consumed_versions=frozenset({1}))
+
+
+def test_rearm_requires_strictly_below_threshold():
+    parameters = replace(MIND_PARAMETERS, rearm_threshold=0.375)
+    first = update_mind_object(
+        evidence(contact_gap="level_4", importance="level_3"), parameters=parameters
+    )
+    equal = update_mind_object(
+        evidence(key="2", contact_gap="level_2"), previous=first, parameters=parameters
+    )
+    assert not equal.armed
+    lower = update_mind_object(
+        evidence(key="3", contact_gap="level_1"), previous=equal, parameters=parameters
+    )
+    assert lower.armed
+
+
 def test_unknown_high_motive_cannot_rearm_from_an_unrelated_known_zero():
     state = update_mind_object(
         evidence(
@@ -189,6 +274,27 @@ def test_unknown_high_motive_cannot_rearm_from_an_unrelated_known_zero():
     )
     assert recovered.condition_version == 1
     assert not mind_condition_eligible(recovered, consumed_versions=frozenset({1}))
+
+
+def test_unknown_cannot_block_rearm_when_its_formula_is_determined():
+    first = update_mind_object(
+        evidence(
+            contact_gap="level_4",
+            importance="level_4",
+            information_gap="level_0",
+            comprehensibility="unknown",
+            information_value="unknown",
+            learning_progress="unknown",
+            novelty="unknown",
+        )
+    )
+    lower = update_mind_object(evidence(key="2", contact_gap="level_1"), previous=first)
+    assert derive_mind(lower.variables).exploration == 0
+    assert lower.armed
+    restored = update_mind_object(
+        evidence(key="3", contact_gap="level_4"), previous=lower
+    )
+    assert restored.condition_version == 2
 
 
 def test_object_isolation_stale_evidence_and_source_invalidation():
