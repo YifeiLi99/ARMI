@@ -62,7 +62,7 @@ EN_CRITERIA = {
 }
 
 
-def request_body(case):
+def request_body(case, *, context_language=None):
     original = appraisal_questions(())
     questions = {}
     for field in FIELDS:
@@ -107,11 +107,22 @@ def request_body(case):
             "false": "No such progress is supported by the supplied information",
         },
     }
+    if context_language is not None:
+        # A/B changes only background language; both arms use identical English questions.
+        if context_language not in {"zh", "en"}:
+            raise ValueError("FACT-CONTEXT-LANGUAGE")
+        questions = {
+            name: question
+            for name, question in questions.items()
+            if name.startswith("focused_en_")
+        }
     return {
         "model": JEV_MODEL,
         "state": {
             "event": {"id": case["id"], "content": case["scene"]},
-            "context": case.get("context", []),
+            "context": case["context_en"]
+            if context_language == "en"
+            else case.get("context", []),
             "previous_situations": [],
         },
         "questions": questions,
@@ -171,7 +182,11 @@ def validate_answer(answer, question):
     )
 
 
-async def run(config, output, *, live=False, transport=None):
+async def run(config, output, *, live=False, transport=None, context_language=None):
+    bodies = [
+        request_body(case, context_language=context_language)
+        for case in config["cases"]
+    ]
     output.mkdir(parents=True, exist_ok=False)
     save(output / "config.json", config)
     key = load_key(None) if live else ""
@@ -179,8 +194,7 @@ async def run(config, output, *, live=False, transport=None):
     async with httpx.AsyncClient(
         timeout=30, follow_redirects=False, trust_env=False, transport=transport
     ) as client:
-        for case in config["cases"]:
-            body = request_body(case)
+        for case, body in zip(config["cases"], bodies, strict=True):
             row = {"case": case["id"], "request": body, "status": "preview"}
             if live:
                 start = time.perf_counter()
@@ -213,7 +227,12 @@ async def run(config, output, *, live=False, transport=None):
                         if not validate_answer(raw["answers"][name], question)
                     ]
                     row["mismatches"] = {}
-                    for variant in ("baseline", "focused_zh", "focused_en"):
+                    variants = (
+                        ("focused_en",)
+                        if context_language is not None
+                        else ("baseline", "focused_zh", "focused_en")
+                    )
+                    for variant in variants:
                         row["mismatches"][variant] = [
                             field
                             for field, accepted in case.get("expected", {}).items()
@@ -241,8 +260,16 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--context-language", choices=("zh", "en"))
     args = parser.parse_args()
-    rows = asyncio.run(run(load_yaml_file(args.config), args.output, live=args.live))
+    rows = asyncio.run(
+        run(
+            load_yaml_file(args.config),
+            args.output,
+            live=args.live,
+            context_language=args.context_language,
+        )
+    )
     print(
         {
             "cases": len(rows),

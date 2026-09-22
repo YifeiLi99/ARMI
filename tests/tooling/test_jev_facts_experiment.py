@@ -62,6 +62,23 @@ def test_preview_is_offline(tmp_path, monkeypatch):
     assert rows[0]["status"] == "preview"
 
 
+def test_background_language_comparison_preserves_quote_and_questions():
+    value = case() | {
+        "scene": "Chinese original quote",
+        "context": [{"content": "original background"}],
+        "context_en": [{"content": "translated background"}],
+    }
+    zh = experiment.request_body(value, context_language="zh")
+    en = experiment.request_body(value, context_language="en")
+    assert zh["questions"] == en["questions"]
+    assert len(en["questions"]) == 4
+    assert all(name.startswith("focused_en_") for name in en["questions"])
+    assert zh["state"]["event"] == en["state"]["event"]
+    assert en["state"]["context"] == value["context_en"]
+    assert zh["state"]["context"] == value["context"]
+    assert "hidden_gold" not in json.dumps(en)
+
+
 def test_http_failure_stops_without_retry_or_secret_logging(tmp_path, monkeypatch):
     monkeypatch.setattr(experiment, "load_key", lambda _: "test-secret")
     requests = []

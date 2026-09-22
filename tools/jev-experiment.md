@@ -11,6 +11,14 @@
 
 输出目录必须是新目录。默认离线，不读凭据；`--live` 沿用下述隔离 Jev 实验凭据。预期不发送给 Provider。Choice 校验原始选项及概率，Score 校验等级、分布与加权值，Noul 保留其概率；证据是否充分另作独立 Choice，不将 Score 的数字当成有证据的事实。无效单项保留并标记，网络或顶层合同失败结束本次批次。所有探针都只记录，不用于计算心情。详细研究与结果见本地 `docs/06-实验记录/Jev/08-Jev事实评价提示与题型对照.md`。
 
+背景语言对照使用 `--context-language zh` 或 `--context-language en`，两组都只发送相同的四个英文 Choice 问题，分别读取 `context` 或人工核对的 `context_en`；`scene` 中文原话逐字保留，不启动翻译模型。现成双语输入是 `configs/jev-mood-generalization-experiment.yaml`。例如：
+
+```powershell
+.\.venv\Scripts\python.exe tools/experiment_jev_facts.py --config configs/jev-mood-generalization-experiment.yaml --context-language en --output .tmp/jev-facts-english-background --live
+```
+
+这是隔离实验选项，不自动翻译正式主体的经历或改写正式 Mood 题库。
+
 从仓库根使用受管 `.venv/Scripts/python.exe` 运行 `tools/experiment_jev.py`。
 此入口只发送 [配置](../configs/jev-experiment.yaml) 中的人工场景，不读取当前主体或安装版环境，
 不接入 Runtime、不写数据库、不运行完整认知或发送消息。自主场景复用
