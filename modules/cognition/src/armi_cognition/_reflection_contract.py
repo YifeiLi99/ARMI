@@ -32,10 +32,6 @@ REFLECT_MIND_INSTRUCTIONS = (
     + "\n\n# 动机评价\n\n"
     + MIND_APPRAISAL_INSTRUCTIONS
 )
-REFLECT_MOOD_INSTRUCTIONS = """\
-# 本轮心情反思任务与边界
-
-你只负责请求 Mood Owner 执行长期基线反思，不能填写 home_base、情绪、VAD 或任何动力学参数。冻结资料存在心情状态时可提交空的 MoodReflectionRequest 及当前 expected_version；证据门槛、时间采样、目标和每轴调整全部由 Mood Owner 确定。不得删除事件，或修改 Self、Mind、Prompt、记忆、关系、活动和对外表达。只输出给定 JSON Schema。"""
 REFLECT_PROMPT_INSTRUCTIONS = """\
 # 本轮方法反思任务与边界
 
@@ -50,26 +46,16 @@ class _StrictModel(BaseModel, frozen=True):
         return OWNER_REFLECTION_CANDIDATE_VERSION
 
 
-class MoodReflectionRequest(_StrictModel, frozen=True):
-    pass
-
-
 class OwnerReflectionCandidate(_StrictModel, frozen=True):
     kind: Literal["no_change", "update"]
-    target: Literal["self", "mind", "mood", "prompt"]
+    target: Literal["self", "mind", "prompt"]
     summary: Annotated[
         str,
         StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN),
     ]
     basis_refs: tuple[ContextRef, ...] = Field(max_length=8)
     expected_version: int | None
-    next_state: (
-        SelfState
-        | MindState
-        | MoodReflectionRequest
-        | DialogueSubjectPromptChange
-        | None
-    )
+    next_state: SelfState | MindState | DialogueSubjectPromptChange | None
 
 
 class NoReflectionChange(OwnerReflectionCandidate, frozen=True):
@@ -96,11 +82,6 @@ class MindReflectionUpdate(_ReflectionUpdate, frozen=True):
     next_state: MindState = Field(...)
 
 
-class MoodReflectionUpdate(_ReflectionUpdate, frozen=True):
-    target: Literal["mood"]
-    next_state: MoodReflectionRequest = Field(...)
-
-
 class PromptReflectionUpdate(_ReflectionUpdate, frozen=True):
     target: Literal["prompt"]
     expected_version: int = Field(..., ge=0)
@@ -110,10 +91,7 @@ class PromptReflectionUpdate(_ReflectionUpdate, frozen=True):
 ReflectionWire = Annotated[
     NoReflectionChange
     | Annotated[
-        SelfReflectionUpdate
-        | MindReflectionUpdate
-        | MoodReflectionUpdate
-        | PromptReflectionUpdate,
+        SelfReflectionUpdate | MindReflectionUpdate | PromptReflectionUpdate,
         Field(discriminator="target"),
     ],
     Field(discriminator="kind"),
@@ -129,10 +107,6 @@ class NoMindChange(NoReflectionChange, frozen=True):
     target: Literal["mind"]
 
 
-class NoMoodChange(NoReflectionChange, frozen=True):
-    target: Literal["mood"]
-
-
 class NoPromptChange(NoReflectionChange, frozen=True):
     target: Literal["prompt"]
 
@@ -143,9 +117,6 @@ _TARGET_ADAPTERS: dict[str, TypeAdapter[OwnerReflectionCandidate]] = {
     ),
     "mind": TypeAdapter(
         Annotated[NoMindChange | MindReflectionUpdate, Field(discriminator="kind")]
-    ),
-    "mood": TypeAdapter(
-        Annotated[NoMoodChange | MoodReflectionUpdate, Field(discriminator="kind")]
     ),
     "prompt": TypeAdapter(
         Annotated[NoPromptChange | PromptReflectionUpdate, Field(discriminator="kind")]
@@ -174,10 +145,8 @@ def parse_owner_reflection(
 __all__ = (
     "OWNER_REFLECTION_CANDIDATE_VERSION",
     "REFLECT_MIND_INSTRUCTIONS",
-    "REFLECT_MOOD_INSTRUCTIONS",
     "REFLECT_PROMPT_INSTRUCTIONS",
     "REFLECT_SELF_INSTRUCTIONS",
-    "MoodReflectionRequest",
     "OwnerReflectionCandidate",
     "owner_reflection_schema",
     "parse_owner_reflection",

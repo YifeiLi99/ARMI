@@ -327,7 +327,7 @@ class CreatorOperation:
             if (
                 type(self.failure_code) is not str
                 or re.fullmatch(
-                    r"(?:CTX|COGNITION|MODEL|CANDIDATE|SUBJECT|RESPONSE|POLICY|ACTION)-[A-Z0-9-]+",
+                    r"(?:CTX|MOOD|COGNITION|MODEL|CANDIDATE|SUBJECT|RESPONSE|POLICY|ACTION)-[A-Z0-9-]+",
                     self.failure_code,
                 )
                 is None

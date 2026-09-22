@@ -9,12 +9,6 @@ from typing import Any
 import pytest
 from armi_kernel.application import ModelViolation
 from armi_mind.api import DialogueMindChange
-from armi_mood.api import (
-    AppraisalSemanticSignal,
-    MoodSemanticAppraisalCommand,
-    MoodViolation,
-    semantic_appraisal_from_command,
-)
 from armi_runtime.adapters.model.structured import _provider_output_schema
 from armi_runtime.composition.model_verification import (
     candidate_schema,
@@ -28,87 +22,6 @@ def _provider(schema):
     return Draft202012Validator(
         _provider_output_schema(schema, available_refs=("ctx:1",))
     )
-
-
-def _signal():
-    return {
-        "engagement": "satisfying",
-        "concerns": [
-            {"target": "self_goal", "significance": "direct", "direction": "unchanged"}
-        ],
-        "expectedness": "somewhat_unexpected",
-        "outcome_certainty": "open",
-        "intrinsic_quality": "pleasant",
-        "self_involvement": "important",
-        "demand": None,
-        "causality": None,
-        "coping": None,
-        "standards": None,
-    }
-
-
-@pytest.mark.parametrize(
-    "text,accepted",
-    [
-        (" unexplained light change", False),
-        ("说明 \n", False),
-        ("多行\n摘要", True),
-        ("", False),
-        (" \n\t", False),
-        ("\x1c\x1d\x1e\x1f", False),
-        ("bad\x00text", False),
-        ("x" * 65, False),
-    ],
-)
-def test_mood_gist_schema_parser_and_owner_agree_without_trimming(text, accepted):
-    value = dict(
-        schema_kind="armi.mood-appraisal",
-        transition="new",
-        previous_episode_id=None,
-        event_phase="ongoing",
-        gist=text,
-        change_from_previous=None,
-        appraisal=_signal(),
-    )
-    assert (
-        _provider(MoodSemanticAppraisalCommand.model_json_schema()).is_valid(
-            {"candidate": value}
-        )
-        is accepted
-    )
-    if accepted:
-        typed = MoodSemanticAppraisalCommand.model_validate_json(json.dumps(value))
-        assert semantic_appraisal_from_command(typed).gist == text
-    else:
-        with pytest.raises(ValidationError):
-            MoodSemanticAppraisalCommand.model_validate_json(json.dumps(value))
-
-
-def test_mood_conflicting_assessments_remain_an_owner_semantic_rejection():
-    value = _signal()
-    value["concerns"].append(
-        {"target": "self_goal", "significance": "core", "direction": "fulfilled"}
-    )
-    assert _provider(AppraisalSemanticSignal.model_json_schema()).is_valid(
-        {"candidate": value}
-    )
-    typed = AppraisalSemanticSignal.model_validate_json(json.dumps(value))
-    command = MoodSemanticAppraisalCommand(
-        schema_kind="armi.mood-appraisal",
-        transition="new",
-        previous_episode_id=None,
-        event_phase="ongoing",
-        gist="conflicting assessments",
-        change_from_previous=None,
-        appraisal=typed,
-    )
-    with pytest.raises(MoodViolation):
-        semantic_appraisal_from_command(command)
-    value["concerns"][-1]["target"] = "relationship"
-    assert _provider(AppraisalSemanticSignal.model_json_schema()).is_valid(
-        {"candidate": value}
-    )
-    AppraisalSemanticSignal.model_validate_json(json.dumps(value))
 
 
 @pytest.mark.parametrize(
@@ -214,7 +127,6 @@ def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted
         "mind_appraisals": [],
         "concern_changes": [],
         "mind_change": None,
-        "appraisal": None,
         "expression": None,
     }
     assert (

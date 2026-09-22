@@ -6,7 +6,6 @@ from typing import Annotated, Any, Literal
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mind.api import ConcernChange, MindAppraisal
-from armi_mood.api import AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._strict_model_json import strict_model_value
@@ -43,7 +42,6 @@ class IgnoreVisualObservation(_StrictModel):
     mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["ignore"]
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AcceptVisualExperience(_StrictModel):
@@ -51,7 +49,6 @@ class AcceptVisualExperience(_StrictModel):
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["experience"]
     experience: VisualExperience
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 VisualObservationCandidate = Annotated[

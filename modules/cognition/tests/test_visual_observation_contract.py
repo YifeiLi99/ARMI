@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 
 def test_visual_candidate_can_only_ignore_or_form_private_experience() -> None:
-    ignored = parse_visual_observation_candidate({"kind": "ignore", "appraisal": None})
+    ignored = parse_visual_observation_candidate({"kind": "ignore"})
     assert ignored.kind == "ignore"
     accepted = parse_visual_observation_candidate(
         {
@@ -16,7 +16,6 @@ def test_visual_candidate_can_only_ignore_or_form_private_experience() -> None:
                 "fact_class": "external_claim",
                 "uncertainty": "这是视觉模型的解释。",
             },
-            "appraisal": None,
         }
     )
     assert accepted.kind == "experience"

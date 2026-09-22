@@ -99,7 +99,9 @@ def test_verify_changed_secret_cannot_claim_success(tmp_path):
     assert verification["error_code"] == "SETUP-CREDENTIAL-CHANGED"
 
 
-@pytest.mark.parametrize("name", ["model.qwen_api_key", "model.deepseek_api_key"])
+@pytest.mark.parametrize(
+    "name", ["model.qwen_api_key", "model.deepseek_api_key", "mood.jev_api_key"]
+)
 def test_new_provider_key_adds_locator_once_and_preserves_other_configuration(
     tmp_path, name
 ):

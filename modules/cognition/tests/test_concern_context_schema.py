@@ -26,8 +26,7 @@ def test_concern_and_emotional_episode_references_cannot_be_interchanged():
     close["concern_ref"] = "ctx:3"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(value, schema)
-    episode = schema["$defs"]["ExistingAppraisal"]["properties"]["episode_ref"]
-    assert episode == {"type": "string", "enum": ["ctx:3"]}
+    assert "ExistingAppraisal" not in schema.get("$defs", {})
 
 
 def test_no_previous_episode_or_concern_removes_only_unavailable_choices():
@@ -44,7 +43,7 @@ def test_no_previous_episode_or_concern_removes_only_unavailable_choices():
     ):
         assert name not in text
     assert "CreateConcern" in text
-    assert "NewAppraisal" in text
+    assert "NewAppraisal" not in text
     assert "CreatorInputReview" in text
     assert "TimedReview" in text
 

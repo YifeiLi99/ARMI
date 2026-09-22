@@ -434,73 +434,10 @@ def test_every_purpose_uses_the_same_generation_schema_for_both_providers():
     "purpose", ["consider_creator_input", "consider_other_human_input"]
 )
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])
-def test_dialogue_example_covers_flat_appraisal_with_bound_refs(
-    purpose,
-    provider,
-):
+def test_dialogue_example_has_no_mood_write_fields(purpose, provider):
     from armi_runtime.composition.model_verification import (
         candidate_schema,
         load_purpose_binding,
-    )
-
-    selected = load_purpose_binding(purpose)
-    schema = candidate_schema(selected.response_contract_kind, purpose=purpose)
-    renderer = CompatibleStructuredTransport(
-        schema, instructions="", schema_name="test"
-    )
-    data = json.loads(request().canonical_bytes)
-    data["included_context_refs"] = [{"ref": "ctx:7"}]
-    payload = json.dumps(data).encode()
-    current = ModelRequest(payload, Digest.from_bytes(payload), 10, 2048)
-    wire = renderer.request_parameters(binding(provider), current)
-    value = json.loads(
-        wire["instructions"]
-        .split("完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n", 1)[1]
-        .split("\n根对象的字段", 1)[0]
-    )
-    expected = renderer.output_format(current)["schema"]
-    Draft202012Validator(expected).validate(value)
-    assert value["event_basis_refs"] == ["ctx:7"]
-    assert {
-        "event_gist",
-        "event_basis_refs",
-        "event_transition",
-        "event_phase",
-        "event_concerns",
-    } <= set(value)
-    assert not {"appraisal", "trajectory", "event_appraisal"} & value.keys()
-    # Preserve the event's valid refs, but reject a second copy at the root.
-    value["basis_refs"] = value["event_basis_refs"]
-    errors = list(Draft202012Validator(expected).iter_errors(value))
-    assert any(
-        e.validator == "additionalProperties" and list(e.absolute_path) == []
-        for e in errors
-    )
-    del value["basis_refs"]
-    allowed_fields = (
-        wire["instructions"]
-        .split("根对象的字段只能是：", 1)[1]
-        .split("。", 1)[0]
-        .split("、")
-    )
-    assert set(allowed_fields) == set(expected["properties"])
-    assert "event_basis_refs" in wire["instructions"]
-    # Removing nesting does not make required event meaning optional.
-    del value["event_gist"]
-    assert not Draft202012Validator(expected).is_valid(value)
-
-
-@pytest.mark.parametrize(
-    "purpose", ["consider_creator_input", "consider_other_human_input"]
-)
-def test_prefixed_event_fields_keep_coping_standards_and_trajectory_constraints(
-    purpose,
-):
-    from armi_runtime.composition.model_verification import (
-        candidate_schema,
-        load_purpose_binding,
-        model_response_candidate,
-        parse_candidate,
     )
 
     selected = load_purpose_binding(purpose)
@@ -509,108 +446,51 @@ def test_prefixed_event_fields_keep_coping_standards_and_trajectory_constraints(
         instructions="",
         schema_name="test",
     )
-    payload = json.dumps(
-        {"included_context_refs": [{"ref": "ctx:1"}, {"ref": "ctx:2"}]}
-    ).encode()
-    current = ModelRequest(payload, Digest.from_bytes(payload), 10, 2048)
-    validator = Draft202012Validator(renderer.output_format(current)["schema"])
-    value = {
-        "action": "reply",
-        "content": ["Understood"],
-        "event_gist": "A conversation",
-        "event_basis_refs": ["ctx:1"],
-        "event_phase": "realized",
-        "event_transition": "reappraise",
-        "event_episode_ref": "ctx:2",
-        "event_change_from_previous": "improved",
-        "event_concerns": [
-            {
-                "target": "relationship",
-                "direction": "progress",
-                "significance": "direct",
-            }
-        ],
-        "event_expectedness": "expected",
-        "event_intrinsic_quality": "neutral",
-        "event_outcome_certainty": "settled",
-        "event_self_involvement": "limited",
-        "event_engagement": "satisfying",
-        "event_coping_response_access": "direct",
-        "event_coping_power_balance": "balanced",
-        "event_coping_adjustment": "easy",
-        "event_self_compatibility": "aligned",
-        "event_norm_compatibility": "aligned",
-    }
-    validator.validate(value)
-    response = json.dumps(
-        {
-            "schema_kind": "armi.model-response-artifact",
-            "output_text": json.dumps(value),
-        }
-    ).encode()
-    native = model_response_candidate(
-        response, expected_version=selected.response_contract_kind
+    current = request()
+    wire = renderer.request_parameters(binding(provider), current)
+    value = json.loads(
+        wire["instructions"]
+        .split("完整对话 JSON 层级示例（只示意格式，不代表本轮应作出的判断）：\n", 1)[1]
+        .split("\n根对象的字段", 1)[0]
     )
-    assert native["appraisal"]["appraisal"]["coping"] == {
-        "response_access": "direct",
-        "power_balance": "balanced",
-        "adjustment": "easy",
-    }
-    assert native["appraisal"]["appraisal"]["standards"]["self_evaluation"] == {
-        "compatibility": "aligned"
-    }
-    assert native["appraisal"]["trajectory"]["episode_ref"] == "ctx:2"
-    parse_candidate(
-        json.dumps(native).encode(),
-        expected_version=selected.response_contract_kind,
-        allowed_context_refs=frozenset({"ctx:1", "ctx:2"}),
-    )
-    for extra in (
-        {"coping": {}},
-        {"engagement": "satisfying"},
-        {"transition": "new"},
-        {"event_expectedness": "slightly_unexpected"},
-        {"event_self_scope": "action"},
-    ):
-        assert not validator.is_valid({**value, **extra})
-    for missing in (
-        "event_coping_adjustment",
-        "event_norm_compatibility",
-        "event_gist",
-        "event_episode_ref",
-        "event_change_from_previous",
-    ):
-        assert not validator.is_valid(
-            {key: item for key, item in value.items() if key != missing}
-        )
-    validator.validate(
-        {**value, "event_self_compatibility": "tension", "event_self_scope": "action"}
-    )
+    schema = renderer.output_format(current)["schema"]
+    Draft202012Validator(schema).validate(value)
+    assert not any(key.startswith("event_") for key in schema["properties"])
+    assert "appraisal" not in schema["properties"]
 
 
-def test_mood_instructions_use_actual_prefixed_fields_after_rendering():
-    from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS
+@pytest.mark.parametrize(
+    "purpose", ["consider_creator_input", "consider_other_human_input"]
+)
+def test_main_provider_rejects_old_mood_fields(purpose):
     from armi_runtime.composition.model_verification import (
         candidate_schema,
         load_purpose_binding,
     )
 
-    selected = load_purpose_binding("consider_creator_input")
+    selected = load_purpose_binding(purpose)
     renderer = CompatibleStructuredTransport(
-        candidate_schema(selected.response_contract_kind),
-        instructions=MOOD_APPRAISAL_INSTRUCTIONS,
+        candidate_schema(selected.response_contract_kind, purpose=purpose),
+        instructions="",
         schema_name="test",
     )
-    instruction = renderer.request_parameters(binding("deepseek"), request())[
-        "instructions"
-    ]
-    assert "event_self_compatibility=aligned" in instruction
-    assert "event_self_scope" in instruction
-    assert "event_concerns[].direction" in instruction
-    assert "event_expectedness 只允许 expected/somewhat_unexpected" in instruction
-    assert "event_episode_ref 和 event_change_from_previous" in instruction
-    assert "self_evaluation.scope" not in instruction
-    assert "anticipated.direction" not in instruction
+    validator = Draft202012Validator(renderer.output_format(request())["schema"])
+    for key in (
+        "event_gist",
+        "event_coping_adjustment",
+        "event_phase",
+        "appraisal",
+        "mood",
+    ):
+        assert not validator.is_valid(
+            {"action": "reply", "content": ["Hi"], key: "unknown"}
+        )
+
+
+def test_mood_is_not_a_main_model_purpose():
+    from armi_kernel.application import CognitionPurpose
+
+    assert "reflect_mood" not in {item.value for item in CognitionPurpose}
 
 
 @pytest.mark.parametrize("provider", ["qwen", "deepseek"])
@@ -633,7 +513,6 @@ def test_relationship_generation_requires_interpretation_without_relaxing_backen
     value = {
         "candidate": {
             "decision": {"kind": "reply", "content": "在呢"},
-            "appraisal": None,
             "social": {
                 "experience": {
                     "first_person_gist": "我们聊到了各自的想法",

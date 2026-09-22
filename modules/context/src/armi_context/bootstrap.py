@@ -26,7 +26,7 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mind.api import MindReadPort
-from armi_mood.api import MoodReadPort
+from armi_mood.api import MoodEvaluationPort, MoodReadPort
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
@@ -76,6 +76,7 @@ def bootstrap_context(
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
+    mood_evaluation: MoodEvaluationPort,
     prompt_read: PromptReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
@@ -108,6 +109,7 @@ def bootstrap_context(
         memory_read=memory_read,
         memory_projection=memory_projection,
         mood_read=mood_read,
+        mood_evaluation=mood_evaluation,
         prompt_read=prompt_read,
         material_projection=material_projection,
         relationship_read=relationship_read,

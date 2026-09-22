@@ -32,6 +32,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
 from armi_mind.bootstrap import bootstrap_mind
+from armi_mood.api import DynamicsParameters
 from armi_mood.bootstrap import bootstrap_mood
 from armi_prompt.bootstrap import bootstrap_prompt
 from armi_subject_state.bootstrap import bootstrap_subject_state
@@ -254,7 +255,13 @@ async def execute_birth_with_conninfo(
         BirthRepository(
             bootstrap_subject_state().birth,
             bootstrap_mind().birth,
-            bootstrap_mood().birth,
+            bootstrap_mood(
+                DynamicsParameters(
+                    fast_half_life_seconds=config.mood.fast_half_life_seconds,
+                    slow_half_life_seconds=config.mood.slow_half_life_seconds,
+                    fast_weight=config.mood.fast_weight,
+                )
+            ).birth,
             bootstrap_prompt().birth,
             bootstrap_interaction_birth(),
         ),

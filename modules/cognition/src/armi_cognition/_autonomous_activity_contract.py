@@ -7,7 +7,6 @@ from typing import Annotated, Any, Literal, cast
 
 from armi_kernel.application import ModelViolation
 from armi_mind.api import ConcernChange, GroundedMindChange, MindAppraisal
-from armi_mood.api import AppraisalEventSignalV3
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -44,25 +43,21 @@ class StartActivityDecision(_StrictModel):
     kind: Literal["start_activity"]
     goal: Text2048
     next_step: Text1024
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousTerminalDecision(_StrictModel):
     kind: Literal["no_activity", "defer", "need_information"]
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousVisualObservationDecision(_StrictModel):
     kind: Literal["visual_observation"]
     source_kind: Literal["camera", "screen"]
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousLifeQueryDecision(_StrictModel):
     kind: Literal["exact_life_query"]
     record_kind: RecordKind
     query: Text1024 | None = None
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousCodexDecision(_StrictModel):
@@ -71,7 +66,6 @@ class AutonomousCodexDecision(_StrictModel):
     model_id: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
     reasoning_effort: Literal["medium"] = "medium"
     web_search: bool = False
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousWaitDecision(_StrictModel):
@@ -80,7 +74,6 @@ class AutonomousWaitDecision(_StrictModel):
     next_step: Text1024
     information_needed: Text2048
     resumption_cue: Text2048
-    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousProgressDecision(_StrictModel, InternalWorkProgressDecision):

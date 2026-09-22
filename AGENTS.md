@@ -31,7 +31,7 @@
 - 每个事件都必须经过一次心情变化判断，覆盖聊天、自我触发及外部信号，不以是否值得完整思考、是否回复或是否行动作为前置筛选。结果可以是心情不变，但省略评价、未执行或技术失败不等于已判断不变。判断不强制新增情绪或改变数值；具体合同与当前实现差距见 [DESIGN：每个事件的心情变化判断](DESIGN.md#每个事件的心情变化判断)。
 - 正式能力、配置、凭据或数据缺失时明确失败，不用 mock、fixture、缓存、sample、默认值或角色化文案伪造真实闭环。`no_action`、`no_change`、`decline` 是主体决定，不是错误兜底。
 
-- 所有 purpose 共用两段认知工作：Context 准备与 `cognition.execute`。后者直接完成模型调用、候选校验、制品准备和原子提交，共用租约与取消信号，不重新引入校验/提交排队。所有未完成认知中断即结束，保留已保存的模型结果、已提交主体变化和长期生活进度；后续生活由原调度创建新机会、新 Context，不续算旧候选。独立 Effect 保持各自中断合同，管理端授权保持独立。
+- 每个正式接纳的事件先执行 `mood.evaluate`：Jev 只作事实与意义评价，本地算法计算心情并独立提交。失败阻止依赖它的认知，主模型失败不撤销心情，同一来源事件的后续阶段复用评价。其后所有 purpose 共用 Context 准备与 `cognition.execute`。后者直接完成模型调用、候选校验、制品准备和原子提交，共用租约与取消信号，不重新引入校验/提交排队。所有未完成认知中断即结束，保留已保存的模型结果、已提交主体变化和长期生活进度；后续生活由原调度创建新机会、新 Context，不续算旧候选。独立 Effect 保持各自中断合同，管理端授权保持独立。
 
 ## 3. 实现中必须守住的合同
 
@@ -43,7 +43,7 @@
 - Durable work 使用 `armi_kernel.application.durable_work.WorkType` 闭集与责任 registry，新增时同步 owner、reconciliation、恢复和测试。数据库承载耐久事实，进程 wakeup 只优化延迟。实验使用隔离环境、离线回放或只读 shadow，未激活前不写 Active 主体、work 或 effect。
 - 数据库存储以长期保留必要性为标准：保留业务事实、实际效果和保证正确性所需的状态；仅供排查的过程、步骤与逐次细节写日志，不单独建表留档。
 - 新能力先确定事实 owner；新增表或模块应有独立生命周期、关系、权限/保留策略或查询需求，不能只因渠道或枚举不同而拆分。替换机制后清理失效入口、接线与兼容路径，不为假想需求预建框架。
-- 标准认知不在同 episode 隐藏追加评价调用。Qwen/DeepSeek 文本生成仅在完整返回的 JSON 或候选结构不合格时，按同一冻结请求最多调用 5 次（含首次），成功即停；每次独立记录 attempt、原文和用量，业务校验及 Subject Commit 仍只执行一次。网络结果 unknown、权限/业务拒绝及状态冲突不重试；中断即结束，重启不续试。实时语音保持单次调用。Context 按 purpose profile 冻结来源与版本，落实 forbidden section；提示词不能替代隐私隔离。模型不直接填写 Mood VAD/强度。 所有对话技术失败（含重试耗尽与发送 unknown）仅保留日志、诊断及真实失败状态，聊天渠道静默，不生成错误通知或补发。
+- Mood 是明确独立阶段，每事件只调用一次 Jev，不隐藏重试或切换 Provider；主认知无 Mood 写入能力。Qwen/DeepSeek 文本生成仅在完整返回的 JSON 或候选结构不合格时，按同一冻结请求最多调用 5 次（含首次），成功即停；每次独立记录 attempt、原文和用量，业务校验及 Subject Commit 仍只执行一次。网络结果 unknown、权限/业务拒绝及状态冲突不重试；中断即结束，重启不续试。实时语音保持单次调用。Context 按 purpose profile 冻结来源与版本，落实 forbidden section；提示词不能替代隐私隔离。Jev 不直接填写情绪、愉快度、激活度或状态增量。 所有对话技术失败（含重试耗尽与发送 unknown）仅保留日志、诊断及真实失败状态，聊天渠道静默，不生成错误通知或补发。
 
 ## 4. 数据库与配置变更
 
@@ -53,7 +53,7 @@
 
 - 稳定包身份为 `YifeiLi99.ARMI`，发布配置集中在 `configs/windows-release.yaml`；正式签名材料不进入仓库。安装、程序替换与卸载交给 Windows，不维护卸载 EXE、程序切换日志或文件回滚。Windows 直接卸载保留数据；ARMI 设置和 setup 机器接口的卸载默认保留，只有明确选择永久清理才删除当前包的数据目录，必须先经 Admin 正常停机，失败不继续。更新必须核验可信签名、相同包身份与递增版本。自动更新与显式本地更新都只接受相同数据库合同；程序部署成功与 Runtime 就绪分别核验。已安装 Admin/Creator 配置绑定稳定包身份，不保存随版本变化的程序路径；源码和隔离测试保留明确资源绑定。
 - 当前开发阶段暂不使用 GitHub Releases。用户要求“更新本机”时，默认通过 [本地构建安装入口](tools/install_local_msix.ps1) 从当前源码构建、签名并安装或原位升级独立验收包；沿用已建立的证书信任，不逐次重新要求打包授权。已有安装不得以先卸载再重装代替升级，不删除、重建数据库或重复出生；数据库合同不同时，在部署前停止并报告；清空并重建目标数据库须另获明确授权。保持验收版 GitHub 自动更新关闭，不自行发布 Release、配置正式签名或购买服务。修改源码本身不代表需要立即更新本机；具体命令与产物位置见 [README](README.md)。
-- 凭据通过设置或同一 setup 凭据用例写入所属环境的私有文件，配置只引用 locator，不写进项目文档或仓库。主文本模型只选 Qwen 或 DeepSeek，分别使用 `model.qwen_api_key` 与 `model.deepseek_api_key`；方舟不再作为主文本选择或回退。`model.ark_api_key` 保留给独立豆包语音认知、视觉识别；语音识别/合成、Codex、QQ 保持独立凭据。当前存储保护方式和生效步骤见 [运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。
+- 凭据通过设置或同一 setup 凭据用例写入所属环境的私有文件，配置只引用 locator，不写进项目文档或仓库。主文本模型只选 Qwen 或 DeepSeek，分别使用 `model.qwen_api_key` 与 `model.deepseek_api_key`；方舟不再作为主文本选择或回退。`model.ark_api_key` 保留给独立豆包语音认知、视觉识别；Jev 使用独立 `mood.jev_api_key`，语音识别/合成、Codex、QQ 保持独立凭据。当前存储保护方式和生效步骤见 [运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、资源摘要核验、owner registry、ACL 和消费者；不增加历史 Alembic revision、autogenerate 或 downgrade。只维护最新数据库，不保留历史 schema 快照、升级资源或升级入口；已有数据库合同不匹配时停止。普通启动不升级，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证唯一 revision、资源/目录摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。

@@ -217,7 +217,6 @@ class PostgreSQLMaintenanceRepository:
             MaintenancePhase.SELF_CHECK,
             MaintenancePhase.REFLECT_SELF,
             MaintenancePhase.REFLECT_MIND,
-            MaintenancePhase.REFLECT_MOOD,
             MaintenancePhase.REFLECT_PROMPT,
         }:
             completed = await (
@@ -495,7 +494,6 @@ class PostgreSQLMaintenanceRepository:
             MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
             MaintenancePhase.REFLECT_SELF: "reflect_self",
             MaintenancePhase.REFLECT_MIND: "reflect_mind",
-            MaintenancePhase.REFLECT_MOOD: "reflect_mood",
             MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
         }[phase]
         current = await self._opportunities.maintenance_work_state(

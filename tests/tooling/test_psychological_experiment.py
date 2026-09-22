@@ -105,7 +105,7 @@ def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experimen
             ).encode(),
         )
 
-    assert evaluate({"mind": [], "mood": None})["validation"] == "accepted"
+    assert evaluate({"mind": []})["validation"] == "accepted"
     assessment = dict(
         object_ref="ctx:1",
         basis_refs=["ctx:1"],
@@ -118,65 +118,27 @@ def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experimen
         resolution="open",
         explanation="观察到尚不理解的现象",
     )
-    result = evaluate({"mind": [assessment], "mood": None})
+    result = evaluate({"mind": [assessment]})
     assert result["validation"] == "accepted"
     assert result["mind"][0]["trajectory"][-1]["level"] > 0
     assert (
-        evaluate({"mind": [assessment | {"curiosity": 2}], "mood": None})["validation"]
-        == "rejected"
+        evaluate({"mind": [assessment | {"curiosity": 2}]})["validation"] == "rejected"
     )
     assert (
-        evaluate({"mind": [assessment | {"object_ref": "ctx:2"}], "mood": None})[
-            "validation"
-        ]
+        evaluate({"mind": [assessment | {"object_ref": "ctx:2"}]})["validation"]
         == "rejected"
     )
+    assert evaluate({"mind": [assessment, assessment]})["validation"] == "rejected"
+
+
+def test_mind_probe_rejects_mood_writes(experiment):
+    response = json.dumps(
+        {"output_text": json.dumps({"candidate": {"mind": [], "mood": {"valence": 1}}})}
+    ).encode()
     assert (
-        evaluate({"mind": [assessment, assessment], "mood": None})["validation"]
+        experiment["validate_appraisal_response"]({}, response)["validation"]
         == "rejected"
     )
-
-
-@pytest.mark.parametrize("phase", ["anticipated", "realized"])
-def test_appraisal_probe_preserves_loss_phase_in_owner_derivation(experiment, phase):
-    command = {
-        "schema_kind": "armi.mood-appraisal",
-        "transition": "new",
-        "event_phase": phase,
-        "gist": "重要作品丢失",
-        "appraisal": {
-            "engagement": "not_applicable",
-            "concerns": [
-                {
-                    "target": "self_goal",
-                    "significance": "core",
-                    "direction": "major_setback",
-                }
-            ],
-            "expectedness": "expectation_broken",
-            "outcome_certainty": "settled",
-            "intrinsic_quality": "unpleasant",
-            "self_involvement": "important",
-            "coping": {
-                "response_access": "none",
-                "power_balance": "overmatched",
-                "adjustment": "blocked",
-            },
-        },
-    }
-    result = experiment["validate_appraisal_response"](
-        {},
-        json.dumps(
-            {
-                "schema_kind": "armi.model-response-artifact",
-                "output_text": json.dumps({"candidate": {"mind": [], "mood": command}}),
-            }
-        ).encode(),
-    )
-    assert result["validation"] == "accepted"
-    assert result["mood_assessment"]["event_phase"] == phase
-    families = {c["component"]["family"] for c in result["mood"]["components"]}
-    assert ("sadness" in families) == (phase == "realized")
 
 
 def test_autonomous_mind_change_can_coexist_with_silence_and_rejects_unknown_basis(

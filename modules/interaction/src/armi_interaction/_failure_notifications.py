@@ -85,11 +85,9 @@ class InteractionFailureNotifications:
         # notification here; failure facts remain owned by their original owners.
         if re.fullmatch(r"[A-Z][A-Z0-9_-]{0,127}", failure_code) is None:
             raise ValueError("invalid failure code")
-        self._diagnostic(
-            f"interaction.processing.failed code={failure_code}"
-            f" opportunity_id={opportunity_id} interaction_id={interaction_id}"
-            f" send_unknown={send_unknown}"
-        )
+        # The callback accepts an event name, not a free-form log message.
+        # The source owner retains the code and identifiers in its failure fact.
+        self._diagnostic("interaction.processing.failed")
         if self._voice_failure is None:
             return
         try:

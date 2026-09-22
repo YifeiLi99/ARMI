@@ -24,7 +24,6 @@ class CognitionPurpose(StrEnum):
     CONSIDER_REQUESTED_VISUAL_OBSERVATION = "consider_requested_visual_observation"
     REFLECT_SELF = "reflect_self"
     REFLECT_MIND = "reflect_mind"
-    REFLECT_MOOD = "reflect_mood"
     REFLECT_PROMPT = "reflect_prompt"
 
 
@@ -44,7 +43,6 @@ _SCENELESS = frozenset(
         CognitionPurpose.CONSIDER_VISUAL_OBSERVATION,
         CognitionPurpose.REFLECT_SELF,
         CognitionPurpose.REFLECT_MIND,
-        CognitionPurpose.REFLECT_MOOD,
         CognitionPurpose.REFLECT_PROMPT,
     }
 )

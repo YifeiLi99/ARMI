@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from armi_mood.api import MoodSnapshot
+from armi_mood.api import MoodView
 
 from .api import DisplayExpression, DisplayState
 
@@ -32,13 +32,29 @@ _COLORS = {
 }
 
 
-def map_mood_snapshot(snapshot: MoodSnapshot) -> DisplayState:
+def map_mood_snapshot(snapshot: MoodView) -> DisplayState:
+    candidates = [
+        (
+            emotion.kind.value,
+            emotion.intensity
+            * 2
+            ** (
+                -(snapshot.as_of - episode.observed_at).total_seconds()
+                / snapshot.state.parameters.fast_half_life_seconds
+            ),
+        )
+        for episode in snapshot.state.episodes
+        for emotion in episode.response.emotions
+    ]
+    strongest = max(candidates, key=lambda item: item[1], default=("neutral", 0))
+    # The physical face repertoire renders disappointment with its sad face.
+    name = "sadness" if strongest[0] == "disappointment" else strongest[0]
     expression = (
-        DisplayExpression[snapshot.active_emotions[0].family.name]
-        if snapshot.active_emotions
+        DisplayExpression[name.upper()]
+        if strongest[1] > 0.001
         else DisplayExpression.NEUTRAL
     )
-    raw_energy = (snapshot.current_vad.arousal + 100) / 2
+    raw_energy = (snapshot.current.arousal + 1) * 50
     energy = int((raw_energy + 5) // 10) * 10
     return DisplayState(
         snapshot.version,

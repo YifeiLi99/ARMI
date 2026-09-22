@@ -353,7 +353,9 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
                 {
                     "schema_kind": "armi.mood-snapshot",
                     "active_episodes": [],
-                    "current": {"valence": 0, "arousal": 0, "dominance": 0},
+                    "active_emotions": [],
+                    "quality": {"status": "not_evaluated", "unknown": []},
+                    "current": {"valence": 0, "arousal": 0},
                 }
             ),
         ),

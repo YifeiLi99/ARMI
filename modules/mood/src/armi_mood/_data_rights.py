@@ -22,6 +22,11 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _OWNER = DataRightsOwnerIdentity("mood")
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
+        "mood_assessments",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.mood_assessments AS source ORDER BY to_jsonb(source)::text""",
+    ),
+    (
         "mood_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.mood_revisions AS source ORDER BY to_jsonb(source)::text""",
@@ -42,14 +47,23 @@ class PostgreSQLMoodDataRightsParticipant:
         episodes = tuple(
             item.ref for item in request.related_refs if item.kind == "cognition"
         )
-        if not episodes:
-            return DataRightsDiscoveryContribution(_OWNER)
+        references = [
+            str(request.party_id),
+            *(str(item.ref) for item in request.related_refs),
+        ]
         rows = await (
             await transaction.execute(
-                """SELECT mood_appraisal_event_id FROM armi.mood_revisions
-                   WHERE mood_episode_id=ANY(%s::uuid[])
-                   ORDER BY mood_appraisal_event_id""",
-                (list(episodes),),
+                """SELECT mood_assessment_id FROM armi.mood_assessments
+                   WHERE cognitive_episode_id=ANY(%s::uuid[])
+                      OR source_ref::text=ANY(%s::text[])
+                      OR EXISTS (
+                          SELECT 1 FROM jsonb_path_query(
+                              context_document, '$.context.layers[*].items[*].source.reference'
+                          ) reference
+                          WHERE reference #>> '{}' = ANY(%s::text[])
+                      )
+                   ORDER BY mood_assessment_id""",
+                (list(episodes), references, references),
             )
         ).fetchall()
         return DataRightsDiscoveryContribution(
@@ -71,12 +85,27 @@ class PostgreSQLMoodDataRightsParticipant:
         )
         if request.order_kind == "delete_related" and event_ids:
             await transaction.execute(
-                """UPDATE armi.mood_revisions
-                   SET gist=NULL,appraisal_payload=NULL,derived_appraisal_payload=NULL,
+                """UPDATE armi.mood_assessments
+                   SET appraisal=NULL,answers=NULL,context_document=NULL,
                        data_rights_redacted_at=statement_timestamp()
-                   WHERE mood_appraisal_event_id=ANY(%s::uuid[])
+                   WHERE mood_assessment_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",
                 (list(event_ids),),
+            )
+            # Preserve accumulated affect while removing the event's retrievable content.
+            await transaction.execute(
+                """UPDATE armi.mood_revisions r SET semantic_payload=jsonb_set(
+                       semantic_payload,'{episodes}',COALESCE((
+                           SELECT jsonb_agg(CASE WHEN item->>'event_id'=ANY(%s::text[])
+                               THEN jsonb_set(item,'{summary}','\"\"'::jsonb) ELSE item END)
+                           FROM jsonb_array_elements(r.semantic_payload->'episodes') item
+                       ),'[]'::jsonb))
+                   WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(r.semantic_payload->'episodes') item
+                       WHERE item->>'event_id'=ANY(%s::text[]))""",
+                (
+                    [str(value) for value in event_ids],
+                    [str(value) for value in event_ids],
+                ),
             )
         return DataRightsApplyContribution(
             _OWNER,

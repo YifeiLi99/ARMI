@@ -80,7 +80,6 @@ from armi_runtime.composition.candidate_validation_tool import (
     bootstrap_material_cognition,
     bootstrap_memory_cognition,
     bootstrap_mind_cognition,
-    bootstrap_mood_cognition,
     bootstrap_prompt_cognition,
     bootstrap_relationship_cognition,
     bootstrap_sleep_cognition,
@@ -164,7 +163,6 @@ def DeterministicCandidateValidator(
         activity_cognition=bootstrap_activity_cognition(),
         material_cognition=bootstrap_material_cognition(),
         memory_cognition=bootstrap_memory_cognition(),
-        mood_cognition=bootstrap_mood_cognition(),
         prompt_cognition=bootstrap_prompt_cognition(),
         relationship_cognition=bootstrap_relationship_cognition(),
         sleep_cognition=bootstrap_sleep_cognition(),
@@ -410,10 +408,10 @@ def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
 
 def _mood_state() -> dict[str, object]:
     return {
-        "schema_kind": "armi.mood",
-        "dynamics_method": "recency-reappraisal",
-        "derivation_method": "cpm-fuzzy",
-        "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
+        "schema_kind": "armi.mood-snapshot",
+        "current": {"valence": 0, "arousal": 0},
+        "active_emotions": [],
+        "quality": {"status": "not_evaluated", "unknown": []},
     }
 
 
@@ -658,7 +656,6 @@ def test_visual_observation_only_accepts_private_experience_and_optional_mood() 
             "fact_class": "inference",
             "uncertainty": "视觉模型可能误判了物体类别",
         },
-        "appraisal": _appraisal_signal(),
     }
 
     result = DeterministicCandidateValidator(visual).validate(
@@ -670,10 +667,10 @@ def test_visual_observation_only_accepts_private_experience_and_optional_mood() 
     assert result.change_set.action_choices == ()
     assert result.change_set.experiences[0].fact_class is CandidateFactClass.INFERENCE
     assert result.change_set.experiences[0].privacy_scope == "private"
-    assert tuple(item.owner for item in result.change_set.owner_drafts) == ("mood",)
+    assert result.change_set.owner_drafts == ()
 
 
-def test_duplicate_appraisal_targets_are_rejected_by_mood_owner():
+def test_main_model_appraisal_is_rejected_at_the_contract_boundary():
     context, bases = _fixture()
     context = replace(
         context,
@@ -690,10 +687,7 @@ def test_duplicate_appraisal_targets_are_rejected_by_mood_owner():
     )
     assert result.status is CandidateValidationStatus.REJECTED
     assert result.change_set is None
-    assert result.diagnostics[0].stage == "owner_validation"
-    assert result.diagnostics[0].owner == "mood"
-    assert result.error_code == "CANDIDATE-MOOD-TARGET-CONFLICT"
-    assert result.diagnostics[0].field_path == ("appraisal", "concerns")
+    assert result.error_code == "CANDIDATE-CONTRACT"
 
 
 def test_visual_observation_ignore_produces_no_action_without_side_effects() -> None:
@@ -1287,7 +1281,6 @@ def _maintenance_fixture(
         MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
         MaintenancePhase.REFLECT_SELF: "reflect_self",
         MaintenancePhase.REFLECT_MIND: "reflect_mind",
-        MaintenancePhase.REFLECT_MOOD: "reflect_mood",
         MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
     }[phase]
     maintenance = replace(
@@ -1690,7 +1683,6 @@ def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> N
                 "kind": "start_activity",
                 "goal": goal,
                 "next_step": "review my current self",
-                "appraisal": _appraisal_signal(basis_ref="ctx:4"),
             }
         ),
         bases=(*bases, source),
@@ -1703,10 +1695,7 @@ def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> N
     assert activity.goal == goal
     assert activity.status.value == "ready"
     assert activity.basis_ordinals == (4,)
-    mood = next(item for item in result.change_set.owner_drafts if item.owner == "mood")
-    assert (
-        bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
-    )
+    assert all(item.owner != "mood" for item in result.change_set.owner_drafts)
     assert b"armi.subject-change-set" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
@@ -2315,7 +2304,6 @@ def _other_human_bytes(value: Mapping[str, object]) -> bytes:
                 "experience": experience,
                 "relationship_change": relationship,
             },
-            "appraisal": value.get("appraisal"),
         }
     )
 

@@ -90,60 +90,28 @@ Jev 使用前述实验 key；不读取主体数据、不启动 Runtime、不复�
 依据：[DeepSeek 价格](https://api-docs.deepseek.com/quick_start/pricing/)、
 [思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
 
-## Mood 语义评价对照
+## 新 Mood 连续事件实验
 
-`tools/experiment_jev_mood.py` 与 `configs/jev-mood-experiment.yaml` 测试事件已经分段后的
-结构化处境评价。两家读取同一 Mood Owner 指令、同一场景、同一组选项；Jev 一次请求
-并行回答 22 个 Choice，DeepSeek 一次 JSON 返回相同选择。温度 0、关闭思考。
-主模型仍需提取事件、选择依据和提供文字摘要，本实验不证明 Jev 可独立完成这些工作。
-
-```powershell
-.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --output .tmp/jev-mood-plan
-.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --live --environment-root <已授权环境根> --output .tmp/jev-mood-live
-```
-
-24 个明确描述处境的合成场景各重复三次，变换选项顺序；每家 72 次，最多三次请求并发。
-当前协议 revision 2 向双方明确共同约束：三个关注目标都不涉及时应跳过评价，不能提交
-没有 concern 的事件。实验不自动修补联合选择，不要求模型迎合参考答案。
-
-评分在调用前固定，包含关键字段的允许值、不得虚构的关系损伤、必要/禁止情绪家族，
-以及轻微/重大获得和损失的事件感受强度排序。非关键字段不强设唯一答案；字段合格不
-等于整轮合格，允许/禁止家族检查也不等于完整情绪集合准确率。重复和同一场景的字段
-不是独立样本，不能据此估计生产准确率、心理效度或概率校准。
-
-Choice 原样映射为 `MoodSemanticAppraisalCommand`，通过公开 `semantic_appraisal_from_command`
-校验后，新事件使用 `preview_appraisal` 调用真实 Mood 推导，模型不填 VAD 或强度。
-组合的自我准则选项保证 action/global 分支可表达，unknown 原样保留；absent 与 skip
-是试验输入的路由选择，不扩展正式合同。没有目标却选择提交时保留合同失败。
-人工基于情境预分段，gist 使用固定实验文字，不冒充模型提取或真实主体体验。
-
-四种既有事件只验证重新思考、应对改善、新刺激、结束的语义与 transition，
-不伪造前序事件感受；公开预览不支持带历史状态的衰减重建，因此不报告其 VAD 或轨迹。
-新事件的 core.intensity 是事件感受强度，不是合并衰减后的当前整体心情。
-
-每例保存实际请求、原始返回、choices、置信度、usage、合同/语义/情绪结果。
-网络未知单独保留，不重试该请求，继续其他独立样例；HTTP 错误停止安排新请求。
-Jev 实测概率取两位小数，分布总和检查容许每个选项 0.005 的舍入误差，不改概率、不归一化。
-`--regrade-from <原始结果目录> --output <新目录>` 可零网络重新分析冻结响应，
-使用原目录配置中的原评分标签，保留来源及原状态；不与 `--live` 同用。
-
-这不是正式 Runtime 接入或联合 Subject Commit 验收，也没有新增同 episode 的隐式评价调用。
-
-### 复杂语境与连续消息固定回放
-
-`configs/jev-mood-context-experiment.yaml` 提供 32 个独立合成场景，各重复三次，
-两家共 192 次调用。复用相同协议与评分器，覆盖反话、说话人归属、缺失语境、
-混合目标、短篇干扰和两条连续消息链。配置中的“长上下文”类别实际是短篇干扰，
-不作为长上下文能力测试。每一步由宿主提供固定历史，未沿用前一步模型输出，
-不验证持久化心情、混合衰减或真实认知闭环。
+`tools/experiment_jev_mood.py` 使用 [16 个合成事件](../configs/jev-mood-experiment.yaml)，
+复用正式 Jev 问题、严格返回合同、本地情绪规则与解析时间演化。每条连续链沿用前一步
+实际返回形成的状态；参考标签只用于本地评分，不发送给模型。
 
 ```powershell
-.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --config configs/jev-mood-context-experiment.yaml --output .tmp/jev-mood-context-plan
-.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --live --config configs/jev-mood-context-experiment.yaml --environment-root <已授权环境根> --output .tmp/jev-mood-context-live
+.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --output .tmp/mood-preview
+.\.venv\Scripts\python.exe tools/experiment_jev_mood.py --live --output .tmp/mood-live
 ```
 
-本地实验报告统一保存在 `docs/06-实验记录/Jev/`，包含历史记忆筛选、明确 Mood 场景、
-复杂语境的结果、失败样例和证据位置。该目录沿用 docs 的 Git 忽略策略；合成配置与工具可提交。
+Jev 凭据沿用上文实验槽，每事件一次请求，无重试和 Provider 切换；首次技术或合同失败
+立即停止。离线不读取凭据。真实实验只发送合成内容，不读取安装版主体，不写数据库。
+保存逐例请求、原响应、评价、情绪与 VA、未知项、延迟和 usage；失败响应中已确认用量
+也计入估算。没有 usage 的请求单独列为未知，不能宣称免费。
+
+结果分别报告语义评价错误、情绪规则结果及 Provider 合同错误。匹配通过率只对应人工
+合成场景，不是模拟人类心理的准确率。费用是官方单价估算，不能替代实际账单。
+
+旧明确场景及复杂语境对照保存在 `docs/06-实验记录/Jev/`；旧配置
+`jev-mood-context-experiment.yaml` 属于历史协议，当前入口不支持旧字段或旧重评分命令。
+新链路记录见 [实验记录](../docs/06-实验记录/Jev/04-新心情链路离线验证.md)。
 
 ## 官方依据
 

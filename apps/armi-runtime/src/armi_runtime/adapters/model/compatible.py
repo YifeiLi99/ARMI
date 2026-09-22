@@ -43,7 +43,6 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
         output = super().output_format(request)
         if set(self._candidate_schema.get("properties", {})) == {
             "decision",
-            "appraisal",
             "social",
         }:
             # A narrower generation view, not a second backend contract. Requiring
@@ -259,10 +258,9 @@ def _require_relationship_interpretation(schema: dict[str, Any]) -> None:
 def _dialogue_example(
     properties: set[str], available_refs: tuple[str, ...]
 ) -> dict[str, Any] | None:
-    other_human = properties == {"decision", "appraisal", "social"}
+    other_human = properties == {"decision", "social"}
     creator = properties == {
         "decision",
-        "appraisal",
         "experience",
         "changes",
         "mind_appraisals",
@@ -272,28 +270,6 @@ def _dialogue_example(
         return None
     candidate: dict[str, Any] = {
         "decision": {"kind": "reply", "content": "示例回复"},
-        "appraisal": {
-            "gist": "一次普通交谈",
-            "basis_refs": list(available_refs[:1]),
-            "event_phase": "realized",
-            "trajectory": {"transition": "new"},
-            "appraisal": {
-                "concerns": [
-                    {
-                        "direction": "unchanged",
-                        "significance": "peripheral",
-                        "target": "relationship",
-                    }
-                ],
-                "engagement": "not_applicable",
-                "expectedness": "expected",
-                "intrinsic_quality": "neutral",
-                "outcome_certainty": "settled",
-                "self_involvement": "limited",
-            },
-        }
-        if available_refs
-        else None,
     }
     if other_human:
         # One complete example demonstrates a preference without a contact ban.

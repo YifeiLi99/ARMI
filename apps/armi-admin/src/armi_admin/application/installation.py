@@ -63,6 +63,7 @@ class SetupNapcatRequest(BaseModel):
 
 
 ProviderCredential = Literal[
+    "mood.jev_api_key",
     "model.ark_api_key",
     "model.qwen_api_key",
     "model.deepseek_api_key",
@@ -72,6 +73,7 @@ ProviderCredential = Literal[
     "channel.qq.napcat_event_secret",
 ]
 _PROVIDER_CREDENTIALS = (
+    "mood.jev_api_key",
     "model.ark_api_key",
     "model.qwen_api_key",
     "model.deepseek_api_key",
@@ -583,6 +585,7 @@ class SetupApplication:
             if request.action in {"put", "put_and_verify"} and request.name in {
                 "model.qwen_api_key",
                 "model.deepseek_api_key",
+                "mood.jev_api_key",
             }:
                 environment_path = self.root / "environment.yaml"
                 environment = load_yaml_file(environment_path)

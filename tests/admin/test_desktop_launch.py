@@ -31,6 +31,37 @@ def test_normal_open_waits_for_success_before_opening_creator():
     cast(Mock, instance.hide).assert_called_once()
 
 
+def test_jev_credential_uses_key_input_and_saves_without_paid_verification():
+    instance = desktop()
+    for name in (
+        "secret",
+        "codex_import",
+        "credential_name",
+        "credential_save_button",
+        "credential_verify_button",
+        "credential_help",
+        "credential_status",
+        "credential_actions",
+    ):
+        setattr(instance, name, Mock())
+    cast(
+        Mock, instance.credential_name.get
+    ).return_value = "Jev API Key（必需的事件与心情评价）"  # noqa: RUF001 -- exact Chinese UI label
+    instance.credential = Mock()
+    instance._credential_selected()
+    cast(Mock, instance.secret.pack).assert_called_once()
+    cast(Mock, instance.codex_import.pack).assert_not_called()
+    cast(Mock, instance.credential_verify_button.configure).assert_called_once_with(
+        state="disabled"
+    )
+    configuration = cast(
+        Mock, instance.credential_save_button.configure
+    ).call_args.kwargs
+    assert configuration["text"] == "保存 Key"
+    configuration["command"]()
+    cast(Mock, instance.credential).assert_called_once_with("put")
+
+
 def test_first_use_and_failed_start_show_settings_without_opening_browser():
     for instance in (desktop("not_configured"), desktop(result={"status": "failed"})):
         with patch("armi_admin.desktop.webbrowser.open") as open_browser:

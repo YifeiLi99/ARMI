@@ -73,7 +73,6 @@ def test_codex_prompt_assembles_identity_and_task_once():
         "perform_subject_self_check",
         "reflect_self",
         "reflect_mind",
-        "reflect_mood",
         "reflect_prompt",
     ],
 )

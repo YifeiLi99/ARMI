@@ -114,15 +114,15 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "processed_through_ordinal" in baseline
     assert "acceptance_ordinal bigint GENERATED ALWAYS AS IDENTITY" in baseline
     assert "late_response_artifact_id" not in baseline
-    assert "reflect_mood" in baseline
+    assert "reflect_mood" not in baseline
     for contract in (
         "armi.other-human-dialogue-candidate",
         "armi.autonomous-activity-candidate",
     ):
         assert contract in baseline
     assert "CREATE TABLE armi.mood_revisions" in baseline
-    assert "semantic-anchors" in baseline
-    assert "derived_appraisal_payload" in baseline
+    assert "CREATE TABLE armi.mood_assessments" in baseline
+    assert "derived_appraisal_payload" not in baseline
 
 
 def test_gateway_exposes_install_and_status_only() -> None:

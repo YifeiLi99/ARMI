@@ -17,6 +17,7 @@ def _capabilities(
 
 
 _RUNTIME_INSERT = """
+mood_assessments
 autonomy_plans
 accepted_experiences
 activity_revisions
@@ -52,6 +53,7 @@ subjects
 """
 
 _RUNTIME_UPDATE = """
+mood_assessments
 mood_revisions
 codex_task_sources
 

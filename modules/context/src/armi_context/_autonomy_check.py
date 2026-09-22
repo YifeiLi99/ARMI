@@ -125,7 +125,7 @@ def check_context_items(
         elif item.item_kind == "mood":
             value = {
                 key: value[key]
-                for key in ("current", "active_emotions", "action_tendencies")
+                for key in ("current", "active_emotions", "quality")
                 if key in value
             }
         elif item.item_kind == "current_activities":

@@ -14,7 +14,6 @@ from armi_interaction.api import InteractionIdentityPort
 from armi_kernel.application import ConsiderationSignal
 from armi_live_voice.api import VoiceActivityState
 from armi_mind.api import MindReadPort
-from armi_mood.api import MoodReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
@@ -26,7 +25,6 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         "_interaction",
         "_mind",
         "_model_revision",
-        "_mood",
         "_outlet_health",
         "_voice_activity",
     )
@@ -36,7 +34,6 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         *,
         cognition: CognitionOperationReadPort,
         interaction: InteractionIdentityPort,
-        mood: MoodReadPort,
         mind: MindReadPort,
         outlet_health: Callable[[str], Awaitable[tuple[str, str | None]]],
         model_revision: Callable[[], str],
@@ -44,7 +41,6 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
     ) -> None:
         self._cognition = cognition
         self._interaction = interaction
-        self._mood = mood
         self._mind = mind
         self._outlet_health = outlet_health
         self._model_revision = model_revision
@@ -67,23 +63,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
             transaction,
             subject_id=subject_id,
         )
-        mood = await self._mood.consideration_signals(
-            transaction,
-            subject_id=subject_id,
-            minimum_delay_seconds=minimum_delay_seconds,
-        )
-        own_commits = await self._cognition.autonomous_commit_ids(
-            transaction,
-            commit_ids=tuple(
-                signal.source_commit_id
-                for signal in mood
-                if signal.source_commit_id is not None
-            ),
-        )
-        return (
-            *mind,
-            *(signal for signal in mood if signal.source_commit_id not in own_commits),
-        )
+        return mind
 
     async def state_epoch(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

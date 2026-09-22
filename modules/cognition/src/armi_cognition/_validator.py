@@ -79,16 +79,6 @@ from armi_mind.api import (
     bind_mind_appraisals,
     bind_mind_change,
 )
-from armi_mood.api import (
-    CandidateMoodDraft,
-    MoodCandidateKind,
-    MoodCognitionPort,
-    MoodSemanticAppraisalCommand,
-    MoodViolation,
-    bind_appraisal_draft,
-    bind_appraisal_event,
-    semantic_appraisal_from_command,
-)
 from armi_prompt.api import (
     CandidatePromptDraft,
     PromptCognitionPort,
@@ -166,7 +156,6 @@ from ._model_contract import (
     CandidateUnderstanding,
     CodexDelegationPayload,
     CognitionCandidate,
-    ComponentChangePayload,
     ComponentChangeProposal,
     ExperiencePayload,
     ExperienceProposal,
@@ -187,7 +176,6 @@ from ._other_human_contract import (
 )
 from ._owners import CandidateOwner
 from ._reflection_contract import (
-    MoodReflectionRequest,
     OwnerReflectionCandidate,
     parse_owner_reflection,
 )
@@ -439,7 +427,6 @@ class CandidateValidationContext:
                 MaintenancePhase.SELF_CHECK,
                 MaintenancePhase.REFLECT_SELF,
                 MaintenancePhase.REFLECT_MIND,
-                MaintenancePhase.REFLECT_MOOD,
                 MaintenancePhase.REFLECT_PROMPT,
             }
         ):
@@ -485,7 +472,6 @@ class DeterministicCandidateValidator:
         "_material_cognition",
         "_memory_cognition",
         "_mind_cognition",
-        "_mood_cognition",
         "_prompt_cognition",
         "_relationship_cognition",
         "_sleep_cognition",
@@ -499,7 +485,6 @@ class DeterministicCandidateValidator:
         activity_cognition: ActivityCognitionPort,
         material_cognition: MaterialCognitionPort,
         memory_cognition: MemoryCognitionPort,
-        mood_cognition: MoodCognitionPort,
         prompt_cognition: PromptCognitionPort,
         relationship_cognition: RelationshipCognitionPort,
         sleep_cognition: SleepCognitionPort,
@@ -510,7 +495,6 @@ class DeterministicCandidateValidator:
         self._activity_cognition = activity_cognition
         self._material_cognition = material_cognition
         self._memory_cognition = memory_cognition
-        self._mood_cognition = mood_cognition
         self._prompt_cognition = prompt_cognition
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
@@ -536,7 +520,6 @@ class DeterministicCandidateValidator:
         reflection_purpose = self._context.purpose in {
             "reflect_self",
             "reflect_mind",
-            "reflect_mood",
             "reflect_prompt",
         }
         try:
@@ -976,31 +959,6 @@ class DeterministicCandidateValidator:
                         )
                     )
                     continue
-            if failure is None and owner is CandidateOwner.MOOD:
-                component = cast(ComponentChangeProposal, proposal)
-                failure = _component_failure(component, proposal_bases, component_state)
-                if failure is None:
-                    command = component.payload.next_state
-                    if not isinstance(command, MoodSemanticAppraisalCommand):
-                        failure = "CANDIDATE-MOOD-COMMAND"
-                    else:
-                        try:
-                            appraisal = semantic_appraisal_from_command(command)
-                        except TypeError, ValueError, MoodViolation:
-                            failure = "CANDIDATE-MOOD-COMMAND"
-                        else:
-                            accepted[proposal.proposal_ref] = self._mood_cognition.bind(
-                                CandidateMoodDraft(
-                                    proposal.proposal_ref,
-                                    proposal.atomic_group_ref,
-                                    tuple(basis.ordinal for basis in proposal_bases),
-                                    CandidateFactClass(component.payload.fact_class),
-                                    component.payload.expected_version,
-                                    MoodCandidateKind.APPRAISAL,
-                                    appraisal,
-                                )
-                            )
-                            continue
             if failure is None and owner is CandidateOwner.ACTION:
                 action = cast(ActionChoiceProposal, proposal)
                 failure = _action_failure(action, proposal_bases, context=self._context)
@@ -1124,15 +1082,10 @@ class DeterministicCandidateValidator:
                     isinstance(draft, CandidatePromptDraft)
                     or (
                         isinstance(draft, CandidateOwnerDraft)
-                        and draft.owner in {"self", "mind", "mood", "life_mode"}
+                        and draft.owner in {"self", "mind", "life_mode"}
                     )
                 )
                 and draft.atomic_group_ref not in group_experiences
-                and not (
-                    unified_creator_act
-                    and isinstance(draft, CandidateOwnerDraft)
-                    and draft.owner == "mood"
-                )
             ):
                 rejected[proposal_ref] = CandidateRejection(
                     proposal_ref,
@@ -1342,23 +1295,12 @@ class DeterministicCandidateValidator:
             if isinstance(candidate, AcceptVisualExperience)
             else None
         )
-        mood_draft: CandidateOwnerDraft | None = None
-        if candidate.appraisal is not None:
-            mood_draft, mood_error = bind_appraisal_draft(
-                candidate.appraisal,
-                proposal_ref="proposal:2" if experience is not None else "proposal:1",
-                bases=bases,
-                current_components=self._context.current_components,
-                cognition=self._mood_cognition,
-            )
-            if mood_draft is None:
-                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
         disposition = (
             CandidateDisposition.CHANGE
-            if experience is not None or mood_draft is not None
+            if experience is not None
             else CandidateDisposition.NO_ACTION
         )
-        owner_drafts = () if mood_draft is None else (mood_draft,)
+        owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
         value: dict[str, object] = {
             "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
@@ -1398,7 +1340,7 @@ class DeterministicCandidateValidator:
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            (1 if experience is not None else 0) + (1 if mood_draft is not None else 0),
+            (1 if experience is not None else 0),
             0,
             None,
         )
@@ -1465,18 +1407,6 @@ class DeterministicCandidateValidator:
             if relationship is None:
                 return _rejected(relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT")
             proposal_no += 1
-        mood_draft: CandidateOwnerDraft | None = None
-        if candidate.appraisal is not None:
-            mood_draft, mood_error = bind_appraisal_draft(
-                candidate.appraisal,
-                proposal_ref=f"proposal:{proposal_no}",
-                bases=bases,
-                current_components=self._context.current_components,
-                cognition=self._mood_cognition,
-            )
-            if mood_draft is None:
-                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
-            proposal_no += 1
         action_choices: tuple[
             OtherHumanReplyDraft | OtherHumanEndConversationDraft | FormalNoActionDraft,
             ...,
@@ -1523,9 +1453,7 @@ class DeterministicCandidateValidator:
         elif candidate.kind == "silence":
             disposition = (
                 CandidateDisposition.CHANGE
-                if experience is not None
-                or relationship is not None
-                or mood_draft is not None
+                if experience is not None or relationship is not None
                 else CandidateDisposition.NO_ACTION
             )
             action_choices = (
@@ -1540,9 +1468,7 @@ class DeterministicCandidateValidator:
         elif candidate.kind == "defer":
             disposition = (
                 CandidateDisposition.CHANGE
-                if experience is not None
-                or relationship is not None
-                or mood_draft is not None
+                if experience is not None or relationship is not None
                 else CandidateDisposition.DEFER
             )
         else:
@@ -1582,7 +1508,6 @@ class DeterministicCandidateValidator:
                         if relationship is None
                         else (self._bind_relationship(relationship),)
                     ),
-                    *((mood_draft,) if mood_draft is not None else ()),
                 )
             ],
             "exact_life_queries": [],
@@ -1608,7 +1533,6 @@ class DeterministicCandidateValidator:
                     if relationship is None
                     else (self._bind_relationship(relationship),)
                 ),
-                *((mood_draft,) if mood_draft is not None else ()),
             ),
         )
         return CandidateValidationResult(
@@ -1617,8 +1541,7 @@ class DeterministicCandidateValidator:
             change_set,
             len(action_choices)
             + (1 if experience is not None else 0)
-            + (1 if relationship is not None else 0)
-            + (1 if mood_draft is not None else 0),
+            + (1 if relationship is not None else 0),
             0,
             None,
         )
@@ -1737,25 +1660,6 @@ class DeterministicCandidateValidator:
             self._activity_cognition.bind_create(item) for item in activities
         )
         if expressions:
-            disposition = CandidateDisposition.CHANGE
-        if candidate.appraisal is not None:
-            mood_draft, mood_error = bind_appraisal_draft(
-                candidate.appraisal,
-                proposal_ref=(
-                    "proposal:2"
-                    if activities
-                    or visual_requests
-                    or exact_queries
-                    or codex_delegations
-                    else "proposal:1"
-                ),
-                bases=bases,
-                current_components=self._context.current_components,
-                cognition=self._mood_cognition,
-            )
-            if mood_draft is None:
-                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
-            owner_drafts.append(mood_draft)
             disposition = CandidateDisposition.CHANGE
         value = {
             "schema_kind": ACTIVE_CHANGE_SET_VERSION,
@@ -2041,17 +1945,6 @@ class DeterministicCandidateValidator:
         owner_drafts = [self._activity_cognition.bind_decision(decision)]
         if material is not None:
             owner_drafts.append(self._material_cognition.bind(material))
-        if candidate.appraisal is not None:
-            mood_draft, mood_error = bind_appraisal_draft(
-                candidate.appraisal,
-                proposal_ref="proposal:3",
-                bases=bases,
-                current_components=context.current_components,
-                cognition=self._mood_cognition,
-            )
-            if mood_draft is None:
-                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
-            owner_drafts.append(mood_draft)
         value = {
             "schema_kind": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
@@ -2109,7 +2002,6 @@ class DeterministicCandidateValidator:
         target, phase = {
             "reflect_self": ("self", MaintenancePhase.REFLECT_SELF),
             "reflect_mind": ("mind", MaintenancePhase.REFLECT_MIND),
-            "reflect_mood": ("mood", MaintenancePhase.REFLECT_MOOD),
             "reflect_prompt": ("prompt", MaintenancePhase.REFLECT_PROMPT),
         }.get(context.purpose, (None, None))
         if (
@@ -2146,7 +2038,7 @@ class DeterministicCandidateValidator:
             if phase_basis not in cited:
                 return _rejected("CANDIDATE-REFLECTION-BASIS")
             owner_draft: CandidateOwnerDraft
-            if target in {"self", "mind", "mood"}:
+            if target in {"self", "mind"}:
                 owner = CandidateOwner(target)
                 current = next(
                     (
@@ -2173,51 +2065,37 @@ class DeterministicCandidateValidator:
                 ):
                     return _rejected("CANDIDATE-REFLECTION-VERSION")
                 next_state = candidate.next_state
-                if target == "mood":
-                    if not isinstance(next_state, MoodReflectionRequest):
-                        return _rejected("CANDIDATE-REFLECTION-CONTRACT")
-                    owner_draft = self._mood_cognition.bind(
-                        CandidateMoodDraft(
+                if not isinstance(next_state, (SelfState, MindState)):
+                    return _rejected("CANDIDATE-REFLECTION-CONTRACT")
+                next_bytes = rfc8785.dumps(
+                    cast(Any, next_state.model_dump(mode="json"))
+                )
+                if next_bytes == current[1]:
+                    return _rejected("CANDIDATE-REFLECTION-NOOP")
+                owner_draft = (
+                    self._mind_cognition.bind(
+                        CandidateMindDraft(
                             "proposal:1",
                             "group:1",
                             tuple(item.ordinal for item in cited),
                             CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                             cast(int, candidate.expected_version),
-                            MoodCandidateKind.HOME_BASE_REFLECTION,
+                            next_bytes,
                         )
                     )
-                else:
-                    if not isinstance(next_state, (SelfState, MindState)):
-                        return _rejected("CANDIDATE-REFLECTION-CONTRACT")
-                    next_bytes = rfc8785.dumps(
-                        cast(Any, next_state.model_dump(mode="json"))
-                    )
-                    if next_bytes == current[1]:
-                        return _rejected("CANDIDATE-REFLECTION-NOOP")
-                    owner_draft = (
-                        self._mind_cognition.bind(
-                            CandidateMindDraft(
-                                "proposal:1",
-                                "group:1",
-                                tuple(item.ordinal for item in cited),
-                                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                                cast(int, candidate.expected_version),
-                                next_bytes,
-                            )
-                        )
-                        if target == "mind"
-                        else self._subject_state_cognition.bind(
-                            CandidateSubjectStateDraft(
-                                "proposal:1",
-                                "group:1",
-                                tuple(item.ordinal for item in cited),
-                                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                                SubjectStateKind(target),
-                                cast(int, candidate.expected_version),
-                                next_bytes,
-                            )
+                    if target == "mind"
+                    else self._subject_state_cognition.bind(
+                        CandidateSubjectStateDraft(
+                            "proposal:1",
+                            "group:1",
+                            tuple(item.ordinal for item in cited),
+                            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                            SubjectStateKind(target),
+                            cast(int, candidate.expected_version),
+                            next_bytes,
                         )
                     )
+                )
             else:
                 current_prompt = context.current_subject_prompt
                 if (
@@ -2722,23 +2600,6 @@ def _expand_creator_cognitive_act(
                             "summary": source.experience.memory_summary,
                         },
                     },
-                )
-            )
-            proposal_no += 1
-    if source.appraisal is not None:
-        mood_change, mood_error = bind_appraisal_event(
-            source.appraisal,
-            proposal_ref=f"proposal:{proposal_no}",
-            bases=bases,
-            current_components=context.current_components,
-        )
-        if mood_error is not None:
-            return None, None, mood_error
-        if mood_change is not None:
-            mood_change["atomic_group_ref"] = "group:4"
-            component_changes.append(
-                _translated_proposal(
-                    ComponentChangeProposal, ComponentChangePayload, mood_change
                 )
             )
             proposal_no += 1
@@ -3657,8 +3518,6 @@ def _component_failure(
     schema_owner = {
         "armi.self": CandidateOwner.SELF,
         "armi.mind": CandidateOwner.MIND,
-        "armi.mood": CandidateOwner.MOOD,
-        "armi.mood-appraisal": CandidateOwner.MOOD,
         "armi.life-mode": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_kind")))
     if schema_owner is not owner:
@@ -3669,13 +3528,7 @@ def _component_failure(
         )
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         return "CANDIDATE-COMPONENT-STATE"
-    if (
-        owner is CandidateOwner.MOOD
-        and next_state.get("schema_kind") == "armi.mood-appraisal"
-    ):
-        if current_schema != "armi.mood":
-            return "CANDIDATE-COMPONENT-STATE"
-    elif current_schema != next_state.get("schema_kind"):
+    if current_schema != next_state.get("schema_kind"):
         return "CANDIDATE-COMPONENT-STATE"
     next_bytes = rfc8785.dumps(cast(Any, next_state))
     if next_bytes == current_bytes:
@@ -3786,8 +3639,6 @@ def _codex_delegation_failure(
 def _rejected(
     code: str, *, field_path: tuple[str | int, ...] = ()
 ) -> CandidateValidationResult:
-    if code == "CANDIDATE-MOOD-TARGET-CONFLICT" and not field_path:
-        field_path = ("appraisal", "concerns")
     owner = code.removeprefix("CANDIDATE-").partition("-")[0].lower()
     if owner == "commitment":
         owner = "relationship"
@@ -3835,14 +3686,12 @@ def _proposal_path(
         field = {
             "experience": "experience",
             "memory": "experience",
-            "mood": "appraisal",
             "action": "decision",
             "visual_observation": "decision",
         }.get(owner, "changes")
         if candidate.schema_kind == creator_act.CREATOR_VOICE_ACT_VERSION:
             field = {
                 "experience": "exp",
-                "appraisal": "app",
                 "decision": "d",
                 "changes": "ops",
             }[field]

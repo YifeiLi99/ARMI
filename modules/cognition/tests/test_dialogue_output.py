@@ -64,34 +64,10 @@ def decode(value, version) -> Any:
 
 
 @pytest.mark.parametrize("version", [CREATOR, OTHER])
-def test_flat_appraisal_preserves_existing_event_and_all_dimensions(version):
-    value = {
-        "action": "reply",
-        "content": ["Got it"],
-        "event_gist": "A new understanding",
-        "event_basis_refs": ["ctx:1"],
-        "event_transition": "reappraise",
-        "event_episode_ref": "ctx:2",
-        "event_change_from_previous": "improved",
-        "event_phase": "realized",
-        "event_concerns": [
-            {
-                "target": "relationship",
-                "significance": "direct",
-                "direction": "progress",
-            }
-        ],
-        "event_engagement": "not_applicable",
-        "event_expectedness": "somewhat_unexpected",
-        "event_outcome_certainty": "settled",
-        "event_intrinsic_quality": "pleasant",
-        "event_self_involvement": "limited",
-    }
-    result = decode(value, version)
-    assert result.appraisal.episode_ref == "ctx:2"
-    assert result.appraisal.change_from_previous == "improved"
-    assert result.appraisal.appraisal.concerns[0].direction == "progress"
-    assert result.appraisal.basis_refs == ("ctx:1",)
+def test_main_model_cannot_write_event_appraisal(version):
+    value = {"action": "reply", "content": ["Got it"], "event_gist": "A loss"}
+    with pytest.raises((CandidateViolation, ModelViolation)):
+        decode(value, version)
 
 
 def test_other_experience_relation_boundary_and_commitment_reach_domain():

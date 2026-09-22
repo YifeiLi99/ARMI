@@ -55,7 +55,14 @@ from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_mind.api import MindReadPort, mind_context_items
-from armi_mood.api import MoodReadPort, active_mood_gists, mood_context_items
+from armi_mood.api import (
+    MoodEvaluationPort,
+    MoodEvent,
+    MoodReadPort,
+    MoodViolation,
+    active_mood_gists,
+    mood_context_items,
+)
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
@@ -177,6 +184,8 @@ class ContextPipeline:
         "_factory",
         "_failure_notification",
         "_lease_owner",
+        "_mood_evaluation",
+        "_mood_task",
         "_policy_version",
         "_repository",
         "_stop",
@@ -198,6 +207,7 @@ class ContextPipeline:
         memory_read: MemoryReadPort,
         memory_projection: MemoryProjectionPort,
         mood_read: MoodReadPort,
+        mood_evaluation: MoodEvaluationPort,
         prompt_read: PromptReadPort,
         material_projection: MaterialProjectionPort,
         relationship_read: RelationshipReadPort,
@@ -220,6 +230,8 @@ class ContextPipeline:
         embedding: EmbeddingPort | None = None,
     ) -> None:
         self._factory = factory
+        self._mood_evaluation = mood_evaluation
+        self._mood_task: asyncio.Task[None] | None = None
         self._failure_notification = failure_notification
         self._custody = custody
         self._dialogue_read = dialogue_read
@@ -265,10 +277,12 @@ class ContextPipeline:
             raise ContextViolation("CTX-ARTIFACT") from None
 
     async def close(self) -> None:
-        self._stop.set()
+        self.stop()
 
     def stop(self) -> None:
         self._stop.set()
+        if self._mood_task is not None:
+            self._mood_task.cancel()
 
     async def select_once(self) -> CognitiveEpisodeId | None:
         try:
@@ -284,11 +298,18 @@ class ContextPipeline:
     async def prepare_once(self) -> bool:
         try:
             claimed = await self._work.claim(
-                work_kind=_WORK_KIND,
+                work_kind=WorkType.MOOD_EVALUATE,
                 lease_owner=self._lease_owner,
-                lease_seconds=30,
+                lease_seconds=120,
                 limit=1,
             )
+            if not claimed:
+                claimed = await self._work.claim(
+                    work_kind=_WORK_KIND,
+                    lease_owner=self._lease_owner,
+                    lease_seconds=30,
+                    limit=1,
+                )
         except WorkViolation:
             raise ContextViolation("CTX-DATABASE") from None
         if not claimed:
@@ -418,9 +439,26 @@ class ContextPipeline:
                 subject_prompt_bytes,
                 tuple(recent_scene_payloads),
                 recalled_context=recalled,
+                mood_evaluation=record.draft.work_kind is WorkType.MOOD_EVALUATE,
             )
             context_profile(snapshot.purpose).validate(request.items)
             result = self._compiler.compile(request)
+            if record.draft.work_kind is WorkType.MOOD_EVALUATE:
+                if self._stop.is_set():
+                    raise asyncio.CancelledError()
+                self._mood_task = asyncio.create_task(
+                    self._mood_evaluation.evaluate(
+                        event=_mood_event(snapshot, episode_id, evidence_bytes),
+                        lease=lease,
+                        compiled_context=result.compiled.canonical_bytes,
+                    )
+                )
+                try:
+                    await self._mood_task
+                finally:
+                    self._mood_task = None
+                self._wakeups.notify(CONTEXT_PREPARE)
+                return True
             manifest = await self._publish(
                 result.manifest_bytes,
                 "context.manifest",
@@ -460,7 +498,7 @@ class ContextPipeline:
             self._diagnostic("cognition.model.queued")
             self._wakeups.notify(COGNITION_EXECUTE)
             return True
-        except ContextViolation as error:
+        except (ContextViolation, MoodViolation) as error:
             await self._fail_if_current(lease, episode_id, error.code)
             return True
         except CandidateViolation as error:
@@ -659,6 +697,34 @@ class ContextPipeline:
             await self._failure_notification(episode_id, code)
 
 
+def _mood_event(
+    snapshot: ContextEpisodeSnapshot, episode_id: UUID, evidence_bytes: bytes | None
+) -> MoodEvent:
+    source_ref = snapshot.opportunity_source_ref
+    source_version = snapshot.opportunity_source_version
+    source_kind = snapshot.opportunity_source_kind
+    if snapshot.evidence is not None:
+        source_ref = snapshot.evidence.source_id
+        source_version = snapshot.evidence.source_version
+        source_kind = snapshot.evidence.source_kind
+    elif source_kind in {"subject_available", "autonomy_plan"}:
+        source_ref = snapshot.root_opportunity_id
+        source_version = 1
+    return MoodEvent(
+        f"{source_kind}:{source_ref}:{source_version}",
+        snapshot.subject_id,
+        episode_id,
+        source_ref,
+        source_version,
+        snapshot.opportunity_available_after,
+        (
+            evidence_bytes
+            if evidence_bytes is not None
+            else snapshot.activity_summary_bytes
+        ).decode("utf-8"),
+    )
+
+
 def _recent_turns(
     values: tuple[tuple[ContextDialogueItem, bytes], ...],
 ) -> tuple[tuple[ContextDialogueItem, bytes], ...]:
@@ -675,8 +741,11 @@ def _context_request(
     recent_scene_payloads: tuple[tuple[ContextDialogueItem, bytes], ...] = (),
     *,
     recalled_context: RecalledContext | None = None,
+    mood_evaluation: bool = False,
 ) -> ContextRequest:
     profile = context_profile(snapshot.purpose)
+    if mood_evaluation:
+        profile = replace(profile, purpose="mood.evaluate")
     runtime_bytes = rfc8785.dumps(
         {
             "subject_id": str(snapshot.subject_id),
@@ -1176,7 +1245,6 @@ def _context_request(
                     "perform_subject_self_check",
                     "reflect_self",
                     "reflect_mind",
-                    "reflect_mood",
                     "reflect_prompt",
                 },
                 relevance=100,
@@ -1188,7 +1256,6 @@ def _context_request(
                 "perform_subject_self_check",
                 "reflect_self",
                 "reflect_mind",
-                "reflect_mood",
                 "reflect_prompt",
             }
             else _unavailable(profile, ContextSection.LIFE_MODE, "maintenance_phase"),
@@ -1311,7 +1378,7 @@ def _context_request(
                 source_kind=snapshot.evidence.source_kind,
             )
         )
-    if snapshot.purpose == "consider_autonomy_check":
+    if snapshot.purpose == "consider_autonomy_check" and not mood_evaluation:
         items = check_context_items(
             items,
             signalled_refs=frozenset(

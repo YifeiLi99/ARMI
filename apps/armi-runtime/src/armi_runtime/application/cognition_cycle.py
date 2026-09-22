@@ -227,7 +227,6 @@ class RuntimeCognitionCycleSelector:
                     MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
                     MaintenancePhase.REFLECT_SELF: "reflect_self",
                     MaintenancePhase.REFLECT_MIND: "reflect_mind",
-                    MaintenancePhase.REFLECT_MOOD: "reflect_mood",
                     MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
                 }.get(maintenance.phase)
             )
@@ -331,14 +330,14 @@ class RuntimeCognitionCycleSelector:
                 await unit.work.enqueue(
                     WorkDraft(
                         WorkId(uuid7()),
-                        WorkType.COGNITION_CONTEXT_PREPARE,
+                        WorkType.MOOD_EVALUATE,
                         WorkOwner("cognitive_episode", episode_id),
-                        IdempotencyKey(f"context:{candidate.opportunity_id}"),
+                        IdempotencyKey(f"mood:{candidate.opportunity_id}"),
                         work_digest,
                         50,
                         now,
                         Instant(now.value + timedelta(seconds=3600)),
-                        2,
+                        1,
                         trace,
                         SubjectId(candidate.subject_id),
                         WorkPayloadRef("cognitive_episode", episode_id),

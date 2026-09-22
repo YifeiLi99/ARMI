@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid7
 
-from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import (
     AdminContentCommand,
     AdminContentContext,
@@ -15,27 +14,14 @@ from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
 )
 
-from ._domain import consideration_signals, validate_state
-from ._event_storage import EVENT_QUERY, parse_events
+from ._evaluation_contract import MoodView
+from ._projection import mood_snapshot_bytes
+from ._psychology import Appraisal, MoodDynamics, current_affect, derive_response
 from .api import MoodAdminComponent, MoodCorrectionHead, MoodViolation
 
 
 class PostgreSQLMoodAdmin:
     __slots__ = ()
-
-    def consideration_signals(
-        self,
-        transaction: PostgreSQLAdminTransaction,
-        *,
-        as_of: datetime,
-        minimum_delay_seconds: int,
-    ) -> tuple[ConsiderationSignal, ...]:
-        events = parse_events(
-            transaction.execute(EVENT_QUERY, (None, None, as_of, as_of, 7)).fetchall()
-        )
-        return consideration_signals(
-            events, as_of=as_of, minimum_delay_seconds=minimum_delay_seconds
-        )
 
     def apply(
         self,
@@ -97,23 +83,46 @@ class PostgreSQLMoodAdmin:
         if type(replacement) is not dict:
             raise MoodViolation("MOOD-STATE")
         value = cast(dict[str, object], replacement)
-        validate_state(value)
+        MoodDynamics.model_validate(value)
         return cast(dict[str, object], json.loads(json.dumps(value)))
 
     def current_component(
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MoodAdminComponent | None:
         statement = (
-            """SELECT head.mood_version,'private'::text AS privacy_scope,head.semantic_payload FROM armi.mood_revisions AS head WHERE head.is_current """
+            """SELECT head.mood_version,'private'::text AS privacy_scope,head.semantic_payload,
+                 head.mood_revision_id,statement_timestamp(),a.status,a.mood_assessment_id,a.error_code,a.appraisal
+               FROM armi.mood_revisions AS head LEFT JOIN LATERAL (
+                 SELECT status,mood_assessment_id,error_code,appraisal FROM armi.mood_assessments
+                 WHERE subject_id=head.subject_id ORDER BY created_at DESC,mood_assessment_id DESC LIMIT 1
+               ) a ON true WHERE head.is_current"""
             if private
             else """SELECT head.mood_version,'private'::text AS privacy_scope FROM armi.mood_revisions AS head WHERE head.is_current """
         )
         row = transaction.execute(statement).fetchone()
         if row is None:
             return None
-        return MoodAdminComponent(
-            "mood", int(cast(int, row[0])), str(row[1]), row[2] if private else None
-        )
+        payload = None
+        if private:
+            state = MoodDynamics.model_validate(row[2])
+            payload = json.loads(
+                mood_snapshot_bytes(
+                    MoodView(
+                        cast(UUID, row[3]),
+                        cast(int, row[0]),
+                        cast(datetime, row[4]),
+                        current_affect(state, cast(datetime, row[4])),
+                        state,
+                        cast(str, row[5] or "not_evaluated"),
+                        cast(UUID | None, row[6]),
+                        cast(str | None, row[7]),
+                        ()
+                        if row[8] is None
+                        else derive_response(Appraisal.model_validate(row[8])).unknown,
+                    )
+                )
+            )
+        return MoodAdminComponent("mood", int(cast(int, row[0])), str(row[1]), payload)
 
     def current_head(
         self,
@@ -171,9 +180,9 @@ class PostgreSQLMoodAdmin:
         replacement = self.canonicalize_replacement(kind=kind, replacement=replacement)
         transaction.execute(
             "INSERT INTO armi.mood_revisions (mood_revision_id,subject_id,mood_version,"
-            "previous_revision_id,origin_kind,origin_ref,subject_commit_id,proposal_ref,"
+            "previous_revision_id,origin_kind,origin_ref,"
             "semantic_payload) VALUES (%s,%s,%s,%s,'admin_correction',"
-            "%s,NULL,NULL,%s::jsonb)",
+            "%s,%s::jsonb)",
             (
                 revision_id,
                 subject_id,

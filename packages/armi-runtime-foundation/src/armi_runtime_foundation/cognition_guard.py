@@ -44,8 +44,12 @@ async def cancel_cognition_work(
         )
     ).fetchall()
     work = tuple(RecoveryWorkSnapshot(*row) for row in rows)
-    custody = OwnerReconciliationContext(
-        transaction, RecoveryOwnerIdentity("cognition"), work
-    )
     for item in work:
+        custody = OwnerReconciliationContext(
+            transaction,
+            RecoveryOwnerIdentity(
+                "mood" if item.work_kind == "mood.evaluate" else "cognition"
+            ),
+            (item,),
+        )
         await custody.cancel(item.work_id, reason_code="REC-HUMAN-INPUT-PREEMPTED")

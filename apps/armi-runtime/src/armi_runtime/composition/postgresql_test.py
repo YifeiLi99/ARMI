@@ -25,6 +25,7 @@ from armi_codex.bootstrap import (
     compose_codex_task_source_gateway,
 )
 from armi_cognition.bootstrap import (
+    bootstrap_cognition_context,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_context_candidate_read,
@@ -70,7 +71,7 @@ from armi_interaction.bootstrap import (
 )
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_cognition
 from armi_memory.bootstrap import bootstrap_memory, bootstrap_memory_cognition
-from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_cognition
+from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_data_rights
 from armi_perception.bootstrap import compose_external_content_pipeline
 from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
 from armi_relationship.bootstrap import (
@@ -132,6 +133,7 @@ __all__ = (
     "bootstrap_codex_commit",
     "bootstrap_codex_read_ports",
     "bootstrap_codex_timeline_projection",
+    "bootstrap_cognition_context",
     "bootstrap_cognition_operation",
     "bootstrap_cognition_subject_commit",
     "bootstrap_context_candidate_read",
@@ -157,7 +159,7 @@ __all__ = (
     "bootstrap_memory",
     "bootstrap_memory_cognition",
     "bootstrap_mood",
-    "bootstrap_mood_cognition",
+    "bootstrap_mood_data_rights",
     "bootstrap_opportunity",
     "bootstrap_opportunity_admission",
     "bootstrap_opportunity_cognition",

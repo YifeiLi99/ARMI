@@ -667,14 +667,9 @@ ALTER TABLE ONLY armi.maintenance_sessions
 
 
 --
--- Name: mood_revisions_appraisal mood_revisions_appraisal_identity_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.mood_revisions
-    ADD CONSTRAINT mood_revisions_appraisal_identity_key UNIQUE (mood_appraisal_event_id, subject_id);
 
-ALTER TABLE ONLY armi.mood_revisions
-    ADD CONSTRAINT mood_revisions_appraisal_event_key UNIQUE (mood_appraisal_event_id);
 
 --
 -- Name: mood_revisions mood_revisions_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1206,22 +1201,16 @@ CREATE UNIQUE INDEX maintenance_sessions_one_unfinished ON armi.maintenance_sess
 
 
 --
--- Name: mood_revisions_appraisal_episode_time_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX mood_revisions_appraisal_episode_time_idx ON armi.mood_revisions USING btree (subject_id, mood_episode_id, occurred_at DESC, mood_appraisal_event_id DESC);
 
 --
--- Name: mood_revisions_appraisal_previous_unique_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX mood_revisions_appraisal_previous_unique_idx ON armi.mood_revisions USING btree (previous_appraisal_event_id) WHERE (previous_appraisal_event_id IS NOT NULL);
 
 --
--- Name: mood_revisions_appraisal_subject_time_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX mood_revisions_appraisal_subject_time_idx ON armi.mood_revisions USING btree (subject_id, occurred_at DESC, mood_appraisal_event_id DESC);
 
 --
 -- Name: mood_revisions_subject_created_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2128,11 +2117,8 @@ ALTER TABLE ONLY armi.maintenance_sessions
 
 
 --
--- Name: mood_revisions_appraisal mood_revisions_appraisal_previous_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.mood_revisions
-    ADD CONSTRAINT mood_revisions_appraisal_previous_fkey FOREIGN KEY (previous_appraisal_event_id, subject_id) REFERENCES armi.mood_revisions(mood_appraisal_event_id, subject_id);
 
 --
 -- Name: mood_revisions mood_revisions_previous_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2142,11 +2128,8 @@ ALTER TABLE ONLY armi.mood_revisions
     ADD CONSTRAINT mood_revisions_previous_owner_fkey FOREIGN KEY (previous_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
 
 --
--- Name: mood_revisions mood_revisions_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.mood_revisions
-    ADD CONSTRAINT mood_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 
 --
 -- Name: mood_revisions mood_revisions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2692,3 +2675,9 @@ ALTER TABLE armi.subjective_memory_revisions ADD CONSTRAINT subjective_memory_re
 ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_origin_opportunity_fkey FOREIGN KEY (origin_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_origin_admin_fkey FOREIGN KEY (origin_admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 CREATE UNIQUE INDEX activity_revisions_origin_opportunity_idx ON armi.activity_revisions (origin_opportunity_id) WHERE revision_no=1;
+
+ALTER TABLE armi.mood_assessments ADD CONSTRAINT mood_assessments_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.mood_assessments ADD CONSTRAINT mood_assessments_episode_fk FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+ALTER TABLE armi.mood_assessments ADD CONSTRAINT mood_assessments_revision_fk FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
+ALTER TABLE armi.cognitive_episodes ADD CONSTRAINT cognitive_episodes_mood_fk FOREIGN KEY (mood_assessment_id) REFERENCES armi.mood_assessments(mood_assessment_id);
+CREATE INDEX mood_assessments_subject_created_idx ON armi.mood_assessments(subject_id,created_at DESC,mood_assessment_id DESC);

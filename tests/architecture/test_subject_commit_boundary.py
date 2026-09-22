@@ -23,7 +23,6 @@ _OWNER_APIS = {
     "activity": "ActivityCommitPort",
     "material": "MaterialCommitPort",
     "memory": "MemoryCommitPort",
-    "mood": "MoodCommitPort",
     "prompt": "PromptCommitPort",
     "relationship": "RelationshipCommitPort",
     "sleep": "SleepCommitPort",

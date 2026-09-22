@@ -58,7 +58,6 @@ async def test_only_quiet_completed_human_exchange_is_idle(
     facts = RuntimeLifeOpportunityFacts(
         cognition=AsyncMock(),
         interaction=AsyncMock(),
-        mood=AsyncMock(),
         mind=AsyncMock(),
         outlet_health=AsyncMock(),
         model_revision=lambda: "test",

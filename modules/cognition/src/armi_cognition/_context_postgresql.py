@@ -27,6 +27,28 @@ from .api import (
 class PostgreSQLCognitionContextLifecycle:
     __slots__ = ("_experiences", "_maintenance")
 
+    async def accept_mood(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        assessment_id: UUID,
+        previous_subject_version: int,
+        subject_version: int,
+    ) -> None:
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes
+               SET base_subject_version=%s,mood_assessment_id=%s
+               WHERE cognitive_episode_id=%s AND status='preparing'
+                 AND base_subject_version=%s AND mood_assessment_id IS NULL
+               RETURNING cognitive_episode_id""",
+                (subject_version, assessment_id, episode_id, previous_subject_version),
+            )
+        ).fetchone()
+        if row is None:
+            raise CandidateViolation("CANDIDATE-EPISODE-STATE")
+
     def __init__(
         self,
         experiences: ExperienceReadPort,
@@ -169,7 +191,6 @@ class PostgreSQLCognitionContextLifecycle:
         elif row is not None and draft.purpose in {
             "reflect_self",
             "reflect_mind",
-            "reflect_mood",
             "reflect_prompt",
         }:
             await transaction.execute(
@@ -270,6 +291,7 @@ class PostgreSQLCognitionContextLifecycle:
                       compiled_context_digest=%s,
                       context_items=%s::jsonb, prepared_at=statement_timestamp()
                WHERE cognitive_episode_id=%s AND status='preparing'
+                 AND mood_assessment_id IS NOT NULL
                RETURNING cognitive_episode_id, opportunity_id, subject_id, scene_id,
                          context_party_id, purpose, base_subject_version,
                          base_state_epoch, bundle_activation_id, mechanism_identity,

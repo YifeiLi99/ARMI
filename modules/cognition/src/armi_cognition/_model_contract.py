@@ -25,10 +25,6 @@ from armi_mind.api import (
     MindAppraisal,
     MindState,
 )
-from armi_mood.api import (
-    MoodAppraisalCommandWire,
-)
-from armi_mood.api import MoodStateWire as MoodState
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -236,11 +232,9 @@ class ExperiencePayload(_StrictModel, frozen=True):
 class ComponentChangePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["component_changes"]
     fact_class: FactClass
-    owner: Literal["self", "mind", "mood", "life_mode"]
+    owner: Literal["self", "mind", "life_mode"]
     expected_version: Annotated[int, Field(gt=0)]
-    next_state: (
-        SelfState | MindState | MoodState | MoodAppraisalCommandWire | LifeModeState
-    )
+    next_state: SelfState | MindState | LifeModeState
 
 
 class SelfChangePayload(ComponentChangePayload, frozen=True):
@@ -253,18 +247,13 @@ class MindChangePayload(ComponentChangePayload, frozen=True):
     next_state: MindState
 
 
-class MoodChangePayload(ComponentChangePayload, frozen=True):
-    owner: Literal["mood"]
-    next_state: MoodState | MoodAppraisalCommandWire
-
-
 class LifeModeChangePayload(ComponentChangePayload, frozen=True):
     owner: Literal["life_mode"]
     next_state: LifeModeState
 
 
 type ComponentChangeWire = Annotated[
-    SelfChangePayload | MindChangePayload | MoodChangePayload | LifeModeChangePayload,
+    SelfChangePayload | MindChangePayload | LifeModeChangePayload,
     Field(discriminator="owner"),
 ]
 
@@ -759,11 +748,6 @@ def load_active_binding(
                 "profile": "reflect_mind",
                 "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 2048,
-            },
-            "reflect_mood": {
-                "profile": "reflect_mood",
-                "response_contract_kind": "armi.owner-reflection-candidate",
-                "output_token_limit": 1024,
             },
             "reflect_prompt": {
                 "profile": "reflect_prompt",

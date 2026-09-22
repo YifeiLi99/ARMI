@@ -7,7 +7,6 @@ from copy import deepcopy
 from typing import Any, cast
 
 from armi_kernel.application import CandidateViolation
-from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS
 
 from ._autonomous_activity_contract import AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
 from ._creator_cognitive_act_contract import CREATOR_COGNITIVE_ACT_VERSION
@@ -66,86 +65,17 @@ _RELATIONSHIP = {
     "relationship_boundary": "boundary",
     "commitment_change": "commitment_change",
 }
-_SEMANTICS = frozenset(
-    {
-        "engagement",
-        "concerns",
-        "expectedness",
-        "outcome_certainty",
-        "intrinsic_quality",
-        "self_involvement",
-        "demand",
-        "causality",
-        "coping",
-        "standards",
-    }
-)
-_TRAJECTORY = frozenset({"transition", "episode_ref", "change_from_previous"})
-_EVENT = frozenset({"gist", "basis_refs", "event_phase"})
 _CREATOR_STATE = frozenset({"changes", "mind_appraisals", "concern_changes"})
-_EVENT_GROUPS = {
-    "demand": ("urgency", "effort"),
-    "causality": ("agency", "intentionality"),
-    "coping": ("response_access", "power_balance", "adjustment"),
-}
-_EVENT_PATHS = {
-    **{key: (key,) for key in sorted(_EVENT)},
-    **{key: ("trajectory", key) for key in sorted(_TRAJECTORY)},
-    **{
-        key: ("appraisal", key)
-        for key in sorted(_SEMANTICS - {"demand", "causality", "coping", "standards"})
-    },
-    **{
-        f"{group}_{key}": ("appraisal", group, key)
-        for group, keys in _EVENT_GROUPS.items()
-        for key in keys
-    },
-    "self_compatibility": (
-        "appraisal",
-        "standards",
-        "self_evaluation",
-        "compatibility",
-    ),
-    "self_scope": ("appraisal", "standards", "self_evaluation", "scope"),
-    "norm_compatibility": ("appraisal", "standards", "norm_compatibility"),
-}
-_EVENT_NAMES = {
-    key: key if key == "event_phase" else f"event_{key}" for key in _EVENT_PATHS
-}
 
 
 def dialogue_output_instructions(instructions: str) -> str:
-    """Name the actual wire fields in Mood guidance, not the internal objects."""
-    names = dict(_EVENT_NAMES)
-    names.update(
-        {
-            "self_evaluation.compatibility": "event_self_compatibility",
-            "self_evaluation.scope": "event_self_scope",
-            "self_evaluation": "event_self_compatibility",
-            "compatibility": "event_self_compatibility",
-            "scope": "event_self_scope",
-            "standards": "event_self_compatibility 和 event_norm_compatibility",
-            "causality": "event_causality_agency 和 event_causality_intentionality",
-            "intentionality": "event_causality_intentionality",
-        }
-    )
-    pattern = (
-        r"(?<![\w.])(?:"
-        + "|".join(re.escape(key) for key in sorted(names, key=len, reverse=True))
-        + r")(?!\w)"
-    )
-    for line in MOOD_APPRAISAL_INSTRUCTIONS.splitlines():
-        if line and not line.startswith("#"):
-            instructions = instructions.replace(
-                line, re.sub(pattern, lambda match: names[match.group()], line)
-            )
     return instructions
 
 
 def dialogue_output_kind(properties: set[str]) -> str | None:
-    if properties == {"decision", "appraisal", "social"}:
+    if properties == {"decision", "social"}:
         return "other"
-    if properties == {"decision", "appraisal", "experience", *_CREATOR_STATE}:
+    if properties == {"decision", "experience", *_CREATOR_STATE}:
         return "creator"
     return None
 
@@ -254,80 +184,6 @@ def dialogue_output_schema(envelope: dict[str, Any]) -> dict[str, Any]:
             )
     result = new_object()
     lift(result, props["decision"], _DECISION, optional=False)
-    event = objects(props["appraisal"])[0]
-    flat_event = new_object()
-    flat_event["properties"] = {key: event["properties"][key] for key in sorted(_EVENT)}
-    flat_event["required"] = sorted(_EVENT)
-    lift(
-        flat_event,
-        event["properties"]["appraisal"],
-        {
-            key: key
-            for key in sorted(
-                _SEMANTICS - {"demand", "causality", "coping", "standards"}
-            )
-        },
-        optional=False,
-    )
-    lift(
-        flat_event,
-        event["properties"]["trajectory"],
-        {key: key for key in sorted(_TRAJECTORY)},
-        optional=False,
-    )
-    semantics = objects(event["properties"]["appraisal"])[0]["properties"]
-    for group, keys in _EVENT_GROUPS.items():
-        lift(
-            flat_event,
-            semantics[group],
-            {f"{group}_{key}": key for key in keys},
-            optional=True,
-        )
-    standards = objects(semantics["standards"])[0]["properties"]
-    lift(
-        flat_event,
-        standards["self_evaluation"],
-        {"self_compatibility": "compatibility", "self_scope": "scope"},
-        optional=True,
-    )
-    flat_event["properties"]["norm_compatibility"] = standards["norm_compatibility"]
-    flat_event["dependentRequired"] = {
-        "norm_compatibility": ["self_compatibility"],
-        "self_compatibility": ["norm_compatibility"],
-    }
-
-    def rename_fields(node: dict[str, Any]) -> dict[str, Any]:
-        renamed = dict(node)
-        if "properties" in node:
-            renamed["properties"] = {
-                _EVENT_NAMES[key]: value for key, value in node["properties"].items()
-            }
-        if "required" in node:
-            renamed["required"] = [_EVENT_NAMES[key] for key in node["required"]]
-        if "dependentRequired" in node:
-            renamed["dependentRequired"] = {
-                _EVENT_NAMES[key]: [_EVENT_NAMES[item] for item in items]
-                for key, items in node["dependentRequired"].items()
-            }
-        for key in ("allOf", "anyOf"):
-            if key in node:
-                renamed[key] = [rename_fields(item) for item in node[key]]
-        for key in ("if", "then"):
-            if key in node:
-                renamed[key] = rename_fields(node[key])
-        return renamed
-
-    event_constraint = rename_fields(flat_event)
-    result["properties"].update(event_constraint.pop("properties"))
-    event_constraint.pop("additionalProperties")
-    # Prefix identifies the event without asking the model to close another group.
-    # All fields remain typed and map losslessly to Mood's original contract.
-    result.setdefault("allOf", []).append(
-        {
-            "if": {"anyOf": [{"required": [name]} for name in _EVENT_NAMES.values()]},
-            "then": event_constraint,
-        }
-    )
     if kind == "creator":
         lift(result, props["experience"], _EXPERIENCE, optional=True)
         result["properties"].update({key: props[key] for key in sorted(_CREATOR_STATE)})
@@ -390,7 +246,7 @@ def expand_dialogue_output(
                 "expression": _join_messages(candidate["expression"]),
             }
         return candidate
-    allowed = set(_DECISION) | set(_EXPERIENCE) | set(_EVENT_NAMES.values())
+    allowed = set(_DECISION) | set(_EXPERIENCE)
     allowed |= set(_RELATIONSHIP) if other else _CREATOR_STATE
     if other:
         allowed -= {
@@ -430,13 +286,6 @@ def expand_dialogue_output(
         if experience:
             result["experience"] = experience
         result.update({key: value[key] for key in _CREATOR_STATE if key in value})
-    for key, path in _EVENT_PATHS.items():
-        name = _EVENT_NAMES[key]
-        if name in value:
-            target = result.setdefault("appraisal", {})
-            for segment in path[:-1]:
-                target = target.setdefault(segment, {})
-            target[path[-1]] = value[name]
     return result
 
 
@@ -465,13 +314,4 @@ def flatten_dialogue_output(candidate: dict[str, Any]) -> dict[str, Any]:
         }
     )
     value.update({key: candidate[key] for key in _CREATOR_STATE if key in candidate})
-    if event := candidate.get("appraisal"):
-        for key, path in _EVENT_PATHS.items():
-            current: Any = event
-            for segment in path:
-                if current is None or segment not in current:
-                    break
-                current = current[segment]
-            else:
-                value[_EVENT_NAMES[key]] = current
     return value

@@ -215,7 +215,7 @@ from armi_memory.bootstrap import (
 )
 from armi_mind.api import MindCognitionPort, MindCommitPort, MindReadPort
 from armi_mind.bootstrap import MindModule, bootstrap_mind
-from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
+from armi_mood.api import MoodEventStorePort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
 from armi_perception.api import ExternalMediaFetchPort, PerceptionDiagnostic
 from armi_perception.bootstrap import (
@@ -270,6 +270,7 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.model.jev import JevAppraiser
 from armi_runtime.adapters.model.local_embedding import (
     LocalLlamaCppEmbeddingAdapter,
 )
@@ -312,6 +313,7 @@ from armi_runtime.application.cognition_cycle import (
     RuntimeCognitionState,
     RuntimeContextEpisodeAdapter,
 )
+from armi_runtime.application.mood_evaluation import RuntimeMoodEvaluation
 from armi_runtime.application.operation_assembler import (
     RuntimeCreatorOperationAssembler,
 )
@@ -1292,6 +1294,7 @@ def compose_context_pipeline(
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
+    mood_events: MoodEventStorePort,
     prompt_read: PromptReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
@@ -1343,6 +1346,21 @@ def compose_context_pipeline(
         memory_read=memory_read,
         memory_projection=memory_projection,
         mood_read=mood_read,
+        mood_evaluation=RuntimeMoodEvaluation(
+            factory=unit_of_work_factory,
+            episodes=cognition_context,
+            store=mood_events,
+            appraiser=JevAppraiser(
+                credentials=prepared.credential_port,
+                locator=config.secret_locators.get("mood.jev_api_key"),
+                timeout_seconds=config.mood.timeout_seconds,
+            ),
+            prices=load_price_catalog(
+                runtime_config_path(
+                    "provider-pricing.yaml", environment_root=prepared.root
+                )
+            ),
+        ),
         prompt_read=prompt_read,
         material_projection=material_projection,
         relationship_read=relationship_read,
@@ -1650,7 +1668,6 @@ def compose_candidate_validation_pipeline(
     codex_available: Callable[[], bool],
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
-    mood_cognition: MoodCognitionPort,
     mood_read: MoodReadPort,
     prompt_cognition: PromptCognitionPort,
     prompt_read: PromptReadPort,
@@ -1695,7 +1712,6 @@ def compose_candidate_validation_pipeline(
         codex_available=codex_available,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
-        mood_cognition=mood_cognition,
         mood_read=mood_read,
         prompt_cognition=prompt_cognition,
         prompt_read=prompt_read,
@@ -1729,7 +1745,6 @@ def compose_subject_commit_pipeline(
     expression_commit: ExpressionCommitPort,
     interaction_commit: InteractionSubjectCommitPort,
     memory_commit: MemoryCommitPort,
-    mood_commit: MoodCommitPort,
     opportunity_transition: OpportunityTransitionPort,
     prompt_commit: PromptCommitPort,
     material_commit: MaterialCommitPort,
@@ -1764,7 +1779,6 @@ def compose_subject_commit_pipeline(
         expression_commit=expression_commit,
         interaction_commit=interaction_commit,
         memory_commit=memory_commit,
-        mood_commit=mood_commit,
         opportunity_transition=opportunity_transition,
         prompt_commit=prompt_commit,
         material_commit=material_commit,

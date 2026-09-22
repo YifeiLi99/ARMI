@@ -6,7 +6,6 @@ from typing import Annotated, Literal, cast
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mind.api import ConcernChange, MindAppraisal
-from armi_mood.api import AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import (
@@ -94,7 +93,6 @@ class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     decision: Decision
     experience: CreatorAppraisalExperience | None = None
-    appraisal: AppraisalEventSignalV3 | None = None
     changes: tuple[CreatorChange, ...] = Field(default=(), max_length=8)
 
     @property
@@ -162,7 +160,6 @@ VoiceDecision = Annotated[
 class CreatorVoiceActCandidate(CreatorCognitiveActCandidate, frozen=True):
     decision: VoiceDecision = Field(alias="d")
     experience: CreatorAppraisalExperience | None = Field(default=None, alias="exp")
-    appraisal: AppraisalEventSignalV3 | None = Field(default=None, alias="app")
     changes: tuple[CreatorChange, ...] = Field(default=(), max_length=8, alias="ops")
 
     @property
@@ -186,10 +183,6 @@ def _check_refs(
     candidate: CreatorCognitiveActCandidate, allowed: frozenset[str]
 ) -> None:
     refs: set[ContextRef] = set()
-    if candidate.appraisal is not None:
-        refs.update(candidate.appraisal.basis_refs)
-        if candidate.appraisal.episode_ref is not None:
-            refs.add(candidate.appraisal.episode_ref)
     for change in candidate.changes:
         refs.update(change_context_refs(change))
     if not refs.issubset(allowed):

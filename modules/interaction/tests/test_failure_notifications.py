@@ -71,6 +71,7 @@ class _Fixture:
         "CODEX-FAILED",
         "VISUAL-FAILED",
         "EFFECT-FAILED",
+        "MOOD-JEV-CREDENTIAL-MISSING",
     ],
 )
 @pytest.mark.parametrize(
@@ -93,9 +94,9 @@ async def test_all_failures_log_without_chat_writes(code, purpose, binding, unkn
     fixture.execute.assert_not_awaited()
     fixture.voice.assert_not_awaited()
     assert len(fixture.diagnostics) == 1
-    assert f"code={code}" in fixture.diagnostics[0]
-    assert str(fixture.source.operation_id) in fixture.diagnostics[0]
-    assert f"send_unknown={unknown}" in fixture.diagnostics[0]
+    # Production diagnostics accepts a stable event name; source owners retain
+    # failure codes and identities. A formatted message crashes that callback.
+    assert fixture.diagnostics == ["interaction.processing.failed"]
 
 
 @pytest.mark.asyncio
@@ -108,7 +109,7 @@ async def test_input_failure_is_silent_before_opportunity_exists():
     )
     fixture.execute.assert_not_awaited()
     assert len(fixture.diagnostics) == 1
-    assert str(fixture.source.interaction_id) in fixture.diagnostics[0]
+    assert fixture.diagnostics == ["interaction.processing.failed"]
 
 
 @pytest.mark.asyncio

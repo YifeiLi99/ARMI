@@ -82,7 +82,14 @@ def prepare_check(
             "mind",
             {"thoughts": [], "open_concerns_count": 0, "open_motivations_count": 0},
         ),
-        ("mood", {"current": {"valence": 0, "arousal": 0, "dominance": 0}}),
+        (
+            "mood",
+            {
+                "current": {"valence": 0, "arousal": 0},
+                "active_emotions": [],
+                "quality": {"status": "not_evaluated", "unknown": []},
+            },
+        ),
         ("life_mode", {"mode": "awake", "available": True}),
         (
             "current_activities",

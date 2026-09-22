@@ -46,12 +46,6 @@ from armi_mind.api import (
     prepare_mind_change,
     project_motivation,
 )
-from armi_mood.api import (
-    MOOD_APPRAISAL_INSTRUCTIONS,
-    NewMoodAppraisalCommand,
-    preview_appraisal,
-    semantic_appraisal_from_command,
-)
 from armi_runtime.adapters.model.compatible import CompatibleStructuredTransport
 from armi_runtime.adapters.model.model_clients import ModelClients
 from armi_runtime.composition.candidate_validation_tool import build_candidate_validator
@@ -120,10 +114,10 @@ def prepare_case(
     )
     mood = rfc8785.dumps(
         {
-            "schema_kind": "armi.mood",
-            "dynamics_method": "recency-reappraisal",
-            "derivation_method": "cpm-fuzzy",
-            "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
+            "schema_kind": "armi.mood-snapshot",
+            "current": {"valence": 0, "arousal": 0},
+            "active_emotions": [],
+            "quality": {"status": "not_evaluated", "unknown": []},
         }
     )
     entries = (
@@ -279,7 +273,6 @@ def save(path: Path, value: Any) -> None:
 class PsychologicalEvaluation(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", strict=True)
     mind: tuple[MindAppraisal, ...] = Field(max_length=4)
-    mood: NewMoodAppraisalCommand | None
 
 
 class SchemaProbe(BaseModel, frozen=True):
@@ -335,17 +328,7 @@ def validate_appraisal_response(
                     ],
                 }
             )
-        mood = None
-        if value.mood is not None:
-            mood = preview_appraisal(semantic_appraisal_from_command(value.mood))
-        return {
-            "validation": "accepted",
-            "mind": projections,
-            "mood_assessment": None
-            if value.mood is None
-            else value.mood.model_dump(mode="json"),
-            "mood": mood,
-        }
+        return {"validation": "accepted", "mind": projections}
     except (CandidateViolation, ValidationError, ValueError) as error:
         return {"validation": "rejected", "error": str(error)}
 
@@ -532,13 +515,7 @@ async def run(
     instructions = (
         AUTONOMOUS_ACTIVITY_INSTRUCTIONS
         if mode in {"autonomous", "trajectory"}
-        else (
-            MIND_APPRAISAL_INSTRUCTIONS
-            + MOOD_APPRAISAL_INSTRUCTIONS
-            + "Mood 使用同一处境的语义评价,没有情绪变化可以为 null。"
-            "有评价时使用给定 Mood 新事件合同;event_phase 依据事实区分 anticipated、ongoing、realized、averted,"
-            "不把已经发生的事件都写成 ongoing。实验未提供旧情绪事件,不可虚构历史事件或变化。"
-        )
+        else MIND_APPRAISAL_INSTRUCTIONS
     )
     save(output / "instructions.txt", instructions.encode())
     prices = load_price_catalog(Path("configs/provider-pricing.yaml"))

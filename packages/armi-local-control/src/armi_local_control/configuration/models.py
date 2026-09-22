@@ -140,6 +140,14 @@ class ModelConfig(_FrozenModel):
     semantic_recall_enabled: bool = False
 
 
+class MoodConfig(_FrozenModel):
+    model: Literal["jev-1.13.0"] = "jev-1.13.0"
+    timeout_seconds: PositiveInt = 20
+    fast_half_life_seconds: PositiveInt = 300
+    slow_half_life_seconds: PositiveInt = 3600
+    fast_weight: Annotated[float, Field(ge=0, le=1)] = 0.7
+
+
 class CreatorConfig(_FrozenModel):
     bind_host: Literal["127.0.0.1"] = "127.0.0.1"
     port: Annotated[int, Field(ge=1024, le=65535)]
@@ -335,6 +343,7 @@ class RuntimeConfig(_FrozenModel):
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()
     model: ModelConfig = ModelConfig()
+    mood: MoodConfig = MoodConfig()
     creator: CreatorConfig
     http: HttpConfig = HttpConfig()
     codex: CodexConfig = CodexConfig()

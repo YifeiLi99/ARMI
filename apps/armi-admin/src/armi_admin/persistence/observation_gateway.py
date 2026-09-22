@@ -250,31 +250,7 @@ class AdminObservationGateway:
             if mode == "status" and result.get("observed_at") is not None:
                 mind = self._mind.current(uow.transaction, private=True)
                 signals = mind_signals(json.dumps(mind.payload).encode("utf-8"))
-                mood_signals = self._mood.consideration_signals(
-                    uow.transaction,
-                    as_of=datetime.fromisoformat(str(result["observed_at"])),
-                    minimum_delay_seconds=60,
-                )
-                own_commits = self._cognition.autonomous_commit_ids(
-                    uow.transaction,
-                    commit_ids=tuple(
-                        signal.source_commit_id
-                        for signal in mood_signals
-                        if signal.source_commit_id is not None
-                    ),
-                )
-                project_signal_status(
-                    result,
-                    (
-                        *signals,
-                        *(
-                            signal
-                            for signal in mood_signals
-                            if signal.source_commit_id not in own_commits
-                        ),
-                    ),
-                    consumed,
-                )
+                project_signal_status(result, signals, consumed)
                 result["concerns"] = mind_attention_projection(
                     json.dumps(mind.payload).encode("utf-8"),
                     as_of=datetime.fromisoformat(str(result["observed_at"])),

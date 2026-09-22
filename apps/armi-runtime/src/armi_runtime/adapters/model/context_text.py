@@ -22,7 +22,6 @@ _PURPOSES = {
     "perform_subject_self_check": "检查主体内部的一致性和未完成责任",
     "reflect_self": "反思自我状态",
     "reflect_mind": "反思内心状态",
-    "reflect_mood": "请求心情基线反思",
     "reflect_prompt": "反思自身认知、表达和反思方法",
 }
 _SECTIONS = (
@@ -193,12 +192,9 @@ _LABELS = {
     "understanding": "理解",
     "wishes": "愿望",
     "current": "当前",
-    "home_base": "基线",
-    "arousal": "唤醒度",
-    "dominance": "掌控感",
-    "valence": "愉悦度",
+    "arousal": "激活度",
+    "valence": "愉快度",
     "as_of": "截至",
-    "action_tendencies": "行动倾向",
     "active_emotions": "当前情绪",
     "active_episodes": "当前情绪事件",
     "scene_kind": "场合类型",

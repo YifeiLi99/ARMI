@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -40,9 +39,7 @@ from armi_kernel.application import (
     ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
-    ModelRequest,
     ModelResultStatus,
-    ModelUsage,
     ModelViolation,
     PriceCatalog,
     ProviderCallReceipt,
@@ -138,11 +135,7 @@ def _text_structure_error(
     result: ModelInvocationResult,
 ) -> str | None:
     """Generation gate only; owner preparation and state validation run once later."""
-    if (
-        binding.provider not in {"qwen", "deepseek"}
-        or snapshot.purpose == "reflect_mood"
-        or result.response_error_code
-    ):
+    if binding.provider not in {"qwen", "deepseek"} or result.response_error_code:
         return None
     try:
         value = model_response_candidate(
@@ -173,89 +166,6 @@ def _text_structure_error(
 class _Pulse:
     version: int
     event: asyncio.Event
-
-
-class _DeterministicMoodReflectionAdapter:
-    """Create a calculation request without asking a model for home-base values."""
-
-    def __init__(self, binding: ModelBinding) -> None:
-        self._binding = binding
-
-    @property
-    def binding(self) -> ModelBinding:
-        return self._binding
-
-    async def tokenize(self, canonical_request: bytes) -> int:
-        return max(1, len(canonical_request) // 4)
-
-    def request_evidence(self, request: ModelRequest) -> bytes:
-        return (
-            rfc8785.dumps(
-                {
-                    "schema_kind": "armi.model-input-evidence",
-                    "execution": "deterministic",
-                    "canonical_request": request.canonical_bytes.decode("utf-8"),
-                    "provider_request": None,
-                }
-            )
-            + b"\n"
-        )
-
-    async def invoke(self, request: ModelRequest) -> ModelInvocationResult:
-        try:
-            raw = cast(dict[str, object], json.loads(request.canonical_bytes))
-            compiled = cast(dict[str, object], raw["compiled_context"])
-            refs = cast(list[dict[str, object]], raw["included_context_refs"])
-            mood_ref = next(
-                str(item["ref"]) for item in refs if item["item_kind"] == "mood"
-            )
-            phase_ref = next(
-                str(item["ref"])
-                for item in refs
-                if item["item_kind"] == "current_maintenance_phase"
-            )
-            mood_item = next(
-                item
-                for layer in cast(list[dict[str, object]], compiled["layers"])
-                for item in cast(list[dict[str, object]], layer["items"])
-                if item["item_kind"] == "mood"
-            )
-            source = cast(dict[str, object], mood_item["source"])
-            version_value = source["version"]
-            if not isinstance(version_value, int):
-                raise ModelViolation("MODEL-CONTEXT")
-            expected_version = version_value
-            response = rfc8785.dumps(
-                {
-                    "kind": "update",
-                    "target": "mood",
-                    "summary": "按固定时间采样规则检查长期心情基线",
-                    "basis_refs": [phase_ref, mood_ref],
-                    "expected_version": expected_version,
-                    "next_state": {},
-                }
-            )
-        except KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError:
-            raise ModelViolation("MODEL-CONTEXT") from None
-        return ModelInvocationResult(
-            ModelResultStatus.SUCCEEDED,
-            "local-mood-reflection",
-            self._binding.model_id,
-            rfc8785.dumps(
-                {
-                    "schema_kind": "armi.model-response-artifact",
-                    "provider_request_id": "local-mood-reflection",
-                    "provider_model_id": self._binding.model_id,
-                    "output_text": '{"candidate":' + response.decode("utf-8") + "}",
-                    "usage": {
-                        "input_tokens": max(1, len(request.canonical_bytes) // 4),
-                        "output_tokens": 1,
-                        "cached_input_tokens": 0,
-                    },
-                }
-            ),
-            ModelUsage(max(1, len(request.canonical_bytes) // 4), 1, 0),
-        )
 
 
 class _LocalWakeups:
@@ -371,7 +281,6 @@ class ModelPipeline:
         )
         reflect_self_binding = load_purpose_binding("reflect_self", binding_path)
         reflect_mind_binding = load_purpose_binding("reflect_mind", binding_path)
-        reflect_mood_binding = load_purpose_binding("reflect_mood", binding_path)
         reflect_prompt_binding = load_purpose_binding("reflect_prompt", binding_path)
         codex_task_binding = load_purpose_binding(
             "consider_codex_task",
@@ -496,7 +405,6 @@ class ModelPipeline:
                 instructions=REFLECT_MIND_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
-            "reflect_mood": _DeterministicMoodReflectionAdapter(reflect_mood_binding),
             "reflect_prompt": build_adapter(
                 binding=reflect_prompt_binding,
                 candidate_schema=owner_reflection_schema(target="prompt"),
@@ -1038,8 +946,6 @@ class ModelPipeline:
             != OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")
-        if purpose == "reflect_mood":
-            return adapter
         schema, instructions, name = self._adapter_schemas[adapter.binding.profile]
         return self._adapter_factory(
             binding=adapter.binding,

@@ -75,7 +75,7 @@ CREATE TABLE armi.cognitive_attempts (
     CONSTRAINT cognitive_attempts_model_attempt_id_check CHECK ((uuid_extract_version(model_attempt_id) = 7)),
     CONSTRAINT cognitive_attempts_model_id_check CHECK (model_id ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
     CONSTRAINT cognitive_attempts_output_tokens_check CHECK (((output_tokens IS NULL) OR (output_tokens >= 0))),
-    CONSTRAINT cognitive_attempts_profile_check CHECK ((profile = ANY (ARRAY['creator_input_cognition'::text, 'creator_cognitive_act'::text, 'creator_voice_act'::text, 'creator_outreach'::text, 'other_human_dialogue'::text, 'autonomous_activity'::text, 'activity_attention'::text, 'activity_internal_work'::text, 'sleep_decision'::text, 'memory_maintenance'::text, 'subject_self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text, 'codex_task'::text, 'codex_result'::text, 'visual_observation'::text]))),
+    CONSTRAINT cognitive_attempts_profile_check CHECK ((profile = ANY (ARRAY['creator_input_cognition'::text, 'creator_cognitive_act'::text, 'creator_voice_act'::text, 'creator_outreach'::text, 'other_human_dialogue'::text, 'autonomous_activity'::text, 'activity_attention'::text, 'activity_internal_work'::text, 'sleep_decision'::text, 'memory_maintenance'::text, 'subject_self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_prompt'::text, 'codex_task'::text, 'codex_result'::text, 'visual_observation'::text]))),
     CONSTRAINT cognitive_attempts_provider_check CHECK (provider IN ('volcengine_ark', 'qwen', 'deepseek')),
     CONSTRAINT cognitive_attempts_provider_model_id_check CHECK (provider_model_id IS NULL OR provider_model_id ~ '^[a-z0-9][a-z0-9._-]{0,127}$'),
     CONSTRAINT cognitive_attempts_result_status_check CHECK (((result_status IS NULL) OR (result_status = ANY (ARRAY['succeeded'::text, 'rejected'::text, 'timed_out'::text, 'provider_failed'::text, 'cancelled'::text, 'outcome_unknown'::text])))),
@@ -102,6 +102,7 @@ CREATE TABLE armi.cognitive_episodes (
     purpose text NOT NULL,
     status text NOT NULL,
     base_subject_version bigint NOT NULL,
+    mood_assessment_id uuid,
     base_state_epoch bigint NOT NULL,
     bundle_activation_id uuid NOT NULL,
     mechanism_identity text NOT NULL,
@@ -233,7 +234,7 @@ CREATE TABLE armi.cognitive_episodes (
     CONSTRAINT cognitive_episodes_maintenance_result CHECK (maintenance_outcome IS NULL OR (
         ((maintenance_phase='memory_maintenance' AND maintenance_outcome IN ('memory_changed','memory_unchanged'))
         OR (maintenance_phase='self_check' AND maintenance_outcome IN ('issue_found','no_issue'))
-        OR (maintenance_phase IN ('reflect_self','reflect_mind','reflect_mood','reflect_prompt') AND maintenance_outcome IN ('reflection_changed','reflection_unchanged')))
+        OR (maintenance_phase IN ('reflect_self','reflect_mind','reflect_prompt') AND maintenance_outcome IN ('reflection_changed','reflection_unchanged')))
         AND ((maintenance_outcome='memory_changed')=(maintenance_memory_id IS NOT NULL))
         AND ((maintenance_outcome='issue_found')=(maintenance_creator_visible_problem IS NOT NULL))
         AND ((maintenance_outcome='issue_found')=(maintenance_issue_target IS NOT NULL))
@@ -278,8 +279,8 @@ CREATE TABLE armi.cognitive_episodes (
     CONSTRAINT cognitive_episodes_failure_code_check CHECK (((failure_code IS NULL) OR (failure_code ~ '^[A-Z][A-Z0-9-]{2,127}$'::text))),
     CONSTRAINT cognitive_episodes_final_disposition_check CHECK (((final_disposition IS NULL) OR (final_disposition = ANY (ARRAY['change'::text, 'no_change'::text, 'defer'::text, 'decline'::text, 'no_action'::text, 'need_information'::text])))),
     CONSTRAINT cognitive_episodes_mechanism_identity_check CHECK ((mechanism_identity = 'armi.context-compiler.layered'::text)),
-    CONSTRAINT cognitive_episodes_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_input'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text, 'consider_requested_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
-    CONSTRAINT cognitive_episodes_scene_shape_check CHECK (((purpose IN ('consider_autonomy_check','consider_autonomous_life') AND ((scene_id IS NULL) = (context_party_id IS NULL))) OR ((purpose = ANY (ARRAY['consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (scene_id IS NULL) AND (context_party_id IS NULL)) OR ((purpose <> ALL (ARRAY['consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL)))),
+    CONSTRAINT cognitive_episodes_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_input'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text, 'consider_requested_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_prompt'::text]))),
+    CONSTRAINT cognitive_episodes_scene_shape_check CHECK (((purpose IN ('consider_autonomy_check','consider_autonomous_life') AND ((scene_id IS NULL) = (context_party_id IS NULL))) OR ((purpose = ANY (ARRAY['consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_prompt'::text])) AND (scene_id IS NULL) AND (context_party_id IS NULL)) OR ((purpose <> ALL (ARRAY['consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_prompt'::text])) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL)))),
     CONSTRAINT cognitive_episodes_state_check CHECK (
         (status='preparing' AND compiled_context_digest IS NULL AND prepared_at IS NULL AND model_returned_at IS NULL AND validated_at IS NULL AND application_resolution IS NULL AND committed_at IS NULL)
         OR (status IN ('prepared','calling_model') AND compiled_context_digest IS NOT NULL AND prepared_at IS NOT NULL AND model_returned_at IS NULL AND validated_at IS NULL AND application_resolution IS NULL AND committed_at IS NULL)
@@ -421,60 +422,53 @@ CREATE TABLE armi.external_evidence (
 
 CREATE TABLE armi.mood_revisions (
     is_current boolean DEFAULT false NOT NULL,
-    mood_revision_id uuid NOT NULL,
+    mood_revision_id uuid NOT NULL CHECK (uuid_extract_version(mood_revision_id)=7),
     subject_id uuid NOT NULL,
-    mood_version bigint NOT NULL,
+    mood_version bigint NOT NULL CHECK (mood_version>0),
     previous_revision_id uuid,
-    origin_kind text NOT NULL,
-    origin_ref uuid NOT NULL,
-    subject_commit_id uuid,
-    proposal_ref text,
+    origin_kind text NOT NULL CHECK (origin_kind IN ('bootstrap','event_appraisal','admin_correction')),
+    origin_ref uuid NOT NULL CHECK (uuid_extract_version(origin_ref)=7),
     semantic_payload jsonb NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    created_at timestamptz DEFAULT statement_timestamp() NOT NULL,
     admin_change_id uuid,
-    mood_appraisal_event_id uuid,
-    mood_episode_id uuid,
-    previous_appraisal_event_id uuid,
-    transition text,
-    event_phase text,
-    gist text,
-    basis_ordinals smallint[],
-    appraisal_payload jsonb,
-    importance smallint,
-    derived_vad jsonb,
-    affect_intensity smallint CHECK (affect_intensity BETWEEN 0 AND 100),
-    affect_half_life_seconds integer CHECK (affect_half_life_seconds BETWEEN 900 AND 86400),
-    derived_components jsonb,
-    derivation_method text,
-    dynamics_method text,
-    occurred_at timestamp(6) with time zone,
-    appraisal_mapping_method text,
-    derived_appraisal_payload jsonb,
-    data_rights_redacted_at timestamp(6) with time zone,
-    CONSTRAINT mood_revisions_appraisal_appraisal_payload_check CHECK (((data_rights_redacted_at IS NOT NULL) OR (jsonb_typeof(appraisal_payload) = 'object'::text))),
-    CONSTRAINT mood_revisions_appraisal_basis_ordinals_check CHECK (((cardinality(basis_ordinals) >= 1) AND (cardinality(basis_ordinals) <= 8))),
-    CONSTRAINT mood_revisions_appraisal_derivation_method_check CHECK ((derivation_method = 'cpm-fuzzy'::text)),
-    CONSTRAINT mood_revisions_appraisal_derived_components_check CHECK (((jsonb_typeof(derived_components) = 'array'::text) AND ((jsonb_array_length(derived_components) >= 0) AND (jsonb_array_length(derived_components) <= 3)))),
-    CONSTRAINT mood_revisions_appraisal_derived_vad_check CHECK ((jsonb_typeof(derived_vad) = 'object'::text)),
-    CONSTRAINT mood_revisions_appraisal_dynamics_method_check CHECK ((dynamics_method = 'recency-reappraisal'::text)),
-    CONSTRAINT mood_revisions_appraisal_event_phase_check CHECK ((event_phase = ANY (ARRAY['anticipated'::text, 'ongoing'::text, 'realized'::text, 'averted'::text]))),
-    CONSTRAINT mood_revisions_appraisal_gist_check CHECK (((data_rights_redacted_at IS NOT NULL) OR (((char_length(gist) >= 1) AND (char_length(gist) <= 64)) AND (gist = btrim(gist))))),
-    CONSTRAINT mood_revisions_appraisal_importance_check CHECK ((((importance >= 5) AND (importance <= 100)) AND (((importance)::integer % 5) = 0))),
-    CONSTRAINT mood_revisions_appraisal_mood_appraisal_event_id_check CHECK ((uuid_extract_version(mood_appraisal_event_id) = 7)),
-    CONSTRAINT mood_revisions_appraisal_mood_episode_id_check CHECK ((uuid_extract_version(mood_episode_id) = 7)),
-    CONSTRAINT mood_revisions_appraisal_semantic_version_check CHECK ((((data_rights_redacted_at IS NOT NULL) OR ((appraisal_payload ->> 'schema_kind'::text) = 'armi.mood-appraisal'::text AND appraisal_mapping_method = 'semantic-anchors'::text AND (derived_appraisal_payload ->> 'schema_kind'::text) = 'armi.mood-derived-appraisal'::text AND derivation_method = 'cpm-fuzzy'::text)))),
-    CONSTRAINT mood_revisions_appraisal_transition_check CHECK ((transition = ANY (ARRAY['new'::text, 'reinforce'::text, 'reappraise'::text, 'resolve'::text]))),
-    CONSTRAINT mood_revisions_appraisal_transition_shape_check CHECK ((((transition = 'new'::text) AND (previous_appraisal_event_id IS NULL)) OR ((transition <> 'new'::text) AND (previous_appraisal_event_id IS NOT NULL)))),
-    CONSTRAINT mood_revisions_appraisal_shape_check CHECK ((mood_appraisal_event_id IS NULL AND mood_episode_id IS NULL AND previous_appraisal_event_id IS NULL AND transition IS NULL AND event_phase IS NULL AND gist IS NULL AND basis_ordinals IS NULL AND appraisal_payload IS NULL AND importance IS NULL AND derived_vad IS NULL AND affect_intensity IS NULL AND affect_half_life_seconds IS NULL AND derived_components IS NULL AND derivation_method IS NULL AND dynamics_method IS NULL AND occurred_at IS NULL AND appraisal_mapping_method IS NULL AND derived_appraisal_payload IS NULL AND data_rights_redacted_at IS NULL) OR (mood_appraisal_event_id IS NOT NULL AND mood_episode_id IS NOT NULL AND transition IS NOT NULL AND event_phase IS NOT NULL AND basis_ordinals IS NOT NULL AND importance IS NOT NULL AND derived_vad IS NOT NULL AND affect_intensity IS NOT NULL AND affect_half_life_seconds IS NOT NULL AND derived_components IS NOT NULL AND derivation_method IS NOT NULL AND dynamics_method IS NOT NULL AND occurred_at IS NOT NULL AND appraisal_mapping_method IS NOT NULL AND (data_rights_redacted_at IS NOT NULL OR (gist IS NOT NULL AND appraisal_payload IS NOT NULL AND derived_appraisal_payload IS NOT NULL)))),
-    CONSTRAINT mood_revisions_id_check CHECK ((uuid_extract_version(mood_revision_id) = 7)),
-    CONSTRAINT mood_revisions_mood_version_check CHECK ((mood_version > 0)),
+    CONSTRAINT mood_revisions_origin_check CHECK (
+        (origin_kind='bootstrap' AND mood_version=1 AND previous_revision_id IS NULL)
+        OR (origin_kind<>'bootstrap' AND mood_version>1 AND previous_revision_id IS NOT NULL)),
     CONSTRAINT mood_revisions_admin_provenance CHECK (admin_change_id IS NULL OR origin_kind='admin_correction'),
-    CONSTRAINT mood_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (mood_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (mood_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = 'admin_correction'::text) AND (mood_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
-    CONSTRAINT mood_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text]))),
-    CONSTRAINT mood_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),
-    CONSTRAINT mood_revisions_payload_check CHECK ((((semantic_payload ->> 'schema_kind'::text) = 'armi.mood'::text AND (semantic_payload ?& ARRAY['dynamics_method'::text, 'derivation_method'::text, 'home_base'::text, 'schema_kind'::text]) AND (semantic_payload - ARRAY['dynamics_method'::text, 'derivation_method'::text, 'home_base'::text, 'schema_kind'::text]) = '{}'::jsonb AND (semantic_payload ->> 'dynamics_method'::text) = 'recency-reappraisal'::text AND (semantic_payload ->> 'derivation_method'::text) = 'cpm-fuzzy'::text AND jsonb_typeof(semantic_payload -> 'home_base'::text) = 'object'::text AND (semantic_payload -> 'home_base'::text) ?& ARRAY['valence'::text, 'arousal'::text, 'dominance'::text] AND ((semantic_payload -> 'home_base'::text) - ARRAY['valence'::text, 'arousal'::text, 'dominance'::text]) = '{}'::jsonb AND (((semantic_payload -> 'home_base'::text) ->> 'valence'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'arousal'::text)::integer BETWEEN -100 AND 100) AND (((semantic_payload -> 'home_base'::text) ->> 'dominance'::text)::integer BETWEEN -100 AND 100)))),
-    CONSTRAINT mood_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
-    CONSTRAINT mood_revisions_semantic_payload_check CHECK ((jsonb_typeof(semantic_payload) = 'object'::text))
+    CONSTRAINT mood_revisions_payload_check CHECK (
+        semantic_payload->>'schema_kind'='armi.mood'
+        AND semantic_payload ?& ARRAY['schema_kind','as_of','baseline','slow_valence','slow_arousal','episodes','parameters']
+        AND semantic_payload - ARRAY['schema_kind','as_of','baseline','slow_valence','slow_arousal','episodes','parameters']='{}'::jsonb
+        AND jsonb_typeof(semantic_payload->'episodes')='array'
+        AND jsonb_typeof(semantic_payload->'parameters')='object'
+        AND jsonb_typeof(semantic_payload->'baseline')='object')
+);
+
+CREATE TABLE armi.mood_assessments (
+    mood_assessment_id uuid PRIMARY KEY CHECK (uuid_extract_version(mood_assessment_id)=7),
+    subject_id uuid NOT NULL,
+    event_key text NOT NULL CHECK (length(event_key) BETWEEN 1 AND 256),
+    cognitive_episode_id uuid NOT NULL,
+    source_ref uuid NOT NULL,
+    source_version bigint NOT NULL CHECK (source_version>0),
+    occurred_at timestamptz NOT NULL,
+    status text NOT NULL CHECK (status IN ('running','applied','unchanged','failed','interrupted')),
+    base_mood_version bigint NOT NULL CHECK (base_mood_version>0),
+    mood_revision_id uuid,
+    appraisal jsonb,
+    context_document jsonb,
+    answers jsonb,
+    provider_calls jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(provider_calls)='object'),
+    input_tokens bigint CHECK (input_tokens>=0),
+    output_tokens bigint CHECK (output_tokens>=0),
+    error_code text,
+    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    completed_at timestamptz,
+    data_rights_redacted_at timestamptz,
+    UNIQUE(subject_id,event_key),
+    CHECK ((status='running')=(completed_at IS NULL)),
+    CHECK ((status IN ('failed','interrupted'))=(error_code IS NOT NULL)),
+    CHECK (status NOT IN ('applied','unchanged') OR mood_revision_id IS NOT NULL)
 );
 
 --
@@ -512,7 +506,7 @@ CREATE TABLE armi.opportunities (
     CONSTRAINT opportunities_expiry_check CHECK (((expires_at IS NULL) OR (expires_at > available_after))),
     CONSTRAINT opportunities_lineage_check CHECK ((((reconsideration_no = 0) AND (root_opportunity_id = opportunity_id) AND (predecessor_opportunity_id IS NULL)) OR ((reconsideration_no > 0) AND (root_opportunity_id <> opportunity_id) AND (predecessor_opportunity_id IS NOT NULL)))),
     CONSTRAINT opportunities_opportunity_id_check CHECK ((uuid_extract_version(opportunity_id) = 7)),
-    CONSTRAINT opportunities_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_input'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text, 'consider_requested_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
+    CONSTRAINT opportunities_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_input'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomy_check'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text, 'consider_requested_visual_observation'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_prompt'::text]))),
     CONSTRAINT opportunities_reconsideration_check CHECK (((reconsideration_no >= 0) AND ((reconsideration_no <= 1) OR ((purpose = 'consider_autonomous_life'::text) AND (source_kind = 'subject_available'::text))))),
     CONSTRAINT opportunities_resolution_state_check CHECK ((((current_disposition = 'open'::text) AND (selected_at IS NULL) AND (resolved_at IS NULL) AND (resolution_reason_code IS NULL)) OR ((current_disposition = 'selected'::text) AND (selected_at IS NOT NULL) AND (resolved_at IS NULL) AND (resolution_reason_code IS NULL)) OR ((current_disposition = ANY (ARRAY['resolved'::text, 'superseded'::text])) AND (selected_at IS NOT NULL) AND (resolved_at IS NOT NULL) AND (resolution_reason_code IS NOT NULL)) OR ((current_disposition = 'cancelled'::text) AND (resolved_at IS NOT NULL) AND (resolution_reason_code IS NOT NULL)))),
     CONSTRAINT opportunities_resolution_reason_check CHECK (((resolution_reason_code IS NULL) OR (resolution_reason_code ~ '^[A-Z][A-Z0-9-]{0,127}$'::text))),

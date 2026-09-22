@@ -88,6 +88,7 @@ class ContextMaterialSource:
 class ContextEpisodeSnapshot:
     episode_id: UUID
     opportunity_id: UUID
+    root_opportunity_id: UUID
     subject_id: UUID
     scene_id: UUID | None
     creator_party_id: UUID | None
@@ -219,15 +220,10 @@ class PostgreSQLContextRepository:
             event_at=opportunity.available_after,
             activity_id=opportunity.activity_id,
         )
-        mood_signals = await self._mood.consideration_signals(
-            tx,
-            subject_id=subject.subject_id,
-            minimum_delay_seconds=opportunity.minimum_consideration_seconds,
-        )
         signals = await self._opportunities.unconsumed_signals(
             tx,
             subject_id=subject.subject_id,
-            signals=(*signals, *mood_signals),
+            signals=signals,
         )
         signals = tuple(
             signal for signal in signals if signal.eligible_at <= mood.as_of
@@ -268,7 +264,6 @@ class PostgreSQLContextRepository:
                 "perform_subject_self_check",
                 "reflect_self",
                 "reflect_mind",
-                "reflect_mood",
                 "reflect_prompt",
             }
             else episode.context_party_id,
@@ -278,7 +273,6 @@ class PostgreSQLContextRepository:
                 "perform_subject_self_check",
                 "reflect_self",
                 "reflect_mind",
-                "reflect_mood",
                 "reflect_prompt",
             }
             else ("other_human_social" if other_human else "creator_social"),
@@ -391,6 +385,7 @@ class PostgreSQLContextRepository:
             autonomy_context=opportunity.autonomy_context,
             episode_id=episode.episode_id,
             opportunity_id=episode.opportunity_id,
+            root_opportunity_id=opportunity.root_opportunity_id,
             subject_id=episode.subject_id,
             scene_id=episode.scene_id,
             creator_party_id=None if other_human else episode.context_party_id,

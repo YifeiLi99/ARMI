@@ -104,7 +104,6 @@ from armi_memory.api import (
     MemoryViolation,
 )
 from armi_mind.api import CandidateMindDraft, MindCommitPort, MindViolation
-from armi_mood.api import CandidateMoodDraft, MoodCommitPort, MoodViolation
 from armi_prompt.api import CandidatePromptDraft, PromptCommitPort, PromptViolation
 from armi_relationship.api import (
     CandidateRelationshipDraft,
@@ -164,7 +163,6 @@ class SubjectCommitOwnerDrafts:
     activity: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...]
     material: tuple[CandidateLifeMaterialDraft, ...]
     memory: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...]
-    mood: tuple[CandidateMoodDraft, ...]
     prompt: tuple[CandidatePromptDraft, ...]
     relationship: tuple[CandidateRelationshipDraft, ...]
     sleep: tuple[CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...]
@@ -266,7 +264,6 @@ class PostgreSQLSubjectCommitRepository:
         "_material_commit",
         "_memory_commit",
         "_mind_commit",
-        "_mood_commit",
         "_opportunity_transition",
         "_prompt_commit",
         "_relationship_commit",
@@ -287,7 +284,6 @@ class PostgreSQLSubjectCommitRepository:
         evidence_read: EvidenceReadPort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
-        mood_commit: MoodCommitPort,
         opportunity_transition: OpportunityTransitionPort,
         interaction_commit: InteractionSubjectCommitPort,
         artifact_catalog: ArtifactCatalogPort,
@@ -310,7 +306,6 @@ class PostgreSQLSubjectCommitRepository:
         self._evidence_read = evidence_read
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
-        self._mood_commit = mood_commit
         self._opportunity_transition = opportunity_transition
         self._interaction_commit = interaction_commit
         self._artifact_catalog = artifact_catalog
@@ -567,11 +562,7 @@ class PostgreSQLSubjectCommitRepository:
             subject_id=snapshot.subject_id,
             drafts=owner_drafts.memory,
         )
-        mood_heads_current = await self._mood_commit.heads_match(
-            unit_of_work.transaction,
-            subject_id=snapshot.subject_id,
-            drafts=owner_drafts.mood,
-        )
+
         try:
             material_heads_current = await self._material_commit.heads_match(
                 unit_of_work.transaction,
@@ -608,7 +599,6 @@ class PostgreSQLSubjectCommitRepository:
             or not mind_heads_current
             or not activity_heads_current
             or not memory_heads_current
-            or not mood_heads_current
             or not material_heads_current
             or not prompt_heads_current
             or not sleep_heads_current
@@ -880,18 +870,6 @@ class PostgreSQLSubjectCommitRepository:
             )
         except MindViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
-
-        try:
-            await self._mood_commit.commit(
-                unit_of_work.transaction,
-                subject_id=snapshot.subject_id,
-                commit_id=commit_id.value,
-                drafts=owner_drafts.mood,
-            )
-        except MoodViolation as error:
-            raise SubjectCommitViolation(
-                f"SUBJECT-{error.code.removeprefix('MOOD-')}"
-            ) from None
 
         try:
             changed_prompt_ids = await self._prompt_commit.commit(

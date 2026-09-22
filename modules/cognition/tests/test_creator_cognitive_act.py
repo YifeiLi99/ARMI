@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import cast
 
 import jsonschema
@@ -114,53 +113,32 @@ def test_voice_expression_limit_is_shared_by_reply_and_terminal():
             parse_creator_voice_act(value, allowed_context_refs=frozenset())
 
 
-def test_voice_appraisal_and_operations_share_business_types():
-    appraisal = {
-        "trajectory": {"transition": "new"},
-        "event_phase": "realized",
-        "gist": "Recognition",
-        "appraisal": {
-            "concerns": [
-                {
-                    "target": "relationship",
-                    "significance": "direct",
-                    "direction": "progress",
-                }
-            ],
-            "expectedness": "somewhat_unexpected",
-            "outcome_certainty": "settled",
-            "intrinsic_quality": "pleasant",
-            "self_involvement": "important",
-        },
-        "basis_refs": ["ctx:1"],
-    }
+def test_voice_and_text_share_operations_but_reject_mood_writes():
     changes = [{"op": "relationship.fact", "text": "Creator acknowledged my choice"}]
     experience = {"first_person_gist": "Creator acknowledged my choice"}
+    voice = {
+        "d": {"kind": "reply", "content": "Understood"},
+        "exp": experience,
+        "ops": changes,
+    }
+    text = {"decision": voice["d"], "experience": experience, "changes": changes}
     candidate = parse_creator_voice_act(
-        {
-            "d": {"kind": "reply", "content": "Understood"},
-            "exp": experience,
-            "app": appraisal,
-            "ops": changes,
-        },
-        allowed_context_refs=frozenset({"ctx:1"}),
+        voice, allowed_context_refs=frozenset({"ctx:1"})
     )
-    text = parse_creator_cognitive_act(
-        {
-            "decision": {"kind": "reply", "content": "Understood"},
-            "experience": experience,
-            "appraisal": appraisal,
-            "changes": changes,
-        },
-        allowed_context_refs=frozenset({"ctx:1"}),
+    assert (
+        candidate.model_dump()
+        == parse_creator_cognitive_act(
+            text, allowed_context_refs=frozenset({"ctx:1"})
+        ).model_dump()
     )
-    assert candidate.model_dump() == text.model_dump()
-    assert candidate.appraisal is not None
-    assert candidate.appraisal.appraisal.expectedness == "somewhat_unexpected"
-    assert candidate.changes[0].op == "relationship.fact"
-    schema = json.dumps(creator_voice_act_schema())
-    assert "VoiceSemanticAppraisal" not in schema
-    assert "AppraisalSemanticSignal" in schema
+    with pytest.raises(ValidationError):
+        parse_creator_voice_act(
+            voice | {"app": {}}, allowed_context_refs=frozenset({"ctx:1"})
+        )
+    with pytest.raises(ValidationError):
+        parse_creator_cognitive_act(
+            text | {"appraisal": {}}, allowed_context_refs=frozenset({"ctx:1"})
+        )
 
 
 @pytest.mark.parametrize(

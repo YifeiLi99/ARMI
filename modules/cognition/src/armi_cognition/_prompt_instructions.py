@@ -1,7 +1,6 @@
 """Instruction sections shared by cognition purposes, separate from turn data."""
 
 from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS
-from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS
 
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 
@@ -53,7 +52,6 @@ def creator_instructions(task: str) -> str:
         ("行动与经历", CREATOR_ACTIONS),
         ("能力使用", CODEX_HELP),
         ("内心与持续关注", MIND_COGNITIVE_INSTRUCTIONS),
-        ("事件评价与情绪", MOOD_APPRAISAL_INSTRUCTIONS),
         ("表达方式", CONVERSATIONAL_EXPRESSION_INSTRUCTIONS),
     )
 
@@ -82,7 +80,6 @@ GENERIC_COGNITION_INSTRUCTIONS = instruction_sections(
             )
         ),
     ),
-    ("事件评价与情绪", MOOD_APPRAISAL_INSTRUCTIONS),
 )
 
 AUTONOMOUS_ACTIVITY_INSTRUCTIONS = instruction_sections(
@@ -122,7 +119,6 @@ AUTONOMOUS_ACTIVITY_INSTRUCTIONS = instruction_sections(
         ),
     ),
     ("内心与持续关注", MIND_COGNITIVE_INSTRUCTIONS),
-    ("事件评价与情绪", MOOD_APPRAISAL_INSTRUCTIONS),
     (
         "表达方式",
         CONVERSATIONAL_EXPRESSION_INSTRUCTIONS.replace("content", "expression"),

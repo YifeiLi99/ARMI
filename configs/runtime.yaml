@@ -18,6 +18,13 @@ model:
   concurrency: 2
   semantic_recall_enabled: false
 
+mood:
+  model: jev-1.13.0
+  timeout_seconds: 20
+  fast_half_life_seconds: 300
+  slow_half_life_seconds: 3600
+  fast_weight: 0.7
+
 codex:
   enabled: false
 

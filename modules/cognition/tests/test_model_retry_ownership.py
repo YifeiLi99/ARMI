@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,10 +10,8 @@ from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
-import rfc8785
 from armi_cognition._model_application import (
     ModelPipeline,
-    _DeterministicMoodReflectionAdapter,
 )
 from armi_cognition._model_postgresql import (
     ModelEpisodeSnapshot,
@@ -26,38 +23,10 @@ from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import RecoveryWorkSnapshot
 
 
-def test_mood_reflection_adapter_uses_no_provider_and_authors_no_vad() -> None:
-    adapter = _DeterministicMoodReflectionAdapter(
-        cast(Any, SimpleNamespace(model_id="configured-model"))
-    )
-    request = SimpleNamespace(
-        canonical_bytes=rfc8785.dumps(
-            {
-                "compiled_context": {
-                    "layers": [
-                        {
-                            "items": [
-                                {
-                                    "item_kind": "mood",
-                                    "source": {"version": 7},
-                                }
-                            ]
-                        }
-                    ]
-                },
-                "included_context_refs": [
-                    {"ref": "ctx:3", "item_kind": "current_maintenance_phase"},
-                    {"ref": "ctx:5", "item_kind": "mood"},
-                ],
-            }
-        )
-    )
-    result = asyncio.run(adapter.invoke(cast(Any, request)))
-    assert result.response_bytes is not None
-    response = json.loads(json.loads(result.response_bytes)["output_text"])["candidate"]
-    assert response["expected_version"] == 7
-    assert response["next_state"] == {}
-    assert "valence" not in result.response_bytes.decode("utf-8")
+def test_mood_reflection_is_not_a_model_execution_purpose() -> None:
+    from armi_kernel.application import CognitionPurpose
+
+    assert "reflect_mood" not in {item.value for item in CognitionPurpose}
 
 
 class _Cursor:

@@ -11,7 +11,7 @@ from threading import Lock
 from typing import Protocol, TypeVar, cast
 from uuid import uuid4
 
-from armi_mood.api import MoodSnapshot
+from armi_mood.api import MoodView
 
 from .api import MoodDisplayConfig, MoodDisplayStatus, MoodDisplayViolation, ProbeResult
 from .mapping import map_mood_snapshot
@@ -32,7 +32,7 @@ class SerialPort(Protocol):
 
 
 SerialFactory = Callable[[str], SerialPort]
-SnapshotProvider = Callable[[], Awaitable[MoodSnapshot]]
+SnapshotProvider = Callable[[], Awaitable[MoodView]]
 ResultT = TypeVar("ResultT")
 
 

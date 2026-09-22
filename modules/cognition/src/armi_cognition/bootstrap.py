@@ -33,7 +33,7 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mind.api import MindCognitionPort, MindReadPort
-from armi_mood.api import MoodCognitionPort, MoodReadPort
+from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
 from armi_runtime_foundation import (
@@ -105,7 +105,6 @@ def bootstrap_cognition_validator(
     activity: ActivityCognitionPort,
     material: MaterialCognitionPort,
     memory: MemoryCognitionPort,
-    mood: MoodCognitionPort,
     prompt: PromptCognitionPort,
     relationship: RelationshipCognitionPort,
     sleep: SleepCognitionPort,
@@ -117,7 +116,6 @@ def bootstrap_cognition_validator(
         activity_cognition=activity,
         material_cognition=material,
         memory_cognition=memory,
-        mood_cognition=mood,
         prompt_cognition=prompt,
         relationship_cognition=relationship,
         sleep_cognition=sleep,
@@ -223,7 +221,6 @@ def bootstrap_cognition_candidate(
     codex_available: Callable[[], bool],
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
-    mood_cognition: MoodCognitionPort,
     mood_read: MoodReadPort,
     prompt_cognition: PromptCognitionPort,
     prompt_read: PromptReadPort,
@@ -263,7 +260,6 @@ def bootstrap_cognition_candidate(
         codex_available=codex_available,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
-        mood_cognition=mood_cognition,
         mood_read=mood_read,
         prompt_cognition=prompt_cognition,
         prompt_read=prompt_read,

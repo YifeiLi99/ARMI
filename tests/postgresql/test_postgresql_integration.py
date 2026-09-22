@@ -263,7 +263,6 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_memory,
     bootstrap_memory_cognition,
     bootstrap_mood,
-    bootstrap_mood_cognition,
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
     bootstrap_opportunity_cognition,
@@ -333,7 +332,6 @@ def _life_opportunity_facts(
     return RuntimeLifeOpportunityFacts(
         cognition=bootstrap_cognition_operation(),
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
-        mood=bootstrap_mood().read,
         mind=bootstrap_mind().read,
         outlet_health=outlet_health,
         model_revision=lambda: "isolated-model-config",
@@ -1694,7 +1692,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self._exercise_autonomy_plan(psychological=False)
 
     @pytest.mark.test_group("attention", "cognition", "mind", "mood")
-    def test_psychological_attention_advances_plan_and_settles_once(self) -> None:
+    def test_mood_state_change_does_not_generate_another_stimulus(self) -> None:
         self._exercise_autonomy_plan(psychological=True)
 
     @pytest.mark.test_group("attention", "mind", "cognition")
@@ -1871,49 +1869,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ),
                         )
                         self.assertEqual(quiet.reason_code, "LIFE-AUTONOMY-NOT-DUE")
-                        # Synthetic affect evidence, confined to this disposable
-                        # database. Never injected into the installed subject.
+                        # Mood changes are not new stimuli and cannot wake a loop.
                         await unit.transaction.execute(
-                            """UPDATE armi.mood_revisions SET
-                                mood_appraisal_event_id=%s,mood_episode_id=%s,
-                                transition='new',event_phase='ongoing',
-                                gist='有件事还没弄明白',basis_ordinals=ARRAY[1]::smallint[],
-                                appraisal_payload='{"schema_kind":"armi.mood-appraisal"}'::jsonb,
-                                importance=60,derived_vad='{"valence":0,"arousal":20,"dominance":0}'::jsonb,
-                                derived_components=%s::jsonb,derivation_method='cpm-fuzzy',
-                                dynamics_method='recency-reappraisal',
-                                appraisal_mapping_method='semantic-anchors',
-                                derived_appraisal_payload='{"schema_kind":"armi.mood-derived-appraisal"}'::jsonb,
-                                occurred_at=statement_timestamp()-interval '2 minutes',
-                                affect_intensity=60,affect_half_life_seconds=3600
-                               WHERE is_current AND subject_id=%s""",
-                            (
-                                uuid7(),
-                                uuid7(),
-                                json.dumps(
-                                    [
-                                        {
-                                            "family": "confusion",
-                                            "nuance": "想弄清楚",
-                                            "vad": {
-                                                "valence": 0,
-                                                "arousal": 20,
-                                                "dominance": 0,
-                                            },
-                                            "intensity": 60,
-                                            "half_life_seconds": 3600,
-                                        }
-                                    ]
-                                ),
-                                born.subject_id,
-                            ),
+                            "UPDATE armi.mood_revisions SET semantic_payload=jsonb_set(semantic_payload,'{baseline,arousal}','0.8'::jsonb) WHERE subject_id=%s AND is_current",
+                            (born.subject_id,),
                         )
-                        for _ in range(3):
-                            await facts.consideration_signals(
-                                unit.transaction,
-                                subject_id=born.subject_id,
-                                minimum_delay_seconds=60,
-                            )
+                        signals = await facts.consideration_signals(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            minimum_delay_seconds=60,
+                        )
+                        self.assertEqual(signals, ())
+                        quiet = await owner.admit_due(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            policy=policy,
+                            signals=signals,
+                        )
+                        self.assertEqual(quiet.reason_code, "LIFE-AUTONOMY-NOT-DUE")
+                        return
                     else:
                         # Virtual elapsed time in this isolated database.
                         await unit.transaction.execute(
@@ -7403,16 +7377,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
 
     @pytest.mark.test_group("mind", "mood", "activity", "cognition", "expression")
-    def test_concern_mood_activity_and_expression_share_atomic_commit(self) -> None:
+    def test_concern_activity_and_expression_commit_cannot_write_mood(self) -> None:
         self._exercise_creator_reply(interruption_stage="rollback", concerns=True)
 
-    @pytest.mark.test_group("mind", "mood", "cognition")
-    def test_neutral_appraisal_is_saved_in_joint_psychology_commit(self) -> None:
-        self._exercise_creator_reply(
-            interruption_stage="rollback", concerns=True, neutral_mood=True
-        )
-
-    @pytest.mark.test_group("sleep", "cognition")
     def test_sleep_decision_is_stored_on_episode_and_only_sleep_starts_session(
         self,
     ) -> None:
@@ -7443,7 +7410,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         codex: bool = False,
         autonomous_codex: bool = False,
         concerns: bool = False,
-        neutral_mood: bool = False,
+        mood_probe=None,
         check_sleep_decisions: bool = False,
         check_life_query: bool = False,
         check_maintenance_scope: bool = False,
@@ -7833,7 +7800,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     activity_cognition=bootstrap_activity_cognition(),
                     material_cognition=bootstrap_material_cognition(),
                     memory_cognition=bootstrap_memory_cognition(),
-                    mood_cognition=bootstrap_mood_cognition(),
                     prompt_cognition=bootstrap_prompt_cognition(),
                     relationship_cognition=bootstrap_relationship_cognition(),
                     sleep_cognition=bootstrap_sleep_cognition(),
@@ -8019,22 +7985,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             )
             from armi_activity.api import CandidateActivityDraft
-            from armi_mood.api import (
-                AppraisalCertainty,
-                AppraisalConcern,
-                AppraisalConcernTarget,
-                AppraisalDirection,
-                AppraisalEventPhase,
-                AppraisalExpectedness,
-                AppraisalQuality,
-                AppraisalSelfInvolvement,
-                AppraisalSignificance,
-                AppraisalTransition,
-                CandidateMoodDraft,
-                MoodCandidateKind,
-                SemanticAppraisal,
-                SemanticAppraisalEvent,
-            )
 
             activity = bootstrap_activity_cognition().bind_create(
                 CandidateActivityDraft(
@@ -8047,40 +7997,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "Review available evidence",
                 )
             )
-            mood = bootstrap_mood_cognition().bind(
-                CandidateMoodDraft(
-                    "proposal:6",
-                    "group:2",
-                    (1,),
-                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                    1,
-                    MoodCandidateKind.APPRAISAL,
-                    SemanticAppraisalEvent(
-                        AppraisalTransition.NEW,
-                        None,
-                        AppraisalEventPhase.REALIZED,
-                        "A synthetic observation matters to me",
-                        SemanticAppraisal(
-                            (
-                                AppraisalConcern(
-                                    AppraisalConcernTarget.SELF_GOAL,
-                                    AppraisalSignificance.CORE,
-                                    AppraisalDirection.UNCHANGED
-                                    if neutral_mood
-                                    else AppraisalDirection.FULFILLED,
-                                ),
-                            ),
-                            AppraisalExpectedness.EXPECTED,
-                            AppraisalCertainty.SETTLED,
-                            AppraisalQuality.NEUTRAL
-                            if neutral_mood
-                            else AppraisalQuality.PLEASANT,
-                            AppraisalSelfInvolvement.LIMITED,
-                        ),
-                    ),
-                )
-            )
-            owner_drafts = (draft, activity, mood)
+            owner_drafts = (draft, activity)
             document = json.loads(change_set.canonical_bytes)
             document["owner_drafts"] = [
                 {
@@ -8531,6 +8448,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             1,
         )
 
+        if mood_probe is not None:
+            asyncio.run(
+                mood_probe(fixture, born, ids, fence, lease),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+            return
+
         if technical_failure is not None:
             from armi_runtime.composition.postgresql_test import (
                 bootstrap_interaction_failure_notifications,
@@ -8656,7 +8582,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 max_object_bytes=1024 * 1024,
             )
             subject_state_module = bootstrap_subject_state()
-            mood_module = bootstrap_mood()
             prompt_module = bootstrap_prompt()
             interaction_actions = bootstrap_interaction_action_ports()
             expression_module = bootstrap_expression(
@@ -8691,7 +8616,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 interaction_commit=bootstrap_interaction_subject_commit(),
                 artifact_catalog=ArtifactCatalogRepository(),
                 memory_commit=memory_module.commit,
-                mood_commit=mood_module.commit,
                 opportunity_transition=bootstrap_opportunity_transition(),
                 prompt_commit=prompt_module.commit,
                 material_commit=material_module.commit,
@@ -9006,12 +8930,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         mood_snapshot = await bootstrap_mood().read.snapshot(
                             unit_of_work.transaction, subject_id=born.subject_id
                         )
-                        self.assertEqual(mood_snapshot.version, 2)
-                        if neutral_mood:
-                            self.assertEqual(mood_snapshot.current.valence, 0)
-                        else:
-                            self.assertGreater(mood_snapshot.current.valence, 0)
-                            self.assertTrue(mood_snapshot.active_emotions)
+                        self.assertEqual(mood_snapshot.version, 1)
+                        self.assertEqual(mood_snapshot.current.valence, 0)
                     if check_life_query:
                         query_row = await (
                             await unit_of_work.transaction.execute(
@@ -9407,29 +9327,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         if concerns:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
-                core = connection.execute(
-                    "SELECT affect_intensity,affect_half_life_seconds,derived_vad "
-                    "FROM armi.mood_revisions WHERE mood_appraisal_event_id IS NOT NULL"
-                ).fetchone()
-                self.assertIsNotNone(core)
-                assert core is not None
-                self.assertEqual(core[0], 0 if neutral_mood else 100)
-                self.assertGreaterEqual(core[1], 900)
-                self.assertLessEqual(core[1], 86400)
-                if not neutral_mood:
-                    self.assertGreater(core[2]["valence"], 0)
-                if neutral_mood:
-                    self.assertEqual(
-                        connection.execute(
-                            "SELECT derived_components FROM armi.mood_revisions WHERE mood_appraisal_event_id IS NOT NULL"
-                        ).fetchall(),
-                        [([],)],
-                    )
                 self.assertEqual(
                     connection.execute(
-                        "SELECT (SELECT count(*) FROM armi.activity_revisions WHERE is_current), (SELECT count(*) FROM armi.mood_revisions)"
+                        "SELECT count(*) FROM armi.mood_revisions"
                     ).fetchone(),
-                    (1, 2),
+                    (1,),
                 )
                 rows = connection.execute(
                     "SELECT mind_version,semantic_payload->'concerns' FROM armi.mind_revisions ORDER BY mind_version"
@@ -11385,10 +11287,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     operation = json.loads(operation_response.read())
                     self.assertEqual(operation_response.status, 200)
                     self.assertEqual(operation["result_ref"], accepted["result_ref"])
-                    self.assertIn(operation["status"], {"accepted", "waiting"})
+                    self.assertIn(
+                        operation["status"], {"accepted", "waiting", "failed"}
+                    )
                     operation_deadline = time.monotonic() + 10
                     while (
-                        operation.get("waiting_for") != "model_attempt"
+                        operation["status"] != "failed"
                         and time.monotonic() < operation_deadline
                     ):
                         time.sleep(0.05)
@@ -11400,25 +11304,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         operation_response = connection.getresponse()
                         operation = json.loads(operation_response.read())
                         self.assertEqual(operation_response.status, 200)
-                    self.assertEqual(
-                        (
-                            operation["status"],
-                            operation.get("waiting_for"),
-                            operation.get("resume_condition"),
-                        ),
-                        (
-                            "waiting",
-                            "model_attempt",
-                            "model_step_available",
-                        ),
-                        (
-                            operation,
-                            tuple(
-                                path.read_text(encoding="utf-8")
-                                for path in sorted((data_root / "logs").glob("*.jsonl"))
-                            ),
-                        ),
-                    )
+                    self.assertEqual(operation["status"], "failed", operation)
+                    with psycopg.connect(fixture.runtime_dsn) as db:
+                        self.assertEqual(
+                            db.execute(
+                                "SELECT status,error_code FROM armi.mood_assessments"
+                            ).fetchall(),
+                            [("failed", "MOOD-JEV-CREDENTIAL-MISSING")],
+                        )
+                        self.assertEqual(
+                            db.execute(
+                                "SELECT count(*) FROM armi.cognitive_attempts"
+                            ).fetchone(),
+                            (0,),
+                        )
                     connection.request(
                         "GET",
                         "/v1/scenes/default/timeline?limit=50",
@@ -11451,11 +11350,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.close()
                 process.send_signal(signal.CTRL_BREAK_EVENT)
                 stdout, stderr = process.communicate(timeout=35)
+            except Exception:
+                for runtime_log in (data_root / "logs").glob("runtime-*.jsonl"):
+                    print(runtime_log.read_text(encoding="utf-8"))
+                raise
             finally:
                 if process.poll() is None:
                     process.kill()
                     process.communicate()
-            self.assertEqual(process.returncode, 0, stderr)
+            runtime_log = next((data_root / "logs").glob("runtime-*.jsonl")).read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(process.returncode, 0, stderr or runtime_log)
             self.assertEqual(stdout, "")
             log_events = [
                 json.loads(line)["event"]
@@ -11520,8 +11426,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             SELECT count(*)
                             FROM armi.cognitive_episodes
-                            WHERE status = 'cancelled' AND purpose='consider_creator_input'
-                              AND failure_code='COGNITION-RUNTIME-INTERRUPTED'
+                            WHERE status = 'failed' AND purpose='consider_creator_input'
+                              AND failure_code='MOOD-JEV-CREDENTIAL-MISSING'
                         ),
                         (
                             SELECT coalesce(sum(jsonb_array_length(context_items)), 0)
@@ -11544,10 +11450,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone()
                 assert context_facts is not None
                 self.assertEqual(context_facts[0], 1)
-                self.assertGreaterEqual(context_facts[1], 10)
+                self.assertEqual(context_facts[1], 0)
                 # The first autonomous consideration is scheduled one minute
                 # after activation; only this input has frozen a Context here.
-                self.assertEqual(context_facts[2:], (2, 0))
+                self.assertEqual(context_facts[2:], (0, 0))
                 artifact_identity = database.execute(
                     """
                     SELECT object.content_digest
@@ -11685,8 +11591,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchall(),
                     [
                         ("artifact.object.delete", 1),
-                        ("cognition.context.prepare", 1),
-                        ("cognition.execute", 1),
+                        ("mood.evaluate", 1),
                     ],
                 )
                 self.assertEqual(

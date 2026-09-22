@@ -76,7 +76,6 @@ from armi_memory.api import (
     MemoryCommitPort,
 )
 from armi_mind.api import CandidateMindDraft, MindCommitPort
-from armi_mood.api import CandidateMoodDraft, MoodCommitPort
 from armi_prompt.api import CandidatePromptDraft, PromptCommitPort
 from armi_relationship.api import (
     CandidateRelationshipDraft,
@@ -151,7 +150,6 @@ class SubjectCommitPipeline:
         expression_commit: ExpressionCommitPort,
         interaction_commit: InteractionSubjectCommitPort,
         memory_commit: MemoryCommitPort,
-        mood_commit: MoodCommitPort,
         opportunity_transition: OpportunityTransitionPort,
         prompt_commit: PromptCommitPort,
         material_commit: MaterialCommitPort,
@@ -183,7 +181,6 @@ class SubjectCommitPipeline:
             evidence_read,
             expression_commit,
             memory_commit,
-            mood_commit,
             opportunity_transition,
             interaction_commit,
             self._catalog,
@@ -413,7 +410,6 @@ class SubjectCommitPipeline:
         activity: list[CandidateActivityDraft | CandidateActivityDecisionDraft] = []
         material: list[CandidateLifeMaterialDraft] = []
         memory: list[CandidateMemoryDraft | CandidateMemoryRevisionDraft] = []
-        mood: list[CandidateMoodDraft] = []
         prompt: list[CandidatePromptDraft] = []
         relationship: list[CandidateRelationshipDraft] = []
         sleep: list[
@@ -435,8 +431,6 @@ class SubjectCommitPipeline:
                 value, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)
             ):
                 memory.append(value)
-            elif item.owner == "mood" and isinstance(value, CandidateMoodDraft):
-                mood.append(value)
             elif item.owner == "prompt" and isinstance(value, CandidatePromptDraft):
                 prompt.append(value)
             elif item.owner == "relationship" and isinstance(
@@ -459,7 +453,6 @@ class SubjectCommitPipeline:
             tuple(activity),
             tuple(material),
             tuple(memory),
-            tuple(mood),
             tuple(prompt),
             tuple(relationship),
             tuple(sleep),
@@ -720,7 +713,6 @@ def build_subject_commit_pipeline(
     expression_commit: ExpressionCommitPort,
     interaction_commit: InteractionSubjectCommitPort,
     memory_commit: MemoryCommitPort,
-    mood_commit: MoodCommitPort,
     opportunity_transition: OpportunityTransitionPort,
     prompt_commit: PromptCommitPort,
     material_commit: MaterialCommitPort,
@@ -756,7 +748,6 @@ def build_subject_commit_pipeline(
         expression_commit=expression_commit,
         interaction_commit=interaction_commit,
         memory_commit=memory_commit,
-        mood_commit=mood_commit,
         opportunity_transition=opportunity_transition,
         prompt_commit=prompt_commit,
         material_commit=material_commit,

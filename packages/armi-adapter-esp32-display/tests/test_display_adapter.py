@@ -25,44 +25,90 @@ from armi_adapter_esp32_display.wire import (
     encode_ping,
     encode_state,
 )
-from armi_mood.api import VAD, EffectiveEmotion, EmotionFamily, MoodSnapshot
+from armi_mood.api import (
+    Affect,
+    DynamicsParameters,
+    EmotionKind,
+    MoodView,
+    initial_dynamics,
+)
 
 
 def _snapshot(
-    family: EmotionFamily | None = None,
+    family: EmotionKind | None = None,
     *,
     valence: int = 0,
     arousal: int = 0,
-    dominance: int = 0,
-) -> MoodSnapshot:
-    emotions = (
-        () if family is None else (EffectiveEmotion(family, "private nuance", 50),)
-    )
-    return MoodSnapshot(
+) -> MoodView:
+    now = datetime.now(UTC)
+    state = initial_dynamics(now, DynamicsParameters())
+    if family is not None:
+        # Projection-only fixture: the algorithm is tested by the Mood owner.
+        from armi_mood.api import MoodDynamics
+
+        payload = state.model_dump(mode="json")
+        from armi_mood.api import Appraisal
+
+        appraisal: dict[str, object] = {name: None for name in Appraisal.model_fields}
+        appraisal.update(
+            agency="unknown",
+            intent="unknown",
+            phase="unknown",
+            epistemic="unknown",
+            self_scope="unknown",
+            outcome_change="unknown",
+            not_applicable=[],
+            goals=[],
+        )
+        payload["episodes"] = [
+            {
+                "event_id": "event",
+                "situation_id": "situation",
+                "observed_at": now.isoformat(),
+                "summary": "private nuance",
+                "appraisal": appraisal,
+                "response": {
+                    "affect": {"valence": 0, "arousal": 0},
+                    "emotions": [{"kind": family.value, "intensity": 0.5, "basis": []}],
+                    "unknown": [],
+                },
+            }
+        ]
+        state = MoodDynamics.model_validate(payload)
+    return MoodView(
         uuid7(),
         7,
-        datetime.now(UTC),
-        VAD(0, 0, 0),
-        VAD(valence, arousal, dominance),
-        emotions,
+        now,
+        Affect(valence=valence / 100, arousal=arousal / 100),
+        state,
+        "applied",
+        uuid7(),
+        None,
     )
 
 
 @pytest.mark.parametrize(
     ("family", "expression"),
-    tuple((family, DisplayExpression[family.name]) for family in EmotionFamily),
+    tuple(
+        (
+            family,
+            DisplayExpression.SADNESS
+            if family is EmotionKind.DISAPPOINTMENT
+            else DisplayExpression[family.name],
+        )
+        for family in EmotionKind
+    ),
 )
 def test_every_family_has_its_own_expression(
-    family: EmotionFamily, expression: DisplayExpression
+    family: EmotionKind, expression: DisplayExpression
 ) -> None:
     assert map_mood_snapshot(_snapshot(family)).expression is expression
 
 
 def test_every_family_has_its_own_fixed_color() -> None:
-    colors = {
-        map_mood_snapshot(_snapshot(family)).foreground for family in EmotionFamily
-    }
-    assert len(colors) == len(EmotionFamily) == 20
+    colors = {map_mood_snapshot(_snapshot(family)).foreground for family in EmotionKind}
+    assert len(colors) == 11
+    assert len(EmotionKind) == 12
 
 
 def test_neutral_and_energy_mapping() -> None:
@@ -71,7 +117,7 @@ def test_neutral_and_energy_mapping() -> None:
 
 
 def test_wire_state_discloses_only_display_projection() -> None:
-    state = map_mood_snapshot(_snapshot(EmotionFamily.JOY, arousal=20))
+    state = map_mood_snapshot(_snapshot(EmotionKind.JOY, arousal=20))
     assert state.foreground == "#FFD166"
     assert state.background == "#000000"
     frame = encode_state("state-1", state)
@@ -194,7 +240,7 @@ def test_unchanged_state_is_renewed_before_device_expiry(
         lambda: asyncio.sleep(0, result=snapshot),
     )
 
-    async def get_snapshot() -> MoodSnapshot:
+    async def get_snapshot() -> MoodView:
         return snapshot
 
     async def send(*_args: object) -> None:
@@ -308,7 +354,7 @@ def test_snapshot_failure_revokes_available_and_reconnects(
         connections.append(connection)
         return connection
 
-    async def unavailable_snapshot() -> MoodSnapshot:
+    async def unavailable_snapshot() -> MoodView:
         raise RuntimeError("database unavailable")
 
     adapter = MoodDisplayAdapter(

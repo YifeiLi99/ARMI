@@ -164,7 +164,6 @@ class CandidateMaintenanceDecisionDraft:
                 MaintenancePhase.SELF_CHECK,
                 MaintenancePhase.REFLECT_SELF,
                 MaintenancePhase.REFLECT_MIND,
-                MaintenancePhase.REFLECT_MOOD,
                 MaintenancePhase.REFLECT_PROMPT,
             }
             or type(self.outcome) is not MaintenanceWorkOutcome
@@ -206,7 +205,6 @@ class CandidateMaintenanceDecisionDraft:
         reflection_phase = self.phase in {
             MaintenancePhase.REFLECT_SELF,
             MaintenancePhase.REFLECT_MIND,
-            MaintenancePhase.REFLECT_MOOD,
             MaintenancePhase.REFLECT_PROMPT,
         }
         if reflection_phase != (
@@ -616,7 +614,6 @@ class CreatorMaintenanceTimelineItem:
                 in {
                     MaintenancePhase.REFLECT_SELF,
                     MaintenancePhase.REFLECT_MIND,
-                    MaintenancePhase.REFLECT_MOOD,
                     MaintenancePhase.REFLECT_PROMPT,
                 }
                 and self.work_outcome is not None
@@ -633,7 +630,6 @@ class CreatorMaintenanceTimelineItem:
                     MaintenancePhase.SELF_CHECK,
                     MaintenancePhase.REFLECT_SELF,
                     MaintenancePhase.REFLECT_MIND,
-                    MaintenancePhase.REFLECT_MOOD,
                     MaintenancePhase.REFLECT_PROMPT,
                 }
                 and self.work_outcome is not None

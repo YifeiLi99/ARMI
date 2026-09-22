@@ -300,6 +300,16 @@ class CognitionContextEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionContextLifecyclePort(Protocol):
+    async def accept_mood(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        assessment_id: UUID,
+        previous_subject_version: int,
+        subject_version: int,
+    ) -> None: ...
+
     async def interrupt_autonomy(
         self,
         transaction: PostgreSQLTransaction,

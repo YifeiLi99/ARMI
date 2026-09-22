@@ -45,7 +45,6 @@ _PURPOSE_KINDS = {
     "perform_subject_self_check": "no_issue",
     "reflect_self": "no_change",
     "reflect_mind": "no_change",
-    "reflect_mood": "no_change",
     "reflect_prompt": "no_change",
     "consider_codex_result": "no_change",
     "consider_codex_task": "no_change",
@@ -72,7 +71,6 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         value = {
             "decision": {**value, "content": None},
             "experience": None,
-            "appraisal": None,
             "changes": [],
         }
     elif purpose.startswith("reflect_"):
@@ -97,20 +95,17 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         value = {
             "decision": {**value, "content": None},
             "experience": None,
-            "appraisal": None,
             "changes": [],
         }
     elif purpose == "consider_other_human_input":
         value = {
             "decision": {**value, "content": None},
             "social": None,
-            "appraisal": None,
         }
     elif purpose in {
         "consider_autonomous_life",
         "consider_visual_observation",
     }:
-        value["appraisal"] = None
         if purpose == "consider_autonomous_life":
             value["expression"] = None
             value["mind_change"] = None
@@ -184,7 +179,6 @@ def test_other_human_social_dependencies_are_structural(missing_experience):
     value = {
         "decision": {"kind": "silence", "content": None},
         "social": social,
-        "appraisal": None,
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"candidate": value}, _schema(version))
@@ -196,9 +190,7 @@ def test_other_human_social_dependencies_are_structural(missing_experience):
         )
 
 
-@pytest.mark.parametrize(
-    "purpose", ["reflect_self", "reflect_mind", "reflect_mood", "reflect_prompt"]
-)
+@pytest.mark.parametrize("purpose", ["reflect_self", "reflect_mind", "reflect_prompt"])
 def test_reflection_schema_excludes_other_owner_targets(purpose):
     version = "armi.owner-reflection-candidate"
     target = purpose.removeprefix("reflect_")
@@ -332,7 +324,6 @@ def test_other_human_commitment_dependencies_are_visible_in_schema(action, valid
             commitment["party"] = "armi"
     value = {
         "decision": {"kind": "reply", "content": "我会认真对待"},
-        "appraisal": None,
         "social": {
             "experience": {"first_person_gist": "我们谈到了承诺", "uncertainty": None},
             "relationship_change": {
@@ -365,11 +356,17 @@ def test_other_human_commitment_dependencies_are_visible_in_schema(action, valid
 def test_reflection_keeps_evidence_without_requiring_a_change(kind):
     value = {
         "kind": kind,
-        "target": "mood",
+        "target": "prompt",
         "summary": "No adjustment needed.",
         "basis_refs": ["ctx:1"],
         "expected_version": 1 if kind == "update" else None,
-        "next_state": {} if kind == "update" else None,
+        "next_state": {
+            "cognition_method": "Consider evidence",
+            "expression_method": "Be clear",
+            "reflection_method": "Review evidence",
+        }
+        if kind == "update"
+        else None,
     }
     version = "armi.owner-reflection-candidate"
     jsonschema.validate({"candidate": value}, _schema(version))
@@ -392,7 +389,6 @@ def test_reply_memory_shape_is_visible_to_provider(invalid):
             "uncertainty": None,
             "memory_summary": 42 if invalid else None,
         },
-        "appraisal": None,
         "changes": [],
     }
     schema = _schema("armi.creator-cognitive-act-candidate")
@@ -421,64 +417,14 @@ def test_maintenance_summary_matches_operation(kind):
 
 
 @pytest.mark.parametrize("transition", ["new", "reinforce", "reappraise", "resolve"])
-def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
-    appraisal = {
-        "trajectory": {"transition": "new"}
-        if transition == "new"
-        else {
-            "transition": transition,
-            "episode_ref": "ctx:1",
-            "change_from_previous": "improved",
-        },
-        "event_phase": "realized",
-        "gist": "Greeting",
-        "basis_refs": ["ctx:1"],
-        "appraisal": {
-            "engagement": "not_applicable",
-            "concerns": [
-                {
-                    "target": "relationship",
-                    "significance": "direct",
-                    "direction": "progress",
-                }
-            ],
-            "expectedness": "expected",
-            "outcome_certainty": "settled",
-            "intrinsic_quality": "pleasant",
-            "self_involvement": "limited",
-            "demand": None,
-            "causality": None,
-            "coping": None,
-            "standards": {
-                "self_evaluation": {"compatibility": "aligned"},
-                "norm_compatibility": "aligned",
-            },
-        },
-    }
+def test_mood_trajectory_is_rejected_by_main_schema(transition):
     value = {
-        "decision": {"kind": "reply", "content": "Hello"},
-        "experience": None,
-        "appraisal": appraisal,
-        "concern_changes": [],
-        "mind_appraisals": [],
-        "changes": [],
+        "decision": {"kind": "reply", "content": "Hi"},
+        "appraisal": {"trajectory": {"transition": transition}},
     }
-    version = "armi.creator-cognitive-act-candidate"
-    schema = _schema(version)
-    jsonschema.validate({"candidate": value}, schema)
-    parse_candidate(
-        json.dumps(value).encode(),
-        expected_version=version,
-        allowed_context_refs=frozenset({"ctx:1"}),
-    )
-    appraisal["trajectory"]["episode_ref"] = "ctx:1" if transition == "new" else None
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate({"candidate": value}, schema)
-    with pytest.raises(ModelViolation):
-        parse_candidate(
-            json.dumps(value).encode(),
-            expected_version=version,
-            allowed_context_refs=frozenset({"ctx:1"}),
+        jsonschema.validate(
+            {"candidate": value}, _schema("armi.creator-cognitive-act-candidate")
         )
 
 

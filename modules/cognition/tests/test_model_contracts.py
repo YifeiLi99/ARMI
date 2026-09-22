@@ -193,7 +193,7 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
             OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         )
     )
-    assert "concerns" in current
+    assert "appraisal" not in current
     assert "suddenness" not in current
 
 

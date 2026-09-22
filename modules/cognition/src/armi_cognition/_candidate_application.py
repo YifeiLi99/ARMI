@@ -61,7 +61,7 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mind.api import MindCognitionPort, MindReadPort
-from armi_mood.api import MoodCognitionPort, MoodReadPort
+from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import (
     RelationshipBoundary,
@@ -172,7 +172,6 @@ class CandidateValidationService:
         "_material_cognition",
         "_memory_cognition",
         "_mind_cognition",
-        "_mood_cognition",
         "_prompt_cognition",
         "_relationship_cognition",
         "_repository",
@@ -205,7 +204,6 @@ class CandidateValidationService:
         codex_available: Callable[[], bool],
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
-        mood_cognition: MoodCognitionPort,
         mood_read: MoodReadPort,
         prompt_cognition: PromptCognitionPort,
         prompt_read: PromptReadPort,
@@ -231,7 +229,6 @@ class CandidateValidationService:
         self._activity_cognition = activity_cognition
         self._storage = storage
         self._memory_cognition = memory_cognition
-        self._mood_cognition = mood_cognition
         self._prompt_cognition = prompt_cognition
         self._material_cognition = material_cognition
         self._relationship_cognition = relationship_cognition
@@ -390,7 +387,6 @@ class CandidateValidationService:
             activity_cognition=self._activity_cognition,
             material_cognition=self._material_cognition,
             memory_cognition=self._memory_cognition,
-            mood_cognition=self._mood_cognition,
             prompt_cognition=self._prompt_cognition,
             relationship_cognition=self._relationship_cognition,
             sleep_cognition=self._sleep_cognition,

@@ -7,7 +7,6 @@ from typing import Annotated, Literal, cast
 
 from armi_kernel.application import ModelViolation
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
-from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS, AppraisalEventSignalV3
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -233,7 +232,6 @@ class OtherHumanDialogueCandidate(_StrictModel, frozen=True):
         Field(discriminator="kind"),
     ]
     social: OtherHumanSocialExperience | None = None
-    appraisal: AppraisalEventSignalV3 | None = None
 
     @property
     def kind(self):
@@ -288,12 +286,9 @@ commitment_ref 和 conflicts_with_ref 只能引用 Context 中标题为“关系
 relationship_commitment 的条目;“当前关系”、历史消息、心情等条目不是承诺。
 note_conflict 必须有两个不同的现有承诺及真实冲突依据;没有这些条件就不输出该动作。
 不形成承诺变化时省略 commitment_change,不能为填满字段而编造变化或引用。
-若本轮事件意义发生变化,可填写 event_ 前缀字段;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足。无评价时省略全部 event_ 字段;枚举中有 not_applicable 时用它表示不适用。
 """
     + "\n\n# 表达方式\n\n"
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
-    + "\n\n# 事件评价与情绪\n\n"
-    + MOOD_APPRAISAL_INSTRUCTIONS
 )
 
 
@@ -345,10 +340,6 @@ def parse_other_human_dialogue_candidate_value(
         )
         if value is not None
     }
-    if candidate.appraisal is not None:
-        referenced.update(candidate.appraisal.basis_refs)
-        if candidate.appraisal.episode_ref is not None:
-            referenced.add(candidate.appraisal.episode_ref)
     if not referenced.issubset(allowed_context_refs):
         raise ModelViolation("MODEL-RESPONSE-CONTEXT-REF")
     return candidate

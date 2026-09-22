@@ -6,17 +6,16 @@ from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._admin import PostgreSQLMoodAdmin
-from ._application import MoodApplication
 from ._data_rights import PostgreSQLMoodDataRightsParticipant
-from ._postgresql import PostgreSQLMoodOwner
+from ._event_owner import MoodEventOwner
+from ._psychology import DynamicsParameters
+from ._read_owner import MoodReadOwner
 from ._recovery import MoodRecoveryParticipant
 from .api import (
     MoodAdminContentPort,
     MoodAdminCorrectionPort,
     MoodAdminReadPort,
     MoodBirthPort,
-    MoodCognitionPort,
-    MoodCommitPort,
     MoodReadPort,
 )
 
@@ -24,10 +23,9 @@ from .api import (
 @dataclass(frozen=True, slots=True)
 class MoodModule:
     read: MoodReadPort
-    cognition: MoodCognitionPort
-    commit: MoodCommitPort
     birth: MoodBirthPort
-    _owner: PostgreSQLMoodOwner
+    _owner: MoodReadOwner
+    events: MoodEventOwner
 
     async def open(self) -> None:
         await self._owner.open()
@@ -36,14 +34,9 @@ class MoodModule:
         await self._owner.close()
 
 
-def bootstrap_mood() -> MoodModule:
-    application = MoodApplication()
-    owner = PostgreSQLMoodOwner(application)
-    return MoodModule(owner, application, owner, owner, owner)
-
-
-def bootstrap_mood_cognition() -> MoodCognitionPort:
-    return MoodApplication()
+def bootstrap_mood(parameters: DynamicsParameters | None = None) -> MoodModule:
+    read = MoodReadOwner(parameters or DynamicsParameters())
+    return MoodModule(read, read, read, MoodEventOwner())
 
 
 def bootstrap_mood_admin_correction() -> MoodAdminCorrectionPort:
@@ -72,7 +65,6 @@ __all__ = (
     "bootstrap_mood_admin_content",
     "bootstrap_mood_admin_correction",
     "bootstrap_mood_admin_read",
-    "bootstrap_mood_cognition",
     "bootstrap_mood_data_rights",
     "bootstrap_mood_recovery",
 )

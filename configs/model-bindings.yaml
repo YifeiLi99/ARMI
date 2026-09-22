@@ -92,10 +92,6 @@ purpose_profiles:
     profile: reflect_mind
     response_contract_kind: armi.owner-reflection-candidate
     output_token_limit: 2048
-  reflect_mood:
-    profile: reflect_mood
-    response_contract_kind: armi.owner-reflection-candidate
-    output_token_limit: 1024
   reflect_prompt:
     profile: reflect_prompt
     response_contract_kind: armi.owner-reflection-candidate
