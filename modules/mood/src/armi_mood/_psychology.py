@@ -180,8 +180,9 @@ def _derive_response(
             *(goal.relevance for goal in value.goals),
         )
         # A small orienting response remains possible without known stakes.
-        # The 0.25 floor is an engineering parameter, not a human constant.
-        novelty = onset * (0.25 + 0.75 * significance)
+        # The orienting floor and quadratic gain are calibration choices, not
+        # universal human constants (Mood design: 本地计算).
+        novelty = onset * (0.1 + 0.9 * significance**2)
     if value.goals:
         # Keep goal phases separate: a realized loss and anticipated gain cannot
         # borrow each other's certainty or become a fabricated realized benefit.
@@ -224,7 +225,12 @@ def _derive_response(
                     min(1.0, sum(response.affect.valence for _, response in responses)),
                 ),
                 arousal=max(
-                    0.0, *(response.affect.arousal for _, response in responses)
+                    0.0,
+                    _weighted_impact(
+                        _known_max(*(goal.relevance for goal in value.goals)),
+                        value.urgency,
+                    ),
+                    *(response.affect.arousal for _, response in responses),
                 )
                 + min(0.0, *(response.affect.arousal for _, response in responses)),
             ),
@@ -254,7 +260,7 @@ def _derive_response(
     negative = max(
         _weighted_impact(value.relevance, value.loss), value.unpleasantness or 0
     )
-    realized = value.phase == "realized" and value.epistemic == "confirmed"
+    realized = value.phase in {"realized", "averted"} and value.epistemic == "confirmed"
     prospective = value.phase in {"anticipated", "ongoing"} or (
         value.phase == "realized" and value.epistemic in {"reported", "imagined"}
     )
@@ -294,7 +300,7 @@ def _derive_response(
         )
         if previous is not None
         and value.epistemic == "confirmed"
-        and value.phase == "averted"
+        and value.phase in {"realized", "averted"}
         and value.outcome_change == "threat_averted"
         else 0.0
     )
@@ -390,12 +396,18 @@ def _derive_response(
     add(EmotionKind.DISAPPOINTMENT, disappointment, "previous.gain", "outcome_change")
     return Response(
         affect=Affect(
-            valence=max(-1.0, min(1.0, positive - negative + relief - disappointment)),
+            # Recovery and its restored benefit describe overlapping impact;
+            # keep both labels without adding the same benefit twice.
+            valence=max(positive, relief) - max(negative, disappointment),
             arousal=max(
                 -1.0,
                 min(
                     1.0,
-                    max(novelty, value.urgency or 0, threat)
+                    max(
+                        novelty,
+                        _weighted_impact(value.relevance, value.urgency),
+                        threat,
+                    )
                     - max(helplessness, relief),
                 ),
             ),

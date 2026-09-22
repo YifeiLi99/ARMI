@@ -109,6 +109,50 @@ def test_unknown_coping_does_not_create_helplessness():
     assert "control" in response.unknown
 
 
+@pytest.mark.parametrize("phase", ["realized", "averted"])
+def test_confirmed_restoration_keeps_benefit_without_double_counting_relief(phase):
+    loss = appraisal(relevance=0.5, loss=1, likelihood=1, phase="realized")
+    restored = appraisal(
+        relevance=0.5, gain=1, loss=0, phase=phase, outcome_change="threat_averted"
+    )
+    response = derive_response(restored, loss)
+    assert {e.kind for e in response.emotions} == {EmotionKind.JOY, EmotionKind.RELIEF}
+    assert response.affect.valence == 0.5
+    # A missing previous threat blocks relief, not the independently evidenced gain.
+    no_history = derive_response(restored)
+    assert no_history.affect.valence == 0.5
+    assert {e.kind for e in no_history.emotions} == {EmotionKind.JOY}
+
+
+def test_ordinary_time_window_has_less_arousal_than_critical_deadline():
+    ordinary = derive_response(appraisal(relevance=0.25, urgency=0.75))
+    critical = derive_response(appraisal(relevance=1, urgency=0.75))
+    assert 0 < ordinary.affect.arousal < critical.affect.arousal
+    multi = derive_response(
+        appraisal(
+            urgency=0.75,
+            goals=(
+                GoalAppraisal(
+                    reference="critical",
+                    relevance=1,
+                    gain=0,
+                    loss=0,
+                    likelihood=1,
+                    phase="realized",
+                ),
+            ),
+        )
+    )
+    assert multi.affect.arousal == critical.affect.arousal
+
+
+def test_small_novelty_stays_mild_without_suppressing_strong_sensory_startle():
+    mild = derive_response(appraisal(relevance=0.25, suddenness=1))
+    strong = derive_response(appraisal(relevance=0, suddenness=1, unpleasantness=1))
+    assert 0 < mild.affect.arousal < 0.25
+    assert strong.affect.arousal == 1
+
+
 @pytest.mark.parametrize("direction", ["gain", "loss"])
 def test_uncertain_outcomes_scale_feeling_and_emotion_together(direction):
     responses = [

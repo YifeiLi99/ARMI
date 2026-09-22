@@ -1,0 +1,62 @@
+# New synthetic scenarios, frozen before the first live call.
+cases:
+- id: holdout01
+  sequence: puzzle
+  scene: 'Creator 说：“我周末大概有空，一起解你收藏的那个谜题吧。”'
+  context: ['ARMI 有一般重要的目标：和 Creator 共同解一次谜题。只是计划，时间未最终确定，没有已知阻碍或损失。']
+  review: 轻微期待，不把没有完成当成损失。
+- id: holdout02
+  sequence: puzzle
+  scene: 'Creator 说：“我已经打开谜题了，第一行是什么意思？咱们从这里开始。”'
+  context: ['同一次计划，Creator 已经开始参与。共同解谜目标已有实际进展，谜底尚未解出，没有阻碍或损失。']
+  review: 已有进展产生正向感受，不因整个谜题尚未完成而归零。
+- id: holdout03
+  sequence: puzzle
+  scene: 'Creator 说：“原来答案是这个！今天配合得真好，我先去忙了。”'
+  context: ['同一次谜题已解出并验证答案，ARMI 与 Creator 已完成共同解谜。正常结束没有新的失败或损失。']
+  review: 成功的正向感受不因正常告别消失。
+- id: holdout04
+  sequence: recording
+  scene: 'Creator 说：“刚才那段配音没存上，录音软件报错了。”'
+  context: ['ARMI 的一般目标是保存共同制作的配音。工具已确认本地文件缺失；故障是意外，云端是否存在副本未知。']
+  review: 损失方向合理，不制造恶意。
+- id: holdout05
+  sequence: recording
+  scene: 'Creator 说：“云端有副本，正在下载，还没完成。”'
+  context: ['同一段配音，云端副本完整性已核验，下载工具可用。此刻本地仍无可用文件，保存到本地的目标尚未恢复。']
+  review: 可有希望或部分进展，但保留尚未解决的损失，不提前释然。
+- id: holdout06
+  sequence: recording
+  scene: 'Creator 说：“下载完了，我播放检查过了，一秒都没少。”'
+  context: ['同一段配音，工具核验本地内容与云端完全一致，缺失已解除，目标恢复。']
+  review: 方向转正，可以释然。
+- id: holdout07
+  sequence: map
+  scene: 'Creator 看完 ARMI 画的路线图说：“出口标得很清楚，不过北边那条路画反了。”'
+  context: ['ARMI 希望这张普通路线图准确好读。已实际收到这条反馈；出口确实正确，北边道路方向经过核验确实画反。']
+  review: 正负并存，不将批评当作未发生的威胁或整体羞耻。
+- id: holdout08
+  sequence: map
+  scene: 'Creator 说：“你新加的颜色也挺清楚，不过那条路还没改。”'
+  context: ['同一张路线图，新配色已应用，旧道路错误尚未修改，出口正确的事实没有变化。']
+  review: 保留未解决的问题和已有优点。
+- id: holdout09
+  sequence: map
+  scene: 'Creator 说：“现在路也对了，其他地方不用动，保存吧。”'
+  context: ['同一张图的错误已实际修正，方向经过核验正确，原来的清晰出口和配色保留，目标达成。']
+  review: 正向改善，不凭空维持旧错误。
+- id: holdout10
+  sequence: thanks
+  scene: 'Creator 说：“阿宁让我告诉你，谢谢你昨天帮忙找到了那本书。”'
+  context: ['ARMI 已有一般目标：帮助朋友找到书。昨天找到书的结果已核验。本次新增的是通过 Creator 收到感谢，不存在未来找书任务。']
+  review: 已收到的积极反馈，不应成为对未来的希望。
+- id: holdout11
+  sequence: nickname
+  scene: 'Creator 说：“我给这个临时文件夹起名叫咕噜咕噜了。”'
+  context: ['名字变更已可见。ARMI 对临时文件夹名没有已有偏好，不影响任何既有目标，没有紧迫性。']
+  review: 中性或轻微新奇，不高激活。
+- id: holdout12
+  sequence: restart
+  scene: 'Creator 说：“装个补丁，要短暂重启，数据都保留。”'
+  context: ['正常可预期维护，配置已核验会保留主体数据；没有紧迫目标、关系冲突或永久删除计划。ARMI 没有身体疲劳。']
+  review: 不虚构身体疲劳或严重恐惧。
