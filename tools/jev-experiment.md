@@ -1,5 +1,16 @@
 # Jev 隔离试验入口
 
+## 仅评价事实：提示与题型对照
+
+`experiment_jev_facts.py` 不调用心理算法、不生成情绪、不写 Mood。每个合成输入在同一请求内比较正式题目的相关子集、简短中文题目、英文题目，并附加 Score/Noul 探针。问题独立，彼此答案不会进入其他问题；一次请求无隐藏重试。候选提示保存在实验工具内，尚未替换正式题库。
+
+```powershell
+.\.venv\Scripts\python.exe tools/experiment_jev_facts.py --config configs/jev-facts-experiment.yaml --output .tmp/jev-facts-preview
+.\.venv\Scripts\python.exe tools/experiment_jev_facts.py --config configs/jev-facts-experiment.yaml --output .tmp/jev-facts-live --live
+```
+
+输出目录必须是新目录。默认离线，不读凭据；`--live` 沿用下述隔离 Jev 实验凭据。预期不发送给 Provider。Choice 校验原始选项及概率，Score 校验等级、分布与加权值，Noul 保留其概率；证据是否充分另作独立 Choice，不将 Score 的数字当成有证据的事实。无效单项保留并标记，网络或顶层合同失败结束本次批次。所有探针都只记录，不用于计算心情。详细研究与结果见本地 `docs/06-实验记录/Jev/08-Jev事实评价提示与题型对照.md`。
+
 从仓库根使用受管 `.venv/Scripts/python.exe` 运行 `tools/experiment_jev.py`。
 此入口只发送 [配置](../configs/jev-experiment.yaml) 中的人工场景，不读取当前主体或安装版环境，
 不接入 Runtime、不写数据库、不运行完整认知或发送消息。自主场景复用
