@@ -2,7 +2,7 @@
 
 ## 仅评价事实：提示与题型对照
 
-`experiment_jev_facts.py` 不调用心理算法、不生成情绪、不写 Mood。每个合成输入在同一请求内比较正式题目的相关子集、简短中文题目、英文题目，并附加 Score/Noul 探针。问题独立，彼此答案不会进入其他问题；一次请求无隐藏重试。候选提示保存在实验工具内，尚未替换正式题库。
+`experiment_jev_facts.py` 不调用心理算法、不生成情绪、不写 Mood。每个合成输入在同一请求内比较当前正式题目的相关子集、历史简短中文题目、英文题目，并附加 Score/Noul 探针。问题独立，彼此答案不会进入其他问题；一次请求无隐藏重试。最新中文对象限定提示已经接入正式题库；历史实验输出中的 baseline 对应当时源码，不能把重跑当前 baseline 当作重现旧版本。
 
 ```powershell
 .\.venv\Scripts\python.exe tools/experiment_jev_facts.py --config configs/jev-facts-experiment.yaml --output .tmp/jev-facts-preview
@@ -19,7 +19,7 @@
 
 这是隔离实验选项，不自动翻译正式主体的经历或改写正式 Mood 题库。
 
-中文评价对象对照使用 `--chinese-scoped`，与 `--context-language` 互斥。同一中文输入中比较原正式四题、上一版简短中文四题、按“主体／评价对象／问题”组织的中文四题，共 12 个 Choice，不含英文问题或 Score/Noul。新的独立检查输入为 `configs/jev-facts-chinese-transfer.yaml`；背景原话、预期均不因版本改变。候选规则将询问或计划表达与其提及的未来结果分开，尚未扩展到正式 Mood 的全部评价维度。
+历史中文对象限定对照使用 `--chinese-scoped`，与 `--context-language` 互斥，保留当时实验候选以供检查。正式接入后，当前 baseline 四题已与 scoped_zh 四题一致，不再将重复调用这两组作为新旧效果比较。历史新旧对照请读取保存的原始请求和结果。检查输入为 `configs/jev-facts-chinese-transfer.yaml`；正式完整题库的所有维度现已共用对象规则。
 
 ```powershell
 .\.venv\Scripts\python.exe tools/experiment_jev_facts.py --config configs/jev-facts-chinese-transfer.yaml --chinese-scoped --output .tmp/jev-facts-chinese-scoped --live

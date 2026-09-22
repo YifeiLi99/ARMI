@@ -37,6 +37,33 @@ def test_unknown_not_applicable_and_zero_remain_distinct():
     assert parsed.appraisal.not_applicable == ("control",)
 
 
+def test_structured_questions_keep_goal_scopes_independent_and_roundtrip():
+    questions = appraisal_questions(("old-situation",), ("goal-a", "goal-b"))
+    # Jev evaluates questions independently; each must carry the same object scope.
+    scope = questions["gain"]["instructions"]["评价对象"]
+    assert all(q["instructions"]["评价对象"] == scope for q in questions.values())
+    assert "目标范围" not in questions["gain"]["instructions"]
+    assert "goal-a" in questions["goal_0_gain"]["instructions"]["目标范围"]
+    assert "goal-b" not in questions["goal_0_gain"]["instructions"]["目标范围"]
+    assert "goal-b" in questions["goal_1_phase"]["instructions"]["目标范围"]
+    raw = response()
+    for name, question in questions.items():
+        choice = "old-situation" if name == "situation" else "unknown"
+        raw["answers"][name] = {
+            "type": "choice",
+            "choice": choice,
+            "confidence": 1,
+            "probabilities": {
+                option: int(option == choice) for option in question["criteria"]
+            },
+        }
+    parsed = parse_appraisal_response(
+        raw, event_id="new", situations=("old-situation",), goals=("goal-a", "goal-b")
+    )
+    assert parsed.situation_id == "old-situation"
+    assert [goal.reference for goal in parsed.appraisal.goals] == ["goal-a", "goal-b"]
+
+
 def test_provider_confidence_does_not_change_semantic_scores():
     raw = response(gain="level_3", likelihood="level_1")
     lower = deepcopy(raw)
