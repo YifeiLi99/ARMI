@@ -92,7 +92,8 @@ def check_context_items(
             value = {
                 entry["capability_kind"]: {
                     "availability": entry["availability_status"],
-                    "authorization": entry["authorization_status"],
+                    "enabled": entry["enabled"],
+                    "reason_code": entry["reason_code"],
                 }
                 for entry in catalog["capabilities"]
             }

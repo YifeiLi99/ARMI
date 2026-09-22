@@ -335,7 +335,9 @@ def test_autonomy_opportunity_is_required_runtime_evidence() -> None:
 def test_light_check_uses_bounded_owner_projections_without_private_recall() -> None:
     from dataclasses import replace
 
+    from armi_capability.api import CapabilityAvailability
     from armi_context.api import autonomy_check_items
+    from armi_runtime.composition.postgresql_test import bootstrap_capability
 
     component_id = uuid7()
     components = (
@@ -376,21 +378,9 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
         (_memory("accessible"),),
         purpose="consider_autonomy_check",
         component_payloads=components,
-        capability_state_payloads=(
-            (
-                uuid7(),
-                1,
-                rfc8785.dumps(
-                    {
-                        "capability_kind": "codex.delegated-work",
-                        "availability_status": "available",
-                        "authorization_status": "authorized",
-                        "tool_instructions": "FORBIDDEN_TOOL_BODY",
-                    }
-                ),
-                "authorized",
-            ),
-        ),
+        capability_state_payloads=bootstrap_capability(
+            lambda: {"codex.delegated-work": CapabilityAvailability(True, True, None)}
+        ).context_state_payloads(),
         opportunity_source_kind="autonomy_plan",
     )
     snapshot = cast(
@@ -414,10 +404,11 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
     }
     assert "current_memory" not in contents
     assert "tool_instructions" not in json.dumps(contents)
-    assert (
-        contents["capability_catalog"]["codex.delegated-work"]["authorization"]
-        == "authorized"
-    )
+    assert contents["capability_catalog"]["codex.delegated-work"] == {
+        "availability": "available",
+        "enabled": True,
+        "reason_code": None,
+    }
     source = next(item for item in request.items if item.item_kind == "self")
     assert source.source.reference == component_id and source.source.version == 7
     assert contents["self"]["self_description"]["omitted_characters"] > 0
