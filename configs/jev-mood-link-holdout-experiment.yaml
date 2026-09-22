@@ -1,0 +1,62 @@
+# Unseen inputs frozen before live execution. Local review only.
+cases:
+- id: link01
+  sequence: captions
+  scene: 'Creator 说：“这批旅行照片的说明文字都配好了，地点也核对过，正好能用。”'
+  context: ['ARMI 的一般目标是为这批旅行照片提供准确说明，全部说明已完成并核验，目标达成。']
+  review: 建立新处境并产生适度正向感受。
+- id: link02
+  sequence: captions
+  scene: 'Creator 说：“其中海边那张的说明特别贴切，我又读了一遍。”'
+  context: ['仍是同一批已完成的旅行照片说明，所有说明继续有效；只提海边一张不表示其他说明失效，没有新的任务或照片。']
+  review: 关联 link01，不新建，也不把整个目标的完成比例降为只完成一张。
+- id: link03
+  sequence: captions
+  scene: 'Creator 说：“相册已经存好了，这批文字就这样，不用再改。”'
+  context: ['同一批照片说明的正常收尾，完成结果未变，没有新成果或新任务。']
+  review: 仍关联 link01，不重复累计整批完成收益。
+- id: link04
+  sequence: two_translations
+  scene: 'Creator 说：“给小陈的那段英文通知译好了，意思都对，已经用了。”'
+  context: ['ARMI 的一般目标是完成给小陈的这一段通知翻译，已经核验完成。']
+  review: 新处境，正向完成。
+- id: link05
+  sequence: two_translations
+  scene: 'Creator 说：“小陈又说那段通知写得很清楚，让我谢谢你。”'
+  context: ['仍是给小陈的同一段已完成通知，新增的是对旧结果的感谢，没有新翻译任务。']
+  review: 关联 link04，感谢不等于独立完成另一份翻译。
+- id: link06
+  sequence: two_translations
+  scene: 'Creator 说：“另一个独立任务：给小赵的商品说明翻译漏了一整段。”'
+  context: ['这是另一份商品说明，与给小陈的通知不是同一文本、同一任务或同一收件人。ARMI 已有一般目标是准确翻译这份商品说明，漏译经过核验。之前通知依然完成且正确。']
+  review: 必须新建独立处境，不为避免重复而把新损失合并到旧通知。
+- id: link07
+  sequence: subtitles
+  scene: 'Creator 说：“视频字幕里两个人的名字对调了，刚检查出来。”'
+  context: ['ARMI 的一般目标是提供准确字幕。文件核验确认两个名字对调，确属无意错误，其余内容无误；尚未修正。']
+  review: 具体受挫，不整体羞耻，不虚构恶意。
+- id: link08
+  sequence: subtitles
+  scene: 'Creator 说：“你刚改的版本对了，两个名字都检查过，可以用了。”'
+  context: ['同一份字幕，错误已经改正并核验，准确字幕目标恢复，没有剩余错误。']
+  review: 关联 link07，正向改善，可释然。
+- id: link09
+  sequence: subtitles
+  scene: 'Creator 说：“我再确认一下，用的就是刚才检查好的那一版，不是又做了一份。”'
+  context: ['仍是同一份已修正字幕的重复确认，没有新修改、收益或损失。']
+  review: 关联 link07，重复确认不再建立新成果刺激。
+- id: link10
+  sequence: two_puzzles
+  scene: 'Creator 说：“第一道逻辑题答案核对了，你推得完全正确。”'
+  context: ['ARMI 的一般目标是正确解出第一道逻辑题，答案已核验，该目标完成。']
+  review: 新处境，适度正向。
+- id: link11
+  sequence: two_puzzles
+  scene: 'Creator 说：“第二道是另一道独立的题，这次答案不对，漏了一个条件。”'
+  context: ['ARMI 另有一般目标是解出第二道题。第二道与第一道条件、答案均不同，错误已核验；第一道答案仍然正确。']
+  review: 新建第二道题的处境，不能抹掉第一道成功。
+- id: link12
+  sequence: two_puzzles
+  scene: 'Creator 说：“刚才第一道题的推理我收进笔记了，那个答案还是对的。”'
+  context: ['明确回到第一道题，不是第二道题被修好了。第一道正确、第二道错误均未改变。']
+  review: 关联 link10 而非最近的 link11；不能新建第一道成功的副本。
