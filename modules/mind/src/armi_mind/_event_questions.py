@@ -340,17 +340,10 @@ def parse_mind_event_answers(
                 1,
                 abs_tol=0.005 * len(probabilities) + 1e-9,
             )
-            or (
-                probabilities[choice] < max(probabilities.values())
-                and not isclose(
-                    probabilities[choice],
-                    max(probabilities.values()),
-                    rel_tol=0,
-                    abs_tol=1e-12,
-                )
-            )
         ):
             raise ValueError("MIND-JEV-CONTRACT")
+        # Consume the provider's choice, never a locally recomputed argmax.
+        # See DESIGN's Choice consumption contract shared with Mood.
         selected[name] = choice
     return tuple(
         MindEvidence(

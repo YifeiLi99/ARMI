@@ -77,13 +77,21 @@ def test_provider_confidence_does_not_change_semantic_scores():
     assert a.answers != b.answers
 
 
-def test_selected_choice_must_have_maximum_probability():
+@pytest.mark.parametrize(
+    "chosen_probability,other_probability", [(0.37, 0.38), (0, 0.75)]
+)
+def test_provider_choice_is_used_even_when_another_probability_is_higher(
+    chosen_probability, other_probability
+):
     raw = response(gain="level_0")
     raw["answers"]["gain"]["probabilities"].update(
-        level_0=0.37, unknown=0.38, not_applicable=0.25
+        level_0=chosen_probability, unknown=other_probability, not_applicable=0.25
     )
-    with pytest.raises(ValueError, match="MOOD-JEV-CONTRACT"):
-        parse_appraisal_response(raw, event_id="one", situations=())
+    original = deepcopy(raw)
+    parsed = parse_appraisal_response(raw, event_id="one", situations=())
+    assert parsed.appraisal.gain == 0
+    assert parsed.answers == original["answers"]
+    assert raw == original
 
 
 def test_float_representation_tie_preserves_provider_choice_and_probabilities():

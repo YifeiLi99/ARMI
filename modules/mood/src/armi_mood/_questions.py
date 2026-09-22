@@ -443,12 +443,8 @@ def parse_appraisal_response(
         choice = answer["choice"]
         if not isinstance(choice, str) or choice not in probabilities:
             raise ValueError("MOOD-JEV-CONTRACT")
-        # Accept numerical ties, not a different winning option (see Mood design).
-        maximum = max(probabilities.values())
-        if probabilities[choice] < maximum and not math.isclose(
-            probabilities[choice], maximum, rel_tol=0, abs_tol=1e-12
-        ):
-            raise ValueError("MOOD-JEV-CONTRACT")
+        # The provider's choice is authoritative; probabilities never veto or
+        # replace it. See DESIGN's Choice consumption contract.
         field = name.rsplit("_", 1)[-1] if name.startswith("goal_") else name
         if field in _LEVELS:
             values[name] = int(choice[-1]) / 4 if choice.startswith("level_") else None

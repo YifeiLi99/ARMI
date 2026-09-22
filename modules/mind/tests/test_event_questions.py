@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import UTC, datetime
 
 import pytest
@@ -92,7 +93,7 @@ def test_unknown_is_distinct_from_zero_and_inapplicable(choice):
 
 @pytest.mark.parametrize(
     "corruption",
-    ["missing", "extra", "nan", "bool", "wrong_winner", "wrong_type", "bad_sum"],
+    ["missing", "extra", "nan", "bool", "invented_choice", "wrong_type", "bad_sum"],
 )
 def test_malformed_answers_rejected(corruption):
     answers = answers_for((TARGET,))
@@ -105,11 +106,26 @@ def test_malformed_answers_rejected(corruption):
         answers[key]["confidence"] = float("nan")
     elif corruption == "bool":
         answers[key]["confidence"] = True
-    elif corruption == "wrong_winner":
-        answers[key]["choice"] = "level_0"
+    elif corruption == "invented_choice":
+        answers[key]["choice"] = "invented"
     elif corruption == "wrong_type":
         answers[key]["type"] = "score"
     else:
         answers[key]["probabilities"]["level_3"] = 0.2
     with pytest.raises(ValueError, match="MIND-JEV-CONTRACT"):
         parse_mind_event_answers(answers, targets=(TARGET,), evidence_key="e:1", at=NOW)
+
+
+@pytest.mark.parametrize("choice", ["level_0", "unknown", "not_applicable"])
+def test_provider_choice_wins_over_probability_ranking(choice):
+    answers = answers_for((TARGET,))
+    answers["mind_0_autonomy_satisfaction"]["choice"] = choice
+    # The returned choice has probability zero; level_3 has probability one.
+    original = deepcopy(answers)
+    (result,) = parse_mind_event_answers(
+        answers, targets=(TARGET,), evidence_key="e:1", at=NOW
+    )
+    assert dict(result.ratings)[MindVariable.AUTONOMY_SATISFACTION] == MindChoice(
+        choice
+    )
+    assert answers == original
