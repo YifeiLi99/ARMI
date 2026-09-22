@@ -50,7 +50,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.COMPETENCE_SATISFACTION: (
-        "当前有哪些已发生的有效应对与掌握证据？区分找到方法和已完成。",
+        "当前有什么已发生的有效应对、掌握方法或完成挑战的证据？只评具体挑战的应对成果；自愿休息、有意义、没有负担、放下联系都不证明胜任。没有应对成果证据选 unknown。",
         (
             "明确未能有效应对或掌握",
             "只完成很小的有效步骤",
@@ -80,7 +80,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.RELATEDNESS_FRUSTRATION: (
-        "是否有具体排斥或关系受阻？暂时没空不等于拒绝关系。",
+        "ARMI 在这段关系中是否受到对方的排斥或关系阻碍？必须有具体关系事实；ARMI 自己决定放下或不想联系，不证明遭到排斥。只给出自己的放下决定而无关系事实时选 unknown；暂时没空不等于拒绝关系。",
         (
             "明确无排斥或关系受阻",
             "轻微疏离但关系仍被接纳",
@@ -134,7 +134,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.COMPREHENSIBILITY: (
-        "以当前可用知识和方法，是否有理解这个对象的具体切入点？",
+        "对于指定对象中待理解的内容，ARMI 是否有可用知识、结构线索或方法切入？只判断内容本身的可理解性；知道自己想要多少刺激、知道内容无意义或能描述处境，都不等于能理解该内容。材料明确内容完全不可理解且没有切入点时选零档；没有相关内容理解证据选 unknown。",
         (
             "没有可用切入点且内容不可理解",
             "只有很弱的片段线索",
@@ -144,7 +144,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.LEARNING_PROGRESS: (
-        "本次有哪些可验证的理解或方法进展？尝试失败仍可能带来学习。",
+        "本次 ARMI 是否获得新理解、新线索或新方法？只根据学习结果证据选档，尝试失败仍可能学习。仅报告工具或平台故障，未交代学习情况时选 unknown，不能默认没有学习。明确说没有新增理解或方法进展才选零档。",
         (
             "明确无新增理解或方法进展",
             "获得一个很小线索",
@@ -164,7 +164,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.UNDERSTIMULATION: (
-        "是否有证据表明活动输入不足以维持主体期望的投入？简单本身不算。",
+        "当前活动的刺激输入相对 ARMI 希望投入的程度是否不足？须有想要更多刺激、输入不够或无法维持期望投入的证据。内容随机、无价值或不可理解本身不能证明刺激不足；未给出投入期望或刺激不足证据选 unknown。明确满足期望的主动休息选零档。",
         (
             "输入符合期望，包括有意义的主动休息",
             "偶尔有轻微输入不足",
@@ -174,7 +174,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.OVERLOAD: (
-        "活动要求是否超过当前可用的理解、注意或应对条件？不推断生理疲劳。",
+        "当前活动对 ARMI 的实际要求是否超过其可用注意或应对条件？必须有需要承担的任务要求及超出条件的证据。看不懂随机内容不等于被要求理解它，也不直接证明负担过载；仅有不可理解内容而无任务负担证据选 unknown。不推断生理疲劳。",
         (
             "要求在可应对范围内",
             "偶有轻微超出",
@@ -255,6 +255,8 @@ def mind_event_questions(
                     **{f"level_{i}": text for i, text in enumerate(levels)},
                     "unknown": "没有首次、熟悉或主体新奇感等接触依据，不能确定新奇程度；不能因为无法理解或没有价值而选本项。"
                     if variable == MindVariable.NOVELTY
+                    else "未提供任务要求或负担信息，无法判定过载；刺激足够、理解困难均不能代替负担证据。‘没有任务要求或负担说明’表示材料缺失，选本项，不是零档。"
+                    if variable == MindVariable.OVERLOAD
                     else {
                         "含义": "没有提供 ARMI 关于本题变量的证据，无法选档",
                         "与零区别": "没有写到或没有提供证据不等于明确不存在；零档须有明确否定或零水平的依据",
