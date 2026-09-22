@@ -90,7 +90,9 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.CONTACT_GAP: (
-        "已表达或有事实依据的当前期望联系，与实际联系有多大缺口？",
+        "已表达或有事实依据的当前期望联系，与实际已发生的联系有多大缺口？"
+        "分别依据期望的重要程度和当前未满足程度选档；约定将来联系不会填补当前缺口，"
+        "暂时没空只影响当前机会，不降低已明确表达的联系期望。",
         (
             "没有期望联系缺口，包括自愿独处",
             "很小的未满足联系期望",
@@ -100,7 +102,8 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.NOVELTY: (
-        "对象相对所提供的主体经历有哪些新内容？新奇不等于值得探索。",
+        "对象相对所提供的主体经历有哪些新内容？首次接触是新奇的依据。"
+        "新奇与信息价值、可理解性独立；即使是无价值且不可理解的随机输入，也可能此前从未接触。",
         (
             "完全熟悉或原样重复",
             "少量新细节",
@@ -110,7 +113,9 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.INFORMATION_GAP: (
-        "关于这个具体对象，目前存在什么尚未解决的信息缺口？",
+        "关于这个具体对象，目前存在什么尚未解决的信息缺口？"
+        "依据待回答问题的剩余缺口选档，不用学习进展抵消它；"
+        "理解一次尝试为何失败，不代表已经回答仍未解决的主要问题。",
         (
             "问题已解决或明确没有缺口",
             "只剩一个小细节",
@@ -197,6 +202,7 @@ class MindEvaluationTarget:
     object: GroundedObject
     basis_refs: tuple[str, ...]
     variables: tuple[MindVariable, ...] = tuple(MindVariable)
+    due_review_key: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -336,6 +342,7 @@ def parse_mind_event_answers(
             ),
             Association(selected[f"mind_{i}_association"]),
             Opportunity(selected[f"mind_{i}_opportunity"]),
+            target.due_review_key,
         )
         for i, target in enumerate(targets)
     )

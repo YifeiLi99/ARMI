@@ -9,7 +9,13 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_kernel.application import ProviderCallReceipt
-from armi_mind.api import GroundedObject, MindEvaluationTarget, MindHead, MindReadPort
+from armi_mind.api import (
+    GroundedObject,
+    MindEvaluationTarget,
+    MindHead,
+    MindReadPort,
+    MindVariable,
+)
 from armi_mood.api import MoodAssessment, MoodEvent, MoodReadPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
@@ -125,7 +131,20 @@ def evaluation_targets(
                 (
                     rank,
                     MindEvaluationTarget(
-                        obj, (source["reference"], str(event.source_ref))
+                        obj,
+                        (source["reference"], str(event.source_ref)),
+                        # A contact gap belongs to a person/contact intention, not
+                        # an activity identity; event/focus targets retain it.
+                        tuple(
+                            v
+                            for v in MindVariable
+                            if obj.source_kind != "activity"
+                            or v != MindVariable.CONTACT_GAP
+                        ),
+                        f"{content['source_commit_id']}:{content['review_at']}"
+                        if kind == "current_concern"
+                        and content.get("consideration_reason") == "review_time_reached"
+                        else None,
                     ),
                 )
             )

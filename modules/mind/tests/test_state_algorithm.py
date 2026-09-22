@@ -117,6 +117,32 @@ def test_unknown_preserves_evidence_but_cannot_trigger():
     assert derive_mind(empty.variables).priority is None
 
 
+def test_unknown_inputs_remain_unknown_when_known_evidence_determines_formula():
+    noise = update_mind_object(
+        evidence(
+            comprehensibility="level_0", information_gap="unknown", novelty="level_4"
+        )
+    )
+    assert derive_mind(noise.variables).exploration == 0
+    assert (
+        next(
+            v for v in noise.variables if v.variable == MindVariable.INFORMATION_GAP
+        ).value
+        is None
+    )
+    meaningless = update_mind_object(
+        evidence(meaning="level_0", overload="unknown", importance="level_4")
+    )
+    assert derive_mind(meaningless.variables).engagement_adjustment == 1
+    assert derive_mind(meaningless.variables).engagement_fit == 0
+    assert mind_condition_eligible(meaningless, consumed_versions=frozenset())
+    # Partial known overload does not determine the result of max(U, O).
+    partial = update_mind_object(
+        evidence(meaning="level_3", overload="level_3", understimulation="unknown")
+    )
+    assert derive_mind(partial.variables).engagement_adjustment is None
+
+
 def test_rearm_material_change_and_opportunity_restoration():
     state = update_mind_object(evidence(contact_gap="level_3", importance="level_4"))
     state = update_mind_object(evidence(key="2", contact_gap="level_4"), previous=state)

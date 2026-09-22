@@ -44,7 +44,7 @@ def apply_mind_evidence(payload: bytes, evidence: tuple[MindEvidence, ...]) -> b
     objects = {s.object: s for s in state.objects}
     for item in evidence:
         objects[item.object] = update_mind_object(
-            item, previous=objects.get(item.object)
+            item, previous=objects.get(item.object), due_review_key=item.due_review_key
         )
     result = NumericMindState(schema_kind="armi.mind", objects=tuple(objects.values()))
     return rfc8785.dumps(cast(Any, result.model_dump(mode="json")))

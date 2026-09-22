@@ -42,7 +42,11 @@ def test_activity_revisions_update_one_grounded_object_and_due_focus_precedes_ba
                             "item_kind": "current_concern",
                             "source": {"kind": "cognition_focus", "reference": concern},
                             "content": json.dumps(
-                                {"consideration_reason": "review_time_reached"}
+                                {
+                                    "consideration_reason": "review_time_reached",
+                                    "source_commit_id": "commit:1",
+                                    "review_at": "2026-09-22T00:00:00+00:00",
+                                }
                             ),
                         },
                     ]
@@ -61,3 +65,6 @@ def test_activity_revisions_update_one_grounded_object_and_due_focus_precedes_ba
     assert first in before[0].basis_refs and second in after[0].basis_refs
     assert after[1].object.source_ref == str(event.source_ref)
     assert after[2].object.source_ref == concern
+    assert after[2].due_review_key == "commit:1:2026-09-22T00:00:00+00:00"
+    assert "contact_gap" not in after[0].variables
+    assert "contact_gap" in after[1].variables

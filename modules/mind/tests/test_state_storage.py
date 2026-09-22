@@ -14,10 +14,52 @@ from armi_mind.api import (
     Association,
     GroundedObject,
     MindChoice,
+    MindEvaluationTarget,
     MindEvidence,
     MindVariable,
     Opportunity,
+    mind_event_questions,
+    parse_mind_event_answers,
 )
+
+
+def test_due_review_survives_question_parser_and_persistent_owner_update():
+    obj = GroundedObject("cognition_focus", str(uuid7()))
+    target = MindEvaluationTarget(
+        obj, (obj.source_ref,), due_review_key="commit:1:time:1"
+    )
+    answers = {}
+    for name, question in mind_event_questions((target,)).items():
+        choice = (
+            "active"
+            if name.endswith("_association")
+            else "available"
+            if name.endswith("_opportunity")
+            else "level_4"
+        )
+        answers[name] = {
+            "type": "choice",
+            "choice": choice,
+            "confidence": 1.0,
+            "probabilities": {k: float(k == choice) for k in question["criteria"]},
+        }
+    at = datetime.now(UTC)
+
+    def assessed(key, review):
+        return parse_mind_event_answers(
+            answers,
+            targets=(replace(target, due_review_key=review),),
+            evidence_key=key,
+            at=at,
+        )
+
+    payload = apply_mind_evidence(initial_numeric_mind_state(), assessed("e:1", None))
+    payload = apply_mind_evidence(payload, assessed("e:2", target.due_review_key))
+    state = numeric_mind_state(payload).objects[0]
+    assert state.condition_version == 2
+    assert state.condition_reason == "review_time_reached"
+    payload = apply_mind_evidence(payload, assessed("e:3", target.due_review_key))
+    assert numeric_mind_state(payload).objects[0].condition_version == 2
 
 
 def test_persistent_objects_are_independent_unbounded_and_corrections_recompute_conditions():

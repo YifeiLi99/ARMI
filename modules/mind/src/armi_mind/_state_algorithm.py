@@ -115,6 +115,7 @@ class MindEvidence:
     ratings: tuple[tuple[MindVariable, MindChoice], ...]
     association: Association
     opportunity: Opportunity
+    due_review_key: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -214,7 +215,11 @@ def derive_mind(
         return all(known.get(key) is not None for key in keys)
 
     exploration = None
-    if complete(
+    # Known annihilators determine the formula without imputing unknown inputs.
+    # A demonstrably incomprehensible object cannot gain exploration from novelty.
+    if known.get("information_gap") == 0 or known.get("comprehensibility") == 0:
+        exploration = 0.0
+    elif complete(
         "information_gap",
         "comprehensibility",
         "information_value",
@@ -231,7 +236,13 @@ def derive_mind(
             )
         )
     fit = adjustment = None
-    if complete("meaning", "understimulation", "overload"):
+    if (
+        known.get("meaning") == 0
+        or known.get("understimulation") == 1
+        or known.get("overload") == 1
+    ):
+        fit, adjustment = 0.0, 1.0
+    elif complete("meaning", "understimulation", "overload"):
         fit = known["meaning"] * (1 - max(known["understimulation"], known["overload"]))
         adjustment = max(
             1 - known["meaning"], known["understimulation"], known["overload"]

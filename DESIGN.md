@@ -399,6 +399,8 @@ flowchart TD
 
 Cognition 的 Focus 以 `focus_revisions` 持久保存有依据的问题、未实施意向、理由、结束条件、当前认识、等待与复查。每轮最多四项变更，不限制长期保留数。新认识在正常主认知形成；维护中的 `reflect_focus` 使用相同关注变更合同，不新增每轮反思调用。关注不强制成为 Activity。
 
+Focus 到期复查将冻结的来源提交与复查时间作为稳定复查键，经 Jev 目标和解析结果传到 Mind owner；相同复查键不重复产生条件版本。已知活动对象省去联系缺口题，联系需求仍在具体事件或联系意向对象上评价，不能由活动身份创造联系人。其余领域没有结构依据判定不适用时保留题目，由 Jev 返回 unknown 或 not_applicable。
+
 主模型不能写 Mind 数值、自由心理文本或 `mind_appraisals`；文本、语音、视觉、自主与维护入口遵守同一边界。Self 拥有长期自我内容，Memory 拥有主观记忆，Relationship 拥有关系事实与解释，Focus 不复制全量内心独白。
 
 Mind、Mood、Focus、Self/生活模式各有唯一 owner 与当前 revision。管理校正通过合法底层状态及 owner 校验，Mind 派生值与触发条件由算法重算；Focus 校正保留已有关注身份、来源提交、依据与认知时间，不伪造关注经历。数据删除撤销关联对象及信号。共享评价和 Focus 由 Cognition 负责恢复与数据权利；Mood/Mind 各自负责本域状态。唯一 baseline 不提供迁移，已有数据库合同不匹配即停止，不清空、不重建。
@@ -591,7 +593,15 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 
 使用仓库受管 Python 执行 `.venv/Scripts/python.exe tools/test_mind.py --scenario tools/scenarios/mind-curiosity.yaml --format json`。严格合成场景使用来源对象、Choice、虚拟时间和冻结断言，经正式算法及投影回放。算法测试覆盖重复、未知、多对象、需要并存、缺口部分解决至关闭、机会恢复和休息；Attention 消费、合并、忙碌与效果由跨模块和隔离数据库测试覆盖。
 
-心理情境对照入口为 `tools/experiment_psychological_context.py --output-dir <新目录>`，默认生成十二个合成场景各自的 Mood 和合并请求，不读取凭据、不调用模型。真实运行须显式费用授权及专用隔离目录，其中 `jev-experiment.json` 为 `{"schema_kind":"armi.jev-experiment","synthetic":true}`，`jev-api-key.txt` 保存专用凭据。加 `--live --allow-billable --environment-root <专用目录>` 后最多发出 24 次 Jev 请求，失败不重试，不执行效果或写主体。冻结预期不会随返回修改；全部失败、用量、未知费用和延迟保留。当前未执行真实校准，不能据离线通过声称心理机制有效。
+未知输入不补零。若已知条件已在数学上唯一确定公式结果（例如可理解性为零使探索为零、活动意义为零使调整投入动机为一），算法返回该确定结果，同时保留其他原始变量的 unknown；仍存在多种可能结果时返回未知。`--replay-from <已有实验目录> --output-dir <新目录>` 用保存的真实 Jev 回答验证算法修正，拒绝更换冻结预期，不重新调用 Provider，也不覆盖旧失败。
+
+心理情境对照入口为 `tools/experiment_psychological_context.py --output-dir <新目录>`，默认生成十二个合成场景各自的 Mind、Mood 和合并请求，不读取凭据、不调用模型。`--modes mind` 单独测 Jev 心理评价，再运行 Mind 算法测试，最后 `--modes mood joint` 对照共享请求。`--suite terse` 保留简短场景及其失败，`--suite grounded` 使用另行冻结、依据更完整的诊断场景，不能替换原失败结果。原始 Choice 和派生状态分别评分，不把 Schema 合法算作心理评价正确。
+
+真实运行须显式费用授权及专用隔离目录，其中 `jev-experiment.json` 为 `{"schema_kind":"armi.jev-experiment","synthetic":true}`；凭据由目录内 `jev-api-key.txt` 或显式 `--key-file` 提供，不发现安装环境凭据。加 `--live --allow-billable --environment-root <专用目录>` 后每轮最多发出 36 次 Jev 请求，失败不重试，不执行效果或写主体。冻结预期不会随返回修改；保存原始返回、全部失败、题数、tokens、公开单价估算和端到端 p50/p95，估算不冒充账户账单。延迟包含新连接和 TLS，失败耗时与成功耗时分开。
+
+2026-09-22 的真实诊断发现新奇性与价值、学习进展与剩余问题、联系机会与当前缺口存在混淆，据此澄清三道题的语义，未修改数值公式或阈值。完整依据场景的单独 Mind 与合并评价均通过 39 项原始评价和 11 项派生状态断言；合并请求的三组因果对照通过。Mood 基线有一次连接失败，未重试。此结果只覆盖冻结合成场景，不代表人类心理学效度或广泛泛化已经验证，参数仍为工程初值。
+
+简短场景最终回归仍有 7/39 项评价断言未通过；对保存的回答运行修正后的算法，仍有 5/11 项派生结果断言未通过，原失败及预期完整保留。缺少关系重要性、剩余问题范围、既有目标价值等依据时，未知或较低档位与原先较强预期不符，不能据此强填数值。五轮合计 72 次请求，71 次有效返回、1 次连接失败；有用量回执部分按公开价格估算约 0.0479 美元。完整依据集 Mind 单独与合并请求的成功端到端 p50/p95 分别约 0.987/1.368 秒与 1.080/2.983 秒，包含新连接开销且各只有 12 个样本，不作为性能承诺。原始证据在本地 `.tmp/mind-jev-*20260922*`、`.tmp/mind-mood-joint-20260922-01`，离线重放在 `.tmp/mind-*-algorithm-replay-20260922`。
 
 ## 16. 变更原则
 
