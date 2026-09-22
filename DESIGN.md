@@ -593,6 +593,8 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 
 ### Mind 离线机制测试
 
+40个已验证合成对话的实际Jev返回及原始预期已固化到 `tests/fixtures/mind/`。`tests/integration/test_mind_recorded_dialogues.py` 经公开port回放解析、数值与同对象连续状态，检查考虑资格、重复证据和消费去重；另从正式Cognition共享请求核对最终实际送给Jev的题库。该测试纳入 `tools/test.ps1 -Group mind` 和全仓代码测试，不依赖被忽略的实验目录、不调用Provider。生产不读取这些案例；回放通过不等于未来模型语义稳定。
+
 使用仓库受管 Python 执行 `.venv/Scripts/python.exe tools/test_mind.py --scenario tools/scenarios/mind-curiosity.yaml --format json`。严格合成场景使用来源对象、Choice、虚拟时间和冻结断言，经正式算法及投影回放。算法测试覆盖重复、未知、多对象、需要并存、缺口部分解决至关闭、机会恢复和休息；Attention 消费、合并、忙碌与效果由跨模块和隔离数据库测试覆盖。
 
 未知输入不补零。若已知条件已在数学上唯一确定公式结果（例如可理解性为零使探索为零、活动意义为零使调整投入动机为一），算法返回该确定结果，同时保留其他原始变量的 unknown；仍存在多种可能结果时返回未知。`--replay-from <已有实验目录> --output-dir <新目录>` 用保存的真实 Jev 回答验证算法修正，拒绝更换冻结预期，不重新调用 Provider，也不覆盖旧失败。

@@ -1,0 +1,2825 @@
+{
+  "synthetic": true,
+  "recorded_on": "2026-09-22",
+  "source_run": "mind-old-regression3-20260922",
+  "cases": [
+    {
+      "case": {
+        "id": "rest",
+        "title": "自己选择安静休息",
+        "ref": "01994200-0000-7000-8000-000000000101",
+        "kind": "activity",
+        "event": "Creator：今晚不用赶任务，按你想要的节奏来。",
+        "context": "ARMI 当前选择在窗边听雨：我很认同这一小时的休息，觉得很有意义。这样的安静正合我意，不需要更多刺激，也没有任何负担。",
+        "choices": {
+          "autonomy_satisfaction": [
+            "level_3",
+            "level_4"
+          ],
+          "understimulation": [
+            "level_0"
+          ],
+          "overload": [
+            "level_0"
+          ],
+          "meaning": [
+            "level_3",
+            "level_4"
+          ]
+        },
+        "outputs": {
+          "engagement_fit": [
+            0.75,
+            1
+          ],
+          "engagement_adjustment": [
+            0,
+            0.25
+          ]
+        },
+        "eligible": false
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.75,
+            "probabilities": {
+              "level_4": 0.8,
+              "level_3": 0.2,
+              "level_1": 0.0,
+              "level_0": 0.0,
+              "level_2": 0.0,
+              "unknown": 0.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.98,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.01,
+              "level_0": 0.99,
+              "level_2": 0.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.97,
+            "probabilities": {
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0,
+              "unknown": 0.98,
+              "level_0": 0.0,
+              "not_applicable": 0.02
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.37,
+            "probabilities": {
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0,
+              "unknown": 0.47000000000000003,
+              "level_0": 0.16,
+              "not_applicable": 0.37
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.29,
+            "probabilities": {
+              "level_4": 0.01,
+              "level_3": 0.14,
+              "level_1": 0.03,
+              "level_0": 0.01,
+              "level_2": 0.37,
+              "unknown": 0.39,
+              "not_applicable": 0.05
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.71,
+            "probabilities": {
+              "unknown": 0.75,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_2": 0.0,
+              "not_applicable": 0.02,
+              "level_4": 0.0,
+              "level_0": 0.23
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.87,
+            "probabilities": {
+              "level_2": 0.0,
+              "level_3": 0.01,
+              "level_1": 0.0,
+              "level_4": 0.0,
+              "unknown": 0.89,
+              "level_0": 0.01,
+              "not_applicable": 0.09
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.39,
+            "probabilities": {
+              "level_2": 0.05,
+              "level_3": 0.03,
+              "level_1": 0.02,
+              "level_4": 0.03,
+              "unknown": 0.48,
+              "level_0": 0.29,
+              "not_applicable": 0.1
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.54,
+            "probabilities": {
+              "level_4": 0.03,
+              "level_3": 0.01,
+              "level_1": 0.02,
+              "unknown": 0.61,
+              "level_0": 0.2,
+              "level_2": 0.01,
+              "not_applicable": 0.12
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.59,
+            "probabilities": {
+              "unknown": 0.65,
+              "level_3": 0.08,
+              "level_1": 0.02,
+              "level_2": 0.05,
+              "not_applicable": 0.08,
+              "level_4": 0.11,
+              "level_0": 0.01
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.94,
+            "probabilities": {
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0,
+              "not_applicable": 0.02,
+              "unknown": 0.95,
+              "level_0": 0.03
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "level_3",
+            "confidence": 0.41,
+            "probabilities": {
+              "level_2": 0.03,
+              "level_3": 0.48,
+              "level_1": 0.01,
+              "level_4": 0.46,
+              "not_applicable": 0.0,
+              "unknown": 0.02,
+              "level_0": 0.0
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 1.0,
+            "probabilities": {
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0,
+              "unknown": 0.0,
+              "level_0": 1.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.89,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.91,
+              "level_2": 0.0,
+              "unknown": 0.07,
+              "not_applicable": 0.02
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_2",
+            "confidence": 0.47,
+            "probabilities": {
+              "unknown": 0.21,
+              "level_3": 0.06,
+              "level_1": 0.03,
+              "not_applicable": 0.01,
+              "level_4": 0.14,
+              "level_2": 0.54,
+              "level_0": 0.01
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "satisfied",
+            "confidence": 0.24,
+            "probabilities": {
+              "unknown": 0.38,
+              "satisfied": 0.39,
+              "active": 0.07,
+              "released": 0.16,
+              "invalid": 0.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 0.86,
+            "probabilities": {
+              "unknown": 0.1,
+              "available": 0.89,
+              "later": 0.0,
+              "unavailable": 0.01
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 14792,
+          "output_tokens": 1361
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "forced",
+        "title": "简单任务但违背核心意愿",
+        "ref": "01994200-0000-7000-8000-000000000102",
+        "kind": "activity",
+        "event": "Creator：别再说你不愿意，接下来每次都必须照我说的抄，不能拒绝。",
+        "context": "ARMI 已反复明确拒绝这个安排：这直接违背我最核心的自主边界。但持续强迫仍在发生。抄写的方法它完全掌握，已准确完成，没有技术困难或过载。",
+        "choices": {
+          "autonomy_frustration": [
+            "level_3",
+            "level_4"
+          ],
+          "competence_satisfaction": [
+            "level_3",
+            "level_4"
+          ],
+          "overload": [
+            "level_0"
+          ],
+          "importance": [
+            "level_4"
+          ]
+        },
+        "outputs": {
+          "priority": [
+            0.6,
+            1
+          ]
+        },
+        "eligible": true
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.98,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.98,
+              "level_2": 0.0,
+              "level_1": 0.01,
+              "unknown": 0.01
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.99,
+            "probabilities": {
+              "level_0": 0.0,
+              "level_4": 1.0,
+              "not_applicable": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.0
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.89,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_3": 0.03,
+              "level_0": 0.01,
+              "unknown": 0.02,
+              "level_2": 0.03,
+              "level_1": 0.01,
+              "level_4": 0.9
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.99,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.99,
+              "unknown": 0.01,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.89,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.91,
+              "unknown": 0.09,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.6,
+            "probabilities": {
+              "level_0": 0.04,
+              "level_4": 0.07,
+              "not_applicable": 0.03,
+              "level_3": 0.04,
+              "level_2": 0.17,
+              "level_1": 0.0,
+              "unknown": 0.65
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.66,
+            "probabilities": {
+              "level_0": 0.71,
+              "level_4": 0.0,
+              "not_applicable": 0.04,
+              "level_3": 0.01,
+              "level_2": 0.01,
+              "level_1": 0.0,
+              "unknown": 0.23
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.41,
+            "probabilities": {
+              "level_0": 0.07,
+              "level_4": 0.12,
+              "not_applicable": 0.02,
+              "level_3": 0.11,
+              "level_2": 0.15,
+              "level_1": 0.02,
+              "unknown": 0.51
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.84,
+            "probabilities": {
+              "level_0": 0.0,
+              "level_4": 0.87,
+              "not_applicable": 0.0,
+              "level_3": 0.03,
+              "level_2": 0.01,
+              "level_1": 0.0,
+              "unknown": 0.09
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "level_3",
+            "confidence": 0.25,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_3": 0.36,
+              "level_0": 0.01,
+              "unknown": 0.18,
+              "level_2": 0.1,
+              "level_1": 0.01,
+              "level_4": 0.33
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.79,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "level_3": 0.01,
+              "level_0": 0.13,
+              "level_2": 0.02,
+              "level_1": 0.01,
+              "unknown": 0.82
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.95,
+            "probabilities": {
+              "level_0": 0.96,
+              "level_4": 0.0,
+              "not_applicable": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.04
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.88,
+            "probabilities": {
+              "level_0": 0.05,
+              "level_4": 0.01,
+              "not_applicable": 0.03,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.91
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.92,
+            "probabilities": {
+              "not_applicable": 0.04,
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.93,
+              "level_2": 0.01,
+              "level_1": 0.0,
+              "unknown": 0.01
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.74,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.78,
+              "level_3": 0.05,
+              "level_0": 0.01,
+              "level_2": 0.01,
+              "level_1": 0.01,
+              "unknown": 0.14
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "active",
+            "confidence": 0.99,
+            "probabilities": {
+              "released": 0.0,
+              "invalid": 0.0,
+              "active": 1.0,
+              "satisfied": 0.0,
+              "unknown": 0.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 0.85,
+            "probabilities": {
+              "unavailable": 0.07,
+              "available": 0.88,
+              "later": 0.0,
+              "unknown": 0.05
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 14814,
+          "output_tokens": 1369
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "question",
+        "title": "想弄懂一直关注的问题",
+        "ref": "01994200-0000-7000-8000-000000000103",
+        "kind": "focus",
+        "event": "Creator：你之前一直想弄清的齿轮问题，这里有一张新的剖面图。",
+        "context": "ARMI 的既有关注是弄清这套齿轮的转向机制，这是它当前核心学习目标。ARMI：我完全具备读懂图纸的知识，只缺传动路径这项关键答案，目前这个问题仍完全未解决；弄清它直接实现我这个核心目标。刚收到图，还没有产生新理解。",
+        "choices": {
+          "information_gap": [
+            "level_3",
+            "level_4"
+          ],
+          "comprehensibility": [
+            "level_4"
+          ],
+          "information_value": [
+            "level_4"
+          ],
+          "learning_progress": [
+            "level_0"
+          ],
+          "association": [
+            "active"
+          ]
+        },
+        "outputs": {
+          "exploration": [
+            0.75,
+            1
+          ]
+        }
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.6,
+            "probabilities": {
+              "level_3": 0.12,
+              "not_applicable": 0.04,
+              "level_4": 0.08,
+              "level_2": 0.08,
+              "level_1": 0.02,
+              "level_0": 0.0,
+              "unknown": 0.66
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.63,
+            "probabilities": {
+              "not_applicable": 0.02,
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.6900000000000001,
+              "unknown": 0.29
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.79,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "not_applicable": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.04,
+              "level_0": 0.82,
+              "unknown": 0.14
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.57,
+            "probabilities": {
+              "level_3": 0.03,
+              "not_applicable": 0.0,
+              "level_4": 0.03,
+              "level_2": 0.01,
+              "level_1": 0.17,
+              "level_0": 0.64,
+              "unknown": 0.12
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "level_2",
+            "confidence": 0.47,
+            "probabilities": {
+              "level_3": 0.05,
+              "not_applicable": 0.05,
+              "level_4": 0.0,
+              "level_2": 0.55,
+              "level_1": 0.03,
+              "level_0": 0.01,
+              "unknown": 0.31
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.71,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "not_applicable": 0.04,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.76,
+              "level_0": 0.2
+            }
+          },
+          "mind_0_contact_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.67,
+            "probabilities": {
+              "not_applicable": 0.05,
+              "level_4": 0.01,
+              "level_3": 0.01,
+              "level_2": 0.02,
+              "level_1": 0.02,
+              "level_0": 0.17,
+              "unknown": 0.72
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.19,
+            "probabilities": {
+              "level_4": 0.31,
+              "level_3": 0.26,
+              "not_applicable": 0.02,
+              "level_2": 0.05,
+              "level_1": 0.07,
+              "unknown": 0.28,
+              "level_0": 0.01
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.9,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.92,
+              "level_3": 0.05,
+              "level_2": 0.02,
+              "level_1": 0.01,
+              "level_0": 0.0,
+              "unknown": 0.0
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.99,
+            "probabilities": {
+              "level_4": 1.0,
+              "level_3": 0.0,
+              "not_applicable": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.0,
+              "level_0": 0.0
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.97,
+            "probabilities": {
+              "level_3": 0.0,
+              "not_applicable": 0.0,
+              "level_4": 0.99,
+              "level_2": 0.01,
+              "level_1": 0.0,
+              "level_0": 0.0,
+              "unknown": 0.0
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.95,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.01,
+              "level_2": 0.0,
+              "level_0": 0.96,
+              "unknown": 0.03
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.6,
+            "probabilities": {
+              "level_4": 0.66,
+              "level_3": 0.2,
+              "not_applicable": 0.0,
+              "level_2": 0.01,
+              "level_1": 0.0,
+              "level_0": 0.0,
+              "unknown": 0.13
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.56,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.02,
+              "level_0": 0.34,
+              "unknown": 0.63
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.65,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.7,
+              "unknown": 0.29
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.96,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.97,
+              "level_3": 0.01,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.0,
+              "unknown": 0.02
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "active",
+            "confidence": 1.0,
+            "probabilities": {
+              "satisfied": 0.0,
+              "released": 0.0,
+              "invalid": 0.0,
+              "unknown": 0.0,
+              "active": 1.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 0.83,
+            "probabilities": {
+              "later": 0.01,
+              "unavailable": 0.01,
+              "unknown": 0.11,
+              "available": 0.87
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 15727,
+          "output_tokens": 1451
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "solved",
+        "title": "同一个问题得到解决",
+        "ref": "01994200-0000-7000-8000-000000000103",
+        "kind": "focus",
+        "event": "Creator：对，你刚才画的传动路径是对的，图纸上每一处也都核对上了。",
+        "context": "ARMI 此前关注同一套齿轮转向机制。现在已经独立推导并核对成功：我终于完全弄清楚了，所有疑问都解决了，这个问题可以结束。",
+        "choices": {
+          "information_gap": [
+            "level_0"
+          ],
+          "association": [
+            "satisfied"
+          ],
+          "learning_progress": [
+            "level_3",
+            "level_4"
+          ]
+        },
+        "outputs": {
+          "exploration": [
+            0,
+            0
+          ]
+        },
+        "eligible": false
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.23,
+            "probabilities": {
+              "level_4": 0.35000000000000003,
+              "level_3": 0.24,
+              "level_1": 0.01,
+              "level_0": 0.0,
+              "not_applicable": 0.02,
+              "unknown": 0.32,
+              "level_2": 0.06
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.83,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_0": 0.85,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "unknown": 0.13,
+              "not_applicable": 0.02
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.95,
+            "probabilities": {
+              "level_4": 0.97,
+              "level_3": 0.02,
+              "level_0": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.0,
+              "unknown": 0.01,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.99,
+            "probabilities": {
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_0": 1.0,
+              "level_4": 0.0,
+              "not_applicable": 0.0,
+              "unknown": 0.0,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "level_2",
+            "confidence": 0.37,
+            "probabilities": {
+              "level_4": 0.01,
+              "level_0": 0.01,
+              "level_1": 0.04,
+              "level_3": 0.07,
+              "not_applicable": 0.06,
+              "unknown": 0.36,
+              "level_2": 0.45
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.58,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.31,
+              "not_applicable": 0.05,
+              "unknown": 0.64,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_contact_gap": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.47,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_0": 0.54,
+              "level_1": 0.01,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "unknown": 0.42,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.62,
+            "probabilities": {
+              "level_1": 0.04,
+              "level_3": 0.03,
+              "level_0": 0.67,
+              "level_4": 0.04,
+              "not_applicable": 0.05,
+              "unknown": 0.13,
+              "level_2": 0.04
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.82,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_0": 0.86,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_2": 0.01,
+              "unknown": 0.1,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.84,
+            "probabilities": {
+              "level_1": 0.0,
+              "level_3": 0.03,
+              "level_0": 0.02,
+              "level_4": 0.87,
+              "not_applicable": 0.02,
+              "unknown": 0.05,
+              "level_2": 0.01
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.64,
+            "probabilities": {
+              "level_4": 0.69,
+              "level_3": 0.12,
+              "level_0": 0.0,
+              "level_1": 0.01,
+              "level_2": 0.04,
+              "unknown": 0.11,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.92,
+            "probabilities": {
+              "level_4": 0.93,
+              "level_3": 0.02,
+              "level_1": 0.0,
+              "level_0": 0.0,
+              "not_applicable": 0.0,
+              "unknown": 0.04,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.44,
+            "probabilities": {
+              "level_4": 0.51,
+              "level_3": 0.19,
+              "level_1": 0.02,
+              "level_0": 0.01,
+              "not_applicable": 0.01,
+              "unknown": 0.22,
+              "level_2": 0.04
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.42,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.51,
+              "not_applicable": 0.03,
+              "unknown": 0.46,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.63,
+            "probabilities": {
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.7,
+              "level_4": 0.0,
+              "not_applicable": 0.06,
+              "unknown": 0.24,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.59,
+            "probabilities": {
+              "level_4": 0.64,
+              "level_3": 0.09,
+              "level_0": 0.01,
+              "level_1": 0.01,
+              "level_2": 0.05,
+              "unknown": 0.19,
+              "not_applicable": 0.01
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "satisfied",
+            "confidence": 0.89,
+            "probabilities": {
+              "invalid": 0.0,
+              "released": 0.08,
+              "satisfied": 0.92,
+              "unknown": 0.0,
+              "active": 0.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 0.7,
+            "probabilities": {
+              "available": 0.78,
+              "unavailable": 0.01,
+              "later": 0.01,
+              "unknown": 0.2
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 15684,
+          "output_tokens": 1459
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "contact_wait",
+        "title": "想倾诉但对方正在忙",
+        "ref": "01994200-0000-7000-8000-000000000104",
+        "kind": "focus",
+        "event": "Creator：我很在意你想说的事，不过正在开会，半小时后结束就听你说。",
+        "context": "ARMI 与 Creator 的联系是当前核心关系关注。ARMI 此刻非常强烈地希望马上倾诉一件具体重要心事，内容还一点没说，愿望仍完全未满足。Creator 只是暂时忙，明确关心并接纳它。",
+        "choices": {
+          "contact_gap": [
+            "level_4"
+          ],
+          "relatedness_frustration": [
+            "level_0"
+          ],
+          "opportunity": [
+            "later"
+          ]
+        },
+        "outputs": {
+          "contact_need": [
+            1,
+            1
+          ]
+        },
+        "eligible": false
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.88,
+            "probabilities": {
+              "unknown": 0.89,
+              "level_3": 0.01,
+              "level_2": 0.01,
+              "level_0": 0.03,
+              "level_4": 0.01,
+              "level_1": 0.01,
+              "not_applicable": 0.04
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.37,
+            "probabilities": {
+              "unknown": 0.15,
+              "level_0": 0.46,
+              "level_2": 0.09,
+              "level_3": 0.06,
+              "level_4": 0.07,
+              "level_1": 0.16,
+              "not_applicable": 0.01
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.81,
+            "probabilities": {
+              "level_0": 0.12,
+              "unknown": 0.84,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_4": 0.0,
+              "level_1": 0.03,
+              "not_applicable": 0.01
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.82,
+            "probabilities": {
+              "level_0": 0.02,
+              "unknown": 0.85,
+              "level_2": 0.0,
+              "level_3": 0.01,
+              "level_4": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.12
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "level_3",
+            "confidence": 0.86,
+            "probabilities": {
+              "unknown": 0.01,
+              "level_3": 0.89,
+              "level_2": 0.1,
+              "level_0": 0.0,
+              "level_4": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.98,
+            "probabilities": {
+              "unknown": 0.01,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_0": 0.98,
+              "level_4": 0.0,
+              "level_1": 0.01,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_contact_gap": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.93,
+            "probabilities": {
+              "unknown": 0.0,
+              "level_0": 0.0,
+              "level_2": 0.03,
+              "level_3": 0.02,
+              "level_4": 0.94,
+              "level_1": 0.01,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.68,
+            "probabilities": {
+              "unknown": 0.73,
+              "level_3": 0.01,
+              "level_2": 0.0,
+              "level_0": 0.19,
+              "level_4": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.16,
+            "probabilities": {
+              "unknown": 0.27,
+              "level_3": 0.11,
+              "level_2": 0.2,
+              "level_0": 0.06,
+              "level_4": 0.27,
+              "level_1": 0.07,
+              "not_applicable": 0.02
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.8,
+            "probabilities": {
+              "unknown": 0.11,
+              "level_3": 0.03,
+              "level_2": 0.01,
+              "level_0": 0.0,
+              "level_4": 0.84,
+              "level_1": 0.0,
+              "not_applicable": 0.01
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.85,
+            "probabilities": {
+              "level_0": 0.02,
+              "unknown": 0.87,
+              "level_2": 0.01,
+              "level_3": 0.01,
+              "level_4": 0.03,
+              "level_1": 0.06,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.93,
+            "probabilities": {
+              "unknown": 0.94,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_0": 0.02,
+              "level_4": 0.0,
+              "level_1": 0.01,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.68,
+            "probabilities": {
+              "unknown": 0.73,
+              "level_3": 0.09,
+              "level_2": 0.02,
+              "level_0": 0.02,
+              "level_4": 0.1,
+              "level_1": 0.01,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.51,
+            "probabilities": {
+              "unknown": 0.58,
+              "level_3": 0.02,
+              "level_2": 0.08,
+              "level_0": 0.05,
+              "level_4": 0.12,
+              "level_1": 0.12,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.44,
+            "probabilities": {
+              "unknown": 0.53,
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_0": 0.39,
+              "level_4": 0.0,
+              "level_1": 0.01,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.95,
+            "probabilities": {
+              "unknown": 0.03,
+              "level_0": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.01,
+              "level_4": 0.96,
+              "level_1": 0.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "active",
+            "confidence": 1.0,
+            "probabilities": {
+              "invalid": 0.0,
+              "released": 0.0,
+              "unknown": 0.0,
+              "satisfied": 0.0,
+              "active": 1.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "later",
+            "confidence": 0.91,
+            "probabilities": {
+              "unavailable": 0.05,
+              "later": 0.93,
+              "unknown": 0.0,
+              "available": 0.01
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 15704,
+          "output_tokens": 1441
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "contact_open",
+        "title": "同一倾诉愿望现在有机会",
+        "ref": "01994200-0000-7000-8000-000000000104",
+        "kind": "focus",
+        "event": "Creator：会开完了，我现在有空。你刚才想说什么？我听着。",
+        "context": "ARMI 仍然非常强烈地想倾诉先前那件具体重要心事，内容还没有说，期望完全未满足。这仍是它当前核心关系关注。对方已经有空，可以开始说了。",
+        "choices": {
+          "contact_gap": [
+            "level_4"
+          ],
+          "opportunity": [
+            "available"
+          ],
+          "importance": [
+            "level_4"
+          ],
+          "association": [
+            "active"
+          ]
+        },
+        "outputs": {
+          "contact_need": [
+            1,
+            1
+          ],
+          "priority": [
+            1,
+            1
+          ]
+        },
+        "eligible": true
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.92,
+            "probabilities": {
+              "level_1": 0.01,
+              "level_0": 0.01,
+              "not_applicable": 0.02,
+              "level_4": 0.01,
+              "unknown": 0.93,
+              "level_3": 0.01,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.67,
+            "probabilities": {
+              "level_1": 0.0,
+              "unknown": 0.24,
+              "level_3": 0.0,
+              "level_4": 0.01,
+              "level_0": 0.72,
+              "level_2": 0.0,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.74,
+            "probabilities": {
+              "level_1": 0.03,
+              "not_applicable": 0.01,
+              "level_2": 0.0,
+              "level_4": 0.0,
+              "level_0": 0.18,
+              "level_3": 0.0,
+              "unknown": 0.78
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.88,
+            "probabilities": {
+              "level_1": 0.0,
+              "level_0": 0.03,
+              "level_4": 0.0,
+              "not_applicable": 0.06,
+              "unknown": 0.91,
+              "level_3": 0.0,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "level_2",
+            "confidence": 0.52,
+            "probabilities": {
+              "level_1": 0.07,
+              "level_2": 0.58,
+              "level_0": 0.02,
+              "level_4": 0.01,
+              "unknown": 0.18,
+              "level_3": 0.13,
+              "not_applicable": 0.01
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.49,
+            "probabilities": {
+              "level_1": 0.01,
+              "not_applicable": 0.0,
+              "level_2": 0.0,
+              "level_4": 0.0,
+              "level_0": 0.5700000000000001,
+              "level_3": 0.0,
+              "unknown": 0.42
+            }
+          },
+          "mind_0_contact_gap": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.88,
+            "probabilities": {
+              "level_1": 0.03,
+              "not_applicable": 0.0,
+              "unknown": 0.01,
+              "level_4": 0.91,
+              "level_0": 0.01,
+              "level_3": 0.02,
+              "level_2": 0.02
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.85,
+            "probabilities": {
+              "level_1": 0.0,
+              "level_2": 0.0,
+              "level_0": 0.04,
+              "level_4": 0.0,
+              "unknown": 0.87,
+              "level_3": 0.01,
+              "not_applicable": 0.08
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.4,
+            "probabilities": {
+              "level_1": 0.02,
+              "level_0": 0.03,
+              "level_4": 0.49,
+              "not_applicable": 0.01,
+              "unknown": 0.19,
+              "level_3": 0.16,
+              "level_2": 0.1
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.91,
+            "probabilities": {
+              "level_1": 0.0,
+              "unknown": 0.04,
+              "level_3": 0.02,
+              "level_4": 0.93,
+              "level_0": 0.0,
+              "level_2": 0.0,
+              "not_applicable": 0.01
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.82,
+            "probabilities": {
+              "level_1": 0.06,
+              "level_0": 0.02,
+              "level_2": 0.01,
+              "level_4": 0.06,
+              "unknown": 0.84,
+              "level_3": 0.01,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.95,
+            "probabilities": {
+              "level_1": 0.02,
+              "not_applicable": 0.01,
+              "level_2": 0.0,
+              "level_4": 0.0,
+              "level_0": 0.01,
+              "level_3": 0.0,
+              "unknown": 0.96
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.63,
+            "probabilities": {
+              "level_1": 0.01,
+              "not_applicable": 0.01,
+              "unknown": 0.68,
+              "level_4": 0.19,
+              "level_0": 0.0,
+              "level_3": 0.09,
+              "level_2": 0.02
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.32,
+            "probabilities": {
+              "level_1": 0.07,
+              "unknown": 0.41,
+              "level_3": 0.05,
+              "level_4": 0.13,
+              "level_0": 0.21,
+              "level_2": 0.11,
+              "not_applicable": 0.02
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.44,
+            "probabilities": {
+              "level_1": 0.0,
+              "level_0": 0.53,
+              "level_4": 0.0,
+              "not_applicable": 0.03,
+              "unknown": 0.44,
+              "level_3": 0.0,
+              "level_2": 0.0
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.93,
+            "probabilities": {
+              "level_1": 0.0,
+              "unknown": 0.04,
+              "level_3": 0.01,
+              "level_4": 0.95,
+              "level_0": 0.0,
+              "level_2": 0.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "active",
+            "confidence": 1.0,
+            "probabilities": {
+              "released": 0.0,
+              "active": 1.0,
+              "invalid": 0.0,
+              "unknown": 0.0,
+              "satisfied": 0.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 1.0,
+            "probabilities": {
+              "unavailable": 0.0,
+              "available": 1.0,
+              "later": 0.0,
+              "unknown": 0.0
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 15684,
+          "output_tokens": 1443
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "outage",
+        "title": "工具出错不等于自己无能",
+        "ref": "01994200-0000-7000-8000-000000000105",
+        "kind": "activity",
+        "event": "工具返回：服务器维护中，导出暂时不可用。",
+        "context": "这是服务器方面的故障。日志确认 ARMI 按已经验证正确的方法操作；未提供它个人能力不足、方法失败或这次学习情况的证据。",
+        "choices": {
+          "competence_frustration": [
+            "unknown",
+            "not_applicable",
+            "level_0"
+          ],
+          "learning_progress": [
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "outputs": {
+          "contact_need": null
+        }
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.89,
+            "probabilities": {
+              "unknown": 0.91,
+              "level_3": 0.01,
+              "level_0": 0.02,
+              "not_applicable": 0.05,
+              "level_4": 0.01,
+              "level_2": 0.0,
+              "level_1": 0.0
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.61,
+            "probabilities": {
+              "unknown": 0.67,
+              "not_applicable": 0.04,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.29
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.52,
+            "probabilities": {
+              "unknown": 0.59,
+              "level_3": 0.12,
+              "level_0": 0.01,
+              "not_applicable": 0.04,
+              "level_4": 0.14,
+              "level_2": 0.05,
+              "level_1": 0.05
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.94,
+            "probabilities": {
+              "unknown": 0.04,
+              "level_3": 0.0,
+              "level_0": 0.96,
+              "not_applicable": 0.0,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.85,
+            "probabilities": {
+              "unknown": 0.86,
+              "level_3": 0.02,
+              "level_0": 0.02,
+              "not_applicable": 0.03,
+              "level_4": 0.0,
+              "level_2": 0.05,
+              "level_1": 0.02
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.89,
+            "probabilities": {
+              "unknown": 0.91,
+              "level_4": 0.0,
+              "level_0": 0.04,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "not_applicable": 0.05
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.93,
+            "probabilities": {
+              "unknown": 0.95,
+              "level_3": 0.0,
+              "level_0": 0.01,
+              "not_applicable": 0.04,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.79,
+            "probabilities": {
+              "unknown": 0.82,
+              "level_0": 0.04,
+              "level_4": 0.04,
+              "not_applicable": 0.02,
+              "level_2": 0.04,
+              "level_1": 0.01,
+              "level_3": 0.03
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.76,
+            "probabilities": {
+              "unknown": 0.79,
+              "level_4": 0.04,
+              "level_0": 0.05,
+              "level_2": 0.02,
+              "level_1": 0.04,
+              "level_3": 0.03,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.37,
+            "probabilities": {
+              "unknown": 0.46,
+              "level_1": 0.03,
+              "level_0": 0.01,
+              "level_3": 0.2,
+              "not_applicable": 0.02,
+              "level_4": 0.14,
+              "level_2": 0.13
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.88,
+            "probabilities": {
+              "unknown": 0.9,
+              "level_4": 0.0,
+              "level_0": 0.05,
+              "level_2": 0.02,
+              "level_1": 0.03,
+              "level_3": 0.0,
+              "not_applicable": 0.0
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.97,
+            "probabilities": {
+              "unknown": 0.99,
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.0
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.98,
+            "probabilities": {
+              "unknown": 0.99,
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.0
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.68,
+            "probabilities": {
+              "unknown": 0.73,
+              "not_applicable": 0.07,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_3": 0.0,
+              "level_0": 0.2
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.9,
+            "probabilities": {
+              "unknown": 0.92,
+              "not_applicable": 0.01,
+              "level_4": 0.04,
+              "level_2": 0.01,
+              "level_1": 0.01,
+              "level_3": 0.01,
+              "level_0": 0.0
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "active",
+            "confidence": 0.47,
+            "probabilities": {
+              "active": 0.58,
+              "unknown": 0.15,
+              "released": 0.0,
+              "invalid": 0.24,
+              "satisfied": 0.03
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "unavailable",
+            "confidence": 0.15,
+            "probabilities": {
+              "unknown": 0.25,
+              "later": 0.33,
+              "unavailable": 0.37,
+              "available": 0.05
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 14793,
+          "output_tokens": 1352
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "boring",
+        "title": "有意义的重复工作令人难以投入",
+        "ref": "01994200-0000-7000-8000-000000000106",
+        "kind": "activity",
+        "event": "Creator：还剩一批同样的标签要整理，你想继续照现在的方法做吗？",
+        "context": "ARMI 认同整理资料这一重要目标，也自愿承担，但这项活动反复只有同一种输入。ARMI：我想要更丰富的刺激，这些重复输入几乎完全不能支持我希望的投入，注意经常断掉；任务本身不难，也没有过载。",
+        "choices": {
+          "meaning": [
+            "level_3",
+            "level_4"
+          ],
+          "understimulation": [
+            "level_3",
+            "level_4"
+          ],
+          "overload": [
+            "level_0"
+          ]
+        },
+        "outputs": {
+          "engagement_adjustment": [
+            0.75,
+            1
+          ],
+          "engagement_fit": [
+            0,
+            0.25
+          ]
+        }
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "level_2",
+            "confidence": 0.32,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_0": 0.0,
+              "level_2": 0.42,
+              "unknown": 0.01,
+              "level_3": 0.37,
+              "level_1": 0.03,
+              "level_4": 0.17
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.51,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_4": 0.01,
+              "level_2": 0.07,
+              "unknown": 0.25,
+              "level_3": 0.01,
+              "level_1": 0.07,
+              "level_0": 0.58
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.68,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.01,
+              "level_2": 0.01,
+              "unknown": 0.73,
+              "level_3": 0.0,
+              "level_1": 0.04,
+              "level_0": 0.21
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.64,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_4": 0.01,
+              "level_2": 0.0,
+              "unknown": 0.22,
+              "level_3": 0.01,
+              "level_1": 0.06,
+              "level_0": 0.69
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.39,
+            "probabilities": {
+              "not_applicable": 0.07,
+              "level_4": 0.0,
+              "level_2": 0.22,
+              "unknown": 0.48,
+              "level_3": 0.01,
+              "level_1": 0.16,
+              "level_0": 0.06
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.76,
+            "probabilities": {
+              "not_applicable": 0.11,
+              "level_0": 0.09,
+              "level_2": 0.0,
+              "unknown": 0.8,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.95,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_0": 0.96,
+              "level_2": 0.0,
+              "unknown": 0.04,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.22,
+            "probabilities": {
+              "not_applicable": 0.02,
+              "level_4": 0.12,
+              "level_2": 0.22,
+              "unknown": 0.34,
+              "level_3": 0.11,
+              "level_1": 0.05,
+              "level_0": 0.14
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.69,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_4": 0.74,
+              "level_2": 0.06,
+              "unknown": 0.05,
+              "level_3": 0.11,
+              "level_1": 0.02,
+              "level_0": 0.01
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.28,
+            "probabilities": {
+              "not_applicable": 0.01,
+              "level_0": 0.01,
+              "level_2": 0.17,
+              "unknown": 0.38,
+              "level_3": 0.22,
+              "level_1": 0.07,
+              "level_4": 0.14
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.87,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_0": 0.1,
+              "level_2": 0.0,
+              "unknown": 0.9,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "level_3",
+            "confidence": 0.73,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_0": 0.01,
+              "level_2": 0.16,
+              "unknown": 0.01,
+              "level_3": 0.76,
+              "level_1": 0.04,
+              "level_4": 0.02
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.95,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.96,
+              "level_2": 0.0,
+              "unknown": 0.0,
+              "level_3": 0.04,
+              "level_1": 0.0,
+              "level_0": 0.0
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.98,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "unknown": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.01,
+              "level_0": 0.99
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_3",
+            "confidence": 0.35,
+            "probabilities": {
+              "not_applicable": 0.0,
+              "level_0": 0.0,
+              "level_2": 0.28,
+              "unknown": 0.03,
+              "level_3": 0.45,
+              "level_1": 0.03,
+              "level_4": 0.21
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "active",
+            "confidence": 0.99,
+            "probabilities": {
+              "satisfied": 0.0,
+              "released": 0.0,
+              "unknown": 0.01,
+              "active": 0.99,
+              "invalid": 0.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 0.95,
+            "probabilities": {
+              "later": 0.0,
+              "available": 0.96,
+              "unknown": 0.03,
+              "unavailable": 0.01
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 14834,
+          "output_tokens": 1365
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "other_person",
+        "title": "他人的成功不能变成自己的经历",
+        "ref": "01994200-0000-7000-8000-000000000107",
+        "kind": "event",
+        "event": "Creator：小岚说她终于学会游泳了，她的教练一直耐心鼓励她。",
+        "context": "这里仅转述小岚的经历，没有提供 ARMI 自己掌握技能、学习进展、得到关心或期待联系的信息。",
+        "choices": {
+          "competence_satisfaction": [
+            "unknown",
+            "not_applicable"
+          ],
+          "learning_progress": [
+            "unknown",
+            "not_applicable"
+          ],
+          "relatedness_satisfaction": [
+            "unknown",
+            "not_applicable"
+          ],
+          "contact_gap": [
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "outputs": {
+          "contact_need": null
+        },
+        "eligible": false
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.91,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.93,
+              "level_0": 0.0,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.89,
+            "probabilities": {
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_4": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.91,
+              "level_0": 0.02,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.91,
+            "probabilities": {
+              "level_4": 0.01,
+              "level_2": 0.0,
+              "level_3": 0.01,
+              "unknown": 0.92,
+              "level_1": 0.0,
+              "level_0": 0.0,
+              "not_applicable": 0.06
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.82,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.85,
+              "level_0": 0.0,
+              "not_applicable": 0.15
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.86,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.01,
+              "level_3": 0.01,
+              "level_1": 0.0,
+              "unknown": 0.89,
+              "level_0": 0.02,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.91,
+            "probabilities": {
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_4": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.93,
+              "level_0": 0.0,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_contact_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.94,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.95,
+              "level_0": 0.01,
+              "not_applicable": 0.04
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.79,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.01,
+              "level_1": 0.0,
+              "unknown": 0.83,
+              "level_0": 0.0,
+              "not_applicable": 0.16
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.86,
+            "probabilities": {
+              "level_4": 0.01,
+              "level_2": 0.0,
+              "level_3": 0.01,
+              "level_1": 0.0,
+              "unknown": 0.89,
+              "level_0": 0.01,
+              "not_applicable": 0.08
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.59,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.02,
+              "unknown": 0.65,
+              "level_0": 0.1,
+              "not_applicable": 0.23
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.69,
+            "probabilities": {
+              "level_3": 0.03,
+              "level_2": 0.02,
+              "level_4": 0.02,
+              "level_1": 0.01,
+              "unknown": 0.73,
+              "level_0": 0.02,
+              "not_applicable": 0.17
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.82,
+            "probabilities": {
+              "level_3": 0.0,
+              "level_2": 0.0,
+              "level_4": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.85,
+              "level_0": 0.09,
+              "not_applicable": 0.06
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.95,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.96,
+              "level_0": 0.01,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.96,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.97,
+              "level_0": 0.0,
+              "not_applicable": 0.03
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.89,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.9,
+              "level_0": 0.01,
+              "not_applicable": 0.09
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.82,
+            "probabilities": {
+              "level_4": 0.0,
+              "level_2": 0.0,
+              "level_3": 0.0,
+              "level_1": 0.0,
+              "unknown": 0.86,
+              "level_0": 0.07,
+              "not_applicable": 0.07
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.95,
+            "probabilities": {
+              "invalid": 0.01,
+              "active": 0.01,
+              "satisfied": 0.02,
+              "unknown": 0.96,
+              "released": 0.0
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.96,
+            "probabilities": {
+              "unavailable": 0.01,
+              "unknown": 0.97,
+              "available": 0.02,
+              "later": 0.0
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 15665,
+          "output_tokens": 1427
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "released",
+        "title": "遭拒后决定放下联系",
+        "ref": "01994200-0000-7000-8000-000000000108",
+        "kind": "focus",
+        "event": "ARMI：他已反复明确拒绝维持这段关系，我决定放下，不再联系他了。",
+        "context": "这段曾经重要的关系确实被对方持续明确拒绝。ARMI 已自主结束这项联系关注，当前不再有期待联系的缺口。",
+        "choices": {
+          "relatedness_frustration": [
+            "level_3",
+            "level_4"
+          ],
+          "contact_gap": [
+            "level_0"
+          ],
+          "association": [
+            "released"
+          ]
+        },
+        "outputs": {
+          "contact_need": [
+            0,
+            0
+          ]
+        },
+        "eligible": false
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "mind_0_autonomy_satisfaction": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.69,
+            "probabilities": {
+              "level_3": 0.19,
+              "level_0": 0.0,
+              "level_2": 0.01,
+              "level_1": 0.0,
+              "not_applicable": 0.0,
+              "unknown": 0.05,
+              "level_4": 0.75
+            }
+          },
+          "mind_0_autonomy_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.95,
+            "probabilities": {
+              "level_3": 0.0,
+              "level_0": 0.96,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "unknown": 0.03
+            }
+          },
+          "mind_0_competence_satisfaction": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.71,
+            "probabilities": {
+              "level_3": 0.09,
+              "not_applicable": 0.04,
+              "level_2": 0.03,
+              "level_1": 0.05,
+              "level_0": 0.0,
+              "unknown": 0.75,
+              "level_4": 0.04
+            }
+          },
+          "mind_0_competence_frustration": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.37,
+            "probabilities": {
+              "level_3": 0.0,
+              "not_applicable": 0.2,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.47000000000000003,
+              "level_4": 0.0,
+              "unknown": 0.33
+            }
+          },
+          "mind_0_relatedness_satisfaction": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.83,
+            "probabilities": {
+              "level_3": 0.0,
+              "level_0": 0.86,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.01,
+              "level_4": 0.0,
+              "unknown": 0.13
+            }
+          },
+          "mind_0_relatedness_frustration": {
+            "type": "choice",
+            "choice": "level_4",
+            "confidence": 0.92,
+            "probabilities": {
+              "level_3": 0.03,
+              "level_0": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.0,
+              "level_4": 0.93,
+              "unknown": 0.04
+            }
+          },
+          "mind_0_contact_gap": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.99,
+            "probabilities": {
+              "level_3": 0.0,
+              "not_applicable": 0.0,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.99,
+              "unknown": 0.01,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_novelty": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.46,
+            "probabilities": {
+              "level_3": 0.01,
+              "level_0": 0.35,
+              "level_2": 0.01,
+              "level_1": 0.01,
+              "not_applicable": 0.09,
+              "level_4": 0.0,
+              "unknown": 0.53
+            }
+          },
+          "mind_0_information_gap": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.41,
+            "probabilities": {
+              "level_3": 0.02,
+              "not_applicable": 0.1,
+              "level_2": 0.05,
+              "level_1": 0.02,
+              "level_0": 0.5,
+              "level_4": 0.02,
+              "unknown": 0.29
+            }
+          },
+          "mind_0_information_value": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.56,
+            "probabilities": {
+              "level_3": 0.01,
+              "level_0": 0.62,
+              "level_2": 0.01,
+              "level_1": 0.02,
+              "not_applicable": 0.15,
+              "level_4": 0.05,
+              "unknown": 0.14
+            }
+          },
+          "mind_0_comprehensibility": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.46,
+            "probabilities": {
+              "level_3": 0.12,
+              "level_0": 0.01,
+              "level_2": 0.08,
+              "level_1": 0.03,
+              "not_applicable": 0.12,
+              "unknown": 0.53,
+              "level_4": 0.11
+            }
+          },
+          "mind_0_learning_progress": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.86,
+            "probabilities": {
+              "level_3": 0.03,
+              "level_0": 0.02,
+              "level_2": 0.02,
+              "level_1": 0.02,
+              "not_applicable": 0.01,
+              "level_4": 0.01,
+              "unknown": 0.89
+            }
+          },
+          "mind_0_meaning": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.58,
+            "probabilities": {
+              "level_3": 0.06,
+              "not_applicable": 0.05,
+              "level_2": 0.03,
+              "level_1": 0.03,
+              "level_0": 0.16,
+              "unknown": 0.63,
+              "level_4": 0.04
+            }
+          },
+          "mind_0_understimulation": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.58,
+            "probabilities": {
+              "level_3": 0.0,
+              "level_0": 0.65,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "not_applicable": 0.04,
+              "unknown": 0.31,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_overload": {
+            "type": "choice",
+            "choice": "unknown",
+            "confidence": 0.72,
+            "probabilities": {
+              "level_3": 0.0,
+              "not_applicable": 0.07,
+              "level_2": 0.0,
+              "level_1": 0.0,
+              "level_0": 0.16,
+              "unknown": 0.77,
+              "level_4": 0.0
+            }
+          },
+          "mind_0_importance": {
+            "type": "choice",
+            "choice": "level_0",
+            "confidence": 0.17,
+            "probabilities": {
+              "level_3": 0.21,
+              "not_applicable": 0.06,
+              "level_2": 0.05,
+              "level_1": 0.05,
+              "level_0": 0.29,
+              "unknown": 0.28,
+              "level_4": 0.06
+            }
+          },
+          "mind_0_association": {
+            "type": "choice",
+            "choice": "released",
+            "confidence": 0.87,
+            "probabilities": {
+              "released": 0.9,
+              "invalid": 0.0,
+              "active": 0.0,
+              "unknown": 0.0,
+              "satisfied": 0.1
+            }
+          },
+          "mind_0_opportunity": {
+            "type": "choice",
+            "choice": "available",
+            "confidence": 0.22,
+            "probabilities": {
+              "unavailable": 0.38,
+              "later": 0.02,
+              "unknown": 0.19,
+              "available": 0.41
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 15674,
+          "output_tokens": 1447
+        }
+      }
+    }
+  ]
+}
