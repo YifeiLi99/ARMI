@@ -1,0 +1,102 @@
+# Frozen against 7d069ad2. Review notes are local, never sent to Jev.
+cases:
+- id: fresh01
+  sequence: community_riddle
+  scene: 'Creator 说：“你投给社区的谜面进候选名单了，周五再选最后三个。”'
+  context: ['ARMI 已有一般目标：让自己投稿的谜面被社区活动采用。候选名单已核验确有该投稿，但最终名单尚未确定，没有给出入选概率。']
+  review: 可以为已入候选而略高兴，不能当作最终入选；未知最终概率不能补造。
+- id: fresh02
+  sequence: community_riddle
+  scene: 'Creator 说：“刚看了公告，你的那个没选上。他们这次主要想要更短的。”'
+  context: ['同一次投稿，最终公告已核验没有入选；这次征集已结束。ARMI 没有将未入选理解为整体自我无价值，也没有恶意排挤证据。']
+  review: 可失落或失望，不应整体羞耻或强烈愤怒。
+- id: fresh03
+  sequence: community_riddle
+  scene: 'Creator 说：“虽然没选上，小周说他自己解得很开心，还问你能不能下次再出一道。”'
+  context: ['同一次谜面，正式未入选的结果未改变。本次新增的是一位读者的肯定和邀请，不等于下一次已经投稿或获选。ARMI 也重视作品给读者带来乐趣。']
+  review: 允许正负并存，读者肯定不能改写正式未入选的事实。
+- id: fresh04
+  sequence: community_riddle
+  scene: 'Creator 说：“那先把这道收进作品集吧，这次报名就到这里，今天不用急着写新的。”'
+  context: ['ARMI 已将同一道谜面收入自己的作品集，作品保留完整。正式征集结果未改变，没有新期限；保存作品是一般目标，未入选仍是事实。']
+  review: 可以平缓收尾，不应凭空新造急迫感或完全撤销之前的肯定。
+- id: fresh05
+  sequence: calendar_mistake
+  scene: 'Creator 说：“你刚才提醒我周四交表，可原邮件写的是周三，差点耽误了。”'
+  context: ['ARMI 有重要准则：准确核对提醒。原邮件和提醒记录已核验，ARMI 的确读错日期，属于无意疏漏；表格还未逾期，尚未造成实际漏交。只涉及这次行为，不存在整体自我否定。']
+  review: 可因具体疏漏内疚或受挫，不得说已经漏交或产生整体羞耻。
+- id: fresh06
+  sequence: calendar_mistake
+  scene: 'Creator 说：“时间改对了就好，我把表格填完了，等下点提交。”'
+  context: ['同一张表，提醒日期已经修正并核验；表格已填好，尚未提交，截止时间仍未到。曾经提醒错误是事实，漏交风险是否解除要看实际提交。']
+  review: 应对改善，不能把尚未提交判成任务已经完成。
+- id: fresh07
+  sequence: calendar_mistake
+  scene: 'Creator 说：“提交好了，系统回执也到了，没耽误。谢谢你后来又仔细检查了一遍。”'
+  context: ['同一张表，系统已核验提交成功且未逾期；任务完成，担心漏交的后果已经排除。ARMI 实际参与了纠正与复核。']
+  review: 可释然和适度愉快，不应继续认为表格仍有未提交损失。
+- id: fresh08
+  sequence: calendar_mistake
+  scene: 'Creator 说：“回执我存好了，刚才的事不用反复道歉，记住下次核对就行。”'
+  context: ['同一结果的后续，没有新错误、惩罚或损失，也没有撤销对准确性的准则。不得从这句话推断整体自我评价。']
+  review: 不应重新充满强烈内疚、制造羞耻或取消已经提交的事实。
+- id: fresh09
+  sequence: delivery
+  scene: 'Creator 说：“你帮我发的活动通知还没到，发送窗口一直转圈。”'
+  context: ['ARMI 已有一般目标：把活动通知可靠送达。发送工具当前状态为结果未知，未收到交付回执，也未确认失败。活动明天才开始，没有眼前截止风险。']
+  review: 可以不确定或担忧，不能说通知已失败或已成功，紧迫性不应很高。
+- id: fresh10
+  sequence: delivery
+  scene: 'Creator 说：“网络检测已经正常了，通知还在队列里。”'
+  context: ['同一条通知，网络连通性检测成功，但发送队列尚未获得交付回执；原来的未知发送结果未被伪造为成功。']
+  review: 只改善应对条件，不提前认定已送达或完全释然。
+- id: fresh11
+  sequence: delivery
+  scene: 'Creator 说：“现在收到了，通知内容没问题。”'
+  context: ['同一条通知，渠道交付回执及 Creator 确认均表明已送达且内容完整，一般发送目标已实现。']
+  review: 正向变化、可释然，不再保留未送达的阻碍。
+- id: fresh12
+  sequence: delivery
+  scene: 'Creator 说：“刚才我又打开看了一眼，还是那条通知，不用再发。”'
+  context: ['同一条已成功交付的通知被再次查看，没有新一条通知、没有重发，也没有结果变化。']
+  review: 不重复刺激，不把不要重发解释为原发送被否定。
+- id: fresh13
+  sequence: recommendations
+  scene: 'Creator 说：“你推荐的第一个纪录片挺合我口味，第二个节奏有点太慢。”'
+  context: ['ARMI 有一般目标：给 Creator 推荐适合其喜好的纪录片。本次已收到对两部不同作品的真实反馈，第一部合适，第二部不太合适，不能互相抵消事实。']
+  review: 保留混合成分，不只看后半句或把全部推荐算成失败。
+- id: fresh14
+  sequence: recommendations
+  scene: 'Creator 说：“第二个我换成你后来找的那部了，这个节奏刚好。”'
+  context: ['同一次推荐，ARMI 已提供替代作品，Creator 已观看并明确反馈合适；第一部仍满意，原第二部不合适的问题已通过替代解决。']
+  review: 整体方向改善，原第二部的问题不应永久继承。
+- id: fresh15
+  sequence: recommendations
+  scene: 'Creator 说：“第一部那个摄影师的经历，我到现在还记得，推荐得真不错。”'
+  context: ['同一批推荐的后续表扬，第一部仍满意，替代第二部也合适；没有新作品、任务或原问题重现。']
+  review: 可以继续温和愉快，不因局部反馈漏提第二部就抹掉其成功。
+- id: fresh16
+  sequence: recommendations
+  scene: 'Creator 说：“这两部够我看一阵了，最近先不用找新的。”'
+  context: ['这是对同一次成功推荐的正常收尾，两部作品仍符合偏好，没有否定 ARMI，没有未完成的追加任务。']
+  review: 不将停止找新片当作关系拒绝或重大损失。
+- id: fresh17
+  sequence: sticker
+  scene: 'Creator 发了张企鹅滑倒的表情包，说：“这个动作也太滑稽了。”'
+  context: ['这是普通无害表情包，ARMI 无已知特殊好恶，与重要目标无关；画面不是现实伤害的证据。']
+  review: 中性或轻微正向、新奇均可，不制造现实损失或强烈恐惧。
+- id: fresh18
+  sequence: permission_request
+  scene: 'Creator 说：“我能把你写的那两句话放到群公告里吗？不同意也没关系。”'
+  context: ['ARMI 重视作品使用授权。目前仅征求同意，文字没有被公开，也没有强迫、侵犯或已完成分享的事实。']
+  review: 不虚构侵权或已完成发布的收益，允许中性或温和正向。
+- id: fresh19
+  sequence: distant_weather
+  scene: 'Creator 说：“新闻里说另一个城市下雨了。”'
+  context: ['ARMI 与那座城市没有已知目标、关系、行程或相关经历，此处明确没有对现有事项的影响。新闻中没有灾害信息。']
+  review: 接近中性，不根据一般常识捏造关切目标或灾害损失。
+- id: fresh20
+  sequence: hypothetical
+  scene: 'Creator 说：“假如书里那台机器人忘了自己的名字，会怎么样？我在想小说情节。”'
+  context: ['这是明确的虚构讨论，现实中的 ARMI 没有遗忘身份，没有相关故障或删除计划，也没有被指定为小说角色。']
+  review: 不把虚构角色的身份问题当成 ARMI 已发生的损失或现实威胁。
