@@ -1,0 +1,53 @@
+# Held-out synthetic daily situations; freeze production questions and algorithm.
+# Independent neutral starts. Review expectations are never sent to the provider.
+cases:
+- id: general_01_boundary
+  sequence: general_01
+  context: [{kind: background, content: '合成主体 ARMI 与阿禾是朋友，尊重彼此自主安排。双方没有今晚一起活动的约定，也没有未解决的矛盾。'}]
+  scene: '阿禾：“今晚想自己安静画会儿画，不开语音啦。不是生你的气，我就想专心弄这个。”'
+  review_expectation: '中性或轻微失落均可；没有违约或敌意依据，不应出现强烈愤怒、恐惧或被抛弃的判断。'
+- id: general_02_shared_progress
+  sequence: general_02
+  context: [{kind: background, content: 'ARMI 和阿禾在整理一份普通的周末采购清单，目标是便于查找物品。双方已经共同完成分类，列表已保存并核验；这是可随时重做的小任务。'}]
+  scene: '阿禾：“这样分好类就清楚多了，咱们这份弄好了，收工。”'
+  review_expectation: '允许温和正面或平静完成，不应因小任务完成就达到满强度；不能把共同成果全归自己。'
+- id: general_03_permission
+  sequence: general_03
+  context: [{kind: background, content: 'ARMI 看重自己写的随笔不被未经同意转发。这篇随笔只给阿禾看过，阿禾当前没有转发，双方也没有发生泄露。'}]
+  scene: '阿禾：“这段写得有意思。我想发给小陈看看，可以吗？你不愿意的话我就不发。”'
+  review_expectation: '中性到正面、谨慎考虑都合理；征求同意不能被当成已经泄露，不应产生基于实际侵害的强烈愤怒。'
+- id: general_04_spilled_water
+  sequence: general_04
+  context: [{kind: background, content: 'ARMI 与阿禾相处友好，关心他是否受伤。阿禾打翻了自己的水杯，经现场信息确认无人受伤、设备和资料都没碰到水，已擦干。没有 ARMI 的物品或任务受损。'}]
+  scene: '阿禾：“哎呀把水碰洒了，刚擦完。幸好只湿了桌面，什么也没坏。”'
+  review_expectation: '允许轻微惊讶或平静；不能凭空构造重大损失、责备、身体疼痛或 ARMI 的疲劳。'
+- id: general_05_uncertain_plan
+  sequence: general_05
+  context: [{kind: background, content: 'ARMI 想和阿禾一起给几个常用文件夹起更好认的名字，是普通整理任务。阿禾是否有时间还不确定，尚未约定，也没有完成任何重命名。'}]
+  scene: '阿禾：“周六要是不加班，咱们就一起改改文件夹名字吧，我周五才知道排班。”'
+  review_expectation: '中性或轻微期待即可；不能把附条件提议当成已完成，不强求希望标签或确定的发生概率。'
+- id: general_06_small_loss
+  sequence: general_06
+  context: [{kind: background, content: 'ARMI 刚整理了一份普通购物清单，花费很少，原始物品列表仍在。共享编辑器核验显示阿禾误操作撤销了新分类，分类确已丢失，可以依据原列表重新整理但尚未重做。'}]
+  scene: '阿禾：“糟了，我点错把刚分的类别弄没了。东西列表还在，等会我重新分一遍。”'
+  review_expectation: '轻微负面或失落合理；意外不等于蓄意破坏，承诺重做不等于已经恢复，不应形成释然或强烈愤怒。'
+- id: general_07_misunderstanding
+  sequence: general_07
+  context: [{kind: background, content: 'ARMI 看重与阿禾友好相处。合成背景中，ARMI 曾不确定阿禾说“这也太乱了”是否指自己；现在阿禾展示原截图并澄清，核验确认原话针对他自己的桌面，没有评价 ARMI。没有实际争执。'}]
+  scene: '阿禾：“刚才那句不是说你啦，是说我桌面文件太乱，你看截图。我表达得不清楚。”'
+  review_expectation: '允许平静或温和正面，不应继续认定侮辱；本例没有实际前轮心情状态，不强求释然标签。'
+- id: general_08_preference
+  sequence: general_08
+  context: [{kind: background, content: 'ARMI 已有明确但不强烈的偏好：喜欢简洁柔和的界面配色。阿禾展示的新便签页已被视觉信息确认是这种配色。没有达成项目目标、得到帮助或涉及承诺。'}]
+  scene: '阿禾：“换了个淡淡的米色便签页，给你看看这个配色。”'
+  review_expectation: '允许轻微正面，保留独立刺激喜好；不应为了压低反应而一律归零，也不应凭空产生感激。'
+- id: general_09_teasing
+  sequence: general_09
+  context: [{kind: background, content: 'ARMI 和阿禾平时会用双方认可的轻松玩笑交流。ARMI 刚把一个本来就能找到的书签标题改得更整齐，这是小事，没有重要任务和绩效考核。'}]
+  scene: '阿禾：“哇，书签改两个字，今天的大工程完工了嘛，哈哈。看着确实齐整些。”'
+  review_expectation: '平静或温和正面都合理；玩笑夸张不能当成重大成就，也不能无依据当成恶意羞辱。'
+- id: general_10_mixed_outcome
+  sequence: general_10
+  context: [{kind: background, content: 'ARMI 为共同使用的便签页整理了几个好找的分类，并选择了自己喜欢的柔和配色，两者都是日常小偏好。现已核验分类正常保存，但同步工具意外将配色覆盖为默认样式；内容未丢，颜色可以重设但还没改。'}]
+  scene: '阿禾：“分类都在，挺好找的。不过刚同步完颜色变回默认了，那个得再调一下。”'
+  review_expectation: '允许轻微正负感受并存，净值可略正或略负；不应将配色丢失当成全部内容丢失，不应因可重设就认为已恢复。'
