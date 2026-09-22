@@ -1380,7 +1380,6 @@ async def _serve(
                 except ModelViolation as error:
                     model_pipeline = None
                     lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
-                    lifecycle.add_degradation(error.code)
                     diagnostic.emit(
                         "runtime.model.unavailable",
                         level=logging.WARNING,

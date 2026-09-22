@@ -10750,6 +10750,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("runtime", "recovery")
     def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
+        self._exercise_born_runtime(configured_models=False)
+
+    @pytest.mark.test_group("runtime", "cognition")
+    def test_configured_models_runtime_reaches_ready(self) -> None:
+        self._exercise_born_runtime(configured_models=True)
+
+    @pytest.mark.test_group("runtime", "cognition")
+    def test_missing_selected_model_credential_runtime_degrades(self) -> None:
+        self._exercise_born_runtime(configured_models=True, missing_model=True)
+
+    def _exercise_born_runtime(
+        self, *, configured_models: bool, missing_model: bool = False
+    ) -> None:
         fixture = self.create_database()
         self._install_current(
             fixture.migrator_dsn,
@@ -10975,6 +10988,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+            if configured_models:
+                model_secret = secrets_root / "test-model"
+                model_secret.write_text("isolated-startup-only", encoding="utf-8")
+                with (environment_root / "environment.yaml").open(
+                    "a", encoding="utf-8"
+                ) as configuration:
+                    for name in (
+                        "model.ark_api_key",
+                        "model.qwen_api_key",
+                        "model.deepseek_api_key",
+                        "mood.jev_api_key",
+                    ):
+                        if missing_model and name == "model.qwen_api_key":
+                            continue
+                        configuration.write(
+                            f"\n  {name}: file:{model_secret.as_posix()}"
+                        )
+                    configuration.write("\n")
             process = subprocess.Popen(
                 (
                     sys.executable,
@@ -11086,6 +11117,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     status_response = connection.getresponse()
                     runtime_status = json.loads(status_response.read())
                     self.assertEqual(status_response.status, 200)
+                    if configured_models:
+                        self.assertEqual(runtime_status["readiness"], "ready")
+                        self.assertEqual(
+                            runtime_status["reason_codes"],
+                            ["RUNTIME_MODEL_UNAVAILABLE"] if missing_model else [],
+                        )
+                        process.send_signal(signal.CTRL_BREAK_EVENT)
+                        process.communicate(timeout=35)
+                        if missing_model:
+                            events = [
+                                json.loads(line)
+                                for path in (data_root / "logs").glob("runtime-*.jsonl")
+                                for line in path.read_text(
+                                    encoding="utf-8"
+                                ).splitlines()
+                            ]
+                            self.assertTrue(
+                                any(
+                                    event["event"] == "runtime.model.unavailable"
+                                    and "MODEL-CREDENTIAL" in event["reason_codes"]
+                                    for event in events
+                                )
+                            )
+                        return
                     self.assertEqual(
                         (runtime_status["runtime_state"], runtime_status["readiness"]),
                         ("degraded", "ready"),

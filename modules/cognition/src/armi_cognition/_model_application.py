@@ -387,7 +387,7 @@ class ModelPipeline:
             ),
             "reflect_focus": build_adapter(
                 binding=reflect_focus_binding,
-                candidate_schema=owner_reflection_schema(target="mind"),
+                candidate_schema=owner_reflection_schema(target="focus"),
                 instructions=REFLECT_FOCUS_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
