@@ -25,11 +25,14 @@ from armi_codex.bootstrap import (
     compose_codex_task_source_gateway,
 )
 from armi_cognition.bootstrap import (
+    bootstrap_appraisal_read,
     bootstrap_cognition_context,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_context_candidate_read,
     bootstrap_dialogue_decision_record,
+    bootstrap_event_appraisals,
+    bootstrap_focus,
     bootstrap_sleep_decision_record,
     build_candidate_schema,
     build_model_request_bytes,
@@ -71,7 +74,9 @@ from armi_interaction.bootstrap import (
 )
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_cognition
 from armi_memory.bootstrap import bootstrap_memory, bootstrap_memory_cognition
-from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_data_rights
+from armi_mind.bootstrap import bootstrap_mind, bootstrap_mind_data_rights
+from armi_mood.bootstrap import bootstrap_mood as _bootstrap_mood
+from armi_mood.bootstrap import bootstrap_mood_data_rights
 from armi_perception.bootstrap import compose_external_content_pipeline
 from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
 from armi_relationship.bootstrap import (
@@ -87,6 +92,11 @@ from armi_subject_state.bootstrap import (
 from armi_runtime.composition.database import (
     compose_data_rights_core as bootstrap_data_rights_core,
 )
+
+
+def bootstrap_mood():
+    return _bootstrap_mood(assessments=bootstrap_appraisal_read())
+
 
 ArtifactCatalogRepository = bootstrap_artifact_catalog
 CodexTaskSourceGateway = compose_codex_task_source_gateway
@@ -127,6 +137,7 @@ __all__ = (
     "PostgreSQLSceneTimelineQuery",
     "bootstrap_activity",
     "bootstrap_activity_cognition",
+    "bootstrap_appraisal_read",
     "bootstrap_artifact_catalog",
     "bootstrap_autonomy",
     "bootstrap_capability",
@@ -144,11 +155,13 @@ __all__ = (
     "bootstrap_effect_operation_read",
     "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",
+    "bootstrap_event_appraisals",
     "bootstrap_evidence",
     "bootstrap_experience_owner",
     "bootstrap_expression",
     "bootstrap_expression_action_ports",
     "bootstrap_expression_effect_registration",
+    "bootstrap_focus",
     "bootstrap_interaction_action_ports",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_failure_notifications",
@@ -158,6 +171,8 @@ __all__ = (
     "bootstrap_material_cognition",
     "bootstrap_memory",
     "bootstrap_memory_cognition",
+    "bootstrap_mind",
+    "bootstrap_mind_data_rights",
     "bootstrap_mood",
     "bootstrap_mood_data_rights",
     "bootstrap_opportunity",

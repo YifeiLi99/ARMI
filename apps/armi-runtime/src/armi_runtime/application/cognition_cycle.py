@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -38,6 +38,8 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     CognitiveEpisodeId,
+    ConsiderationSignal,
+    PsychologicalContextItem,
     WorkDraft,
     WorkId,
     WorkOwner,
@@ -99,6 +101,42 @@ class RuntimeCognitionState:
 class RuntimeContextEpisodeAdapter:
     def __init__(self, owner: CognitionContextLifecyclePort) -> None:
         self._owner = owner
+
+    async def focus_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        purpose: str,
+        signals: tuple[ConsiderationSignal, ...],
+    ) -> tuple[PsychologicalContextItem, ...]:
+        return await self._owner.focus_context(
+            transaction,
+            subject_id=subject_id,
+            as_of=as_of,
+            purpose=purpose,
+            signals=signals,
+        )
+
+    async def focus_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event_purpose: str,
+        event_ref: UUID,
+        event_at: datetime,
+        activity_id: UUID | None,
+    ) -> tuple[ConsiderationSignal, ...]:
+        return await self._owner.focus_signals(
+            transaction,
+            subject_id=subject_id,
+            event_purpose=event_purpose,
+            event_ref=event_ref,
+            event_at=event_at,
+            activity_id=activity_id,
+        )
 
     async def context_episode(
         self, transaction: PostgreSQLTransaction, *, episode_id: UUID
@@ -226,7 +264,7 @@ class RuntimeCognitionCycleSelector:
                     MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
                     MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
                     MaintenancePhase.REFLECT_SELF: "reflect_self",
-                    MaintenancePhase.REFLECT_MIND: "reflect_mind",
+                    MaintenancePhase.REFLECT_FOCUS: "reflect_focus",
                     MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
                 }.get(maintenance.phase)
             )
@@ -330,7 +368,7 @@ class RuntimeCognitionCycleSelector:
                 await unit.work.enqueue(
                     WorkDraft(
                         WorkId(uuid7()),
-                        WorkType.MOOD_EVALUATE,
+                        WorkType.EVENT_APPRAISE,
                         WorkOwner("cognitive_episode", episode_id),
                         IdempotencyKey(f"mood:{candidate.opportunity_id}"),
                         work_digest,

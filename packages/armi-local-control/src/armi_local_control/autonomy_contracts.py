@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AutonomyResponse(BaseModel):
@@ -24,25 +24,65 @@ class ConcernAttentionStatus(AutonomyResponse):
     condition_state: Literal["scheduled", "due", "consumed", "waiting_for_event"]
 
 
+class MindDimension(AutonomyResponse):
+    value: float | None = Field(ge=0, le=100)
+    quality: Literal["known", "unknown", "not_applicable"]
+    choice: Literal[
+        "level_0",
+        "level_1",
+        "level_2",
+        "level_3",
+        "level_4",
+        "unknown",
+        "not_applicable",
+    ]
+    known_at: str | None
+    basis_refs: list[str]
+
+
+class MindObjectSource(AutonomyResponse):
+    source_kind: str
+    source_ref: str
+
+
+class MindConsideration(AutonomyResponse):
+    importance: MindDimension | None
+    priority: float | None = Field(ge=0, le=100)
+    attention_weight: float = Field(ge=0, le=100)
+    condition_version: int = Field(ge=0)
+    reason: str | None
+    eligible: bool
+
+
 class MotivationAttentionStatus(AutonomyResponse):
-    motivation_id: str
-    object_kind: str
-    assessment: dict[str, str]
-    tendency: Literal["explore", "contact", "change_activity", "none"]
-    level: float
-    uncertain: bool
-    review_at: str | None
-    condition_state: Literal["scheduled", "due", "consumed", "waiting_for_event"]
+    object: MindObjectSource
+    evaluated_at: str
+    as_of: str
+    association: Literal["active", "satisfied", "released", "invalid", "unknown"]
+    opportunity: Literal["available", "later", "unavailable", "unknown"]
+    domains: dict[
+        Literal["autonomy", "competence", "relatedness", "exploration", "engagement"],
+        dict[str, MindDimension | float | None],
+    ]
+    consideration: MindConsideration
 
 
 class ConsiderationSignalItem(AutonomyResponse):
-    owner: Literal["mind", "mood"]
+    owner: Literal["mind", "mood", "focus"]
     object_ref: str
     condition_version: str
     reason: Literal[
-        "review_time_reached", "creator_input", "activity_result", "affective_change"
+        "review_time_reached",
+        "creator_input",
+        "activity_result",
+        "affective_change",
+        "threshold_reached",
+        "material_change",
+        "opportunity_restored",
     ]
     eligible_at: str
+    priority: float = Field(ge=0, le=1)
+    basis_refs: list[str]
 
 
 class ConsiderationSignals(AutonomyResponse):

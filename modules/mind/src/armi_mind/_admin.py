@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -14,6 +15,7 @@ from armi_runtime_foundation import (
 )
 
 from ._domain import validate_state
+from ._state_storage import correct_numeric_mind
 from .api import MindAdminState, MindCorrectionHead, MindViolation
 
 
@@ -154,14 +156,14 @@ class PostgreSQLMindAdmin:
         ).fetchone()
         if previous is None:
             raise MindViolation("MIND-MISSING")
-        concerns = cast(dict[str, object], previous[0])["concerns"]
-        if "concerns" in value and value["concerns"] != concerns:
-            raise MindViolation("MIND-CONCERN-REPLACEMENT")
-        value = {**value, "concerns": concerns}
-        motivations = cast(dict[str, object], previous[0])["motivation_states"]
-        if "motivation_states" in value and value["motivation_states"] != motivations:
-            raise MindViolation("MIND-MOTIVATION-REPLACEMENT")
-        value["motivation_states"] = motivations
+        value = json.loads(
+            correct_numeric_mind(
+                json.dumps(previous[0]).encode(),
+                json.dumps(value).encode(),
+                correction_id=UUID(revision_id),
+                at=datetime.now(UTC),
+            )
+        )
         transaction.execute(
             "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,origin_kind,origin_ref,semantic_payload) "
             "VALUES (%s,%s,%s,%s,'admin_correction',%s,%s::jsonb)",
@@ -221,8 +223,6 @@ class PostgreSQLMindAdmin:
             current is None
             or target is None
             or target.get("schema_kind") != "armi.mind"
-            or current.get("concerns") != target.get("concerns")
-            or current.get("motivation_states") != target.get("motivation_states")
         ):
             raise MindViolation("MIND-CONCERN-REPLACEMENT")
         if current_revision_id == target_revision_id:

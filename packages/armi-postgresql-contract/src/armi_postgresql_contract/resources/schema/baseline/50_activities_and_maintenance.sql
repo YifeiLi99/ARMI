@@ -85,7 +85,7 @@ CREATE TABLE armi.maintenance_sessions (
     result_status text DEFAULT 'running' NOT NULL,
     phase_completed_at timestamp(6) with time zone,
     updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT maintenance_sessions_phase_check CHECK (phase IN ('preparing','memory_maintenance','self_check','reflect_self','reflect_mind','reflect_prompt','life_quiet','resume_check','completed')),
+    CONSTRAINT maintenance_sessions_phase_check CHECK (phase IN ('preparing','memory_maintenance','self_check','reflect_self','reflect_focus','reflect_prompt','life_quiet','resume_check','completed')),
     CONSTRAINT maintenance_sessions_result_check CHECK (result_status IN ('running','completed','interrupted','failed') AND ((phase='completed')=(result_status='completed'))),
     CONSTRAINT maintenance_sessions_phase_token_check CHECK (uuid_extract_version(current_revision_id)=7),
     head_version bigint DEFAULT 1 NOT NULL,

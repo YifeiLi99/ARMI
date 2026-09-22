@@ -65,7 +65,7 @@ _RELATIONSHIP = {
     "relationship_boundary": "boundary",
     "commitment_change": "commitment_change",
 }
-_CREATOR_STATE = frozenset({"changes", "mind_appraisals", "concern_changes"})
+_CREATOR_STATE = frozenset({"changes", "concern_changes"})
 
 
 def dialogue_output_instructions(instructions: str) -> str:
@@ -226,9 +226,6 @@ def expand_dialogue_output(
     Never repair JSON, drop unknown fields, infer state or supply missing content.
     Raw provider output remains in the response artifact. See DESIGN.md.
     """
-    if expected_version == "armi.autonomy-check-candidate":
-        # The check has its own single-field wire contract, no candidate wrapper.
-        return value
     other = expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
     if expected_version not in {
         CREATOR_COGNITIVE_ACT_VERSION,

@@ -121,7 +121,7 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     ):
         assert contract in baseline
     assert "CREATE TABLE armi.mood_revisions" in baseline
-    assert "CREATE TABLE armi.mood_assessments" in baseline
+    assert "CREATE TABLE armi.event_appraisals" in baseline
     assert "derived_appraisal_payload" not in baseline
 
 

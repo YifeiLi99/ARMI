@@ -298,7 +298,7 @@ class ContextPipeline:
     async def prepare_once(self) -> bool:
         try:
             claimed = await self._work.claim(
-                work_kind=WorkType.MOOD_EVALUATE,
+                work_kind=WorkType.EVENT_APPRAISE,
                 lease_owner=self._lease_owner,
                 lease_seconds=120,
                 limit=1,
@@ -439,11 +439,11 @@ class ContextPipeline:
                 subject_prompt_bytes,
                 tuple(recent_scene_payloads),
                 recalled_context=recalled,
-                mood_evaluation=record.draft.work_kind is WorkType.MOOD_EVALUATE,
+                mood_evaluation=record.draft.work_kind is WorkType.EVENT_APPRAISE,
             )
             context_profile(snapshot.purpose).validate(request.items)
             result = self._compiler.compile(request)
-            if record.draft.work_kind is WorkType.MOOD_EVALUATE:
+            if record.draft.work_kind is WorkType.EVENT_APPRAISE:
                 if self._stop.is_set():
                     raise asyncio.CancelledError()
                 self._mood_task = asyncio.create_task(
@@ -745,7 +745,7 @@ def _context_request(
 ) -> ContextRequest:
     profile = context_profile(snapshot.purpose)
     if mood_evaluation:
-        profile = replace(profile, purpose="mood.evaluate")
+        profile = replace(profile, purpose="event.appraise")
     runtime_bytes = rfc8785.dumps(
         {
             "subject_id": str(snapshot.subject_id),
@@ -835,6 +835,22 @@ def _context_request(
                 component_content,
                 requested_required=kind == "self",
                 relevance=90,
+            )
+        )
+    for view in snapshot.focus_items:
+        items.append(
+            _candidate(
+                profile,
+                ContextSection.FOCUS,
+                view.item_kind,
+                ContextSourceIdentity(
+                    view.source_kind, view.source_ref, view.source_version
+                ),
+                ContextTrustClass.SUBJECTIVE_STATE,
+                "private",
+                view.content,
+                requested_required=view.required,
+                relevance=view.relevance,
             )
         )
     if snapshot.scene_id is not None:
@@ -1244,7 +1260,7 @@ def _context_request(
                     "maintain_subjective_memory",
                     "perform_subject_self_check",
                     "reflect_self",
-                    "reflect_mind",
+                    "reflect_focus",
                     "reflect_prompt",
                 },
                 relevance=100,
@@ -1255,7 +1271,7 @@ def _context_request(
                 "maintain_subjective_memory",
                 "perform_subject_self_check",
                 "reflect_self",
-                "reflect_mind",
+                "reflect_focus",
                 "reflect_prompt",
             }
             else _unavailable(profile, ContextSection.LIFE_MODE, "maintenance_phase"),
@@ -1378,6 +1394,29 @@ def _context_request(
                 source_kind=snapshot.evidence.source_kind,
             )
         )
+    # One shared attention window across numeric motives and persistent focuses.
+    if not mood_evaluation:
+        foreground = sorted(
+            (
+                item
+                for item in items
+                if item.item_kind in {"current_concern", "current_motivation"}
+            ),
+            key=lambda item: (
+                any(
+                    str(s.object_ref) == str(item.source.reference)
+                    for s in snapshot.consideration_signals
+                ),
+                item.relevance,
+            ),
+            reverse=True,
+        )[:4]
+        items = [
+            item
+            for item in items
+            if item.item_kind not in {"current_concern", "current_motivation"}
+            or item in foreground
+        ]
     if snapshot.purpose == "consider_autonomy_check" and not mood_evaluation:
         items = check_context_items(
             items,

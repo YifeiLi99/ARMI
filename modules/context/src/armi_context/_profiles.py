@@ -98,6 +98,7 @@ _SUBJECT_SKELETON = frozenset(
 _PRIVATE_RECALL = frozenset({"current_memory", "current_material", "recall_status"})
 _PRIVATE_LIFE = frozenset(
     {
+        "focus",
         "current_concern",
         "current_motivation",
         "current_life_opportunity",
@@ -226,9 +227,9 @@ _PROFILES = {
         required=frozenset({"current_maintenance_phase", "self"}),
         forbidden=_PRIVATE_RECALL,
     ),
-    "reflect_mind": _profile(
-        "reflect_mind",
-        required=frozenset({"current_maintenance_phase", "mind"}),
+    "reflect_focus": _profile(
+        "reflect_focus",
+        required=frozenset({"current_maintenance_phase", "focus"}),
         forbidden=_PRIVATE_RECALL,
     ),
     "reflect_prompt": _profile(

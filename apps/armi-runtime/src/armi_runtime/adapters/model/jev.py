@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 import httpx
@@ -105,6 +106,14 @@ class JevAppraiser:
                 if "reference" in item.get("source", {})
                 and item["item_kind"] not in _EXCLUDED_APPRAISAL_ITEMS
             } | {("event", str(assessment.event.source_ref))}
+            for item in items:
+                if item["item_kind"] == "current_activity":
+                    permitted.add(
+                        ("activity", json.loads(item["content"])["activity_id"])
+                    )
+                if item["item_kind"] == "current_motivation":
+                    obj = json.loads(item["content"])["object"]
+                    permitted.add((obj["source_kind"], obj["source_ref"]))
             basis = {reference for _, reference in permitted}
             if any(
                 (target.object.source_kind, target.object.source_ref) not in permitted

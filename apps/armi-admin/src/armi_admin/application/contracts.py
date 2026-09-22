@@ -377,14 +377,14 @@ class ClearFaultsRequest(MutationRequest):
 
 class ReplaceSubjectComponentSpec(_StrictModel):
     correction_kind: Literal["replace_subject_component"]
-    component_kind: Literal["self", "mind", "mood", "life_mode"]
+    component_kind: Literal["self", "mind", "mood", "focus", "life_mode"]
     expected_component_version: int = Field(ge=1)
     replacement: dict[str, object]
 
 
 class RepairSubjectComponentHeadSpec(_StrictModel):
     correction_kind: Literal["repair_subject_component_head"]
-    component_kind: Literal["self", "mind", "mood", "life_mode"]
+    component_kind: Literal["self", "mind", "mood", "focus", "life_mode"]
     expected_component_version: int = Field(ge=1)
     target_revision_id: str
 

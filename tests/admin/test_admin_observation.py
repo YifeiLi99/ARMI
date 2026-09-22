@@ -94,6 +94,7 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
             "mood",
             "subject_state",
             "mind",
+            "focus",
             "sleep",
             "evidence",
             "opportunity",
@@ -350,6 +351,7 @@ def test_diagnostics_verify_artifacts_outside_database_transaction():
         mood=_Mood(),
         subject_state=_SubjectState(),
         mind=_Mind(),
+        focus=cast(Any, _Mind()),
         sleep=cast(Any, object()),
     )
     result = gateway.diagnostics()
@@ -413,6 +415,7 @@ class _Observation(AdminObservationGateway):
             mood=_Mood(),
             subject_state=_SubjectState(),
             mind=_Mind(),
+            focus=cast(Any, _Mind()),
             sleep=cast(Any, object()),
         )
 

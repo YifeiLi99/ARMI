@@ -3,7 +3,9 @@
 from copy import deepcopy
 from typing import Any, cast
 
-from armi_mind.api import MIND_CONTEXT_REFERENCES
+from ._focus.api import (
+    FOCUS_CONTEXT_REFERENCES,
+)
 
 
 def bind_context_schema(
@@ -13,7 +15,7 @@ def bind_context_schema(
     result = deepcopy(schema)
     definitions = result.get("$defs", {})
     blocked: set[str] = set()
-    for name, field, kind in (*MIND_CONTEXT_REFERENCES,):
+    for name, field, kind in (*FOCUS_CONTEXT_REFERENCES,):
         if name not in definitions:
             continue
         allowed = [item["ref"] for item in refs if item["item_kind"] == kind]

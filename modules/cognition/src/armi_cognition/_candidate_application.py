@@ -60,7 +60,6 @@ from armi_memory.api import (
     MemoryReadPort,
     MemorySourceKind,
 )
-from armi_mind.api import MindCognitionPort, MindReadPort
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import (
@@ -93,6 +92,7 @@ from ._candidate_postgresql import (
     accepted_candidates,
 )
 from ._dialogue_output import expand_dialogue_output
+from ._focus.api import FocusCognitionPort, FocusReadPort
 from ._validation_diagnostics import contract_rejection
 from ._validator import (
     CandidateMemoryContext,
@@ -169,9 +169,9 @@ class CandidateValidationService:
         "_diagnostic",
         "_factory",
         "_failure_notification",
+        "_focus_cognition",
         "_material_cognition",
         "_memory_cognition",
-        "_mind_cognition",
         "_prompt_cognition",
         "_relationship_cognition",
         "_repository",
@@ -214,9 +214,9 @@ class CandidateValidationService:
         sleep_cognition: SleepCognitionPort,
         sleep_read: SleepReadPort,
         subject_state_cognition: SubjectStateCognitionPort,
-        mind_cognition: MindCognitionPort,
+        focus_cognition: FocusCognitionPort,
         subject_state_read: SubjectStateReadPort,
-        mind_read: MindReadPort,
+        focus_read: FocusReadPort,
         visual_sources_active: frozenset[str] = frozenset(),
         diagnostic: Callable[[str], None] | None = None,
         validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
@@ -234,7 +234,7 @@ class CandidateValidationService:
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
-        self._mind_cognition = mind_cognition
+        self._focus_cognition = focus_cognition
         self._codex_available = codex_available
         self._visual_sources_active = visual_sources_active
         self._catalog = catalog
@@ -257,7 +257,7 @@ class CandidateValidationService:
             prompts=prompt_read,
             materials=material_read,
             subject_state=subject_state_read,
-            mind=mind_read,
+            focus=focus_read,
         )
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._validation_diagnostic = validation_diagnostic
@@ -391,7 +391,7 @@ class CandidateValidationService:
             relationship_cognition=self._relationship_cognition,
             sleep_cognition=self._sleep_cognition,
             subject_state_cognition=self._subject_state_cognition,
-            mind_cognition=self._mind_cognition,
+            focus_cognition=self._focus_cognition,
         )
         try:
             candidate_value = model_response_candidate(

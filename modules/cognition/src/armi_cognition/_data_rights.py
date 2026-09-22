@@ -21,8 +21,21 @@ from armi_data_rights.api import (
 from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
+from ._event_data_rights import PostgreSQLEventDataRightsParticipant
+from ._focus._data_rights import PostgreSQLFocusDataRightsParticipant
+
 _OWNER = DataRightsOwnerIdentity("cognition")
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
+    (
+        "event_appraisals",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+       FROM armi.event_appraisals AS source ORDER BY to_jsonb(source)::text""",
+    ),
+    (
+        "focus_revisions",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+       FROM armi.focus_revisions AS source ORDER BY to_jsonb(source)::text""",
+    ),
     (
         "cognitive_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -46,6 +59,12 @@ class PostgreSQLCognitionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
+        event = await PostgreSQLEventDataRightsParticipant().discover(
+            transaction, request
+        )
+        focus = await PostgreSQLFocusDataRightsParticipant().discover(
+            transaction, request
+        )
         context_episode_ids = tuple(
             item.ref for item in request.related_refs if item.kind == "cognition"
         )
@@ -127,7 +146,9 @@ class PostgreSQLCognitionDataRightsParticipant:
         ).fetchall()
         return DataRightsDiscoveryContribution(
             _OWNER,
-            related_refs=tuple(
+            related_refs=event.related_refs
+            + focus.related_refs
+            + tuple(
                 [DataRightsRelatedRef("cognition", ref) for ref in episode_ids]
                 + [
                     DataRightsRelatedRef("candidate-validation", ref)
@@ -139,7 +160,9 @@ class PostgreSQLCognitionDataRightsParticipant:
                 ]
                 + [DataRightsRelatedRef("exact-life-query", ref) for ref in exact_ids]
             ),
-            targets=tuple(
+            targets=event.targets
+            + focus.targets
+            + tuple(
                 DataRightsTargetRef("cognition", ref, "redact") for ref in episode_ids
             )
             + tuple(
@@ -165,6 +188,8 @@ class PostgreSQLCognitionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
+        await PostgreSQLEventDataRightsParticipant().apply(transaction, request)
+        await PostgreSQLFocusDataRightsParticipant().apply(transaction, request)
         await transaction.execute(
             """UPDATE armi.cognitive_episodes
                SET status='cancelled',failure_code='DATA-RIGHTS-CANCELLED'

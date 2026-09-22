@@ -2471,7 +2471,6 @@ ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_owner_key UNIQUE (
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_version_key UNIQUE (subject_id,mind_version);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_previous_fkey FOREIGN KEY (previous_revision_id,subject_id) REFERENCES armi.mind_revisions(mind_revision_id,subject_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
 ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_admin_change_fkey FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 CREATE INDEX mind_revisions_payload_trgm_idx ON armi.mind_revisions USING gin ((semantic_payload::text) armi_extensions.gin_trgm_ops);
 
@@ -2676,8 +2675,20 @@ ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_origin_opp
 ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_origin_admin_fkey FOREIGN KEY (origin_admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 CREATE UNIQUE INDEX activity_revisions_origin_opportunity_idx ON armi.activity_revisions (origin_opportunity_id) WHERE revision_no=1;
 
-ALTER TABLE armi.mood_assessments ADD CONSTRAINT mood_assessments_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
-ALTER TABLE armi.mood_assessments ADD CONSTRAINT mood_assessments_episode_fk FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
-ALTER TABLE armi.mood_assessments ADD CONSTRAINT mood_assessments_revision_fk FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
-ALTER TABLE armi.cognitive_episodes ADD CONSTRAINT cognitive_episodes_mood_fk FOREIGN KEY (mood_assessment_id) REFERENCES armi.mood_assessments(mood_assessment_id);
-CREATE INDEX mood_assessments_subject_created_idx ON armi.mood_assessments(subject_id,created_at DESC,mood_assessment_id DESC);
+ALTER TABLE armi.event_appraisals ADD CONSTRAINT event_appraisals_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.event_appraisals ADD CONSTRAINT event_appraisals_episode_fk FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+ALTER TABLE armi.event_appraisals ADD CONSTRAINT event_appraisals_revision_fk FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
+ALTER TABLE armi.event_appraisals ADD CONSTRAINT event_appraisals_mind_revision_fk FOREIGN KEY (mind_revision_id, subject_id) REFERENCES armi.mind_revisions(mind_revision_id, subject_id);
+ALTER TABLE armi.cognitive_episodes ADD CONSTRAINT cognitive_episodes_mood_fk FOREIGN KEY (event_appraisal_id) REFERENCES armi.event_appraisals(event_appraisal_id);
+CREATE INDEX event_appraisals_subject_created_idx ON armi.event_appraisals(subject_id,created_at DESC,event_appraisal_id DESC);
+
+CREATE INDEX focus_revisions_payload_trgm_idx ON armi.focus_revisions USING gin ((semantic_payload::text) armi_extensions.gin_trgm_ops);
+
+CREATE UNIQUE INDEX focus_revisions_current_key ON armi.focus_revisions (subject_id) WHERE is_current;
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_pkey PRIMARY KEY (focus_revision_id);
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_owner_key UNIQUE (focus_revision_id,subject_id);
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_version_key UNIQUE (subject_id,focus_version);
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_previous_fkey FOREIGN KEY (previous_revision_id,subject_id) REFERENCES armi.focus_revisions(focus_revision_id,subject_id);
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.cognitive_episodes(subject_commit_id);
+ALTER TABLE armi.focus_revisions ADD CONSTRAINT focus_revisions_admin_change_fkey FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;

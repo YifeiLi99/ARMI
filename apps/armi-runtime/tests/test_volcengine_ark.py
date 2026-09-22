@@ -72,7 +72,7 @@ def test_codex_prompt_assembles_identity_and_task_once():
         "maintain_subjective_memory",
         "perform_subject_self_check",
         "reflect_self",
-        "reflect_mind",
+        "reflect_focus",
         "reflect_prompt",
     ],
 )
@@ -113,14 +113,14 @@ def test_reflection_only_receives_its_target_submission_version():
 
     document = {
         "compiled_context": {
-            "purpose": "reflect_mind",
+            "purpose": "reflect_focus",
             "layers": [
                 {
                     "items": [
                         {
-                            "item_kind": "mind",
-                            "content": '{"schema_kind":"armi.mind.v1","thoughts":[]}',
-                            "source": {"reference": "hidden-mind-id", "version": 12},
+                            "item_kind": "focus",
+                            "content": '{"schema_kind":"armi.focus","concerns":[]}',
+                            "source": {"reference": "hidden-focus-id", "version": 12},
                         },
                         {
                             "item_kind": "self",
@@ -137,7 +137,7 @@ def test_reflection_only_receives_its_target_submission_version():
     }
     text = context_messages(document)[0]["content"]
     assert '"expected_version": 12' in text
-    assert "armi.mind.v1" in text
+    assert "armi.focus" in text
     assert "hidden-" not in text
 
 

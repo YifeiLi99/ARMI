@@ -77,9 +77,9 @@ from armi_relationship.api import (
 )
 from armi_runtime.composition.candidate_validation_tool import (
     bootstrap_activity_cognition,
+    bootstrap_focus_cognition,
     bootstrap_material_cognition,
     bootstrap_memory_cognition,
-    bootstrap_mind_cognition,
     bootstrap_prompt_cognition,
     bootstrap_relationship_cognition,
     bootstrap_sleep_cognition,
@@ -167,7 +167,7 @@ def DeterministicCandidateValidator(
         relationship_cognition=bootstrap_relationship_cognition(),
         sleep_cognition=bootstrap_sleep_cognition(),
         subject_state_cognition=bootstrap_subject_state_cognition(),
-        mind_cognition=bootstrap_mind_cognition(),
+        focus_cognition=bootstrap_focus_cognition(),
     )
 
 
@@ -288,14 +288,7 @@ def test_empty_relationship_slot_is_not_loaded_as_persisted_relationship() -> No
 
 
 def _mind_state(*, thoughts: list[str] | None = None) -> dict[str, object]:
-    return {
-        "schema_kind": "armi.mind",
-        "understanding": [],
-        "attention": [],
-        "thoughts": thoughts or [],
-        "wishes": [],
-        "motivations": [],
-    }
+    return {"schema_kind": "armi.focus", "concerns": []}
 
 
 @pytest.mark.parametrize("operation", ["create", "update", "resolve", "release"])
@@ -340,7 +333,7 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     draft = next(
         item.candidate
         for item in result.change_set.owner_drafts
-        if item.owner == "mind"
+        if item.owner == "focus"
     )
     assert draft.concern_changes[0].operation == operation
     assert 2 in draft.basis_ordinals and 3 in draft.basis_ordinals
@@ -354,56 +347,19 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     assert rejected.change_set is None
 
 
-def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
-    from armi_mind.api import initial_mind_state
-
+def test_main_model_cannot_write_mind_state_or_appraisal():
     context, bases = _fixture()
     context = replace(
         context,
         purpose="consider_creator_input",
         candidate_contract_kind="armi.creator-cognitive-act-candidate",
-        current_components=tuple(
-            (
-                owner,
-                version,
-                initial_mind_state() if owner is CandidateOwner.MIND else payload,
-            )
-            for owner, version, payload in context.current_components
-        ),
     )
-    appraisal = {
-        "object_ref": "ctx:2",
-        "basis_refs": ["ctx:2"],
-        "desired_outcome": "understand",
-        "significance": "important",
-        "discrepancy": "substantial",
-        "understanding": "unexplained",
-        "progress": "stalled",
-        "opportunity": "available",
-        "resolution": "open",
-        "explanation": "A synthetic observation has no explanation yet",
-    }
-    validator = DeterministicCandidateValidator(context)
-    result = validator.validate(
-        {"decision": {"kind": "no_change"}, "mind_appraisals": [appraisal]}, bases=bases
-    )
-    assert result.status is CandidateValidationStatus.ACCEPTED
-    assert result.change_set is not None
-    draft = next(
-        item.candidate
-        for item in result.change_set.owner_drafts
-        if item.owner == "mind"
-    )
-    assert draft.mind_appraisals[0].object_id == bases[1].source_ref
-    assert draft.expected_version == 1
-    rejected = validator.validate(
-        {
-            "decision": {"kind": "no_change"},
-            "mind_appraisals": [{**appraisal, "object_ref": "ctx:999"}],
-        },
-        bases=bases,
-    )
-    assert rejected.change_set is None
+    for field in ("mind_appraisals", "mind_change"):
+        result = DeterministicCandidateValidator(context).validate(
+            {"decision": {"kind": "no_change"}, field: []}, bases=bases
+        )
+        assert result.status is CandidateValidationStatus.REJECTED
+        assert result.change_set is None
 
 
 def _mood_state() -> dict[str, object]:
@@ -590,7 +546,7 @@ def _fixture():
         ids[6],
         (
             (CandidateOwner.SELF, 1, rfc8785.dumps(cast(Any, _self_state()))),
-            (CandidateOwner.MIND, 1, rfc8785.dumps(cast(Any, _mind_state()))),
+            (CandidateOwner.FOCUS, 1, rfc8785.dumps(cast(Any, _mind_state()))),
             (CandidateOwner.MOOD, 1, rfc8785.dumps(cast(Any, _mood_state()))),
             (
                 CandidateOwner.LIFE_MODE,
@@ -620,8 +576,8 @@ def _fixture():
         ),
         CandidateBasis(
             3,
-            "mind_life_mode",
-            "mind",
+            "focus",
+            "focus",
             ids[9],
             1,
             "subjective_state",
@@ -1280,7 +1236,7 @@ def _maintenance_fixture(
         MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
         MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
         MaintenancePhase.REFLECT_SELF: "reflect_self",
-        MaintenancePhase.REFLECT_MIND: "reflect_mind",
+        MaintenancePhase.REFLECT_FOCUS: "reflect_focus",
         MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
     }[phase]
     maintenance = replace(
@@ -1366,7 +1322,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
                 "issue_kind": "incomplete_internal_responsibility",
                 "internal_summary": "一个内部承诺与当前活动状态不一致。",
                 "creator_visible_summary": "有一项内部责任需要后续关注。",
-                "issue_target": "mind",
+                "issue_target": "focus",
             }
         ),
         bases=bases,
@@ -1378,7 +1334,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
     decision = _sleep(result.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
     assert decision.creator_visible_problem == "有一项内部责任需要后续关注。"
-    assert decision.issue_target == "mind"
+    assert decision.issue_target == "focus"
 
     no_issue = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "no_issue", "summary": "未发现需要提交的问题。"}),
@@ -1424,7 +1380,7 @@ def test_owner_reflection_updates_only_its_target_with_expected_version() -> Non
 
 
 def test_owner_reflection_rejects_cross_owner_candidate() -> None:
-    context, bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_MIND)
+    context, bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_FOCUS)
     result = DeterministicCandidateValidator(context).validate(
         _bytes(
             {
@@ -1445,16 +1401,32 @@ def test_owner_reflection_rejects_cross_owner_candidate() -> None:
 
 
 def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
-    mind_context, mind_bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_MIND)
+    mind_context, mind_bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_FOCUS)
     mind = DeterministicCandidateValidator(mind_context).validate(
         _bytes(
             {
                 "kind": "update",
-                "target": "mind",
+                "target": "focus",
                 "summary": "补充本次自检后形成的理解。",
                 "basis_refs": ["ctx:4", "ctx:3"],
                 "expected_version": 1,
-                "next_state": _mind_state(thoughts=["以后先核对承诺的当前状态。"]),
+                "next_state": None,
+                "concern_changes": [
+                    {
+                        "operation": "create",
+                        "question": "以后如何核对承诺状态",
+                        "reason": "复查形成问题",
+                        "resolution_condition": "找到正式状态来源",
+                        "understanding": "目前未解决",
+                        "state": "open",
+                        "review": {
+                            "kind": "review",
+                            "after_seconds": 300,
+                            "reason": "稍后复查",
+                        },
+                        "basis_refs": ["ctx:4"],
+                    }
+                ],
             }
         ),
         bases=mind_bases,
@@ -1463,7 +1435,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
     assert mind.change_set is not None
     assert _subject_states(mind.change_set) == ()
     assert (
-        len([item for item in mind.change_set.owner_drafts if item.owner == "mind"])
+        len([item for item in mind.change_set.owner_drafts if item.owner == "focus"])
         == 1
     )
     assert _prompts(mind.change_set) == ()

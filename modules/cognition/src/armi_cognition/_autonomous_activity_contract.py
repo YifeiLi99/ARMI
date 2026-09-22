@@ -6,7 +6,6 @@ import json
 from typing import Annotated, Any, Literal, cast
 
 from armi_kernel.application import ModelViolation
-from armi_mind.api import ConcernChange, GroundedMindChange, MindAppraisal
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -21,6 +20,9 @@ from ._activity_internal_work_contract import (
     InternalWorkProgressDecision,
 )
 from ._creator_cognitive_act_contract import RecordKind
+from ._focus.api import (
+    ConcernChange,
+)
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
@@ -28,8 +30,6 @@ AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate"
 
 
 class _StrictModel(BaseModel):
-    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
-    mind_change: GroundedMindChange | None = None
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     expression: Text65536 | None = None

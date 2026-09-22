@@ -5,17 +5,24 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
+from datetime import datetime
 from typing import cast
 from uuid import UUID
 
 from armi_experience.api import AcceptedExperienceSnapshot, ExperienceReadPort
-from armi_kernel.application import CandidateViolation
+from armi_kernel.application import (
+    CandidateViolation,
+    ConsiderationSignal,
+    PsychologicalContextItem,
+)
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
     PostgreSQLTransaction,
     cancel_cognition_work,
 )
 
+from ._focus._postgresql import PostgreSQLFocusOwner
+from ._focus.api import focus_context_items
 from .api import (
     CognitionContextEpisodeDraft,
     CognitionContextEpisodeSnapshot,
@@ -25,7 +32,45 @@ from .api import (
 
 
 class PostgreSQLCognitionContextLifecycle:
-    __slots__ = ("_experiences", "_maintenance")
+    __slots__ = ("_experiences", "_focus", "_maintenance")
+
+    async def focus_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        purpose: str,
+        signals: tuple[ConsiderationSignal, ...],
+    ) -> tuple[PsychologicalContextItem, ...]:
+        head = await self._focus.current_head(transaction, subject_id=subject_id)
+        return focus_context_items(
+            head.canonical_state,
+            revision_id=head.current_revision_id,
+            version=head.version,
+            as_of=as_of,
+            purpose=purpose,
+            signals=signals,
+        )
+
+    async def focus_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event_purpose: str,
+        event_ref: UUID,
+        event_at: datetime,
+        activity_id: UUID | None,
+    ) -> tuple[ConsiderationSignal, ...]:
+        return await self._focus.consideration_signals(
+            transaction,
+            subject_id=subject_id,
+            event_purpose=event_purpose,
+            event_ref=event_ref,
+            event_at=event_at,
+            activity_id=activity_id,
+        )
 
     async def accept_mood(
         self,
@@ -39,9 +84,9 @@ class PostgreSQLCognitionContextLifecycle:
         row = await (
             await transaction.execute(
                 """UPDATE armi.cognitive_episodes
-               SET base_subject_version=%s,mood_assessment_id=%s
+               SET base_subject_version=%s,event_appraisal_id=%s
                WHERE cognitive_episode_id=%s AND status='preparing'
-                 AND base_subject_version=%s AND mood_assessment_id IS NULL
+                 AND base_subject_version=%s AND event_appraisal_id IS NULL
                RETURNING cognitive_episode_id""",
                 (subject_version, assessment_id, episode_id, previous_subject_version),
             )
@@ -56,6 +101,7 @@ class PostgreSQLCognitionContextLifecycle:
     ) -> None:
         self._experiences = experiences
         self._maintenance = maintenance
+        self._focus = PostgreSQLFocusOwner()
 
     async def active_opportunities(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -190,7 +236,7 @@ class PostgreSQLCognitionContextLifecycle:
                     )
         elif row is not None and draft.purpose in {
             "reflect_self",
-            "reflect_mind",
+            "reflect_focus",
             "reflect_prompt",
         }:
             await transaction.execute(
@@ -291,7 +337,7 @@ class PostgreSQLCognitionContextLifecycle:
                       compiled_context_digest=%s,
                       context_items=%s::jsonb, prepared_at=statement_timestamp()
                WHERE cognitive_episode_id=%s AND status='preparing'
-                 AND mood_assessment_id IS NOT NULL
+                 AND event_appraisal_id IS NOT NULL
                RETURNING cognitive_episode_id, opportunity_id, subject_id, scene_id,
                          context_party_id, purpose, base_subject_version,
                          base_state_epoch, bundle_activation_id, mechanism_identity,

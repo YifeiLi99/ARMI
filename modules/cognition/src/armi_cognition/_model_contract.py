@@ -20,11 +20,6 @@ from armi_kernel.application import (
     estimate_cost,
 )
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN, Digest
-from armi_mind.api import (
-    ConcernChange,
-    MindAppraisal,
-    MindState,
-)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -60,6 +55,9 @@ from ._creator_cognitive_act_contract import (
     creator_voice_act_schema,
     parse_creator_cognitive_act,
     parse_creator_voice_act,
+)
+from ._focus.api import (
+    ConcernChange,
 )
 from ._prompt_instructions import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
@@ -232,19 +230,14 @@ class ExperiencePayload(_StrictModel, frozen=True):
 class ComponentChangePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["component_changes"]
     fact_class: FactClass
-    owner: Literal["self", "mind", "life_mode"]
+    owner: Literal["self", "life_mode"]
     expected_version: Annotated[int, Field(gt=0)]
-    next_state: SelfState | MindState | LifeModeState
+    next_state: SelfState | LifeModeState
 
 
 class SelfChangePayload(ComponentChangePayload, frozen=True):
     owner: Literal["self"]
     next_state: SelfState
-
-
-class MindChangePayload(ComponentChangePayload, frozen=True):
-    owner: Literal["mind"]
-    next_state: MindState
 
 
 class LifeModeChangePayload(ComponentChangePayload, frozen=True):
@@ -253,7 +246,7 @@ class LifeModeChangePayload(ComponentChangePayload, frozen=True):
 
 
 type ComponentChangeWire = Annotated[
-    SelfChangePayload | MindChangePayload | LifeModeChangePayload,
+    SelfChangePayload | LifeModeChangePayload,
     Field(discriminator="owner"),
 ]
 
@@ -384,7 +377,6 @@ class CandidateUncertainty(_StrictModel, frozen=True):
 
 
 class CognitionCandidate(_StrictModel, frozen=True):
-    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     schema_kind: Literal["armi.cognition-candidate"]
     base: CandidateBase
@@ -418,10 +410,6 @@ def candidate_schema(
     *,
     purpose: str | None = None,
 ) -> dict[str, Any]:
-    if version == "armi.autonomy-check-candidate":
-        from ._autonomy_check_contract import autonomy_check_schema
-
-        return autonomy_check_schema()
     if version == "armi.owner-reflection-candidate":
         from ._reflection_contract import owner_reflection_schema
 
@@ -719,11 +707,6 @@ def load_active_binding(
                 "response_contract_kind": VISUAL_OBSERVATION_CANDIDATE_VERSION,
                 "output_token_limit": 768,
             },
-            "consider_autonomy_check": {
-                "profile": "autonomy_check",
-                "response_contract_kind": "armi.autonomy-check-candidate",
-                "output_token_limit": 64,
-            },
             "consider_requested_visual_observation": {
                 "profile": "creator_cognitive_act",
                 "response_contract_kind": CREATOR_COGNITIVE_ACT_VERSION,
@@ -744,8 +727,8 @@ def load_active_binding(
                 "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 2048,
             },
-            "reflect_mind": {
-                "profile": "reflect_mind",
+            "reflect_focus": {
+                "profile": "reflect_focus",
                 "response_contract_kind": "armi.owner-reflection-candidate",
                 "output_token_limit": 2048,
             },

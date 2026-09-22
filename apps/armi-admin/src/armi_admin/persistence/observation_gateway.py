@@ -14,7 +14,12 @@ from uuid import UUID
 
 from armi_artifact_store.api import ArtifactAdminPort
 from armi_attention.api import OpportunityAdminPort, project_signal_status
-from armi_cognition.api import CognitionAdminPort
+from armi_cognition.api import (
+    CognitionAdminPort,
+    FocusAdminReadPort,
+    focus_attention_projection,
+    focus_signals,
+)
 from armi_effect.api import EffectAdminPort
 from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
@@ -161,6 +166,7 @@ class AdminObservationGateway:
         "_evidence",
         "_expression",
         "_factory",
+        "_focus",
         "_interaction",
         "_materials",
         "_mind",
@@ -187,6 +193,7 @@ class AdminObservationGateway:
         mood: MoodAdminReadPort,
         subject_state: SubjectStateAdminReadPort,
         mind: MindAdminReadPort,
+        focus: FocusAdminReadPort,
         sleep: SleepAdminReadPort,
     ) -> None:
         self._factory = factory
@@ -202,6 +209,7 @@ class AdminObservationGateway:
         self._mood = mood
         self._subject_state = subject_state
         self._mind = mind
+        self._focus = focus
         self._sleep = sleep
 
     def environment(self) -> dict[str, object] | None:
@@ -249,10 +257,17 @@ class AdminObservationGateway:
             )
             if mode == "status" and result.get("observed_at") is not None:
                 mind = self._mind.current(uow.transaction, private=True)
+                focus = self._focus.current(uow.transaction, private=True)
                 signals = mind_signals(json.dumps(mind.payload).encode("utf-8"))
+                signals += focus_signals(json.dumps(focus.payload).encode("utf-8"))
                 project_signal_status(result, signals, consumed)
-                result["concerns"] = mind_attention_projection(
+                result["motivations"] = mind_attention_projection(
                     json.dumps(mind.payload).encode("utf-8"),
+                    as_of=datetime.fromisoformat(str(result["observed_at"])),
+                    consumed=consumed,
+                )
+                result["concerns"] = focus_attention_projection(
+                    json.dumps(focus.payload).encode("utf-8"),
                     as_of=datetime.fromisoformat(str(result["observed_at"])),
                     consumed=consumed,
                 )
@@ -428,6 +443,7 @@ class AdminObservationGateway:
             components = self._subject_state.current_components(tx, private=private)
             mood = self._mood.current_component(tx, private=private)
             mind = self._mind.current(tx, private=private)
+            focus = self._focus.current(tx, private=private)
             material = (
                 self._materials.private_snapshot(tx, subject.subject_id)
                 if private
@@ -462,6 +478,14 @@ class AdminObservationGateway:
                 "privacy_scope": mind.privacy_scope,
                 **({"payload": _safe(mind.payload)} if private else {}),
             },
+        )
+        cast(list[object], result["components"]).append(
+            {
+                "component_kind": "focus",
+                "component_version": focus.version,
+                "privacy_scope": focus.privacy_scope,
+                **({"payload": _safe(focus.payload)} if private else {}),
+            }
         )
         if material is not None:
             result["materials"] = [

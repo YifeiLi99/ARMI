@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
-from armi_mind.api import ConcernChange, MindAppraisal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
+from ._focus.api import (
+    ConcernChange,
+)
 from ._strict_model_json import strict_model_value
 
 VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate"
@@ -39,13 +41,11 @@ class VisualExperience(_StrictModel):
 
 
 class IgnoreVisualObservation(_StrictModel):
-    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["ignore"]
 
 
 class AcceptVisualExperience(_StrictModel):
-    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["experience"]
     experience: VisualExperience

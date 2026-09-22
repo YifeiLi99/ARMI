@@ -32,8 +32,8 @@ from armi_memory.api import (
     MemoryCognitionPort,
     MemoryReadPort,
 )
-from armi_mind.api import MindCognitionPort, MindReadPort
-from armi_mood.api import MoodReadPort
+from armi_mind.api import MindReadPort
+from armi_mood.api import MoodAssessmentReadPort, MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
 from armi_runtime_foundation import (
@@ -50,7 +50,23 @@ from ._context_candidate_read import PostgreSQLContextCandidateRead
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._context_schema import bind_context_schema
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
+from ._event_store import (
+    EventAppraisalStorePort,
+    PostgreSQLAppraisalRead,
+    PostgreSQLEventAppraisalStore,
+)
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
+from ._focus.api import FocusCognitionPort, FocusReadPort
+from ._focus.bootstrap import (
+    FocusModule,
+    bootstrap_focus,
+    bootstrap_focus_admin_content,
+    bootstrap_focus_admin_correction,
+    bootstrap_focus_admin_read,
+    bootstrap_focus_cognition,
+    bootstrap_focus_data_rights,
+    bootstrap_focus_recovery,
+)
 from ._model_application import ModelPipeline
 from ._model_contract import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
@@ -99,6 +115,16 @@ from .api import (
 )
 
 
+def bootstrap_event_appraisals(
+    *, mood: MoodReadPort, mind: MindReadPort
+) -> EventAppraisalStorePort:
+    return PostgreSQLEventAppraisalStore(mood, mind)
+
+
+def bootstrap_appraisal_read() -> MoodAssessmentReadPort:
+    return PostgreSQLAppraisalRead()
+
+
 def bootstrap_cognition_validator(
     context: CandidateValidationContext,
     *,
@@ -109,7 +135,7 @@ def bootstrap_cognition_validator(
     relationship: RelationshipCognitionPort,
     sleep: SleepCognitionPort,
     subject_state: SubjectStateCognitionPort,
-    mind: MindCognitionPort,
+    focus: FocusCognitionPort,
 ) -> CandidateValidator:
     return DeterministicCandidateValidator(
         context,
@@ -120,7 +146,7 @@ def bootstrap_cognition_validator(
         relationship_cognition=relationship,
         sleep_cognition=sleep,
         subject_state_cognition=subject_state,
-        mind_cognition=mind,
+        focus_cognition=focus,
     )
 
 
@@ -231,9 +257,9 @@ def bootstrap_cognition_candidate(
     sleep_cognition: SleepCognitionPort,
     sleep_read: SleepReadPort,
     subject_state_cognition: SubjectStateCognitionPort,
-    mind_cognition: MindCognitionPort,
+    focus_cognition: FocusCognitionPort,
     subject_state_read: SubjectStateReadPort,
-    mind_read: MindReadPort,
+    focus_read: FocusReadPort,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
     validation_diagnostic: Callable[[CandidateValidationDiagnostic], None]
@@ -270,9 +296,9 @@ def bootstrap_cognition_candidate(
         sleep_cognition=sleep_cognition,
         sleep_read=sleep_read,
         subject_state_cognition=subject_state_cognition,
-        mind_cognition=mind_cognition,
+        focus_cognition=focus_cognition,
         subject_state_read=subject_state_read,
-        mind_read=mind_read,
+        focus_read=focus_read,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
         validation_diagnostic=validation_diagnostic,
@@ -294,8 +320,10 @@ __all__ = (
     "GENERIC_COGNITION_INSTRUCTIONS",
     "CandidateOwner",
     "ContextCandidateReadPorts",
+    "FocusModule",
     "autonomous_schema_for_context",
     "bind_context_schema",
+    "bootstrap_appraisal_read",
     "bootstrap_cognition_admin",
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_context",
@@ -309,6 +337,14 @@ __all__ = (
     "bootstrap_cognition_validator",
     "bootstrap_context_candidate_read",
     "bootstrap_dialogue_decision_record",
+    "bootstrap_event_appraisals",
+    "bootstrap_focus",
+    "bootstrap_focus_admin_content",
+    "bootstrap_focus_admin_correction",
+    "bootstrap_focus_admin_read",
+    "bootstrap_focus_cognition",
+    "bootstrap_focus_data_rights",
+    "bootstrap_focus_recovery",
     "bootstrap_sleep_decision_record",
     "build_candidate_schema",
     "build_model_request_bytes",

@@ -13,9 +13,9 @@ WITH parents AS (
       ON verification.codex_verification_id=evidence.codex_verification_id
     LEFT JOIN armi.effects effect ON effect.effect_id=verification.effect_id
     UNION ALL
-    SELECT 'mood', m.mood_assessment_id, o.root_opportunity_id, 'episode',
+    SELECT 'cognition', m.event_appraisal_id, o.root_opportunity_id, 'episode',
            m.cognitive_episode_id, m.status, m.completed_at, m.provider_calls
-    FROM armi.mood_assessments m
+    FROM armi.event_appraisals m
     JOIN armi.cognitive_episodes e USING (cognitive_episode_id)
     JOIN armi.opportunities o USING (opportunity_id)
     UNION ALL

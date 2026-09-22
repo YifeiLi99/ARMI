@@ -22,11 +22,6 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _OWNER = DataRightsOwnerIdentity("mood")
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
-        "mood_assessments",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.mood_assessments AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "mood_revisions",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.mood_revisions AS source ORDER BY to_jsonb(source)::text""",
@@ -44,31 +39,16 @@ class PostgreSQLMoodDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        episodes = tuple(
-            item.ref for item in request.related_refs if item.kind == "cognition"
-        )
-        references = [
-            str(request.party_id),
-            *(str(item.ref) for item in request.related_refs),
+        rows = [
+            (item.ref,)
+            for item in request.related_refs
+            if item.kind == "event-appraisal"
         ]
-        rows = await (
-            await transaction.execute(
-                """SELECT mood_assessment_id FROM armi.mood_assessments
-                   WHERE cognitive_episode_id=ANY(%s::uuid[])
-                      OR source_ref::text=ANY(%s::text[])
-                      OR EXISTS (
-                          SELECT 1 FROM jsonb_path_query(
-                              context_document, '$.context.layers[*].items[*].source.reference'
-                          ) reference
-                          WHERE reference #>> '{}' = ANY(%s::text[])
-                      )
-                   ORDER BY mood_assessment_id""",
-                (list(episodes), references, references),
-            )
-        ).fetchall()
         return DataRightsDiscoveryContribution(
             _OWNER,
-            related_refs=tuple(DataRightsRelatedRef("mood", row[0]) for row in rows),
+            related_refs=tuple(
+                DataRightsRelatedRef("event-appraisal", row[0]) for row in rows
+            ),
             targets=tuple(
                 DataRightsTargetRef("mood", row[0], "redact", "subject_continuity")
                 for row in rows
@@ -81,17 +61,9 @@ class PostgreSQLMoodDataRightsParticipant:
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
         event_ids = tuple(
-            item.ref for item in request.related_refs if item.kind == "mood"
+            item.ref for item in request.related_refs if item.kind == "event-appraisal"
         )
         if request.order_kind == "delete_related" and event_ids:
-            await transaction.execute(
-                """UPDATE armi.mood_assessments
-                   SET appraisal=NULL,answers=NULL,context_document=NULL,
-                       data_rights_redacted_at=statement_timestamp()
-                   WHERE mood_assessment_id=ANY(%s::uuid[])
-                     AND data_rights_redacted_at IS NULL""",
-                (list(event_ids),),
-            )
             # Preserve accumulated affect while removing the event's retrievable content.
             await transaction.execute(
                 """UPDATE armi.mood_revisions r SET semantic_payload=jsonb_set(

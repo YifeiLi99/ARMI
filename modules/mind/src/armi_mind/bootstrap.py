@@ -6,7 +6,6 @@ from armi_data_rights.api import DataRightsParticipant
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._admin import PostgreSQLMindAdmin
-from ._application import MindApplication
 from ._data_rights import PostgreSQLMindDataRightsParticipant
 from ._postgresql import PostgreSQLMindOwner
 from ._recovery import MindRecoveryParticipant
@@ -15,8 +14,7 @@ from .api import (
     MindAdminCorrectionPort,
     MindAdminReadPort,
     MindBirthPort,
-    MindCognitionPort,
-    MindCommitPort,
+    MindEventPort,
     MindReadPort,
 )
 
@@ -24,8 +22,7 @@ from .api import (
 @dataclass(frozen=True, slots=True)
 class MindModule:
     read: MindReadPort
-    cognition: MindCognitionPort
-    commit: MindCommitPort
+    event: MindEventPort
     birth: MindBirthPort
     _owner: PostgreSQLMindOwner
 
@@ -37,13 +34,8 @@ class MindModule:
 
 
 def bootstrap_mind() -> MindModule:
-    application = MindApplication()
     owner = PostgreSQLMindOwner()
-    return MindModule(owner, application, owner, owner, owner)
-
-
-def bootstrap_mind_cognition() -> MindCognitionPort:
-    return MindApplication()
+    return MindModule(owner, owner, owner, owner)
 
 
 def bootstrap_mind_admin_correction() -> MindAdminCorrectionPort:
@@ -72,7 +64,6 @@ __all__ = (
     "bootstrap_mind_admin_content",
     "bootstrap_mind_admin_correction",
     "bootstrap_mind_admin_read",
-    "bootstrap_mind_cognition",
     "bootstrap_mind_data_rights",
     "bootstrap_mind_recovery",
 )

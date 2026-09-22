@@ -23,7 +23,7 @@ class CognitionPurpose(StrEnum):
     CONSIDER_VISUAL_OBSERVATION = "consider_visual_observation"
     CONSIDER_REQUESTED_VISUAL_OBSERVATION = "consider_requested_visual_observation"
     REFLECT_SELF = "reflect_self"
-    REFLECT_MIND = "reflect_mind"
+    REFLECT_FOCUS = "reflect_focus"
     REFLECT_PROMPT = "reflect_prompt"
 
 
@@ -42,7 +42,7 @@ _SCENELESS = frozenset(
         CognitionPurpose.PERFORM_SUBJECT_SELF_CHECK,
         CognitionPurpose.CONSIDER_VISUAL_OBSERVATION,
         CognitionPurpose.REFLECT_SELF,
-        CognitionPurpose.REFLECT_MIND,
+        CognitionPurpose.REFLECT_FOCUS,
         CognitionPurpose.REFLECT_PROMPT,
     }
 )

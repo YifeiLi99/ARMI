@@ -25,7 +25,7 @@ const PHASE_LABELS: Record<string, string> = {
   memory_maintenance: "记忆维护",
   self_check: "状态检查",
   reflect_self: "自我反思",
-  reflect_mind: "心智反思",
+  reflect_focus: "心智反思",
   reflect_prompt: "指导语反思",
   life_quiet: "安静阶段",
   resume_check: "恢复检查",

@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import jsonschema
 import pytest
-from armi_cognition.api import CognitionSchemaDocument, parse_autonomy_check
+from armi_cognition.api import CognitionSchemaDocument
 from armi_kernel import load_yaml_file
 from armi_kernel.application import ModelResultStatus, ModelViolation
 from armi_runtime.adapters.model.structured import (
@@ -33,7 +33,6 @@ def _schema(version, purpose=None):
 
 
 _PURPOSE_KINDS = {
-    "consider_autonomy_check": "wait",
     "consider_creator_input": "no_change",
     "consider_life_query_result": "no_change",
     "consider_requested_visual_observation": "no_change",
@@ -44,7 +43,7 @@ _PURPOSE_KINDS = {
     "maintain_subjective_memory": "memory_unchanged",
     "perform_subject_self_check": "no_issue",
     "reflect_self": "no_change",
-    "reflect_mind": "no_change",
+    "reflect_focus": "no_change",
     "reflect_prompt": "no_change",
     "consider_codex_result": "no_change",
     "consider_codex_task": "no_change",
@@ -62,11 +61,6 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     version = manifest["purpose_profiles"][purpose]["response_contract_kind"]
     kind = _PURPOSE_KINDS[purpose]
     value: dict[str, Any] = {"kind": kind}
-    if purpose == "consider_autonomy_check":
-        value = {"engage": False}
-        jsonschema.validate(value, candidate_schema(version))
-        assert parse_autonomy_check(value).engage is False
-        return
     if version == "armi.creator-cognitive-act-candidate":
         value = {
             "decision": {**value, "content": None},
@@ -108,7 +102,6 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     }:
         if purpose == "consider_autonomous_life":
             value["expression"] = None
-            value["mind_change"] = None
     elif version == "armi.cognition-candidate":
         value = {
             "schema_kind": version,
@@ -147,7 +140,6 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         "armi.visual-observation-candidate",
     }:
         value["concern_changes"] = []
-        value["mind_appraisals"] = []
     jsonschema.validate({"candidate": value}, schema)
     parsed = parse_candidate(
         json.dumps(value, ensure_ascii=False).encode(),
@@ -190,7 +182,7 @@ def test_other_human_social_dependencies_are_structural(missing_experience):
         )
 
 
-@pytest.mark.parametrize("purpose", ["reflect_self", "reflect_mind", "reflect_prompt"])
+@pytest.mark.parametrize("purpose", ["reflect_self", "reflect_focus", "reflect_prompt"])
 def test_reflection_schema_excludes_other_owner_targets(purpose):
     version = "armi.owner-reflection-candidate"
     target = purpose.removeprefix("reflect_")
@@ -382,7 +374,6 @@ def test_reflection_keeps_evidence_without_requiring_a_change(kind):
 def test_reply_memory_shape_is_visible_to_provider(invalid):
     value = {
         "concern_changes": [],
-        "mind_appraisals": [],
         "decision": {"kind": "reply", "content": "Hello"},
         "experience": {
             "first_person_gist": "A greeting",

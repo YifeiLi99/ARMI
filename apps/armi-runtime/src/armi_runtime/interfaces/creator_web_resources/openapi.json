@@ -782,6 +782,13 @@
       "ConsiderationSignalItem": {
         "additionalProperties": false,
         "properties": {
+          "basis_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Basis Refs",
+            "type": "array"
+          },
           "condition_version": {
             "title": "Condition Version",
             "type": "string"
@@ -797,17 +804,27 @@
           "owner": {
             "enum": [
               "mind",
-              "mood"
+              "mood",
+              "focus"
             ],
             "title": "Owner",
             "type": "string"
+          },
+          "priority": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "number"
           },
           "reason": {
             "enum": [
               "review_time_reached",
               "creator_input",
               "activity_result",
-              "affective_change"
+              "affective_change",
+              "threshold_reached",
+              "material_change",
+              "opportunity_restored"
             ],
             "title": "Reason",
             "type": "string"
@@ -818,7 +835,9 @@
           "object_ref",
           "condition_version",
           "reason",
-          "eligible_at"
+          "eligible_at",
+          "priority",
+          "basis_refs"
         ],
         "title": "ConsiderationSignalItem",
         "type": "object"
@@ -4532,7 +4551,7 @@
           "memory_maintenance",
           "self_check",
           "reflect_self",
-          "reflect_mind",
+          "reflect_focus",
           "reflect_prompt",
           "life_quiet",
           "resume_check",
@@ -4588,39 +4607,48 @@
         ],
         "type": "string"
       },
-      "MotivationAttentionStatus": {
+      "MindConsideration": {
         "additionalProperties": false,
         "properties": {
-          "assessment": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Assessment",
-            "type": "object"
-          },
-          "condition_state": {
-            "enum": [
-              "scheduled",
-              "due",
-              "consumed",
-              "waiting_for_event"
-            ],
-            "title": "Condition State",
-            "type": "string"
-          },
-          "level": {
-            "title": "Level",
+          "attention_weight": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Attention Weight",
             "type": "number"
           },
-          "motivation_id": {
-            "title": "Motivation Id",
-            "type": "string"
+          "condition_version": {
+            "minimum": 0.0,
+            "title": "Condition Version",
+            "type": "integer"
           },
-          "object_kind": {
-            "title": "Object Kind",
-            "type": "string"
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
           },
-          "review_at": {
+          "importance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MindDimension"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "reason": {
             "anyOf": [
               {
                 "type": "string"
@@ -4629,32 +4657,182 @@
                 "type": "null"
               }
             ],
-            "title": "Review At"
-          },
-          "tendency": {
-            "enum": [
-              "explore",
-              "contact",
-              "change_activity",
-              "none"
-            ],
-            "title": "Tendency",
-            "type": "string"
-          },
-          "uncertain": {
-            "title": "Uncertain",
-            "type": "boolean"
+            "title": "Reason"
           }
         },
         "required": [
-          "motivation_id",
-          "object_kind",
-          "assessment",
-          "tendency",
-          "level",
-          "uncertain",
-          "review_at",
-          "condition_state"
+          "importance",
+          "priority",
+          "attention_weight",
+          "condition_version",
+          "reason",
+          "eligible"
+        ],
+        "title": "MindConsideration",
+        "type": "object"
+      },
+      "MindDimension": {
+        "additionalProperties": false,
+        "properties": {
+          "basis_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Basis Refs",
+            "type": "array"
+          },
+          "choice": {
+            "enum": [
+              "level_0",
+              "level_1",
+              "level_2",
+              "level_3",
+              "level_4",
+              "unknown",
+              "not_applicable"
+            ],
+            "title": "Choice",
+            "type": "string"
+          },
+          "known_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known At"
+          },
+          "quality": {
+            "enum": [
+              "known",
+              "unknown",
+              "not_applicable"
+            ],
+            "title": "Quality",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "quality",
+          "choice",
+          "known_at",
+          "basis_refs"
+        ],
+        "title": "MindDimension",
+        "type": "object"
+      },
+      "MindObjectSource": {
+        "additionalProperties": false,
+        "properties": {
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "source_ref": {
+            "title": "Source Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_kind",
+          "source_ref"
+        ],
+        "title": "MindObjectSource",
+        "type": "object"
+      },
+      "MotivationAttentionStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "association": {
+            "enum": [
+              "active",
+              "satisfied",
+              "released",
+              "invalid",
+              "unknown"
+            ],
+            "title": "Association",
+            "type": "string"
+          },
+          "consideration": {
+            "$ref": "#/components/schemas/MindConsideration"
+          },
+          "domains": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MindDimension"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "propertyNames": {
+              "enum": [
+                "autonomy",
+                "competence",
+                "relatedness",
+                "exploration",
+                "engagement"
+              ]
+            },
+            "title": "Domains",
+            "type": "object"
+          },
+          "evaluated_at": {
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "object": {
+            "$ref": "#/components/schemas/MindObjectSource"
+          },
+          "opportunity": {
+            "enum": [
+              "available",
+              "later",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Opportunity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "object",
+          "evaluated_at",
+          "as_of",
+          "association",
+          "opportunity",
+          "domains",
+          "consideration"
         ],
         "title": "MotivationAttentionStatus",
         "type": "object"
@@ -5894,7 +6072,8 @@
             "enum": [
               "self",
               "mind",
-              "life_mode"
+              "life_mode",
+              "focus"
             ],
             "title": "Kind",
             "type": "string"
@@ -5903,7 +6082,8 @@
             "enum": [
               "armi.self",
               "armi.mind",
-              "armi.life-mode"
+              "armi.life-mode",
+              "armi.focus"
             ],
             "title": "Schema Kind",
             "type": "string"

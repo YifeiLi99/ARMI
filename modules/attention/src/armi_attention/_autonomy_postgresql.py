@@ -209,9 +209,12 @@ class PostgreSQLAutonomyOwner:
             schedule = schedule.settled(acted=False)
         await transaction.execute(
             """UPDATE armi.opportunities SET current_disposition='resolved',
-                   resolved_at=statement_timestamp(),resolution_reason_code='LIFE-AUTONOMY-CHECKED'
+                   resolved_at=statement_timestamp(),resolution_reason_code=%s
                WHERE opportunity_id=%s""",
-            (opportunity_id,),
+            (
+                "LIFE-AUTONOMY-SCHEDULED" if engage else "LIFE-AUTONOMY-NOT-SCHEDULED",
+                opportunity_id,
+            ),
         )
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,

@@ -179,7 +179,7 @@ class PostgreSQLSleepCommit:
             "memory_maintenance": "maintain_subjective_memory",
             "self_check": "perform_subject_self_check",
             "reflect_self": "reflect_self",
-            "reflect_mind": "reflect_mind",
+            "reflect_focus": "reflect_focus",
             "reflect_prompt": "reflect_prompt",
         }[decision.phase.value]
         if (

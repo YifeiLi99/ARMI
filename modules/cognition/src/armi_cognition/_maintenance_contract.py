@@ -75,7 +75,7 @@ class SelfCheckIssueFound(_StrictModel, frozen=True):
     ]
     internal_summary: Text512
     creator_visible_summary: Text512
-    issue_target: Literal["self", "mind", "prompt"]
+    issue_target: Literal["self", "focus", "prompt"]
 
 
 MaintenanceWorkCandidate = Annotated[

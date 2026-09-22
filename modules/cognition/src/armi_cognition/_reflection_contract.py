@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Annotated, Literal, cast
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
-from armi_mind.api import MIND_APPRAISAL_INSTRUCTIONS, MindAppraisal
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -16,7 +15,8 @@ from pydantic import (
 )
 
 from ._dialogue_contract import ContextRef, DialogueSubjectPromptChange
-from ._model_contract import MindState, SelfState
+from ._focus.api import FOCUS_COGNITIVE_INSTRUCTIONS, ConcernChange
+from ._model_contract import SelfState
 from ._strict_model_json import strict_model_value
 
 OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate"
@@ -25,13 +25,7 @@ REFLECT_SELF_INSTRUCTIONS = """\
 # 本轮自我反思任务与边界
 
 你只负责 Self Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 SelfState 候选及其当前 expected_version。不得修改 Mind、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
-REFLECT_MIND_INSTRUCTIONS = (
-    "# 本轮内心反思任务与边界\n\n"
-    "你只负责 Mind Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 MindState 候选及其当前 expected_version，"
-    "同时可提交 mind_appraisals。不得修改 Self、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"
-    + "\n\n# 动机评价\n\n"
-    + MIND_APPRAISAL_INSTRUCTIONS
-)
+REFLECT_FOCUS_INSTRUCTIONS = FOCUS_COGNITIVE_INSTRUCTIONS
 REFLECT_PROMPT_INSTRUCTIONS = """\
 # 本轮方法反思任务与边界
 
@@ -48,14 +42,14 @@ class _StrictModel(BaseModel, frozen=True):
 
 class OwnerReflectionCandidate(_StrictModel, frozen=True):
     kind: Literal["no_change", "update"]
-    target: Literal["self", "mind", "prompt"]
+    target: Literal["self", "focus", "prompt"]
     summary: Annotated[
         str,
         StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN),
     ]
     basis_refs: tuple[ContextRef, ...] = Field(max_length=8)
     expected_version: int | None
-    next_state: SelfState | MindState | DialogueSubjectPromptChange | None
+    next_state: SelfState | DialogueSubjectPromptChange | None
 
 
 class NoReflectionChange(OwnerReflectionCandidate, frozen=True):
@@ -76,10 +70,10 @@ class SelfReflectionUpdate(_ReflectionUpdate, frozen=True):
     next_state: SelfState = Field(...)
 
 
-class MindReflectionUpdate(_ReflectionUpdate, frozen=True):
-    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
-    target: Literal["mind"]
-    next_state: MindState = Field(...)
+class FocusReflectionUpdate(_ReflectionUpdate, frozen=True):
+    concern_changes: tuple[ConcernChange, ...] = Field(min_length=1, max_length=4)
+    target: Literal["focus"]
+    next_state: None = None
 
 
 class PromptReflectionUpdate(_ReflectionUpdate, frozen=True):
@@ -91,7 +85,7 @@ class PromptReflectionUpdate(_ReflectionUpdate, frozen=True):
 ReflectionWire = Annotated[
     NoReflectionChange
     | Annotated[
-        SelfReflectionUpdate | MindReflectionUpdate | PromptReflectionUpdate,
+        SelfReflectionUpdate | FocusReflectionUpdate | PromptReflectionUpdate,
         Field(discriminator="target"),
     ],
     Field(discriminator="kind"),
@@ -103,8 +97,8 @@ class NoSelfChange(NoReflectionChange, frozen=True):
     target: Literal["self"]
 
 
-class NoMindChange(NoReflectionChange, frozen=True):
-    target: Literal["mind"]
+class NoFocusChange(NoReflectionChange, frozen=True):
+    target: Literal["focus"]
 
 
 class NoPromptChange(NoReflectionChange, frozen=True):
@@ -115,8 +109,8 @@ _TARGET_ADAPTERS: dict[str, TypeAdapter[OwnerReflectionCandidate]] = {
     "self": TypeAdapter(
         Annotated[NoSelfChange | SelfReflectionUpdate, Field(discriminator="kind")]
     ),
-    "mind": TypeAdapter(
-        Annotated[NoMindChange | MindReflectionUpdate, Field(discriminator="kind")]
+    "focus": TypeAdapter(
+        Annotated[NoFocusChange | FocusReflectionUpdate, Field(discriminator="kind")]
     ),
     "prompt": TypeAdapter(
         Annotated[NoPromptChange | PromptReflectionUpdate, Field(discriminator="kind")]
@@ -144,7 +138,7 @@ def parse_owner_reflection(
 
 __all__ = (
     "OWNER_REFLECTION_CANDIDATE_VERSION",
-    "REFLECT_MIND_INSTRUCTIONS",
+    "REFLECT_FOCUS_INSTRUCTIONS",
     "REFLECT_PROMPT_INSTRUCTIONS",
     "REFLECT_SELF_INSTRUCTIONS",
     "OwnerReflectionCandidate",

@@ -87,7 +87,7 @@ def test_jev_once_with_no_redirect_or_fallback(monkeypatch, status):
             timeout_seconds=20,
         )
         with provider_meter_scope(
-            ProviderMeterScope(save, PriceCatalog(()), "mood.evaluate")
+            ProviderMeterScope(save, PriceCatalog(()), "event.appraise")
         ):
             return await appraiser.evaluate(
                 assessment=assessment,

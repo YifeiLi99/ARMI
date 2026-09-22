@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Annotated, Literal, cast
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
-from armi_mind.api import ConcernChange, MindAppraisal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import (
@@ -13,6 +12,9 @@ from ._creator_appraisal_contract import (
 )
 from ._creator_changes import CreatorChange, change_context_refs
 from ._dialogue_contract import ContextRef
+from ._focus.api import (
+    ConcernChange,
+)
 from ._prompt_instructions import creator_instructions
 from ._strict_model_json import strict_model_value
 
@@ -89,7 +91,6 @@ Decision = Annotated[
 
 
 class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
-    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     decision: Decision
     experience: CreatorAppraisalExperience | None = None

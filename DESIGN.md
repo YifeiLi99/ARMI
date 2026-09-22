@@ -1,6 +1,6 @@
 # ARMI 当前实现设计
 
-心情入口为 `mood.evaluate → cognition.context.prepare → cognition.execute`。Jev 只评价事实及其对既有目标、价值和关系的意义，本地算法形成二维整体感受与事件情绪，Mood 先独立提交；主模型读取新心情，无心情写入能力。题目、研究依据与工程参数见[心情正文](docs/02-系统设计/05-情绪、心情与私有心情窗.md)。
+心理事件入口为 `event.appraise → cognition.context.prepare → cognition.execute`。Jev 以一批问题评价同一事件和冻结旧状态，Mood/Mind 各自计算并提交；主认知读取新状态，无 Mood/Mind 写入能力。Mood 题库、情绪算法与时间参数保持不变。
 
 数据库仅保留有长期用途的事实与保证正确性所需的当前状态。Web 搜索步骤、检索索引逐次生成过程写诊断日志；索引本体、来源版本、完整性和任务重试仍由原表负责。每个 Runtime 的启动恢复状态、起止时间和阻塞数直接保存在 runtime_instances，沿用实例 ID 关联恢复结果；过程与统计写日志，不另建恢复流水表或追加重复的启动检查审计。
 
@@ -28,7 +28,7 @@ Context 的来源与版本只保存于 cognitive_context_items；不再重复保
 
 关系的稳定身份、对象、当前标记与历次内容统一保存在 relationship_revisions；同一主体、对象和范围仅有一条当前关系。隐私墓碑阻止后续使用该关系，历史涂除规则保持不变。
 
-Mood 的每次事件处理保存在 `mood_assessments`，包含稳定事件标识、受权限约束的冻结输入、评价、概率、用量及真实成功/不变/失败/中断状态。`mood_revisions` 保存独立提交的心理状态和来源。两者由 Mood 独占；失败评价不伪造新心情。
+Cognition 拥有共享 `event_appraisals`，保存事件幂等标识、冻结输入与版本、两部分结果和一次 Provider 用量；Mood/Mind 分别拥有各自 revision。失败不伪造心理无变化，有效部分可独立保留。
 
 记忆、生活资料和活动各自只保留一张历史表，同时承载稳定身份与当前标记。首条历史的生成标识为外部引用提供稳定目标；修改、删除及投影锁先锁首条历史，再读取当前内容，防止切换当前记录时漏掉并发修改。当前修订号承担并发校验，原始创建时间不随修改推进；隐私删除继续清理全部相关历史，资料的更新时间保留实际消费者语义。
 
@@ -140,7 +140,7 @@ Windows 安装版按当前用户部署，不注册系统服务。私有 Python�
 
 记忆修订直接保存关联记忆与关联类型；关系修订直接保存来源经历与依据类型，维持每次修订最多一个关联、来源外键和重新建立关系时的经历防复用检查。主体记录保存经历整理游标，由 Runtime 端口在同一提交事务中推进；只有最终反思提交成功才推进已处理范围，中断不跳过未整理经历。
 
-Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 44 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
+Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并发语义、恢复检查、数据权利参与和 Admin 校正端口。`tools/schema_ownership.py` 把当前 46 张表逐一映射到 owner，并扫描 production SQL；跨 owner 改变必须通过公共端口与 Subject Commit，不能 join/update 别人的表绕过不变量。
 
 ## 5. 主体与连续性
 
@@ -148,7 +148,7 @@ Owner 同时拥有本类领域合同、表、DML、head/revisions、幂等与并
 
 出生只在已安装的空白生活环境中执行一次。当前 birth contract 建立：电子人 identity、唯一 primary Creator、空名字/兴趣/目标/偏好/价值、固定人格锚点、中性的二维 Mood 基线 和清醒 life mode。Birth manifest 不能嵌入经历、关系、自我描述等后天生活内容。
 
-Runtime 拥有跨 Owner 的统一主体版本；Subject State 只拥有 Self 与生活模式，Mind 独立拥有理解、注意、想法、愿望、动机和持续关注。Mood 在主认知前独立提交并推进主体版本，随后重新冻结 Context；主认知中的其余多 Owner 变化仍在一次 Subject Commit 中原子提交。
+Runtime 拥有跨 Owner 的统一主体版本；Subject State 只拥有 Self 与生活模式，Mind 拥有数值心理状态与考虑信号，Cognition Focus 拥有持续关注与未实施意向。Mood/Mind 在主认知前独立提交并推进主体版本，随后重新冻结 Context；主认知中的其余多 Owner 变化仍在一次 Subject Commit 中原子提交。
 
 ## 6. 输入、Context 与认知
 
@@ -160,7 +160,7 @@ Creator HTTP/CLI、other-human 控制面、QQ、live voice、视觉/Web/Codex �
 
 ### 6.2 Context
 
-Context 以 purpose profile 冻结，而不是拼接所有历史。四层为 stable prefix、scope context、conversation history、turn tail；可选 section 闭集为 runtime truth、purpose、Self、Mind、Mood、life mode、scene、relationship、memory、activity、material、evidence、capability、prompt。
+Context 以 purpose profile 冻结，而不是拼接所有历史。四层为 stable prefix、scope context、conversation history、turn tail；可选 section 闭集为 runtime truth、purpose、Self、Mind、Mood、Focus、life mode、scene、relationship、memory、activity、material、evidence、capability、prompt。
 
 Profile 同时声明 required、optional、retrieval、forbidden：Creator 文本可召回 memory/material；Creator voice 当前只召回 memory；other-human 禁止 Creator prompt 和私人生活召回；视觉、Codex、睡眠各有更窄范围。最近对话只取同一 scene 最多八个已接纳真实事件。外部文件在快照事务外读取，最终 Context bytes、digest、来源与版本作为 artifact 固定。
 
@@ -176,7 +176,7 @@ Creator 文本、实时语音和 Codex 结果在 Provider 边界渲染为可读�
 
 冻结资料格式与模型可读文本分离：旧提示词格式不要求旧数据兼容分支，也不需要重建主体数据库。当前对方的 Creator 身份依据 owner 提供的 `sender_party_kind`，不能把场合的主要对方 `primary_party_id` 当作 Creator；非创造者私聊也会以当前对方为场合主要对方。非创造者对话的回复、事件评价和关系变化共用 2048 token 输出预算，与普通 Creator 对话一致。所有认知合同统一使用完整 JSON Schema 与 `strict: true`，非创造者对话不例外。结构化输出异常时排查 Schema、供应商结构化输出能力及适配，不得以关闭 strict 绕过；ARMI 的 JSON、合同、引用、owner 与原子提交校验也不放宽，不截取或修补非法返回。当前通用候选合同确实要求的 `candidate_base`、显式受托任务的来源 ID，以及专项反思的目标版本，仅在相应用途中单列提交字段；反思只有目标状态保留重建完整候选所需的 schema 字段，其余来源 ID、版本和摘要不重复展示。所有程序绑定、校验及原子提交语义保持不变。
 
-Mind 的持久动机与每轮注意窗口分开：每轮最多选入四条未结束动机作为可裁剪背景，与当前证据/机会来源有明确对象关联的优先；自主生活其次优先未消费的复查信号，其余按最近更新排序。四条与单轮最多四项动机评价对应，不是生命周期记录上限，也不宣称最近更新即语义相关。未选中的动机不删除、不自动结束，其复查信号仅在真正进入冻结 Context 后才消费。后续评价若把新证据放在 `object_ref`，但在 `basis_refs` 明确引用唯一同类未结束动机，则沿原动机对象更新；引用多个同类动机时须明确选择目标，否则拒绝歧义。不同对象且无明确延续依据的新愿望仍可建立，不用文本相似度猜测合并。
+持久心理状态和关注与每轮注意窗口分开：优先当前正式关联对象，其次到期信号，再轮换其余对象。长期对象数不限制；Focus 与数值动机合计最多四个重点对象进入主认知，未选中对象不删除。只有进入完整认知的冻结条件才消费，本地检查不提前消费。
 
 记忆整理的首个 cognitive_episodes 保存冻结范围与最多 64 条有序 Experience ID，后续记忆整理和反思通过 maintenance_source_episode_id 关联它，不另建批次与来源清单表。经历内容始终经 Experience Owner 按当前可见性读取；进度游标只在最终 reflect_prompt 提交时推进。认知中断即结束，冻结范围作为长期整理进度保留，由新机会创建新认知使用，不续算旧候选。
 
@@ -190,19 +190,19 @@ Mind 的持久动机与每轮注意窗口分开：每轮最多选入四条未结
 
 Attention 持有唯一调度状态。没有待处理人类输入、活动认知、实时语音或睡眠维护，回复 Effect（含待执行状态） 已结束且安静满 60 秒后，创建 `consider_autonomy_check`。首次间隔 60 秒，连续不行动为 120、300 秒，此后保持 300 秒；完整认知产生行动或活动推进时恢复 60 秒，等待和延期继续退避。人类输入、工具结果、到期活动与关切可缩短等待，信号按来源版本消费，轻判启动至少相隔 60 秒；普通工作完成与时钟刷新不触发额外认知，不补跑积压轮次。
 
-轻判复用当前主文本 Provider，关闭思考、温度 0、输出上限 64 tokens，严格只接受根对象 `{"engage":true/false}`。精简 Context 从现有 Owner 投影人格、自我、心情、生活模式、活动、最多四条动机/关切、最近一轮对话及能力状态；保留来源版本，显示省略数量，不加载完整记忆、资料正文、工具说明或调用总结模型。文本按值裁剪，不能截断序列化 JSON 后让模型猜测字段。整个 Provider 输入以 1,500 tokens 为验收目标。
+自主检查在完成联合 Jev 评价后，根据新 Mind 信号、正式活动和 Focus 复查条件进行本地判断，不调用主模型，不生成模型候选。精简 Context 仍保留来源和版本，检查结果只是调度事实。
 
-自主轻判前先评价源事件心情；轻判与完整认知共用该事件的 Mood 回执，不能重复刺激。其后分别走 Context 准备 → `cognition.execute`。轻判只提交 Attention 决定；`engage=true` 原子创建唯一后续完整认知，以 root/predecessor 关联同一机会。后续重新检查主体版本并准备完整 Context。
+自主检查与后续完整认知复用来源事件的共享 Jev 回执，不重复刺激或计费。检查只提交 Attention 调度；符合条件时原子创建唯一后续认知，并重新核验主体版本、冻结 Context。未调度不等于主体决定沉默。
 
 人类输入取消尚未提交的两段自主认知和排队机会；已提交效果遵守原执行合同。后台工具未返回不阻止其它活动，但不能重启同一任务。技术失败和不行动分开记录：临时失败按 60→120→300 秒创建新机会，配置/鉴权失败等待配置修正；最多五次格式重试只作用于同一冻结请求，传输 unknown、业务拒绝与状态冲突不重试，失败始终在聊天渠道静默。重启取消旧判断和候选，不恢复旧轮次。
 
 `autonomy_plans` 只存阶段、调度、退避和最近判断关联；两段用量从 `provider_usage_calls` 汇总，不建第二份计数账。CLI/MCP、管理状态及 Creator 页面显示相同合同。只维护当前数据库及配置合同，不提供旧库与旧配置转换。
 
-虚拟一天持续无事为 289 次轻判、零次完整认知。2026-09-21 隔离 DeepSeek Flash 场景覆盖招呼已答、无事、可推进活动、等待工具、自主愿望：20 次轻判全部格式正确并符合预期；8 轮完整认知中 7 轮在格式重试内通过 Owner 校验，1 轮传输 unknown 按约定停止。精简投影对齐正式 Owner 字段后再测 20 次轻判，最大输入 676 tokens，平均耗时 0.78 秒；另用长人格、自我、多活动和 12 条关注的裁剪投影做 4 次压力验证，全部通过，最大输入 1,413 tokens。回执价格条目未匹配，费用为 unpriced，不宣称实测费用；这不是持续一天实机或 QQ 交付验收。复现入口为 `tools/verify_live_autonomy_check.py --live --environment-root <已授权环境> --output <新目录>`，`--checks-only` 可只验证轻判，原始返回与用量留在输出目录，不提交主体或发送消息。
+2026-09-21 的主模型轻判实验属于已删除链路，历史延迟与输入用量不能用于当前本地调度。当前离线测试检查不调用主模型、未调度的真实状态与完整认知中的条件消费；真实 Jev 延迟和费用仍待授权校准。
 
 ### 6.4 Subject Commit
 
-Creator 文本和语音候选直接绑定为内部提议及 Owner 草稿，只构造一次公共认知候选。行动、经历、评价和资料/关系变化共用这次绑定，不经过旧版对话决定模型或复制候选再补字段。Self、Mind、Prompt 的整体反思及既有记忆维护由各自 purpose 入口处理；保留当前合同中的语义评价与 concern changes。
+Creator 文本和语音候选直接绑定为内部提议及 Owner 草稿，只构造一次公共认知候选。行动、经历、评价和资料/关系变化共用这次绑定，不经过旧版对话决定模型或复制候选再补字段。Self、Focus、Prompt 的反思及既有记忆维护由各自 purpose 入口处理；保留当前合同中的语义评价与 concern changes。
 
 ```text
 frozen Context + expected subject/owner versions
@@ -236,11 +236,11 @@ Creator 文本与语音的资料、关系和承诺变化使用同一按操作区
 
 其他人对话 v9 将决定与 social 经历组成部分分开：关系变化必须附着经历，非空关系变化及承诺字段依赖由类型表达。沉默、延期可以附带说明，Expression 保存原决定种类并独立登记表达。空白和 NUL 由同源 Schema 与结构解析提前拒绝；UTF-8 制品字节容量仍由 Expression Owner 拒绝，诊断定位 `decision.content`。主动表达并入自主生活的一次认知；旧主动联系合同不再有执行解析器。
 
-通用认知按 Owner 区分状态载荷，主模型不能提交 Mood 变化。自主生活共同提交有界行动和可选表达；资料交 Material，动机与关注交 Mind。具体活动的复查、等待与恢复条件保留。反思和维护在生成 Schema 与解析时选择当前 Owner／阶段类型。
+通用认知按 Owner 区分状态载荷，主模型不能提交 Mood 或 Mind 变化。自主生活共同提交有界行动和可选表达；资料交 Material，关注与未实施意向交 Cognition Focus。具体活动的复查、等待与恢复条件保留。反思和维护在生成 Schema 与解析时选择当前 Owner／阶段类型。
 
 拒绝、需要信息等决定附带表达时，Expression 同时保留原决定类型与表达意图；是否有表达意图决定发送，不能把原决定改记为 reply。资料、经历和评价不因是否表达而丢弃。
 
-认知文本的非空白、NUL 与长度规则直接定义在字段类型中，供应商 Schema 不得删掉约束。Mood 使用独立离散评价合同；普通对话 Schema 不包含旧 appraisal 或 event_* 字段。Mind 文本、语音别名、资料字节限制继续由各自合同和 Owner 保护。
+认知文本的非空白、NUL 与长度规则直接定义在字段类型中，供应商 Schema 不得删掉约束。Mood 使用独立离散评价合同；普通对话 Schema 不包含旧 appraisal 或 event_* 字段。Focus 变更、语音别名、资料字节限制继续由各自合同和 Owner 保护。
 
 Schema 格式合法不等于业务提交成立。引用、版本、权限、资源容量与互相冲突的业务变化仍由责任 Owner 拒绝；Mood 独立校验 Jev 返回字段、离散选项、概率及用量，失败即终止依赖它的认知，不修补回答、不切换模型。
 
@@ -250,17 +250,17 @@ Schema 格式合法不等于业务提交成立。引用、版本、权限、资�
 
 | purpose／入口 | 合法工作及责任 Owner |
 |---|---|
-| `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Mind 关注、Experience、Memory、Relationship、Material 与 Expression |
+| `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Cognition Focus 关注、Experience、Memory、Relationship、Material 与 Expression |
 | Creator 实时语音 | 与 Creator 文本相同的业务动作，Expression 保留 60 字表达上限 |
 | `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Relationship 与 Expression；沉默和延期可附带说明 |
 | `consider_autonomous_life` | 创建、推进、等待、完成或放弃活动，沉默／延期／需要信息，独立表达，以及已开启的查询、搜索、视觉和 Codex；Activity、Material、Expression 及工具 Owner |
 | `consider_sleep` | 入睡、保持清醒、延期、缺少信息；Sleep |
 | `consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 |
-| `consider_visual_observation` | 忽略或形成视觉经历、更新关注；Experience、Mind |
+| `consider_visual_observation` | 忽略或形成视觉经历、更新关注；Experience、Cognition Focus |
 | `maintain_subjective_memory` | 记忆保持、巩固、淡化、遗忘、重解释；Memory、Sleep |
 | `perform_subject_self_check` | 保持或发现内部问题；Sleep |
 | `reflect_self` | 保持或更新 Self |
-| `reflect_mind` | 保持或更新 Mind |
+| `reflect_focus` | 保持或更新 Cognition Focus |
 | `reflect_prompt` | 保持或更新 Prompt |
 
 所有对话处理技术失败统一静默结束，包括 Context、模型、候选校验、输入识别、Web、Codex、视觉和发送失败，以及五次格式生成耗尽、发送 unknown。Interaction 的统一失败入口只记录错误码与关联输入/机会的诊断日志，不生成错误正文、系统通知或发送 Effect（含待执行状态），不伪装为正常主体决定。原 Owner 保留真实失败状态、原始返回、计量和诊断，管理端仍可查询。实时语音只结束当前失败轮次，不播报错误、不转文本补发。
@@ -307,25 +307,33 @@ Embedding、关键词索引、列表投影、游标和前端缓存可删除重�
 
 每次判断都要有明确结果：需要更新心情评价，或经判断无需更新。心情不变是合法结果，不要求每次产生新的情绪、增加刺激或改写心情数值。候选字段缺失、未执行、失败或结果未知不能充当“已经判断不变”；重复思考旧事仍须判断，但不能据此重复叠加同一刺激。
 
-正式链路为 `mood.evaluate → cognition.context.prepare → cognition.execute`。独立 Jev 适配器每个事件只调用一次，固定 `jev-1.13.0`，失败或中断不回退；完成心情提交后重新冻结认知 Context。同一来源与版本复用评价，轮询及 Mood 通知不产生事件。
+正式链路为 `event.appraise → cognition.context.prepare → cognition.execute`。独立 Jev 适配器每个事件只调用一次，固定 `jev-1.13.0`，失败或中断不回退；完成心情提交后重新冻结认知 Context。同一来源与版本复用评价，轮询及 Mood 通知不产生事件。
 
 Mood 在主认知之前独立结算，主模型失败不撤销已经形成的心情。模型调用在事务外，结算重验租约、主体与 Mood 版本；停止后不续算旧任务。主模型候选已删除 Mood 写入字段，反思不再绕开 Jev。
 
 ### 处境评价合同与算法
 
-已确认的替换方向（2026-09-22）：Mind 使用 Jev 事实评价与本地算法，与 Mood 基于同一事件的旧状态并行计算。三个心理需要分别保存满足与受挫；探索与投入作为两组认知状态，不称为统一五维测评量表。持续问题和未实施意向归 Cognition，主模型最终不再写 Mind。下文旧 `MindAppraisal` 和自主轻判描述仍是尚未替换的运行链路，不能据此声称联合评价已在 Runtime 生效。
+Mind 与 Mood 基于同一事件、同一冻结旧状态共享一次 Jev 请求，各自校验并独立提交。Cognition 拥有 `event_appraisals` 协调记录、冻结版本、两部分结果引用和唯一 Provider 用量；通过公开 port 请求两个 owner 写入，不跨域写表。合法结果不因另一部分失败或后续主模型失败而撤销。两部分均成功或明确无变化后，才重新冻结 Context 并进入主认知。技术失败、中断和 Provider unknown 不重试、不补答，不记作心理无变化。
 
-数值合同已在 [Mind 对象算法](modules/mind/src/armi_mind/_state_algorithm.py) 与[对象题库](modules/mind/src/armi_mind/_event_questions.py)实现：探索 `G*C*max(V,P,0.5*N)`；投入适配 `M*(1-max(U,O))`；调整投入 `max(1-M,U,O)`；联系需要只来自有依据的期望联系缺口。需要不随时间耗空，只有排序权重使用 30 分钟半衰期。五档映射、0.6 激活、0.4 重置及 0.25 实质变化阈值集中于 `MindParameters`，都是未实测校准的工程初值。同对象替换、不按消息累计；未知保留旧事实并暂停对应触发依据，不能借未知造成的低分重新激活旧高分。空对象集合表示出生未评价；每次至多四对象、72 道新增题，不限制长期对象数量。
+Mind 采用三类心理需要和两组认知状态，不称为统一五维量表：
 
-[Cognition 联合结果合同](modules/cognition/src/armi_cognition/_event_appraisal.py)保持 Mood 题目不变，并独立解析两部分回答。Jev 适配器的 `evaluate_event` 已提供单次联合传输与冻结来源检查；目前仍由原 `evaluate` 服务正式 Mood 调度。待完成的是共享协调记录及两个 owner 独立提交、旧 Mind 内容迁往 Cognition、Attention 本地判断、相关数据库和接口整体切换。当前离线测试只能证明算法、题库和传输合同，不能证明后台心理行为或真实 Jev 评价可靠性。
+| 领域 | 评价与输出 |
+|---|---|
+| 自主 | 自愿认同/选择支持、强迫/意愿冲突，分别形成满足与受挫 |
+| 胜任 | 有效应对/掌握、自身应对受阻，分别形成满足与受挫 |
+| 联结 | 关心/接纳、排斥/关系受阻、期望联系缺口；未聊天时长不直接产生联系需求 |
+| 探索 | 信息缺口 G、可理解性 C、信息价值 V、学习进展 P、新奇性 N；动机为 `G*C*max(V,P,0.5*N)` |
+| 投入 | 意义 M、刺激不足 U、过载 O；适配为 `M*(1-max(U,O))`，调整动机为 `max(1-M,U,O)` |
 
-变量依据：[基本心理需要满足与受挫](https://selfdeterminationtheory.org/wp-content/uploads/2015/01/2014_Chen-et-al._need-satisfaction.pdf)、[PACE](https://pmc.ncbi.nlm.nih.gov/articles/PMC6891259/)、[学习进展实验](https://www.nature.com/articles/s41467-021-26196-w)、[MAC 投入模型](https://www.erinwestgate.com/uploads/7/6/4/1/7641726/westgatewilson.psychreview.2018.pdf)。论文支持变量与假设，不提供这里的电子人数值公式；真实校准需要另行授权的隔离环境与费用。
+情境锚定的五档 Choice 映射 0、0.25、0.5、0.75、1，另含 unknown 和 not_applicable。每次最多四个正式来源对象，每对象最多十五项变量和重要性、关联状态、当前机会三项条件，最多新增 72 题。满足与受挫独立，概率和置信度不作为强度。有意义的休息不因简单就算刺激不足，平台故障不能直接解释为主体无能。
 
-Mind 的 `MindAppraisal` 已接入正式认知，模型返回对象/依据引用、期望结果（理解、交流、有意义投入）、重要性、差距、理解程度、进展、行动机会、结束状态及解释，不填写情绪名称或强度增量。Mind 保存 `motivation_states`；Owner 绑定身份、时间、版本并在共同 Subject Commit 中计算。每轮最多四项评价，不限制跨轮保留的未结束动机数量，不能因积累到四条就拒绝整个认知提交。同一事项的后续消息与再次尝试应引用已有 current_motivation 更新，新消息作为依据；不按文字相似度自动合并不同对象。普通文字替换与管理修正不能清空已有动机。初次观察也可以确认当前愿望已满足，不补造过去的需求。
+同对象新证据替换评价；重复事件或原样评价不累加强度。未知保留旧事实并标记质量，未知指标不参与主动触发。出生为空且未评价；状态持续至证据或来源改变，不随时间制造需要。只有近期注意权重按 30 分钟半衰期衰减，查询只读。映射、阈值与半衰期集中于 [MindParameters](modules/mind/src/armi_mind/_state_algorithm.py)，均为尚未实测校准的工程初值。
 
-Mind 公开投影进入 Context；开放且有非零目标的动机在 30 分钟后产生普通 `review_time_reached` 信号，由 Attention 合并与消费。未评价时保留状态，结束后退出当前 Context，历史保留。HTTP/CLI/MCP 自主状态共用 `motivations` 投影。没有第二次模型评价或独立调度器。
+考虑优先级为重要性乘探索、调整投入、三项受挫和联系需求中的最大值。首次达到 0.6 可产生对象级 ConsiderationSignal；降至 0.4 后重新达到阈值、动机相对已触发条件变化至少 0.25、机会恢复或明确复查到期，才重新具备资格。同一条件只消费一次；评价版本或消息数量不重新触发。多个动机合并，主认知最多收到四个重点对象。用户输入、活动结果和正式复查保留自身入口，不受心理分数筛选。
 
-联系愿望通过上述同一路径进入自主认知；ARMI 可以表达，也可以继续等待。选择表达时使用已配置的 QQ 出口、Expression、Effect（含待执行状态） 和发送核验，不以动机数值直接触发消息。安装升级不补造联系愿望，也不提前改写已有自主计划。隔离机制验收与安装版自然产生联系并成功交付分别记录，QQ 在线不等于后一项已经通过。
+变量依据：[基本心理需要满足与受挫](https://selfdeterminationtheory.org/wp-content/uploads/2015/01/2014_Chen-et-al._need-satisfaction.pdf)、[PACE](https://pmc.ncbi.nlm.nih.gov/articles/PMC6891259/)、[学习进展实验](https://www.nature.com/articles/s41467-021-26196-w)、[MAC 投入模型](https://www.erinwestgate.com/uploads/7/6/4/1/7641726/westgatewilson.psychreview.2018.pdf)。这些研究支持变量与因果假设，不提供这里的电子人数值公式。[Jev 官方合同](https://docs.typesafe.ai/primitives)支持共享输入、各题独立的批量评价。题目见 [对象题库](modules/mind/src/armi_mind/_event_questions.py)。
+
+Mind 提供领域、对象、依据、时间、质量和考虑信号，不提供总分、消息、工具参数、权限或采样参数。主认知可以继续、换方法、联系、等待或放下；真实效果经 Expression/Activity/Effect 登记、执行和核验。
 
 Mood 以 Scherer 的 16 个评价维度组织离散问题，按已有目标展开；收益、损失及刺激正负性质分别保留。unknown、不适用与明确无影响分别表示。Jev 返回概率和置信度独立保留，不作为情绪强度。完整题目、锚点、研究依据见 [心情设计正文](docs/02-系统设计/05-情绪、心情与私有心情窗.md)。
 
@@ -337,17 +345,9 @@ Mood 以 Scherer 的 16 个评价维度组织离散问题，按已有目标展�
 
 整体感受仅包含愉快度和激活度，范围 [-1,1]。短期贡献半衰期 300 秒，慢状态恢复半衰期 3600 秒，短期与慢状态按 0.7/0.3 合成后 tanh 饱和。解析时间更新保证查询频率不改变结果；激活度不表示疲劳。权重和时间常数属于待校准工程选择，不是人类心理准确率。
 
-实验策略为：目标强度 = 100 × 重要性 × 差距 × 与期望结果有关的条件。理解使用未解释程度，投入使用停滞/重复程度，交流使用关系愿望的差距；可行机会单独保留，不把不能行动当作没有愿望。重要性映射 0/0.25/0.65/1，差距映射 0/0.3/1；部分理解取 0.5，停滞取 0.6。状态按实际时间以 30 分钟半衰期趋近有界目标，重复评价不累加刺激；初始强度为 0，满足/放下立即结束。已明确无差距、无重要性、已理解或持续有效投入时，目标为零，即使其他维度未知也不能保留旧增长目标；没有此类明确依据的未知评价才保留已有目标并标记不确定。这些数值是待检验的工程假设，不是心理学常数。更改评估频率不得改变恒定处境下的轨迹，时间本身不创建未满足愿望。
+离线验证分开检查算法、评价可靠性与后台行为。`tools/test_mind.py` 回放冻结 Choice 和连续轨迹，不调用模型。`tools/experiment_psychological_context.py --output-dir <新目录>` 默认生成同一批合成场景的 Mood 与 Mood+Mind 请求、固定预期关系和汇总。真实运行须另给专用隔离实验目录及 `--live --allow-billable`；不读取本机主体环境。保存全部返回及失败、题数、输入 tokens、用量、p50/p95 延迟；不能定价的费用明确标 unknown，须对账才能判断成本。所有模式主 LLM 调用数为零。尚未进行真实 Jev 校准，Schema 通过不代表心理效果已验证。
 
-Mind 与 Mood 分别拥有评价语义。Mind 仍由主模型提交动机评价；Mood 题目只进入 Jev 适配器。Context 权限筛选在模型调用前落实，提示不替代隐私隔离。
-
-`tools/experiment_psychological_context.py --mode appraisal` 仅实验 Mind 评价。Mood 的本地合成实验沿用正式题目、返回校验、本地算法与时间演化，前一步结果进入下一步；不提交当前主体。实验配置、脚本与专用工具测试保存在被 Git 忽略的本地实验区域，不作为正式运行入口交付。
-
-`--mode trajectory` 使用正式自主候选合同，在内存中保留 Mind Owner 准备后的状态和版本，通过 Owner 投影构造后续 Context。虚拟时间按 1→2→5 分钟节奏推进，未消费的 Mind 复查或预设合成反馈可缩短等待；反馈固定在两小时到达，若模型先表达则提前到表达后五分钟。模型决定是否形成关注、询问、等待或放下，宿主不指定动作。拒绝时停止；需要 Activity 或工具宿主时也停止，不伪造执行成功。Mood 不跨轮持久化，此工具不替代 Runtime/Attention、联合提交及渠道验收；dry run 只生成首轮，后续输入依赖真实前序候选。
-
-2026-09-17 前一阶段九次调用，官方估算 ¥0.124378：简单 Schema 两次、心理处境六次、完整自主合同一次，均 completed 且通过对应校验。旧 Mood 把中性等待推为 boredom 的反例促成上述修正，旧评分不重算。
-
-正式接线后六次隔离调用全部通过新版自主 Schema 和候选校验，并将原返回交给正式 Mind 变换离线准备；估算 ¥0.222360，无未知用量。长交流间隔、重复无进展分别产生 contact/change_activity 倾向，两小时投影约 7.03125；刚交流未形成动机，持续投入目标为零。未解释新现象未形成好奇，不能宣称三种心理稳定涌现。实验未提交日常主体或执行效果，原子提交另由隔离数据库测试验证。完整真实模型的持续行动及反馈结束轨迹仍未验证。
+2026-09-17 的旧主模型心理评价实验只适用于当时已删除的合同，不能作为当前 Jev 模块的准确性、延迟或费用结论。
 
 文本主认知只允许 Qwen 或 DeepSeek，默认 Qwen3.8-Flash，方舟不再属于主模型选择或回退路径。两家均通过 OpenAI SDK 使用官方 Responses 接口，`reasoning.effort:none`。Qwen Responses 当前未列出 JSON 格式约束参数，因此只通过提示词要求 JSON，并显式设置 `store:false`；不发送可能被忽略的格式参数。DeepSeek 使用官方 `text.format.type:json_object`，不发送 `strict` 或服务端 Schema。两家共用候选生成 Schema，无变化的可选字段省略，不套用严格供应商的全字段必填扩展。Creator 文本认知及复用该合同的结果处理、普通他人对话采用浅层输出：根对象直接放 action/content，删除 candidate、decision、social、relationship_change 包装；experience 为经历正文，experience_uncertainty、memory_summary 按用途保留，关系解释、事实、边界与承诺各自为顶层可选字段。Mood 评价由独立 Jev 链路负责，主认知不返回事件情绪评价；多条关注目标及主体变化仍用对象列表，保留关联关系。其他 purpose 和独立方舟语音合同不变。
 
@@ -373,63 +373,41 @@ Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离
 
 ### 心理与自主行动的目标架构
 
-以下为当前模块边界；持久动机公式已接通，完整人类心理模拟尚未成立。Mind 管理持续关切与动机；Mood 管理情绪评价、强度与衰减。Cognition 一次理解与决策，Attention 安排机会，不合并进 Mind。
+正式链路共享评价输入，Mood 与 Mind 无本轮输出依赖：
 
 ```mermaid
 flowchart TD
-    E["外部信号：消息、环境变化、工具结果"]
-    T["内部条件变化：时间到达、关注复查、活动进展"]
-    A["Attention：空闲检查、用户优先、轻判与退避"]
-    X["Context：汇集信息、隐私与预算检查、冻结"]
-    C["Cognition：一次理解、评价与决策，产生候选"]
-    M["Mind：理解、关切、兴趣、愿望与动机"]
-    O["Mood：情绪评价、强度与衰减"]
-    V["各 Owner：领域校验、有效引用与权限检查"]
-    S["Subject Commit：重验版本与执行边界，原子提交"]
-    F["Activity / Expression / Effect：执行行动或表达"]
-    R["原 Owner：保存结果与核验证据，包括失败与 unknown"]
-    N["自主沉默或等待"]
-    E --> A
-    T --> A
-    M -->|考虑信号| A
-    O -->|考虑信号| A
-    A -->|获得考虑机会| X
-    E -->|可用事件与证据| X
-    M -->|只读心理快照| X
-    O -->|只读情绪快照| X
-    X --> C
-    C --> V
-    V -->|全部通过| S
-    S -->|经 Mind 接口写入| M
-    S -->|经 Mood 接口写入| O
-    S -->|实际推进或等待结果| A
-    S -->|行动或表达意图| F
-    S -->|自主决定| N
-    F --> R
-    R -->|符合既有结果处理合同的新信号| E
+    E["正式事件接纳"] --> X["冻结 purpose 允许的旧状态"]
+    X --> J["一次 Jev：Mood 题库 + Mind 对象题"]
+    J --> M["Mood：独立校验、算法、提交"]
+    J --> N["Mind：独立校验、算法、提交"]
+    M --> G["两部分均成功后重新冻结 Context"]
+    N --> G
+    G --> A["正常入口或本地自主调度判断"]
+    A --> C["必要时一次主认知"]
+    C --> S["Owner 校验与原子 Subject Commit"]
+    S --> F["Activity / Expression / Effect"]
+    S --> Q["Cognition Focus：关注与未实施意向"]
+    N --> T["对象级考虑信号"]
+    Q --> T
+    T --> E
 ```
 
-Mind 与 Mood 保持独立。Mood 评价读取权限允许的已有目标、价值、关系和经历；后续 Mind 认知读取已提交心情。Mood 不改动动机，不通过自身提交制造新事件。外部来源只提供证据，评价和提交由各自 Owner 控制。
-
-心理算法用于形成可追溯、可重复的情绪和连续感受。当前十二种事件成分不包含无聊、思念等扩展类别；后续是否支持须有独立研究与实验依据，不能由模型表达某个情绪词代替验证。
+`consider_autonomy_check` 只作本地调度判断，没有主模型候选、调用或主体提交；没有可考虑条件时记录 `not_scheduled`，不伪造主体决定沉默。基础自主计划到期形成正式事件，轮询只读。保留至少 60 秒间隔、输入与发送占用、睡眠及维护限制。完整认知正常路径一次主 LLM；普通文本既有格式重试合同不变。
 
 ### 持续关注与好奇
 
-自主候选 v9 允许可选的 `mind_change`：引用冻结 Context 依据，复用 Mind 公开的心理文本变更定义。它可与关注、活动及表达共同提交，也可在沉默时单独提交；不要求把普通愿望、牵挂或换一种活动的意向伪装成待解答的问题。Mind 绑定引用、准备文本状态，原关注仍只能通过关注合同改变。等待新输入本身不应创建活动，提示语义允许从兴趣与关系自主选择投入，不以接到任务为前提。这些能力不等于模型必然形成某种情绪。
+Cognition 的 Focus 以 `focus_revisions` 持久保存有依据的问题、未实施意向、理由、结束条件、当前认识、等待与复查。每轮最多四项变更，不限制长期保留数。新认识在正常主认知形成；维护中的 `reflect_focus` 使用相同关注变更合同，不新增每轮反思调用。关注不强制成为 Activity。
 
-Mind v4 的 `concerns` 保存有依据的问题、在意理由、解决条件、已有认识、状态和复查条件。最多四份未结束关注；身份、来源提交与时间由 Mind Owner 产生。建立、更新、等待、解决、放下共用类型定义，与活动、表达、评价和计划原子提交。关注不等于活动，也不是全局好奇数值；只有决定探索时才使用既有 Activity/工具链。普通 Mind 文本更新及反思保留关注，管理替换或回退不能绕过合同清空它们。
+主模型不能写 Mind 数值、自由心理文本或 `mind_appraisals`；文本、语音、视觉、自主与维护入口遵守同一边界。Self 拥有长期自我内容，Memory 拥有主观记忆，Relationship 拥有关系事实与解释，Focus 不复制全量内心独白。
 
-Mind 提供候选、认知快照与考虑信号；Mood 提供事件处理及查询，通过独立 Jev 适配、本地算法和持久化实现。Context 只编排、裁剪、隔离与冻结，管理查询与显示设备使用 Mood 的二维快照合同。
-
-Mind、Mood、Self/生活模式的当前状态直接由各自 revision 表的 is_current 标记；部分唯一索引保证每个主体（组件按种类）最多一条当前记录，切换与提交在同一事务完成。历史记录及并发校验序号保留，不代表支持旧合同；只解析当前字段和结构，旧格式明确拒绝。
-
-同一问题沿原关注更新；新认识和无新信息必须区分，重复表达、工具失败、空结果和消息送达不能算作答案。解决结论说明依据如何满足原解决条件，放下可以说明不再值得投入；Owner 校验引用与状态，不运行额外语义评分模型。真实实验仍只验证过自发形成，完整形成→自主行动/询问→反馈后结束的模型轨迹尚未验证成功。本轮离线闭环不证明拟人效果成立。
+Mind、Mood、Focus、Self/生活模式各有唯一 owner 与当前 revision。管理校正通过合法底层状态及 owner 校验，Mind 派生值与触发条件由算法重算；Focus 校正保留已有关注身份、来源提交、依据与认知时间，不伪造关注经历。数据删除撤销关联对象及信号。共享评价和 Focus 由 Cognition 负责恢复与数据权利；Mood/Mind 各自负责本域状态。唯一 baseline 不提供迁移，已有数据库合同不匹配即停止，不清空、不重建。
 
 Jev 依据权限允许的事件上下文回答评价题，本地形成 valence/arousal（[-1,1]）和高兴、悲伤、希望、恐惧、愤怒、内疚、自豪、羞耻、感激、惊讶、释然、失望的混合成分。掌控能力是评价条件，不是第三轴；概率不是情绪强度。
 
 相同来源标识和版本只评价一次；同一处境的新证据保留未改变影响的衰减，减弱时同比缩减、增强时只注入新增强度，方向改变时建立新贡献，保留此前积累的慢状态。Jev 对关联处境评价更新后的整体影响，保留未撤销收益与未解决损失；已发生的社会反馈与未核验外部事实分开。事件 response 保存该时刻的有效贡献及情绪强度，评价原值单独保留以便重算；只补充应对信息不重新充满旧损失。预期目标后果按发生可能性折算，未知不补概率；已确认后果与独立刺激性质不被折扣。恢复结果无论阶段为 realized 还是 averted，都可在明确 threat_averted 及旧威胁依据下形成释然；恢复收益与释然在同一轴取最大值避免重复计算。惊讶使用新奇程度乘 (0.1 + 0.9 × 显著性²)，紧迫性对激活的贡献按目标重要性加权。短期半衰期 300 秒、慢状态恢复半衰期 3600 秒，按实际时间解析推进，以 0.7/0.3 合成并经 tanh 限幅。参数是工程选择；查询不写库，不受查询频率影响，无疲劳或昼夜模拟，无心情反思模型入口。
 
-心理考虑信号由 Mind 通过 Kernel ConsiderationSignal 提供，按来源与条件版本去重。Mood 不提供唤醒信号，防止心情提交、界面查询和模块反馈制造循环刺激。Attention 保留基础自主计划及 Mind 关注复查；中断认知和发送不恢复。
+心理考虑信号由 Mind 通过 Kernel ConsiderationSignal 提供，按来源与条件版本去重。Mood 不提供唤醒信号，防止心情提交、界面查询和模块反馈制造循环刺激。Attention 保留基础自主计划及 Cognition Focus 关注复查；中断认知和发送不恢复。
 
 ESP32 心情窗只接收不透明 face、color、energy 和 version，私人事件、评价与心情原值不离开主机。失望使用现有悲伤表情，激活度映射设备 energy，不表示身体疲劳。
 
@@ -611,11 +589,9 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 
 ### Mind 离线机制测试
 
-使用仓库受管 Python 执行 `.venv/Scripts/python.exe tools/test_mind.py --scenario tools/scenarios/mind-curiosity.yaml --format json`。场景必须标记 synthetic: true；支持合成 Context 依据、心理候选、对象别名、虚拟时间、Creator/活动结果事件、快照和预期接受/拒绝断言。工具仅从 Mind api.py 导入并调用正式解析、引用绑定、状态变换和信号投影，不读取环境或凭据。生产提交与工具共享可注入时间和身份生成器的 prepare_mind_change。输入事件只产生可考虑条件，不调用模型或模拟思考；询问/探索在此只作为场景候选，Attention 消费、调度及渠道效果由跨模块测试覆盖。完整真实模型好奇轨迹仍未验证成功。
+使用仓库受管 Python 执行 `.venv/Scripts/python.exe tools/test_mind.py --scenario tools/scenarios/mind-curiosity.yaml --format json`。严格合成场景使用来源对象、Choice、虚拟时间和冻结断言，经正式算法及投影回放。算法测试覆盖重复、未知、多对象、需要并存、缺口部分解决至关闭、机会恢复和休息；Attention 消费、合并、忙碌与效果由跨模块和隔离数据库测试覆盖。
 
-心理情境对照工具为 `tools/experiment_psychological_context.py --output-dir <新的隔离目录>`，默认只生成六个合成输入，不读取凭据、不调用模型。显式授权后加 `--live --environment-root <凭据所属环境>`，只经已有凭据接口取 key；请求、原始返回与诊断保存在隔离目录，费用沿正式 Provider 预登记与 Admin 回执链记录于同一隔离目录。每次运行最多六次收费请求、估算 ¥2；价格或用量不完整时停止，不重试失败或修补模型回答，不执行候选效果或写入主体。场景对比未解释/已解释现象、长/短交流间隔、无进展/持续投入；标签不进入模型输入。
-
-2026-09-17 两轮共 12 次独立候选实验，官方单价估算合计 ¥0.383142。旧合同在未知现象中形成关注，但未观察到长期未交流产生联系意向；新合同轮次的四份候选通过，两份分别因超过考虑时间上限和非法 JSON 被拒绝。未观察到思念或无聊的完整行为闭环，不据本次样本声称心理机制有效。两轮同时改变合同与提示、每情境仅一次采样，不能分离变化的因果效应，也没有进行真实时间的多轮主体提交与反馈验证。详细记录位于本地运行验证正文。
+心理情境对照入口为 `tools/experiment_psychological_context.py --output-dir <新目录>`，默认生成十二个合成场景各自的 Mood 和合并请求，不读取凭据、不调用模型。真实运行须显式费用授权及专用隔离目录，其中 `jev-experiment.json` 为 `{"schema_kind":"armi.jev-experiment","synthetic":true}`，`jev-api-key.txt` 保存专用凭据。加 `--live --allow-billable --environment-root <专用目录>` 后最多发出 24 次 Jev 请求，失败不重试，不执行效果或写主体。冻结预期不会随返回修改；全部失败、用量、未知费用和延迟保留。当前未执行真实校准，不能据离线通过声称心理机制有效。
 
 ## 16. 变更原则
 

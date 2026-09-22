@@ -3,27 +3,9 @@
 from typing import Any
 from uuid import UUID
 
-import rfc8785
 from armi_kernel.application import CandidateBasis
 
-from ._cognitive_contract import GroundedMindChange, apply_mind_text_change
 from ._concerns import ActivityReview, ConcernChange, CreateConcern
-
-
-def bind_mind_change(
-    payload: bytes,
-    change: GroundedMindChange,
-    *,
-    basis_by_ref: dict[str, CandidateBasis],
-) -> tuple[bytes, tuple[int, ...]]:
-    from .api import MindViolation
-
-    if any(ref not in basis_by_ref for ref in change.basis_refs):
-        raise MindViolation("MIND-REFERENCE", ("mind_change", "basis_refs"))
-    state = apply_mind_text_change(payload, change.change)
-    return rfc8785.dumps(state.model_dump(mode="json")), tuple(
-        sorted({basis_by_ref[ref].ordinal for ref in change.basis_refs})
-    )
 
 
 def bind_concern_changes(

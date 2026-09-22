@@ -157,7 +157,7 @@ class ComponentChange(ContentChange):
 
 
 class MindChange(ContentChange):
-    owner: Literal["mind"]
+    owner: Literal["mind", "focus"]
     data: MindPayload
 
 

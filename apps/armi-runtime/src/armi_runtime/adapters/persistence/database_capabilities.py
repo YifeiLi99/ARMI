@@ -17,7 +17,7 @@ def _capabilities(
 
 
 _RUNTIME_INSERT = """
-mood_assessments
+event_appraisals
 autonomy_plans
 accepted_experiences
 activity_revisions
@@ -47,13 +47,13 @@ prompt_revisions  relationship_revisions
  runtime_instances
 
 scene_timeline_items
-mind_revisions subject_component_revisions  subjective_memory_revisions
+mind_revisions focus_revisions subject_component_revisions  subjective_memory_revisions
 subjects
 
 """
 
 _RUNTIME_UPDATE = """
-mood_assessments
+event_appraisals
 mood_revisions
 codex_task_sources
 
@@ -77,7 +77,7 @@ live_voice_turns maintenance_sessions
 opportunities parties party_input_interactions
   prompt_revisions relationship_revisions
 runtime_instances
- mind_revisions subject_component_revisions
+ mind_revisions focus_revisions subject_component_revisions
  subjective_memory_revisions subjects
 
 """
@@ -85,12 +85,12 @@ runtime_instances
 _ADMIN_INSERT = """
 admin_data_changes
 deployment_environments durable_work effect_observations mood_revisions
-mind_revisions subject_component_revisions
+mind_revisions focus_revisions subject_component_revisions
 artifact_object_deletions artifact_objects artifact_publications artifacts
 """
 
 _ADMIN_UPDATE = """
-mind_revisions mood_revisions subject_component_revisions
+mind_revisions focus_revisions mood_revisions subject_component_revisions
 durable_work effects runtime_instances
 subjects artifact_object_deletions artifact_objects
 artifact_publications artifacts

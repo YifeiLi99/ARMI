@@ -35,6 +35,7 @@ def test_subject_summary_is_private_and_ordered() -> None:
             SubjectComponentSummary(
                 SubjectComponentKind.LIFE_MODE, 1, "armi.life-mode"
             ),
+            SubjectComponentSummary(SubjectComponentKind.FOCUS, 1, "armi.focus"),
         ),
         uuid7(),
         datetime.now(UTC),

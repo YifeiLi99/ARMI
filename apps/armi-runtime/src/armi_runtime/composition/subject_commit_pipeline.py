@@ -21,8 +21,10 @@ from armi_artifact_store.life_material_codec import (
 from armi_attention.api import OpportunityTransitionPort
 from armi_codex.api import CodexCommitPort, CodexDelegationViolation
 from armi_cognition.api import (
+    CandidateFocusDraft,
     CognitionPreparedCandidate,
     CognitionSubjectCommitPort,
+    FocusCommitPort,
     SubjectChangeSet,
 )
 from armi_context.api import ContextProjectionInvalidationPort
@@ -75,7 +77,6 @@ from armi_memory.api import (
     CandidateMemoryRevisionDraft,
     MemoryCommitPort,
 )
-from armi_mind.api import CandidateMindDraft, MindCommitPort
 from armi_prompt.api import CandidatePromptDraft, PromptCommitPort
 from armi_relationship.api import (
     CandidateRelationshipDraft,
@@ -156,7 +157,7 @@ class SubjectCommitPipeline:
         relationship_commit: RelationshipCommitPort,
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
-        mind_commit: MindCommitPort,
+        focus_commit: FocusCommitPort,
         visual_observation_commit: VisualObservationCommitPort,
         notifier: CreatorProjectionNotifier | None,
         voice_results: VoiceCognitionResultPort | None = None,
@@ -189,7 +190,7 @@ class SubjectCommitPipeline:
             relationship_commit,
             sleep_commit,
             subject_state_commit,
-            mind_commit,
+            focus_commit,
             visual_observation_commit,
             voice_activity_state=voice_activity_state,
         )
@@ -416,7 +417,7 @@ class SubjectCommitPipeline:
             CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft
         ] = []
         subject_state: list[CandidateSubjectStateDraft] = []
-        mind: list[CandidateMindDraft] = []
+        focus: list[CandidateFocusDraft] = []
         for item in change_set.owner_drafts:
             value = item.candidate
             if item.owner == "activity" and isinstance(
@@ -441,8 +442,8 @@ class SubjectCommitPipeline:
                 value, (CandidateSleepDecisionDraft, CandidateMaintenanceDecisionDraft)
             ):
                 sleep.append(value)
-            elif item.owner == "mind" and isinstance(value, CandidateMindDraft):
-                mind.append(value)
+            elif item.owner == "focus" and isinstance(value, CandidateFocusDraft):
+                focus.append(value)
             elif item.owner in {"self", "life_mode"} and isinstance(
                 value, CandidateSubjectStateDraft
             ):
@@ -457,7 +458,7 @@ class SubjectCommitPipeline:
             tuple(relationship),
             tuple(sleep),
             tuple(subject_state),
-            tuple(mind),
+            tuple(focus),
         )
 
     @staticmethod
@@ -719,7 +720,7 @@ def build_subject_commit_pipeline(
     relationship_commit: RelationshipCommitPort,
     sleep_commit: SleepCommitPort,
     subject_state_commit: SubjectStateCommitPort,
-    mind_commit: MindCommitPort,
+    focus_commit: FocusCommitPort,
     visual_observation_commit: VisualObservationCommitPort,
     notifier: CreatorProjectionNotifier | None,
     voice_results: VoiceCognitionResultPort | None = None,
@@ -754,7 +755,7 @@ def build_subject_commit_pipeline(
         relationship_commit=relationship_commit,
         sleep_commit=sleep_commit,
         subject_state_commit=subject_state_commit,
-        mind_commit=mind_commit,
+        focus_commit=focus_commit,
         visual_observation_commit=visual_observation_commit,
         notifier=notifier,
         voice_results=voice_results,

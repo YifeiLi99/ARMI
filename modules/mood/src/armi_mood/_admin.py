@@ -14,14 +14,17 @@ from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
 )
 
-from ._evaluation_contract import MoodView
+from ._evaluation_contract import MoodAssessmentReadPort, MoodView
 from ._projection import mood_snapshot_bytes
 from ._psychology import Appraisal, MoodDynamics, current_affect, derive_response
 from .api import MoodAdminComponent, MoodCorrectionHead, MoodViolation
 
 
 class PostgreSQLMoodAdmin:
-    __slots__ = ()
+    __slots__ = ("_assessments",)
+
+    def __init__(self, assessments: MoodAssessmentReadPort | None = None) -> None:
+        self._assessments = assessments
 
     def apply(
         self,
@@ -91,11 +94,8 @@ class PostgreSQLMoodAdmin:
     ) -> MoodAdminComponent | None:
         statement = (
             """SELECT head.mood_version,'private'::text AS privacy_scope,head.semantic_payload,
-                 head.mood_revision_id,statement_timestamp(),a.status,a.mood_assessment_id,a.error_code,a.appraisal
-               FROM armi.mood_revisions AS head LEFT JOIN LATERAL (
-                 SELECT status,mood_assessment_id,error_code,appraisal FROM armi.mood_assessments
-                 WHERE subject_id=head.subject_id ORDER BY created_at DESC,mood_assessment_id DESC LIMIT 1
-               ) a ON true WHERE head.is_current"""
+                 head.mood_revision_id,statement_timestamp(),head.subject_id
+               FROM armi.mood_revisions AS head WHERE head.is_current"""
             if private
             else """SELECT head.mood_version,'private'::text AS privacy_scope FROM armi.mood_revisions AS head WHERE head.is_current """
         )
@@ -104,6 +104,12 @@ class PostgreSQLMoodAdmin:
             return None
         payload = None
         if private:
+            if self._assessments is None:
+                raise MoodViolation("MOOD-ASSESSMENT-READ-MISSING")
+            assessment = self._assessments.latest_admin(
+                transaction, subject_id=cast(UUID, row[5])
+            )
+            row = (*row[:5], *(assessment or (None, None, None, None)))
             state = MoodDynamics.model_validate(row[2])
             payload = json.loads(
                 mood_snapshot_bytes(

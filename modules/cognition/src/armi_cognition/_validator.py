@@ -68,17 +68,6 @@ from armi_memory.api import (
     MemoryRevisionKind,
     MemorySourceKind,
 )
-from armi_mind.api import (
-    CandidateMindDraft,
-    ConcernChange,
-    GroundedMindChange,
-    MindAppraisal,
-    MindCognitionPort,
-    MindViolation,
-    bind_concern_changes,
-    bind_mind_appraisals,
-    bind_mind_change,
-)
 from armi_prompt.api import (
     CandidatePromptDraft,
     PromptCognitionPort,
@@ -142,6 +131,12 @@ from ._dialogue_contract import (
     DialogueMaterialContentChange,
     DialogueRelationshipChange,
 )
+from ._focus.api import (
+    CandidateFocusDraft,
+    ConcernChange,
+    FocusCognitionPort,
+    bind_concern_changes,
+)
 from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     MaintenanceWorkCandidate,
@@ -162,7 +157,6 @@ from ._model_contract import (
     FormalNoActionPayload,
     MemoryChangePayload,
     MemoryChangeProposal,
-    MindState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
     VisualObservationRequestPayload,
@@ -426,7 +420,7 @@ class CandidateValidationContext:
                 MaintenancePhase.MEMORY_MAINTENANCE,
                 MaintenancePhase.SELF_CHECK,
                 MaintenancePhase.REFLECT_SELF,
-                MaintenancePhase.REFLECT_MIND,
+                MaintenancePhase.REFLECT_FOCUS,
                 MaintenancePhase.REFLECT_PROMPT,
             }
         ):
@@ -469,9 +463,9 @@ class DeterministicCandidateValidator:
     __slots__ = (
         "_activity_cognition",
         "_context",
+        "_focus_cognition",
         "_material_cognition",
         "_memory_cognition",
-        "_mind_cognition",
         "_prompt_cognition",
         "_relationship_cognition",
         "_sleep_cognition",
@@ -489,7 +483,7 @@ class DeterministicCandidateValidator:
         relationship_cognition: RelationshipCognitionPort,
         sleep_cognition: SleepCognitionPort,
         subject_state_cognition: SubjectStateCognitionPort,
-        mind_cognition: MindCognitionPort,
+        focus_cognition: FocusCognitionPort,
     ) -> None:
         self._context = context
         self._activity_cognition = activity_cognition
@@ -499,7 +493,7 @@ class DeterministicCandidateValidator:
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
-        self._mind_cognition = mind_cognition
+        self._focus_cognition = focus_cognition
 
     def _bind_relationship(
         self, value: CandidateRelationshipDraft
@@ -519,7 +513,7 @@ class DeterministicCandidateValidator:
             raise CandidateViolation("CANDIDATE-BASIS-DUPLICATE")
         reflection_purpose = self._context.purpose in {
             "reflect_self",
-            "reflect_mind",
+            "reflect_focus",
             "reflect_prompt",
         }
         try:
@@ -578,108 +572,67 @@ class DeterministicCandidateValidator:
         changes = cast(
             tuple[ConcernChange, ...], getattr(parsed_candidate, "concern_changes", ())
         )
-        return self._attach_mind_changes(
+        return self._attach_focus_changes(
             result,
             changes,
-            appraisals=cast(
-                tuple[MindAppraisal, ...],
-                getattr(parsed_candidate, "mind_appraisals", ()),
-            ),
             bases=bases,
             basis_by_ref=basis_by_ref,
-            mind_change=cast(
-                GroundedMindChange | None,
-                getattr(parsed_candidate, "mind_change", None),
-            )
-            if self._context.purpose == "consider_autonomous_life"
-            else None,
         )
 
-    def _attach_mind_changes(
+    def _attach_focus_changes(
         self,
         result: CandidateValidationResult,
         changes: tuple[ConcernChange, ...],
         *,
         bases: tuple[CandidateBasis, ...],
         basis_by_ref: dict[str, CandidateBasis],
-        mind_change: GroundedMindChange | None,
-        appraisals: tuple[MindAppraisal, ...],
     ) -> CandidateValidationResult:
-        if (
-            not changes and not appraisals and mind_change is None
-        ) or result.change_set is None:
+        if not changes or result.change_set is None:
             return result
         current = next(
             (
                 (version, payload)
                 for owner, version, payload in self._context.current_components
-                if owner is CandidateOwner.MIND
+                if owner is CandidateOwner.FOCUS
             ),
             None,
         )
-        mind_basis = next((item for item in bases if item.item_kind == "mind"), None)
-        if current is None or mind_basis is None:
-            return _rejected(
-                "CANDIDATE-CONCERN-MIND",
-                field_path=("mind_change" if mind_change else "concern_changes",),
-            )
-        bound, concern_ordinals, error, path = bind_concern_changes(
+        focus_basis = next((item for item in bases if item.item_kind == "focus"), None)
+        if current is None or focus_basis is None:
+            return _rejected("CANDIDATE-CONCERN-FOCUS", field_path=("concern_changes",))
+        bound, ordinals, error, path = bind_concern_changes(
             changes,
             basis_by_ref=basis_by_ref,
             current_activity_id=self._context.current_activity_id,
         )
         if bound is None:
             return _rejected(error or "CANDIDATE-CONCERN-REFERENCE", field_path=path)
-        ordinals = {mind_basis.ordinal, *concern_ordinals}
-        try:
-            bound_appraisals, appraisal_ordinals = bind_mind_appraisals(
-                appraisals, basis_by_ref=basis_by_ref, payload=current[1]
-            )
-        except MindViolation as error:
-            return _rejected(f"CANDIDATE-{error.code}", field_path=error.field_path)
-        ordinals.update(appraisal_ordinals)
-        next_state = current[1]
-        if mind_change is not None:
-            try:
-                next_state, mind_ordinals = bind_mind_change(
-                    current[1], mind_change, basis_by_ref=basis_by_ref
-                )
-            except MindViolation as error:
-                return _rejected(f"CANDIDATE-{error.code}", field_path=error.field_path)
-            ordinals.update(mind_ordinals)
+        selected = {focus_basis.ordinal, *ordinals}
         change_set = result.change_set
         existing = next(
-            (item for item in change_set.owner_drafts if item.owner == "mind"), None
+            (item for item in change_set.owner_drafts if item.owner == "focus"), None
         )
         if existing is not None:
-            ordinals.update(cast(CandidateMindDraft, existing.candidate).basis_ordinals)
-        if len(ordinals) > 8:
+            selected.update(
+                cast(CandidateFocusDraft, existing.candidate).basis_ordinals
+            )
+        if len(selected) > 8:
             return _rejected(
                 "CANDIDATE-CONCERN-BASIS-CAPACITY",
                 field_path=("concern_changes", "basis_refs"),
             )
-        if existing is not None:
-            previous = cast(CandidateMindDraft, existing.candidate)
-            draft = replace(
-                previous,
-                concern_changes=tuple(bound),
-                mind_appraisals=bound_appraisals,
-                basis_ordinals=tuple(sorted(set(previous.basis_ordinals) | ordinals)),
-            )
-        else:
-            draft = CandidateMindDraft(
-                "proposal:99",
-                "group:1",
-                tuple(sorted(ordinals)),
-                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                current[0],
-                next_state,
-                tuple(bound),
-                bound_appraisals,
-            )
+        draft = CandidateFocusDraft(
+            existing.proposal_ref if existing is not None else "proposal:99",
+            existing.atomic_group_ref if existing is not None else "group:1",
+            tuple(sorted(selected)),
+            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            current[0],
+            current[1],
+            tuple(bound),
+        )
         owners = (
-            *(item for item in change_set.owner_drafts if item.owner != "mind"),
-            self._mind_cognition.bind(draft),
+            *(item for item in change_set.owner_drafts if item.owner != "focus"),
+            self._focus_cognition.bind(draft),
         )
         wire = json.loads(change_set.canonical_bytes)
         wire["owner_drafts"] = [_owner_draft_wire(item) for item in owners]
@@ -925,7 +878,6 @@ class DeterministicCandidateValidator:
                     continue
             if failure is None and owner in {
                 CandidateOwner.SELF,
-                CandidateOwner.MIND,
                 CandidateOwner.LIFE_MODE,
             }:
                 component = cast(ComponentChangeProposal, proposal)
@@ -935,18 +887,7 @@ class DeterministicCandidateValidator:
                         cast(Any, component.payload.next_state.model_dump(mode="json"))
                     )
                     accepted[proposal.proposal_ref] = (
-                        self._mind_cognition.bind(
-                            CandidateMindDraft(
-                                proposal.proposal_ref,
-                                proposal.atomic_group_ref,
-                                tuple(basis.ordinal for basis in proposal_bases),
-                                CandidateFactClass(component.payload.fact_class),
-                                component.payload.expected_version,
-                                next_bytes,
-                            )
-                        )
-                        if owner is CandidateOwner.MIND
-                        else self._subject_state_cognition.bind(
+                        self._subject_state_cognition.bind(
                             CandidateSubjectStateDraft(
                                 proposal.proposal_ref,
                                 proposal.atomic_group_ref,
@@ -1078,15 +1019,12 @@ class DeterministicCandidateValidator:
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
-                (
-                    isinstance(draft, CandidatePromptDraft)
-                    or (
-                        isinstance(draft, CandidateOwnerDraft)
-                        and draft.owner in {"self", "mind", "life_mode"}
-                    )
+                isinstance(draft, CandidatePromptDraft)
+                or (
+                    isinstance(draft, CandidateOwnerDraft)
+                    and draft.owner in {"self", "life_mode"}
                 )
-                and draft.atomic_group_ref not in group_experiences
-            ):
+            ) and draft.atomic_group_ref not in group_experiences:
                 rejected[proposal_ref] = CandidateRejection(
                     proposal_ref,
                     draft.atomic_group_ref,
@@ -2001,7 +1939,7 @@ class DeterministicCandidateValidator:
         context = self._context
         target, phase = {
             "reflect_self": ("self", MaintenancePhase.REFLECT_SELF),
-            "reflect_mind": ("mind", MaintenancePhase.REFLECT_MIND),
+            "reflect_focus": ("focus", MaintenancePhase.REFLECT_FOCUS),
             "reflect_prompt": ("prompt", MaintenancePhase.REFLECT_PROMPT),
         }.get(context.purpose, (None, None))
         if (
@@ -2038,7 +1976,7 @@ class DeterministicCandidateValidator:
             if phase_basis not in cited:
                 return _rejected("CANDIDATE-REFLECTION-BASIS")
             owner_draft: CandidateOwnerDraft
-            if target in {"self", "mind"}:
+            if target in {"self", "focus"}:
                 owner = CandidateOwner(target)
                 current = next(
                     (
@@ -2065,16 +2003,20 @@ class DeterministicCandidateValidator:
                 ):
                     return _rejected("CANDIDATE-REFLECTION-VERSION")
                 next_state = candidate.next_state
-                if not isinstance(next_state, (SelfState, MindState)):
+                if target == "self" and not isinstance(next_state, SelfState):
                     return _rejected("CANDIDATE-REFLECTION-CONTRACT")
-                next_bytes = rfc8785.dumps(
-                    cast(Any, next_state.model_dump(mode="json"))
+                next_bytes = (
+                    current[1]
+                    if target == "focus"
+                    else rfc8785.dumps(
+                        cast(Any, cast(SelfState, next_state).model_dump(mode="json"))
+                    )
                 )
-                if next_bytes == current[1]:
+                if target == "self" and next_bytes == current[1]:
                     return _rejected("CANDIDATE-REFLECTION-NOOP")
                 owner_draft = (
-                    self._mind_cognition.bind(
-                        CandidateMindDraft(
+                    self._focus_cognition.bind(
+                        CandidateFocusDraft(
                             "proposal:1",
                             "group:1",
                             tuple(item.ordinal for item in cited),
@@ -2083,7 +2025,7 @@ class DeterministicCandidateValidator:
                             next_bytes,
                         )
                     )
-                    if target == "mind"
+                    if target == "focus"
                     else self._subject_state_cognition.bind(
                         CandidateSubjectStateDraft(
                             "proposal:1",
@@ -3517,7 +3459,6 @@ def _component_failure(
     next_state = proposal.payload.next_state.model_dump(mode="json")
     schema_owner = {
         "armi.self": CandidateOwner.SELF,
-        "armi.mind": CandidateOwner.MIND,
         "armi.life-mode": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_kind")))
     if schema_owner is not owner:

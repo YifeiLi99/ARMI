@@ -20,7 +20,9 @@ from armi_kernel.application import (
     ArtifactRegistration,
     CandidateBasis,
     CognitiveEpisodeId,
+    ConsiderationSignal,
     ModelViolation,
+    PsychologicalContextItem,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
@@ -83,6 +85,7 @@ class ContextSection(StrEnum):
     PURPOSE = "purpose"
     SELF = "self"
     MIND = "mind"
+    FOCUS = "focus"
     MOOD = "mood"
     LIFE_MODE = "life_mode"
     SCENE = "scene"
@@ -559,6 +562,25 @@ class ContextEpisodeState:
 
 @runtime_checkable
 class ContextEpisodePort(Protocol):
+    async def focus_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        purpose: str,
+        signals: tuple[ConsiderationSignal, ...],
+    ) -> tuple[PsychologicalContextItem, ...]: ...
+    async def focus_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event_purpose: str,
+        event_ref: UUID,
+        event_at: datetime,
+        activity_id: UUID | None,
+    ) -> tuple[ConsiderationSignal, ...]: ...
     async def context_episode(
         self,
         transaction: PostgreSQLTransaction,

@@ -340,24 +340,38 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("engage", [False, True])
-async def test_light_check_only_resolves_attention_after_format_validation(
+async def test_local_check_resolves_attention_without_model_or_format_retry(
     monkeypatch, engage
 ):
     from dataclasses import replace
 
-    pipeline, record, frozen, response = _format_retry_execution(monkeypatch)
+    pipeline, record, _frozen, response = _format_retry_execution(monkeypatch)
     pipeline.episode = replace(pipeline.episode, purpose="consider_autonomy_check")
-    pipeline.adapter.binding.response_contract_kind = "armi.autonomy-check-candidate"
+    pipeline._read_context = AsyncMock(
+        return_value=json.dumps(
+            {
+                "layers": [
+                    {
+                        "items": [
+                            {
+                                "item_kind": "current_motivation",
+                                "content": json.dumps(
+                                    {"consideration": {"eligible": engage}}
+                                ),
+                            }
+                        ]
+                    }
+                ]
+            }
+        ).encode()
+    )
     pipeline._repository.finalize_autonomy_check = AsyncMock()
     pipeline.adapter.invoke.side_effect = [
         response('{"engage":"true"}'),
         response(json.dumps({"engage": engage})),
     ]
     await pipeline._execute(cast(Any, record))
-    assert pipeline.adapter.invoke.await_count == 2
-    assert all(
-        call.args[0] is frozen for call in pipeline.adapter.invoke.await_args_list
-    )
+    pipeline.adapter.invoke.assert_not_awaited()
     pipeline._finalization.finalize.assert_not_awaited()
     pipeline._repository.finalize_autonomy_check.assert_awaited_once_with(
         ANY,

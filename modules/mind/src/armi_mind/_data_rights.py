@@ -39,17 +39,17 @@ class PostgreSQLMindDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        commits = tuple(
-            item.ref for item in request.related_refs if item.kind == "subject-commit"
-        )
-        if not commits:
-            return DataRightsDiscoveryContribution(_OWNER)
+        refs = [
+            str(request.party_id),
+            *(str(item.ref) for item in request.related_refs),
+        ]
         rows = await (
             await transaction.execute(
                 """SELECT mind_revision_id FROM armi.mind_revisions
-                   WHERE subject_commit_id=ANY(%s::uuid[])
-                   ORDER BY mind_revision_id""",
-                (list(commits),),
+               WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload, '$.objects[*].**') value
+                   WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))
+               ORDER BY mind_revision_id""",
+                (refs,),
             )
         ).fetchall()
         return DataRightsDiscoveryContribution(
@@ -70,61 +70,23 @@ class PostgreSQLMindDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        revision_ids = tuple(
-            item.ref
-            for item in request.related_refs
-            if item.kind == "subject-component"
-        )
-        if request.order_kind == "delete_related" and revision_ids:
+        refs = [
+            str(request.party_id),
+            *(str(item.ref) for item in request.related_refs),
+        ]
+        if request.order_kind == "delete_related":
+            # Removing an evidence source withdraws every associated object and
+            # its eligibility, including historical readable projections.
             await transaction.execute(
-                """WITH affected AS (
-                     SELECT subject_id,min(mind_version) AS first_version
-                     FROM armi.mind_revisions
-                     WHERE mind_revision_id=ANY(%s::uuid[])
-                     GROUP BY subject_id
-                   ), safe AS (
-                     SELECT affected.subject_id,
-                            affected.first_version,
-                            revision.mind_revision_id AS safe_revision_id,
-                            revision.semantic_payload
-                     FROM affected
-                     JOIN armi.mind_revisions AS revision
-                       ON revision.subject_id=affected.subject_id
-                      AND revision.mind_version=affected.first_version-1
-                   ), retired AS (
-                     UPDATE armi.mind_revisions AS head SET is_current=false
-                     FROM safe WHERE head.subject_id=safe.subject_id
-                       AND head.is_current
-                     RETURNING head.*
-                   )
-                     INSERT INTO armi.mind_revisions (
-                       mind_revision_id,subject_id,mind_version,
-                       previous_revision_id,origin_kind,origin_ref,semantic_payload,
-                       is_current
-                     ) SELECT uuidv7(),head.subject_id,
-                              head.mind_version+1,head.mind_revision_id,
-                              'data_rights',%s,
-                              safe.semantic_payload,
-                              true
-                       FROM retired AS head
-                       JOIN safe ON safe.subject_id=head.subject_id""",
-                (list(revision_ids), request.order_id),
-            )
-            await transaction.execute(
-                """WITH affected AS (
-                     SELECT subject_id,min(mind_version) AS first_version
-                     FROM armi.mind_revisions
-                     WHERE mind_revision_id=ANY(%s::uuid[])
-                     GROUP BY subject_id
-                   ) UPDATE armi.mind_revisions AS revision
-                     SET semantic_payload='{}'::jsonb,
-                         data_rights_redacted_at=statement_timestamp()
-                     FROM affected
-                     WHERE revision.subject_id=affected.subject_id
-                        AND revision.mind_version>=affected.first_version
-                       AND revision.origin_kind<>'data_rights'
-                       AND revision.data_rights_redacted_at IS NULL""",
-                (list(revision_ids),),
+                """UPDATE armi.mind_revisions r SET semantic_payload=jsonb_set(
+                    semantic_payload,'{objects}',COALESCE((
+                        SELECT jsonb_agg(item) FROM jsonb_array_elements(r.semantic_payload->'objects') item
+                        WHERE NOT EXISTS (SELECT 1 FROM jsonb_path_query(item,'$.**') value
+                            WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))
+                    ),'[]'::jsonb)),data_rights_redacted_at=statement_timestamp()
+                   WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload,'$.objects[*].**') value
+                       WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))""",
+                (refs, refs),
             )
         return DataRightsApplyContribution(
             _OWNER,

@@ -6,7 +6,7 @@ from enum import StrEnum
 class CandidateOwner(StrEnum):
     EXPERIENCE = "experience"
     SELF = "self"
-    MIND = "mind"
+    FOCUS = "focus"
     MOOD = "mood"
     LIFE_MODE = "life_mode"
     MEMORY = "memory"

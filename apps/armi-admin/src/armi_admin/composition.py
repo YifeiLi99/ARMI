@@ -18,7 +18,13 @@ from armi_artifact_store.bootstrap import (
 )
 from armi_attention.bootstrap import bootstrap_opportunity_admin
 from armi_codex.bootstrap import bootstrap_codex_admin
-from armi_cognition.bootstrap import bootstrap_cognition_admin
+from armi_cognition.bootstrap import (
+    bootstrap_appraisal_read,
+    bootstrap_cognition_admin,
+    bootstrap_focus_admin_content,
+    bootstrap_focus_admin_correction,
+    bootstrap_focus_admin_read,
+)
 from armi_data_rights.bootstrap import bootstrap_data_rights_admin_content_guard
 from armi_effect.bootstrap import bootstrap_effect_admin, bootstrap_expression_admin
 from armi_evidence.bootstrap import bootstrap_evidence_admin
@@ -127,9 +133,10 @@ def bootstrap_admin(
             expression=expression,
             interaction=interaction,
             materials=materials,
-            mood=bootstrap_mood_admin_read(),
+            mood=bootstrap_mood_admin_read(bootstrap_appraisal_read()),
             subject_state=bootstrap_subject_state_admin_read(),
             mind=bootstrap_mind_admin_read(),
+            focus=bootstrap_focus_admin_read(),
         )
         correction_gateway = AdminCorrectionGateway(
             factory=pool,
@@ -150,6 +157,7 @@ def bootstrap_admin(
             prompts=bootstrap_prompt_admin_reference(),
             subject_state=subject_state,
             mind=bootstrap_mind_admin_correction(),
+            focus=bootstrap_focus_admin_correction(),
         )
         control = AdminControlPlane(config, credentials, observation)
         corrections = AdminCorrectionCoordinator(
@@ -174,6 +182,7 @@ def bootstrap_admin(
                     "prompt": bootstrap_prompt_admin_content(),
                     "subject_state": bootstrap_subject_state_admin_content(),
                     "mind": bootstrap_mind_admin_content(),
+                    "focus": bootstrap_focus_admin_content(),
                     "mood": bootstrap_mood_admin_content(),
                 },
                 guards=(

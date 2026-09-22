@@ -8,54 +8,20 @@ from typing import Protocol
 from uuid import UUID
 
 from armi_kernel.application import (
-    CandidateFactClass,
-    CandidateOwnerDraft,
     ConsiderationSignal,
 )
 from armi_runtime_foundation import AdminContentPort as MindAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
-from ._appraisal import (
-    MIND_APPRAISAL_INSTRUCTIONS,
-    MindAppraisal,
-    MotivationalProjection,
-    MotivationalState,
-    evaluate_motivation,
-    project_motivation,
-)
-from ._cognitive_binding import bind_concern_changes, bind_mind_change
-from ._cognitive_contract import (
-    MIND_COGNITIVE_INSTRUCTIONS,
-    MIND_CONTEXT_REFERENCES,
-    DialogueMindChange,
-    GroundedMindChange,
-    MindState,
-    apply_mind_text_change,
-)
-from ._concerns import (
-    CONCERN_CHANGES,
-    CONCERN_RECORDS,
-    ActivityReview,
-    CloseConcern,
-    ConcernChange,
-    ConcernRecord,
-    CreateConcern,
-    CreatorInputReview,
-    TimedReview,
-    UpdateConcern,
-    concern_attention_status,
-)
-from ._domain import initial_mind_state, prepare_mind_change
+from ._domain import initial_mind_state
 from ._event_questions import (
     MindEvaluationTarget,
     mind_event_questions,
     parse_mind_event_answers,
 )
-from ._motivation import BoundMindAppraisal, bind_mind_appraisals
 from ._projection import (
     mind_attention_projection,
     mind_context_items,
-    mind_editable_state,
     mind_motivation_projection,
     mind_signals,
 )
@@ -86,23 +52,6 @@ class MindViolation(RuntimeError):
         self.code = code
         self.field_path = field_path
         super().__init__(code)
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateMindDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: CandidateFactClass
-    expected_version: int
-    canonical_next_state: bytes
-    concern_changes: tuple[ConcernChange, ...] = ()
-    mind_appraisals: tuple[BoundMindAppraisal, ...] = ()
-
-    def __post_init__(self) -> None:
-        from ._domain import validate_candidate
-
-        validate_candidate(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +89,6 @@ class MindRevision:
     previous_revision_id: UUID | None
     origin_kind: str
     origin_ref: UUID
-    subject_commit_id: UUID | None
     admin_change_id: UUID | None
     created_at: datetime
     redacted_at: datetime | None
@@ -196,27 +144,16 @@ class MindReadPort(Protocol):
     ) -> tuple[ConsiderationSignal, ...]: ...
 
 
-class MindCognitionPort(Protocol):
-    def bind(self, value: CandidateMindDraft) -> CandidateOwnerDraft: ...
-    def decode(self, payload: bytes) -> CandidateMindDraft: ...
-
-
-class MindCommitPort(Protocol):
-    async def heads_match(
+class MindEventPort(Protocol):
+    async def apply_event(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateMindDraft, ...],
-    ) -> bool: ...
-    async def commit(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        commit_id: UUID,
-        drafts: tuple[CandidateMindDraft, ...],
-    ) -> None: ...
+        assessment_id: UUID,
+        expected_version: int,
+        evidence: tuple[MindEvidence, ...],
+    ) -> tuple[bool, UUID]: ...
 
 
 class MindBirthPort(Protocol):
@@ -282,71 +219,40 @@ class MindAdminCorrectionPort(Protocol):
 
 
 __all__ = (
-    "CONCERN_CHANGES",
-    "CONCERN_RECORDS",
-    "MIND_APPRAISAL_INSTRUCTIONS",
-    "MIND_COGNITIVE_INSTRUCTIONS",
-    "MIND_CONTEXT_REFERENCES",
     "MIND_PARAMETERS",
-    "ActivityReview",
     "Association",
-    "BoundMindAppraisal",
-    "CandidateMindDraft",
-    "CloseConcern",
-    "ConcernChange",
-    "ConcernRecord",
-    "CreateConcern",
-    "CreatorInputReview",
     "DerivedMindState",
-    "DialogueMindChange",
-    "GroundedMindChange",
     "GroundedObject",
     "MindAdminContentPort",
     "MindAdminCorrectionPort",
     "MindAdminReadPort",
     "MindAdminState",
-    "MindAppraisal",
     "MindBirthContinuity",
     "MindBirthPort",
     "MindChoice",
-    "MindCognitionPort",
-    "MindCommitPort",
     "MindCorrectionHead",
     "MindEvaluationTarget",
+    "MindEventPort",
     "MindEvidence",
     "MindHead",
     "MindObjectState",
     "MindParameters",
     "MindReadPort",
     "MindRevision",
-    "MindState",
     "MindVariable",
     "MindViolation",
-    "MotivationalProjection",
-    "MotivationalState",
     "Opportunity",
-    "TimedReview",
-    "UpdateConcern",
     "VariableState",
-    "apply_mind_text_change",
-    "bind_concern_changes",
-    "bind_mind_appraisals",
-    "bind_mind_change",
-    "concern_attention_status",
     "derive_mind",
-    "evaluate_motivation",
     "initial_mind_state",
     "mind_attention_projection",
     "mind_attention_weight",
     "mind_condition_eligible",
     "mind_context_items",
-    "mind_editable_state",
     "mind_event_questions",
     "mind_motivation_projection",
     "mind_signals",
     "parse_mind_event_answers",
-    "prepare_mind_change",
     "project_mind_object",
-    "project_motivation",
     "update_mind_object",
 )

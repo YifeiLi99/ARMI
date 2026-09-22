@@ -60,12 +60,7 @@ from armi_runtime_foundation import (
 )
 
 from ._autonomous_activity_contract import autonomous_schema_for_context
-from ._autonomy_check_contract import (
-    AUTONOMY_CHECK_INSTRUCTIONS,
-    AUTONOMY_CHECK_VERSION,
-    autonomy_check_schema,
-    parse_autonomy_check,
-)
+from ._autonomy_decision import should_consider_autonomy
 from ._candidate_application import model_response_candidate
 from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
@@ -99,7 +94,7 @@ from ._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
 from ._reflection_contract import (
-    REFLECT_MIND_INSTRUCTIONS,
+    REFLECT_FOCUS_INSTRUCTIONS,
     REFLECT_PROMPT_INSTRUCTIONS,
     REFLECT_SELF_INSTRUCTIONS,
     owner_reflection_schema,
@@ -142,9 +137,6 @@ def _text_structure_error(
             cast(bytes, result.response_bytes),
             expected_version=binding.response_contract_kind,
         )
-        if binding.response_contract_kind == AUTONOMY_CHECK_VERSION:
-            parse_autonomy_check(value)
-            return None
         parse_candidate(
             value,
             expected_version=binding.response_contract_kind,
@@ -280,7 +272,7 @@ class ModelPipeline:
             binding_path,
         )
         reflect_self_binding = load_purpose_binding("reflect_self", binding_path)
-        reflect_mind_binding = load_purpose_binding("reflect_mind", binding_path)
+        reflect_focus_binding = load_purpose_binding("reflect_focus", binding_path)
         reflect_prompt_binding = load_purpose_binding("reflect_prompt", binding_path)
         codex_task_binding = load_purpose_binding(
             "consider_codex_task",
@@ -319,12 +311,6 @@ class ModelPipeline:
         self._failure_notification = failure_notification
         self._storage = storage
         self._adapters = {
-            "consider_autonomy_check": build_adapter(
-                binding=load_purpose_binding("consider_autonomy_check", binding_path),
-                candidate_schema=autonomy_check_schema(),
-                instructions=AUTONOMY_CHECK_INSTRUCTIONS,
-                schema_name="armi_autonomy_check_candidate_v1",
-            ),
             "consider_creator_input": build_adapter(
                 binding=creator_input_binding,
                 candidate_schema=creator_cognitive_act_schema(),
@@ -399,10 +385,10 @@ class ModelPipeline:
                 instructions=REFLECT_SELF_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
-            "reflect_mind": build_adapter(
-                binding=reflect_mind_binding,
+            "reflect_focus": build_adapter(
+                binding=reflect_focus_binding,
                 candidate_schema=owner_reflection_schema(target="mind"),
-                instructions=REFLECT_MIND_INSTRUCTIONS,
+                instructions=REFLECT_FOCUS_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
             "reflect_prompt": build_adapter(
@@ -510,6 +496,15 @@ class ModelPipeline:
             # this worker with a stale lease before file/provider I/O begins.
             snapshot = await self._snapshot(record)
             context_bytes = await self._read_context(snapshot)
+            if snapshot.purpose == "consider_autonomy_check":
+                async with self._factory.unit_of_work() as unit_of_work:
+                    await self._repository.finalize_autonomy_check(
+                        unit_of_work,
+                        lease=lease,
+                        snapshot=snapshot,
+                        engage=should_consider_autonomy(context_bytes),
+                    )
+                return
             adapter = self._adapter_for(
                 snapshot.purpose, context_bytes, snapshot.included_context_refs
             )
@@ -683,21 +678,6 @@ class ModelPipeline:
                     await self._fail_finalization(
                         lease, snapshot, result.response_error_code
                     )
-                    return
-                if snapshot.purpose == "consider_autonomy_check":
-                    decision = parse_autonomy_check(
-                        model_response_candidate(
-                            cast(bytes, result.response_bytes),
-                            expected_version=AUTONOMY_CHECK_VERSION,
-                        )
-                    )
-                    async with self._factory.unit_of_work() as unit_of_work:
-                        await self._repository.finalize_autonomy_check(
-                            unit_of_work,
-                            lease=lease,
-                            snapshot=snapshot,
-                            engage=decision.engage,
-                        )
                     return
                 await self._finalization.finalize(
                     record, attempt_id, cast(bytes, result.response_bytes)

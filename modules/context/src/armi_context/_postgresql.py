@@ -56,6 +56,7 @@ from .api import (
     ContextRuntimeSubjectPort,
     ContextSelectionPort,
     ContextViolation,
+    PsychologicalContextItem,
 )
 
 _MODEL_WORK_KIND = WorkType.COGNITION_EXECUTE
@@ -125,6 +126,7 @@ class ContextEpisodeSnapshot:
     subject_prompt: ContextArtifactSource | None = None
     recent_scene_sources: tuple[ContextDialogueItem, ...] = ()
     autonomy_context: bytes | None = None
+    focus_items: tuple[PsychologicalContextItem, ...] = ()
 
 
 class PostgreSQLContextRepository:
@@ -220,6 +222,14 @@ class PostgreSQLContextRepository:
             event_at=opportunity.available_after,
             activity_id=opportunity.activity_id,
         )
+        signals += await self._episodes.focus_signals(
+            tx,
+            subject_id=subject.subject_id,
+            event_purpose=opportunity.purpose,
+            event_ref=opportunity.opportunity_id,
+            event_at=opportunity.available_after,
+            activity_id=opportunity.activity_id,
+        )
         signals = await self._opportunities.unconsumed_signals(
             tx,
             subject_id=subject.subject_id,
@@ -227,6 +237,13 @@ class PostgreSQLContextRepository:
         )
         signals = tuple(
             signal for signal in signals if signal.eligible_at <= mood.as_of
+        )
+        focus_items = await self._episodes.focus_context(
+            tx,
+            subject_id=subject.subject_id,
+            as_of=mood.as_of,
+            purpose=opportunity.purpose,
+            signals=signals,
         )
         component_payloads += (
             ("mood", mood.current_revision_id, mood.version, mood_snapshot_bytes(mood)),
@@ -263,7 +280,7 @@ class PostgreSQLContextRepository:
             in {
                 "perform_subject_self_check",
                 "reflect_self",
-                "reflect_mind",
+                "reflect_focus",
                 "reflect_prompt",
             }
             else episode.context_party_id,
@@ -272,7 +289,7 @@ class PostgreSQLContextRepository:
             in {
                 "perform_subject_self_check",
                 "reflect_self",
-                "reflect_mind",
+                "reflect_focus",
                 "reflect_prompt",
             }
             else ("other_human_social" if other_human else "creator_social"),
@@ -400,6 +417,7 @@ class PostgreSQLContextRepository:
             observed_at=mood.as_of,
             consideration_signals=signals,
             component_payloads=component_payloads,
+            focus_items=focus_items,
             memory_payloads=memory_payloads,
             experience_context=episode.experience_context,
             has_memory_records=bool(memory_rows),

@@ -1,4 +1,4 @@
-"""Mind-owned durable state; the caller owns the Subject Commit transaction."""
+"""Mind-owned numeric state; event commits are independent of Subject Commit."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ import rfc8785
 from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
+from ._state_algorithm import MindEvidence
+from ._state_storage import apply_mind_evidence
 from .api import (
-    CandidateMindDraft,
     MindBirthContinuity,
     MindHead,
     MindRevision,
@@ -20,7 +21,6 @@ from .api import (
     mind_attention_projection,
     mind_motivation_projection,
     mind_signals,
-    prepare_mind_change,
 )
 
 
@@ -81,7 +81,7 @@ class PostgreSQLMindOwner:
         rows = await (
             await transaction.execute(
                 """SELECT mind_revision_id,mind_version,previous_revision_id,
-                      origin_kind,origin_ref,subject_commit_id,admin_change_id,
+                      origin_kind,origin_ref,admin_change_id,
                       created_at,data_rights_redacted_at,semantic_payload
                FROM armi.mind_revisions WHERE subject_id=%s
                  AND (%s::bigint IS NULL OR mind_version<%s)
@@ -99,8 +99,7 @@ class PostgreSQLMindOwner:
                 row[5],
                 row[6],
                 row[7],
-                row[8],
-                rfc8785.dumps(row[9]),
+                rfc8785.dumps(row[8]),
             )
             for row in rows
         )
@@ -173,87 +172,46 @@ class PostgreSQLMindOwner:
             raise MindViolation("MIND-CONTINUITY")
         return MindBirthContinuity(int(cast(int, row[0])), int(cast(int, row[1])))
 
-    async def heads_match(
+    async def apply_event(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateMindDraft, ...],
-    ) -> bool:
-        if len(drafts) > 1:
-            raise MindViolation("MIND-DUPLICATE-CANDIDATE")
-        if not drafts:
-            return True
+        assessment_id: UUID,
+        expected_version: int,
+        evidence: tuple[MindEvidence, ...],
+    ) -> tuple[bool, UUID]:
         row = await (
             await transaction.execute(
-                """SELECT mind_version FROM armi.mind_revisions WHERE is_current AND subject_id=%s FOR UPDATE""",
+                "SELECT mind_revision_id,mind_version,semantic_payload FROM armi.mind_revisions "
+                "WHERE subject_id=%s AND is_current FOR UPDATE",
                 (subject_id,),
             )
         ).fetchone()
-        return row is not None and int(cast(int, row[0])) == drafts[0].expected_version
-
-    async def commit(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        commit_id: UUID,
-        drafts: tuple[CandidateMindDraft, ...],
-    ) -> None:
-        if len(drafts) > 1:
-            raise MindViolation("MIND-DUPLICATE-CANDIDATE")
-        for draft in drafts:
-            head = await self.current_head(transaction, subject_id=subject_id)
-            clock = await (
-                await transaction.execute("SELECT statement_timestamp()")
-            ).fetchone()
-            if clock is None:
-                raise MindViolation("MIND-CLOCK")
-            payload = prepare_mind_change(
-                head, draft, now=clock[0], commit_id=commit_id
-            )
-            revision_id = uuid7()
-            await transaction.execute(
-                "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,"
-                "origin_kind,origin_ref,subject_commit_id,proposal_ref,semantic_payload) "
-                "VALUES (%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb)",
-                (
-                    revision_id,
-                    subject_id,
-                    head.version + 1,
-                    head.current_revision_id,
-                    commit_id,
-                    commit_id,
-                    draft.proposal_ref,
-                    payload.decode(),
-                ),
-            )
-            result = await transaction.execute(
-                """WITH input AS (SELECT %s::uuid AS new_id, %s::bigint AS new_version, %s::uuid AS subject_id, %s::uuid AS old_id, %s::bigint AS old_version),
-                target AS (
-                    SELECT candidate.mind_revision_id
-                    FROM armi.mind_revisions AS candidate, input
-                    WHERE candidate.mind_revision_id=input.new_id AND candidate.subject_id=input.subject_id
-                      AND candidate.mind_version=input.new_version AND NOT candidate.is_current
-                ), retired AS (
-                    UPDATE armi.mind_revisions AS previous SET is_current=false FROM input
-                    WHERE previous.subject_id=input.subject_id AND previous.mind_revision_id=input.old_id
-                      AND previous.mind_version=input.old_version AND previous.is_current
-                      AND EXISTS (SELECT 1 FROM target)
-                    RETURNING previous.subject_id
-                )
-                UPDATE armi.mind_revisions AS current SET is_current=true
-                FROM target, retired WHERE current.mind_revision_id=target.mind_revision_id""",
-                (
-                    revision_id,
-                    head.version + 1,
-                    subject_id,
-                    head.current_revision_id,
-                    head.version,
-                ),
-            )
-            if result.rowcount != 1:
-                raise MindViolation("MIND-HEAD-STALE")
+        if row is None or int(row[1]) != expected_version:
+            raise MindViolation("MIND-HEAD-STALE")
+        current = rfc8785.dumps(row[2])
+        updated = apply_mind_evidence(current, evidence)
+        if updated == current:
+            return False, row[0]
+        revision_id = uuid7()
+        await transaction.execute(
+            "UPDATE armi.mind_revisions SET is_current=false WHERE mind_revision_id=%s",
+            (row[0],),
+        )
+        await transaction.execute(
+            "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,"
+            "origin_kind,origin_ref,semantic_payload,is_current) VALUES (%s,%s,%s,%s,'event_appraisal',%s,%s::jsonb,true)",
+            (
+                revision_id,
+                subject_id,
+                expected_version + 1,
+                row[0],
+                assessment_id,
+                updated.decode(),
+            ),
+        )
+        return True, revision_id
 
     async def initialize(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

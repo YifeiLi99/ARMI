@@ -141,6 +141,22 @@ class VariableState:
     known_at: datetime | None
     basis_refs: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if self.value is not None and (
+            not isfinite(self.value) or not 0 <= self.value <= 1
+        ):
+            raise ValueError("invalid Mind variable value")
+        if self.quality in _KNOWN_CHOICES and (
+            self.value != MIND_PARAMETERS.levels[_KNOWN_CHOICES.index(self.quality)]
+            or self.known_at is None
+            or not self.basis_refs
+        ):
+            raise ValueError(
+                "Mind known value requires its selected level and evidence"
+            )
+        if self.known_at is not None and self.known_at.tzinfo is None:
+            raise ValueError("Mind evidence time must include timezone")
+
 
 @dataclass(frozen=True, slots=True)
 class DerivedMindState:
@@ -166,6 +182,20 @@ class MindObjectState:
     condition_motives: tuple[tuple[str, float], ...] = ()
     last_review_key: str | None = None
     condition_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            not self.evidence_key
+            or self.evaluated_at.tzinfo is None
+            or self.salient_at.tzinfo is None
+            or self.condition_version < 0
+            or len({v.variable for v in self.variables}) != len(self.variables)
+            or any(
+                not isfinite(value) or not 0 <= value <= 1
+                for _, value in self.condition_motives
+            )
+        ):
+            raise ValueError("invalid Mind object state")
 
 
 def derive_mind(

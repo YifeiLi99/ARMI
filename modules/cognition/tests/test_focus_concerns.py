@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
-from armi_mind._concerns import apply_concern_changes
-from armi_mind.api import (
+from armi_cognition._focus._concerns import apply_concern_changes
+from armi_cognition._focus.api import (
     CloseConcern,
     CreateConcern,
     TimedReview,
@@ -65,7 +65,7 @@ def test_concern_survives_elapsed_time_and_can_finish_without_recreation() -> No
     )
 
 
-def test_capacity_and_reference_fail_as_one_change() -> None:
+def test_retention_is_unbounded_and_invalid_reference_is_atomic() -> None:
     now = datetime(2026, 9, 16, tzinfo=UTC)
     records = apply_concern_changes(
         (),
@@ -74,14 +74,14 @@ def test_capacity_and_reference_fail_as_one_change() -> None:
         commit_id=uuid7(),
         basis_ordinals=(1,),
     )
-    with pytest.raises(ValueError, match="CAPACITY"):
-        apply_concern_changes(
-            records,
-            (creation("第五个问题"),),
-            now=now,
-            commit_id=uuid7(),
-            basis_ordinals=(1,),
-        )
+    extended = apply_concern_changes(
+        records,
+        (creation("第五个问题"),),
+        now=now,
+        commit_id=uuid7(),
+        basis_ordinals=(1,),
+    )
+    assert len(extended) == 5
     invalid = CloseConcern(
         operation="release",
         concern_ref=str(uuid7()),
@@ -142,7 +142,13 @@ def test_attention_projection_reports_time_without_mutating_the_concern() -> Non
             records,
             as_of=later,
             consumed=frozenset(
-                {("mind", str(records[0].concern_id), str(records[0].source_commit_id))}
+                {
+                    (
+                        "focus",
+                        str(records[0].concern_id),
+                        str(records[0].source_commit_id),
+                    )
+                }
             ),
         )[0]["condition_state"]
         == "consumed"
@@ -151,7 +157,7 @@ def test_attention_projection_reports_time_without_mutating_the_concern() -> Non
 
 
 def test_owner_signals_keep_condition_identity_across_time_and_exclude_own_activity_round():
-    from armi_mind._concerns import concern_signals
+    from armi_cognition._focus._concerns import concern_signals
 
     now = datetime(2026, 9, 17, tzinfo=UTC)
     records = apply_concern_changes(
@@ -179,8 +185,8 @@ def test_owner_signals_keep_condition_identity_across_time_and_exclude_own_activ
 
 
 def test_event_review_requires_new_creator_input_or_related_result_and_preserves_waiting():
-    from armi_mind._concerns import concern_signals
-    from armi_mind.api import ActivityReview, CreatorInputReview
+    from armi_cognition._focus._concerns import concern_signals
+    from armi_cognition.api import ActivityReview, CreatorInputReview
 
     now = datetime(2026, 9, 17, tzinfo=UTC)
     records = apply_concern_changes(
@@ -263,8 +269,8 @@ def test_event_review_requires_new_creator_input_or_related_result_and_preserves
 
 def test_scripted_curiosity_asks_waits_and_resolves_only_after_feedback():
     """Scripted owner candidates verify the mechanism, not model behavior."""
-    from armi_mind._concerns import concern_signals
-    from armi_mind.api import CreatorInputReview
+    from armi_cognition._focus._concerns import concern_signals
+    from armi_cognition.api import CreatorInputReview
 
     now = datetime(2026, 9, 17, tzinfo=UTC)
     records = apply_concern_changes(

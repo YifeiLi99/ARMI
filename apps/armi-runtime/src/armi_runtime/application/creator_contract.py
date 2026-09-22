@@ -503,7 +503,7 @@ type MaintenancePhaseValue = Literal[
     "memory_maintenance",
     "self_check",
     "reflect_self",
-    "reflect_mind",
+    "reflect_focus",
     "reflect_prompt",
     "life_quiet",
     "resume_check",
@@ -1013,9 +1013,9 @@ type OperationOutcomeResponse = Annotated[
 
 
 class SubjectComponentSummaryResponse(_StrictWireModel):
-    kind: Literal["self", "mind", "life_mode"]
+    kind: Literal["self", "mind", "life_mode", "focus"]
     version: Annotated[int, Field(ge=1)]
-    schema_kind: Literal["armi.self", "armi.mind", "armi.life-mode"]
+    schema_kind: Literal["armi.self", "armi.mind", "armi.life-mode", "armi.focus"]
     content_visibility: Literal["private"]
 
 

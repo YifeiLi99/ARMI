@@ -64,15 +64,22 @@ from armi_cognition.api import (
     CognitionSubjectCommitPort,
     CognitionSubmissionPort,
     CognitionWorkerPort,
+    FocusCognitionPort,
+    FocusCommitPort,
+    FocusReadPort,
 )
 from armi_cognition.bootstrap import (
     ContextCandidateReadPorts,
+    FocusModule,
+    bootstrap_appraisal_read,
     bootstrap_cognition_candidate,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
     bootstrap_cognition_operation,
     bootstrap_context_candidate_read,
     bootstrap_dialogue_decision_record,
+    bootstrap_event_appraisals,
+    bootstrap_focus,
     bootstrap_sleep_decision_record,
 )
 from armi_context.api import (
@@ -213,7 +220,7 @@ from armi_memory.bootstrap import (
     MemoryModule,
     bootstrap_memory,
 )
-from armi_mind.api import MindCognitionPort, MindCommitPort, MindReadPort
+from armi_mind.api import MindEventPort, MindReadPort
 from armi_mind.bootstrap import MindModule, bootstrap_mind
 from armi_mood.api import MoodEventStorePort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
@@ -578,7 +585,8 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                     interaction=bootstrap_interaction_birth(),
                     subject_state=bootstrap_subject_state().birth,
                     mind=bootstrap_mind().birth,
-                    mood=bootstrap_mood().birth,
+                    focus=bootstrap_focus().birth,
+                    mood=bootstrap_mood(assessments=bootstrap_appraisal_read()).birth,
                     prompts=bootstrap_prompt().birth,
                 )
                 return state
@@ -752,6 +760,10 @@ def compose_activity_module(
     )
 
 
+def compose_focus_module() -> FocusModule:
+    return bootstrap_focus()
+
+
 def compose_mind_module() -> MindModule:
     return bootstrap_mind()
 
@@ -765,7 +777,7 @@ def compose_subject_state_module() -> SubjectStateModule:
 def compose_mood_module() -> MoodModule:
     """Build the one active in-process mood owner."""
 
-    return bootstrap_mood()
+    return bootstrap_mood(assessments=bootstrap_appraisal_read())
 
 
 def compose_life_record_query(
@@ -1295,6 +1307,7 @@ def compose_context_pipeline(
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
     mood_events: MoodEventStorePort,
+    mind_events: MindEventPort,
     prompt_read: PromptReadPort,
     material_projection: MaterialProjectionPort,
     relationship_read: RelationshipReadPort,
@@ -1349,7 +1362,9 @@ def compose_context_pipeline(
         mood_evaluation=RuntimeMoodEvaluation(
             factory=unit_of_work_factory,
             episodes=cognition_context,
-            store=mood_events,
+            store=bootstrap_event_appraisals(mood=mood_read, mind=mind_read),
+            mood=mood_events,
+            mind=mind_events,
             appraiser=JevAppraiser(
                 credentials=prepared.credential_port,
                 locator=config.secret_locators.get("mood.jev_api_key"),
@@ -1678,9 +1693,9 @@ def compose_candidate_validation_pipeline(
     sleep_cognition: SleepCognitionPort,
     sleep_read: SleepReadPort,
     subject_state_cognition: SubjectStateCognitionPort,
-    mind_cognition: MindCognitionPort,
+    focus_cognition: FocusCognitionPort,
     subject_state_read: SubjectStateReadPort,
-    mind_read: MindReadPort,
+    focus_read: FocusReadPort,
     catalog: ArtifactCatalogPort,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
@@ -1722,9 +1737,9 @@ def compose_candidate_validation_pipeline(
         sleep_cognition=sleep_cognition,
         sleep_read=sleep_read,
         subject_state_cognition=subject_state_cognition,
-        mind_cognition=mind_cognition,
+        focus_cognition=focus_cognition,
         subject_state_read=subject_state_read,
-        mind_read=mind_read,
+        focus_read=focus_read,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
         validation_diagnostic=validation_diagnostic,
@@ -1751,7 +1766,7 @@ def compose_subject_commit_pipeline(
     relationship_commit: RelationshipCommitPort,
     sleep_commit: SleepCommitPort,
     subject_state_commit: SubjectStateCommitPort,
-    mind_commit: MindCommitPort,
+    focus_commit: FocusCommitPort,
     catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None,
     voice_results: VoiceCognitionResultPort | None = None,
@@ -1785,7 +1800,7 @@ def compose_subject_commit_pipeline(
         relationship_commit=relationship_commit,
         sleep_commit=sleep_commit,
         subject_state_commit=subject_state_commit,
-        mind_commit=mind_commit,
+        focus_commit=focus_commit,
         visual_observation_commit=bootstrap_live_vision_commit(),
         notifier=notifier,
         voice_results=voice_results,
@@ -1976,6 +1991,7 @@ __all__ = (
     "compose_exact_life_query_pipeline",
     "compose_execution_custody",
     "compose_expression_module",
+    "compose_focus_module",
     "compose_interaction_identity",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",

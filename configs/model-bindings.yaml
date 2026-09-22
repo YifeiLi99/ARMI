@@ -34,10 +34,6 @@ voice_binding:
   startup_compatibility_check: strict_minimal_json
 
 purpose_profiles:
-  consider_autonomy_check:
-    profile: autonomy_check
-    response_contract_kind: armi.autonomy-check-candidate
-    output_token_limit: 64
   consider_creator_input:
     profile: creator_cognitive_act
     response_contract_kind: armi.creator-cognitive-act-candidate
@@ -88,8 +84,8 @@ purpose_profiles:
     profile: reflect_self
     response_contract_kind: armi.owner-reflection-candidate
     output_token_limit: 2048
-  reflect_mind:
-    profile: reflect_mind
+  reflect_focus:
+    profile: reflect_focus
     response_contract_kind: armi.owner-reflection-candidate
     output_token_limit: 2048
   reflect_prompt:

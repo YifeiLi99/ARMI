@@ -12,6 +12,7 @@ from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransa
 from ._evaluation_contract import (
     MoodAppraiserPort,
     MoodAssessment,
+    MoodAssessmentReadPort,
     MoodEvaluationPort,
     MoodEvent,
     MoodEventStorePort,
@@ -189,6 +190,7 @@ __all__ = (
     "MoodAdminReadPort",
     "MoodAppraiserPort",
     "MoodAssessment",
+    "MoodAssessmentReadPort",
     "MoodBirthContinuity",
     "MoodBirthPort",
     "MoodCorrectionHead",

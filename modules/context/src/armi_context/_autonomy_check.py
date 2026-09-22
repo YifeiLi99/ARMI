@@ -15,9 +15,10 @@ CHECK_KINDS = frozenset(
         "fixed_prompt",
         "self",
         "mind",
+        "focus",
+        "current_activity",
         "mood",
         "life_mode",
-        "current_activity",
         "current_activities",
         "current_life_opportunity",
         "current_concern",
@@ -113,8 +114,7 @@ def check_context_items(
             )
         elif item.item_kind == "mind":
             value = {
-                "open_concerns": value["open_concerns_count"],
-                "open_motivations": value["open_motivations_count"],
+                "assessed_objects": value["assessed_objects"],
             }
         elif item.item_kind == "self":
             value = {
@@ -174,11 +174,11 @@ def check_context_items(
             value = {
                 key: motivation[key]
                 for key in (
-                    "tendency",
-                    "level",
-                    "object_kind",
-                    "assessment",
-                    "consideration_reason",
+                    "object",
+                    "domains",
+                    "consideration",
+                    "association",
+                    "opportunity",
                 )
                 if key in motivation
             }

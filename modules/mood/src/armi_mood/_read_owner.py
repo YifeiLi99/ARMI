@@ -6,7 +6,7 @@ from uuid import UUID, uuid7
 import rfc8785
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
-from ._evaluation_contract import MoodView
+from ._evaluation_contract import MoodAssessmentReadPort, MoodView
 from ._psychology import (
     Appraisal,
     DynamicsParameters,
@@ -19,8 +19,11 @@ from .api import MoodBirthContinuity, MoodHead, MoodViolation
 
 
 class MoodReadOwner:
-    def __init__(self, parameters: DynamicsParameters) -> None:
+    def __init__(
+        self, parameters: DynamicsParameters, assessments: MoodAssessmentReadPort
+    ) -> None:
         self._parameters = parameters
+        self._assessments = assessments
 
     async def open(self) -> None:
         pass
@@ -55,13 +58,7 @@ class MoodReadOwner:
         if clock is None:
             raise MoodViolation("MOOD-CLOCK")
         state = MoodDynamics.model_validate_json(head.canonical_state)
-        assessment = await (
-            await transaction.execute(
-                """SELECT status,mood_assessment_id,error_code,appraisal FROM armi.mood_assessments
-               WHERE subject_id=%s ORDER BY created_at DESC,mood_assessment_id DESC LIMIT 1""",
-                (subject_id,),
-            )
-        ).fetchone()
+        assessment = await self._assessments.latest(transaction, subject_id=subject_id)
         return MoodView(
             head.current_revision_id,
             head.version,

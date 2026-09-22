@@ -117,19 +117,7 @@ def test_creator_memory_and_operations_preserve_values():
     assert result.changes[0].text == "A new preference"
 
 
-def test_creator_motivation_and_concern_are_not_lost():
-    appraisal = {
-        "object_ref": "ctx:1",
-        "basis_refs": ["ctx:1"],
-        "desired_outcome": "understand",
-        "significance": "important",
-        "discrepancy": "small",
-        "understanding": "partial",
-        "progress": "advancing",
-        "opportunity": "available",
-        "resolution": "open",
-        "explanation": "An unanswered question",
-    }
+def test_creator_concern_is_preserved_without_psychological_write():
     concern = {
         "operation": "create",
         "basis_refs": ["ctx:1"],
@@ -144,12 +132,10 @@ def test_creator_motivation_and_concern_are_not_lost():
         {
             "action": "reply",
             "content": ["I will think about it"],
-            "mind_appraisals": [appraisal],
             "concern_changes": [concern],
         },
         CREATOR,
     )
-    assert result.mind_appraisals[0].model_dump(mode="json") == appraisal
     assert result.concern_changes[0].model_dump(mode="json") == concern
 
 

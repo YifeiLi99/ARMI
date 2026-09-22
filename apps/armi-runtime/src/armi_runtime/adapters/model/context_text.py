@@ -21,7 +21,7 @@ _PURPOSES = {
     "maintain_subjective_memory": "整理本轮允许维护的记忆",
     "perform_subject_self_check": "检查主体内部的一致性和未完成责任",
     "reflect_self": "反思自我状态",
-    "reflect_mind": "反思内心状态",
+    "reflect_focus": "反思内心状态",
     "reflect_prompt": "反思自身认知、表达和反思方法",
 }
 _SECTIONS = (
@@ -62,22 +62,6 @@ def context_messages(document: dict[str, Any]) -> list[dict[str, str]]:
     """Render a frozen request without changing its refs, data or authority."""
     compiled = document["compiled_context"]
     purpose: str = compiled["purpose"]
-    if purpose == "consider_autonomy_check":
-        # Frozen sources/versions stay in the manifest, never padded into a check.
-        entries: dict[str, list[Any]] = {}
-        for layer in compiled["layers"]:
-            for item in layer["items"]:
-                entries.setdefault(item["item_kind"], []).append(
-                    json.loads(item["content"])
-                )
-        return [
-            {
-                "role": "user",
-                "content": json.dumps(
-                    entries, ensure_ascii=False, separators=(",", ":")
-                ),
-            }
-        ]
     sections: dict[str, list[str]] = {name: [] for name in _SECTIONS}
     current: list[str] = []
     # Only expose submission fields actually consumed by the current contract.

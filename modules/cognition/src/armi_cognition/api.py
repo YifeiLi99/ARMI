@@ -28,11 +28,13 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateValidationId,
     CandidateViolation,
+    ConsiderationSignal,
     LifeRecordKind,
     ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
     ModelRequest,
+    PsychologicalContextItem,
     WorkLease,
     WorkRecord,
     require_cognition_purpose,
@@ -45,12 +47,6 @@ from armi_runtime_foundation import (
     PostgreSQLTransaction,
 )
 
-from ._autonomy_check_contract import (
-    AUTONOMY_CHECK_INSTRUCTIONS,
-    AUTONOMY_CHECK_VERSION,
-    autonomy_check_schema,
-    parse_autonomy_check,
-)
 from ._dialogue_output import (
     dialogue_output_instructions,
     dialogue_output_kind,
@@ -62,6 +58,37 @@ from ._event_appraisal import (
     EventAppraisalResult,
     parse_event_appraisal,
 )
+from ._event_appraisal import EventAppraiserPort as EventAppraiserPort
+from ._event_store import EventAppraisalStorePort as EventAppraisalStorePort
+from ._event_store import EventAssessment as EventAssessment
+from ._focus.api import (
+    CONCERN_CHANGES,
+    CONCERN_RECORDS,
+    FOCUS_COGNITIVE_INSTRUCTIONS,
+    FOCUS_CONTEXT_REFERENCES,
+    ActivityReview,
+    CandidateFocusDraft,
+    CloseConcern,
+    ConcernChange,
+    ConcernRecord,
+    CreateConcern,
+    CreatorInputReview,
+    FocusBirthPort,
+    FocusCognitionPort,
+    FocusCommitPort,
+    FocusHead,
+    FocusReadPort,
+    FocusViolation,
+    TimedReview,
+    UpdateConcern,
+    bind_concern_changes,
+    focus_context_items,
+    focus_signals,
+    initial_focus_state,
+)
+from ._focus.api import FocusAdminCorrectionPort as FocusAdminCorrectionPort
+from ._focus.api import FocusAdminReadPort as FocusAdminReadPort
+from ._focus.api import focus_attention_projection as focus_attention_projection
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _PROPOSAL = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
@@ -82,7 +109,7 @@ class CognitiveBranchRole(StrEnum):
 
 class MaintenanceIssueTarget(StrEnum):
     SELF = "self"
-    MIND = "mind"
+    FOCUS = "focus"
     PROMPT = "prompt"
 
 
@@ -305,6 +332,25 @@ class CognitionContextEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionContextLifecyclePort(Protocol):
+    async def focus_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        purpose: str,
+        signals: tuple[ConsiderationSignal, ...],
+    ) -> tuple[PsychologicalContextItem, ...]: ...
+    async def focus_signals(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event_purpose: str,
+        event_ref: UUID,
+        event_at: datetime,
+        activity_id: UUID | None,
+    ) -> tuple[ConsiderationSignal, ...]: ...
     async def accept_mood(
         self,
         transaction: PostgreSQLTransaction,
@@ -873,14 +919,19 @@ async def autonomy_check_current(
 
 
 __all__ = (
-    "AUTONOMY_CHECK_INSTRUCTIONS",
-    "AUTONOMY_CHECK_VERSION",
+    "CONCERN_CHANGES",
+    "CONCERN_RECORDS",
+    "FOCUS_COGNITIVE_INSTRUCTIONS",
+    "FOCUS_CONTEXT_REFERENCES",
+    "ActivityReview",
     "CandidateDiagnostic",
     "CandidateExactLifeQueryDraft",
+    "CandidateFocusDraft",
     "CandidateValidationDiagnostic",
     "CandidateValidationResult",
     "CandidateValidationStatus",
     "CandidateValidator",
+    "CloseConcern",
     "CognitionAcceptedCandidate",
     "CognitionAdminAttempt",
     "CognitionAdminEpisodeSnapshot",
@@ -913,16 +964,36 @@ __all__ = (
     "CognitionWakeupPort",
     "CognitionWorkerPort",
     "CognitiveBranchRole",
+    "ConcernChange",
+    "ConcernRecord",
+    "CreateConcern",
+    "CreatorInputReview",
     "EventAppraisalRequest",
     "EventAppraisalResult",
+    "EventAppraisalStorePort",
+    "EventAppraiserPort",
+    "EventAssessment",
+    "FocusAdminCorrectionPort",
+    "FocusAdminReadPort",
+    "FocusBirthPort",
+    "FocusCognitionPort",
+    "FocusCommitPort",
+    "FocusHead",
+    "FocusReadPort",
+    "FocusViolation",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
+    "TimedReview",
+    "UpdateConcern",
     "autonomy_check_current",
-    "autonomy_check_schema",
+    "bind_concern_changes",
     "dialogue_output_instructions",
     "dialogue_output_kind",
     "dialogue_output_schema",
     "flatten_dialogue_output",
-    "parse_autonomy_check",
+    "focus_attention_projection",
+    "focus_context_items",
+    "focus_signals",
+    "initial_focus_state",
     "parse_event_appraisal",
 )

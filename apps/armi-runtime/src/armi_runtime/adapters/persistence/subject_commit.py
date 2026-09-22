@@ -25,11 +25,14 @@ from armi_codex.api import (
 )
 from armi_cognition.api import (
     CandidateExactLifeQueryDraft,
+    CandidateFocusDraft,
     CognitionAcceptedCandidate,
     CognitionApplicationDraft,
     CognitionEpisodeStatus,
     CognitionExactLifeQueryIntentDraft,
     CognitionSubjectCommitPort,
+    FocusCommitPort,
+    FocusViolation,
     SubjectChangeSet,
 )
 from armi_context.api import (
@@ -103,7 +106,6 @@ from armi_memory.api import (
     MemoryExperienceSource,
     MemoryViolation,
 )
-from armi_mind.api import CandidateMindDraft, MindCommitPort, MindViolation
 from armi_prompt.api import CandidatePromptDraft, PromptCommitPort, PromptViolation
 from armi_relationship.api import (
     CandidateRelationshipDraft,
@@ -167,7 +169,7 @@ class SubjectCommitOwnerDrafts:
     relationship: tuple[CandidateRelationshipDraft, ...]
     sleep: tuple[CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...]
     subject_state: tuple[CandidateSubjectStateDraft, ...]
-    mind: tuple[CandidateMindDraft, ...]
+    focus: tuple[CandidateFocusDraft, ...]
 
 
 def _sleep_commit_context(snapshot: SubjectCommitSnapshot) -> SleepCommitContext:
@@ -260,10 +262,10 @@ class PostgreSQLSubjectCommitRepository:
         "_evidence_read",
         "_experience_commit",
         "_expression_commit",
+        "_focus_commit",
         "_interaction_commit",
         "_material_commit",
         "_memory_commit",
-        "_mind_commit",
         "_opportunity_transition",
         "_prompt_commit",
         "_relationship_commit",
@@ -292,7 +294,7 @@ class PostgreSQLSubjectCommitRepository:
         relationship_commit: RelationshipCommitPort,
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
-        mind_commit: MindCommitPort,
+        focus_commit: FocusCommitPort,
         visual_observation_commit: VisualObservationCommitPort,
         voice_activity_state: VoiceActivityState | None = None,
     ) -> None:
@@ -314,7 +316,7 @@ class PostgreSQLSubjectCommitRepository:
         self._relationship_commit = relationship_commit
         self._sleep_commit = sleep_commit
         self._subject_state_commit = subject_state_commit
-        self._mind_commit = mind_commit
+        self._focus_commit = focus_commit
         self._visual_observation_commit = visual_observation_commit
 
     async def settle_stale(
@@ -542,10 +544,10 @@ class PostgreSQLSubjectCommitRepository:
             subject_id=snapshot.subject_id,
             drafts=owner_drafts.subject_state,
         )
-        mind_heads_current = await self._mind_commit.heads_match(
+        focus_heads_current = await self._focus_commit.heads_match(
             unit_of_work.transaction,
             subject_id=snapshot.subject_id,
-            drafts=owner_drafts.mind,
+            drafts=owner_drafts.focus,
         )
         try:
             activity_heads_current = await self._activity_commit.heads_match(
@@ -596,7 +598,7 @@ class PostgreSQLSubjectCommitRepository:
             or int(subject[1]) != change_set.base_state_epoch
             or subject[2] != change_set.bundle_activation_id
             or not subject_state_heads_current
-            or not mind_heads_current
+            or not focus_heads_current
             or not activity_heads_current
             or not memory_heads_current
             or not material_heads_current
@@ -862,13 +864,13 @@ class PostgreSQLSubjectCommitRepository:
             ) from None
 
         try:
-            await self._mind_commit.commit(
+            await self._focus_commit.commit(
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
                 commit_id=commit_id.value,
-                drafts=owner_drafts.mind,
+                drafts=owner_drafts.focus,
             )
-        except MindViolation as error:
+        except FocusViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
 
         try:

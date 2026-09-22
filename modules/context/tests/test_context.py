@@ -22,7 +22,7 @@ from armi_context._postgresql import (
 )
 from armi_context.api import ContextDialogueItem, ContextItemDisposition
 from armi_interaction.api import InteractionContextTurn
-from armi_kernel.application import ConsiderationSignal
+from armi_kernel.application import ConsiderationSignal, PsychologicalContextItem
 from armi_kernel.contracts import Digest, TraceId
 
 
@@ -43,6 +43,7 @@ def _snapshot(
     activity_summary_bytes: bytes = b'{"activities":[]}',
     component_payloads: tuple[tuple[object, ...], ...] = (),
     experience_context: tuple[object, ...] = (),
+    focus_items: tuple[PsychologicalContextItem, ...] = (),
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -55,6 +56,7 @@ def _snapshot(
             opportunity_id=uuid7(),
             purpose=purpose,
             component_payloads=component_payloads,
+            focus_items=focus_items,
             scene_id=scene_id,
             scene_bytes=scene_bytes,
             memory_payloads=memory_payloads,
@@ -112,17 +114,28 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
         "updated_at": "2026-01-01T00:00:00+00:00",
         "review_at": "2026-01-01T00:05:00+00:00",
     }
-    mind = {
-        "schema_kind": "armi.mind",
-        "motivation_states": [],
-        "thoughts": [],
-        "concerns": [
-            concern,
-            {**concern, "state": "resolved", "question": "Finished history"},
-        ],
-    }
     snapshot = _snapshot(
-        (), component_payloads=(("mind", uuid7(), 2, rfc8785.dumps(mind)),)
+        (),
+        focus_items=(
+            PsychologicalContextItem(
+                "current_concern",
+                "cognition_focus",
+                uuid7(),
+                2,
+                json.dumps(
+                    {
+                        **concern,
+                        "elapsed_seconds": 600,
+                        "consideration_reason": "ongoing_concern",
+                    }
+                ),
+                True,
+                95,
+            ),
+        ),
+        component_payloads=(
+            ("mind", uuid7(), 1, b'{"schema_kind":"armi.mind","objects":[]}'),
+        ),
     )
     snapshot = cast(
         ContextEpisodeSnapshot,
@@ -339,9 +352,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
             rfc8785.dumps(
                 {
                     "schema_kind": "armi.mind",
-                    "thoughts": [],
-                    "concerns": [],
-                    "motivation_states": [],
+                    "objects": [],
                 }
             ),
         ),
@@ -410,7 +421,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
     source = next(item for item in request.items if item.item_kind == "self")
     assert source.source.reference == component_id and source.source.version == 7
     assert contents["self"]["self_description"]["omitted_characters"] > 0
-    assert contents["mind"] == {"open_concerns": 0, "open_motivations": 0}
+    assert contents["mind"] == {"assessed_objects": 0}
     concern_template = replace(
         source,
         item_kind="current_concern",
@@ -420,7 +431,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
         replace(
             source,
             item_kind="mind",
-            content='{"open_concerns_count":12,"open_motivations_count":5}',
+            content='{"assessed_objects":17}',
         ),
         replace(
             source, item_kind="current_life_opportunity", content='{"autonomy":{}}'
@@ -434,7 +445,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
         item for item in projected if item.item_kind == "current_life_opportunity"
     )
     assert opportunity.content is not None
-    assert json.loads(opportunity.content)["omitted_concerns_and_motivations"] == 13
+    assert json.loads(opportunity.content)["omitted_concerns_and_motivations"] == 8
 
 
 def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:
@@ -841,7 +852,7 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     "mind",
                     uuid7(),
                     1,
-                    b'{"thoughts":["other-relationship-secret"],"concerns":[],"motivation_states":[]}',
+                    b'{"schema_kind":"armi.mind","objects":[]}',
                 ),
             ),
         ),
@@ -860,7 +871,7 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
     assert b"private-material" not in compiled
     assert b"private-activity" not in compiled
     assert b"creator-capability" not in compiled
-    assert b"other-relationship-secret" in compiled
+    assert b"other-relationship-secret" not in compiled
 
 
 def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -> None:

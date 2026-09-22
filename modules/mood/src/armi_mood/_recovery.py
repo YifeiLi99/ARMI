@@ -17,7 +17,7 @@ from .api import MoodReadPort
 
 class MoodRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("mood")
-    work_scopes = (("cognitive_episode", "mood.evaluate"),)
+    work_scopes: tuple[tuple[str, str], ...] = ()
 
     def __init__(self, read: MoodReadPort) -> None:
         self._read = read
@@ -36,12 +36,6 @@ class MoodRecoveryParticipant:
                 await reconciliation.cancel(
                     item.work_id, reason_code="REC-MOOD-INTERRUPTED"
                 )
-        await transaction.execute(
-            """UPDATE armi.mood_assessments SET status='interrupted',
-                   error_code='MOOD-RUNTIME-INTERRUPTED',completed_at=statement_timestamp()
-               WHERE subject_id=%s AND status='running'""",
-            (scope.subject_id,),
-        )
         count = await self._read.current_head_count(
             transaction, subject_id=scope.subject_id
         )

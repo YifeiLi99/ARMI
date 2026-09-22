@@ -1,8 +1,9 @@
-"""Independent Mood commits, using a disposable database and a test appraiser."""
+"""One event request, independent Mood/Mind commits and no implicit replay."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -10,26 +11,36 @@ from uuid import uuid7
 
 import psycopg
 import pytest
+from armi_cognition.api import EventAppraisalResult
 from armi_data_rights.api import (
     DataRightsApplyRequest,
     DataRightsDiscoveryRequest,
     DataRightsRelatedRef,
 )
 from armi_kernel.application import PriceCatalog, WorkType
+from armi_mind.api import (
+    Association,
+    MindChoice,
+    MindEvidence,
+    MindVariable,
+    Opportunity,
+)
 from armi_mood.api import Appraisal, EvaluatedAppraisal, MoodEvent, MoodViolation
 from armi_runtime.application.mood_evaluation import RuntimeMoodEvaluation
 from armi_runtime.composition.postgresql_test import (
     bootstrap_cognition_context,
+    bootstrap_event_appraisals,
     bootstrap_experience_owner,
+    bootstrap_mind,
+    bootstrap_mind_data_rights,
     bootstrap_mood,
-    bootstrap_mood_data_rights,
 )
 
 from tests.postgresql import test_postgresql_integration as support
 
 pytestmark = [
     pytest.mark.postgresql,
-    pytest.mark.test_group("mood", "cognition"),
+    pytest.mark.test_group("mind", "mood", "cognition"),
     pytest.mark.skipif(
         not os.environ.get("S009_ADMIN_DSN"), reason="isolated PostgreSQL required"
     ),
@@ -37,20 +48,39 @@ pytestmark = [
 
 
 @pytest.mark.parametrize(
-    "outcome", ["success", "failure", "cancelled", "subject_conflict", "mood_conflict"]
+    "outcome",
+    [
+        "success",
+        "mood_invalid",
+        "mind_invalid",
+        "mood_rejected",
+        "mind_rejected",
+        "interrupted_after_mood",
+        "failure",
+        "cancelled",
+        "subject_conflict",
+    ],
 )
-def test_mood_is_independent_and_only_success_releases_context(outcome):
+def test_joint_event_commits_valid_parts_and_only_full_success_releases_context(
+    outcome,
+):
     case = support.PostgreSQLIntegrationTests()
     case.setUpClass()
 
     async def probe(fixture, born, ids, fence, old_lease):
         with psycopg.connect(fixture.provisioner_dsn) as db:
+            initial_attempts = db.execute(
+                "SELECT count(*) FROM armi.cognitive_attempts"
+            ).fetchone()
             db.execute(
-                "UPDATE armi.cognitive_episodes SET status='preparing', final_disposition=NULL, validated_at=NULL,model_returned_at=NULL,prepared_at=NULL,compiled_context_digest=NULL,context_manifest_artifact_id=NULL,compiled_context_artifact_id=NULL,validation_status=NULL,candidate_validation_id=NULL,validated_model_attempt_id=NULL,change_set_artifact_id=NULL WHERE cognitive_episode_id=%s",
+                "UPDATE armi.cognitive_episodes SET status='preparing',final_disposition=NULL,validated_at=NULL,"
+                "model_returned_at=NULL,prepared_at=NULL,compiled_context_digest=NULL,context_manifest_artifact_id=NULL,"
+                "compiled_context_artifact_id=NULL,validation_status=NULL,candidate_validation_id=NULL,"
+                "validated_model_attempt_id=NULL,change_set_artifact_id=NULL WHERE cognitive_episode_id=%s",
                 (ids["episode"],),
             )
             db.execute(
-                "UPDATE armi.durable_work SET work_kind='mood.evaluate',max_attempts=1 WHERE work_id=%s",
+                "UPDATE armi.durable_work SET work_kind='event.appraise',max_attempts=1 WHERE work_id=%s",
                 (ids["commit_work"],),
             )
         factory = support.PostgreSQLUnitOfWorkFactory(
@@ -62,12 +92,12 @@ def test_mood_is_independent_and_only_success_releases_context(outcome):
             statement_timeout_seconds=5,
             authority_admission=lambda: fence,
         )
-        mood = bootstrap_mood()
+        mood, mind = bootstrap_mood(), bootstrap_mind()
+        store = bootstrap_event_appraisals(mood=mood.read, mind=mind.read)
         episodes = bootstrap_cognition_context(
             experiences=bootstrap_experience_owner(),
             maintenance=support.PostgreSQLSubjectMaintenance(),
         )
-        lease = replace(old_lease, work_kind=WorkType.MOOD_EVALUATE)
         event = MoodEvent(
             "test:event:1",
             born.subject_id,
@@ -75,12 +105,12 @@ def test_mood_is_independent_and_only_success_releases_context(outcome):
             ids["evidence"],
             1,
             datetime.now(UTC),
-            "A confirmed benefit to an existing goal",
+            "A confirmed benefit and an unresolved valuable question",
         )
         calls = []
 
         class Appraiser:
-            async def evaluate(self, *, assessment, context):
+            async def evaluate_event(self, *, assessment, context, targets):
                 calls.append(assessment.assessment_id)
                 if outcome == "failure":
                     raise MoodViolation("MOOD-JEV-HTTP-FAILED")
@@ -91,189 +121,185 @@ def test_mood_is_independent_and_only_success_releases_context(outcome):
                         db.execute(
                             "UPDATE armi.subjects SET subject_version=subject_version+1"
                         )
-                if outcome == "mood_conflict":
-                    # A competing owner commit changes the head after dispatch.
-                    async with factory.unit_of_work() as unit:
-                        other = await mood.events.begin(
-                            unit.transaction,
-                            event=replace(event, event_key="other:1"),
-                            context={"layers": []},
-                        )
-                        await mood.events.apply(
-                            unit.transaction,
-                            assessment=other,
-                            result=evaluated(other),
-                            at=datetime.now(UTC),
-                        )
-                return evaluated(assessment)
+                fields: dict[str, object] = {
+                    name: None
+                    for name, field in Appraisal.model_fields.items()
+                    if field.is_required()
+                }
+                fields.update(
+                    agency="circumstance",
+                    intent="not_applicable",
+                    phase="realized",
+                    epistemic="confirmed",
+                    self_scope="none",
+                    outcome_change="unchanged",
+                    relevance=1,
+                    gain=1,
+                    loss=0,
+                )
+                evaluated = EvaluatedAppraisal(
+                    Appraisal.model_validate(fields),
+                    str(assessment.assessment_id),
+                    {},
+                    100,
+                    0,
+                )
+                evidence = tuple(
+                    MindEvidence(
+                        t.object,
+                        event.event_key,
+                        t.basis_refs,
+                        event.occurred_at,
+                        (
+                            (MindVariable.CONTACT_GAP, MindChoice.FULL),
+                            (MindVariable.IMPORTANCE, MindChoice.FULL),
+                        ),
+                        Association.ACTIVE,
+                        Opportunity.AVAILABLE,
+                    )
+                    for t in targets
+                )
+                return EventAppraisalResult(
+                    None if outcome == "mood_invalid" else evaluated,
+                    None if outcome == "mind_invalid" else evidence,
+                    "MOOD-INVALID" if outcome == "mood_invalid" else None,
+                    "MIND-INVALID" if outcome == "mind_invalid" else None,
+                    100,
+                    0,
+                )
 
-        def evaluated(assessment):
-            fields: dict[str, object] = {
-                name: None
-                for name, field in Appraisal.model_fields.items()
-                if field.is_required()
-            }
-            fields.update(
-                agency="circumstance",
-                intent="not_applicable",
-                phase="realized",
-                epistemic="confirmed",
-                self_scope="none",
-                outcome_change="unchanged",
-                relevance=1,
-                gain=1,
-                loss=0,
-            )
-            return EvaluatedAppraisal(
-                Appraisal.model_validate(fields),
-                str(assessment.assessment_id),
-                {},
-                100,
-                0,
-            )
+        class MoodOwner:
+            async def apply(self, *args, **kwargs):
+                if outcome == "mood_rejected":
+                    raise ValueError("owner validation rejected")
+                return await mood.events.apply(*args, **kwargs)
+
+        class MindOwner:
+            async def apply_event(self, *args, **kwargs):
+                if outcome == "mind_rejected":
+                    raise ValueError("owner validation rejected")
+                if outcome == "interrupted_after_mood":
+                    raise asyncio.CancelledError()
+                return await mind.event.apply_event(*args, **kwargs)
 
         service = RuntimeMoodEvaluation(
             factory=factory,
             episodes=episodes,
-            store=mood.events,
+            store=store,
+            mood=MoodOwner(),
+            mind=MindOwner(),
             appraiser=Appraiser(),
             prices=PriceCatalog(()),
         )
+        lease = replace(old_lease, work_kind=WorkType.EVENT_APPRAISE)
         await factory.open()
         try:
             if outcome == "success":
                 await service.evaluate(
                     event=event, lease=lease, compiled_context=b'{"layers":[]}'
                 )
-                # Main cognition rollback cannot undo the prior transaction.
                 with pytest.raises(RuntimeError):
                     async with factory.unit_of_work() as unit:
                         await unit.transaction.execute(
                             "UPDATE armi.subjects SET subject_version=99"
                         )
-                        raise RuntimeError("main model failed")
-                async with factory.unit_of_work() as unit:
-                    duplicate = await mood.events.begin(
-                        unit.transaction, event=event, context={"layers": []}
-                    )
-                    assert duplicate.status == "applied"
-                    snapshot = await mood.read.snapshot(
-                        unit.transaction, subject_id=born.subject_id
-                    )
-                    assert snapshot.version == 2 and snapshot.current.valence > 0
+                        raise RuntimeError("later main model transaction failed")
             else:
                 with pytest.raises(
-                    asyncio.CancelledError if outcome == "cancelled" else MoodViolation
+                    asyncio.CancelledError
+                    if outcome in {"cancelled", "interrupted_after_mood"}
+                    else MoodViolation
                 ):
                     await service.evaluate(
                         event=event, lease=lease, compiled_context=b'{"layers":[]}'
                     )
+            async with factory.unit_of_work() as unit:
+                duplicate = await store.begin(
+                    unit.transaction, event=event, context={"layers": []}
+                )
+                assert duplicate.status != "new"
+                mood_head = await mood.read.snapshot(
+                    unit.transaction, subject_id=born.subject_id
+                )
+                mind_head = await mind.read.current_head(
+                    unit.transaction, subject_id=born.subject_id
+                )
+                assert mood_head.version == (
+                    2
+                    if outcome
+                    in {
+                        "success",
+                        "mind_invalid",
+                        "mind_rejected",
+                        "interrupted_after_mood",
+                    }
+                    else 1
+                )
+                assert mind_head.version == (
+                    2 if outcome in {"success", "mood_invalid", "mood_rejected"} else 1
+                )
             assert len(calls) == 1
-            with psycopg.connect(fixture.runtime_dsn) as db:
+            with psycopg.connect(fixture.provisioner_dsn) as db:
                 receipt = db.execute(
-                    "SELECT status,context_document,mood_revision_id FROM armi.mood_assessments WHERE event_key='test:event:1'"
+                    "SELECT status,mood_status,mind_status,input_tokens FROM armi.event_appraisals"
                 ).fetchone()
                 assert receipt is not None
                 assert receipt[0] == (
                     "applied"
                     if outcome == "success"
                     else "interrupted"
-                    if outcome == "cancelled"
+                    if outcome in {"cancelled", "interrupted_after_mood"}
                     else "failed"
                 )
-                assert receipt[1]["event"]["content"] == event.summary
-                queued = db.execute(
+                if outcome in {"success", "mind_invalid", "mood_invalid"}:
+                    assert receipt[3] == 100
+                assert db.execute(
                     "SELECT count(*) FROM armi.durable_work WHERE work_kind='cognition.context.prepare'"
-                ).fetchone()
-                assert queued == (int(outcome == "success"),)
-                linked = db.execute(
-                    "SELECT mood_assessment_id,base_subject_version FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
-                    (ids["episode"],),
-                ).fetchone()
-                assert linked is not None
-                assert (linked[0] is not None) == (outcome == "success")
-                assert linked[1] == int(outcome == "success")
+                ).fetchone() == (int(outcome == "success"),)
+                assert (
+                    db.execute(
+                        "SELECT count(*) FROM armi.cognitive_attempts"
+                    ).fetchone()
+                    == initial_attempts
+                )
             if outcome == "success":
-                # A later appraisal can contain a copy of a source even before
-                # main cognition freezes its own Context. Deletion must find it.
-                rights = bootstrap_mood_data_rights()
-                order_id, party_id = uuid7(), uuid7()
+                participant = bootstrap_mind_data_rights()
+                party = uuid7()
+                refs = (DataRightsRelatedRef("external-evidence", event.source_ref),)
                 async with factory.unit_of_work() as unit:
-                    copied = await mood.events.begin(
+                    discovered = await participant.discover(
                         unit.transaction,
-                        event=replace(event, event_key="copy:1", source_ref=uuid7()),
-                        context={
-                            "layers": [
-                                {
-                                    "items": [
-                                        {
-                                            "source": {
-                                                "reference": str(event.source_ref)
-                                            },
-                                            "content": "private copy",
-                                        }
-                                    ]
-                                }
-                            ]
-                        },
+                        DataRightsDiscoveryRequest(uuid7(), party, refs),
                     )
-                    discovery = await rights.discover(
-                        unit.transaction,
-                        DataRightsDiscoveryRequest(
-                            order_id,
-                            party_id,
-                            (DataRightsRelatedRef("evidence", event.source_ref),),
-                        ),
+                    assert discovered.targets
+                    assert await mind.read.consideration_signals(
+                        unit.transaction, subject_id=born.subject_id
                     )
-                    assert {item.ref for item in discovery.related_refs} == {
-                        calls[0],
-                        copied.assessment_id,
-                    }
-                    await rights.apply(
+                    await participant.apply(
                         unit.transaction,
                         DataRightsApplyRequest(
-                            order_id,
-                            party_id,
+                            uuid7(),
+                            party,
                             "delete_related",
-                            discovery.related_refs,
-                            discovery.targets,
+                            (*refs, *discovered.related_refs),
+                            tuple(
+                                replace(t, responsible_owner="mind")
+                                for t in discovered.targets
+                            ),
                             (),
                         ),
                     )
-                    head = await mood.read.snapshot(
+                async with factory.unit_of_work() as unit:
+                    assert not await mind.read.consideration_signals(
                         unit.transaction, subject_id=born.subject_id
                     )
-                    assert head.state.episodes[0].summary == ""
-                    assert head.current.valence > 0
-                    rows = await (
-                        await unit.transaction.execute(
-                            "SELECT context_document,appraisal,answers FROM armi.mood_assessments"
-                        )
-                    ).fetchall()
-                    assert all(row == (None, None, None) for row in rows)
-                async with factory.unit_of_work() as unit:
-                    neutral = await mood.events.begin(
-                        unit.transaction,
-                        event=replace(event, event_key="neutral:1", source_ref=uuid7()),
-                        context={"layers": []},
+                    head = await mind.read.current_head(
+                        unit.transaction, subject_id=born.subject_id
                     )
-                    positive = evaluated(neutral)
-                    await mood.events.apply(
-                        unit.transaction,
-                        assessment=neutral,
-                        result=replace(
-                            positive,
-                            appraisal=positive.appraisal.model_copy(update={"gain": 0}),
-                        ),
-                        at=datetime.now(UTC),
+                    assert json.loads(head.canonical_state)["objects"] == []
+                    assert await mind.read.history_is_continuous(
+                        unit.transaction, subject_id=born.subject_id
                     )
-                    receipt = await (
-                        await unit.transaction.execute(
-                            "SELECT status FROM armi.mood_assessments WHERE mood_assessment_id=%s",
-                            (neutral.assessment_id,),
-                        )
-                    ).fetchone()
-                    assert receipt == ("unchanged",)
         finally:
             await factory.close()
 

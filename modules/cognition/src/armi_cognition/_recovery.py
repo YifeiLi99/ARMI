@@ -12,10 +12,14 @@ from armi_runtime_foundation import (
     RecoveryWorkSnapshot,
 )
 
+from ._focus._postgresql import PostgreSQLFocusOwner
+from ._focus._recovery import FocusRecoveryParticipant
+
 
 class CognitionRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("cognition")
     work_scopes = (
+        ("cognitive_episode", "event.appraise"),
         ("cognitive_episode", "cognition.context.prepare"),
         ("cognitive_episode", "cognition.execute"),
         ("exact_life_query_intent", "life.query.execute"),
@@ -32,6 +36,12 @@ class CognitionRecoveryParticipant:
         *,
         conversation_only: bool = False,
     ) -> RecoveryContribution:
+        await transaction.execute(
+            """UPDATE armi.event_appraisals SET status='interrupted',
+                   error_code='EVENT-RUNTIME-INTERRUPTED',completed_at=statement_timestamp()
+               WHERE subject_id=%s AND status='running'""",
+            (scope.subject_id,),
+        )
         interrupted_opportunities = await self._opportunity.interrupt_conversations(
             transaction, subject_id=scope.subject_id
         )
@@ -119,7 +129,12 @@ class CognitionRecoveryParticipant:
                     await reconciliation.fail(
                         item.work_id, reason_code="REC-LIFE-QUERY-WORK-EXHAUSTED"
                     )
-        return RecoveryContribution(self.owner_identity)
+        focus = await FocusRecoveryParticipant(PostgreSQLFocusOwner()).recover(
+            transaction, scope, ()
+        )
+        return RecoveryContribution(
+            self.owner_identity, findings=focus.findings, metrics=focus.metrics
+        )
 
     async def end_interrupted_work(
         self,

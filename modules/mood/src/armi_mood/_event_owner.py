@@ -1,101 +1,17 @@
-"""Mood-owned assessment receipts and independent, versioned state commits."""
+"""Mood-owned independent, versioned event state commits."""
 
 from datetime import datetime
-from typing import Any, cast
 from uuid import UUID, uuid7
 
-import rfc8785
-from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import PostgreSQLTransaction
 
-from ._evaluation_contract import MoodAssessment, MoodEvent
+from ._evaluation_contract import MoodAssessment
 from ._psychology import MoodDynamics, apply_appraisal
 from ._questions import EvaluatedAppraisal
 from .api import MoodViolation
 
 
 class MoodEventOwner:
-    async def record_provider_call(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        assessment_id: UUID,
-        receipt: ProviderCallReceipt,
-    ) -> None:
-        changed = await transaction.execute(
-            """UPDATE armi.mood_assessments
-               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
-               WHERE mood_assessment_id=%s AND
-                 ((%s AND status='running' AND NOT provider_calls ? %s)
-                  OR (NOT %s AND provider_calls ? %s))""",
-            (
-                receipt.call_id,
-                rfc8785.dumps(cast(Any, receipt.document())).decode(),
-                assessment_id,
-                receipt.registration,
-                receipt.call_id,
-                receipt.registration,
-                receipt.call_id,
-            ),
-        )
-        if changed.rowcount != 1:
-            raise MoodViolation("MOOD-ASSESSMENT-STALE")
-
-    async def begin(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        event: MoodEvent,
-        context: dict[str, Any],
-    ) -> MoodAssessment:
-        row = await (
-            await transaction.execute(
-                """SELECT mood_version,semantic_payload FROM armi.mood_revisions
-               WHERE subject_id=%s AND is_current FOR UPDATE""",
-                (event.subject_id,),
-            )
-        ).fetchone()
-        if row is None:
-            raise MoodViolation("MOOD-MISSING")
-        state = MoodDynamics.model_validate(row[1])
-        receipt = await (
-            await transaction.execute(
-                """SELECT mood_assessment_id,status FROM armi.mood_assessments
-               WHERE subject_id=%s AND event_key=%s""",
-                (event.subject_id, event.event_key),
-            )
-        ).fetchone()
-        if receipt is not None:
-            return MoodAssessment(receipt[0], event, receipt[1], int(row[0]), state)
-        assessment_id = uuid7()
-        await transaction.execute(
-            """INSERT INTO armi.mood_assessments
-               (mood_assessment_id,subject_id,event_key,cognitive_episode_id,source_ref,
-                source_version,occurred_at,status,base_mood_version,context_document)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,'running',%s,%s::jsonb)""",
-            (
-                assessment_id,
-                event.subject_id,
-                event.event_key,
-                event.episode_id,
-                event.source_ref,
-                event.source_version,
-                event.occurred_at,
-                row[0],
-                rfc8785.dumps(
-                    {
-                        "event": {
-                            "content": event.summary,
-                            "source_ref": str(event.source_ref),
-                            "source_version": event.source_version,
-                        },
-                        "context": context,
-                    }
-                ).decode(),
-            ),
-        )
-        return MoodAssessment(assessment_id, event, "new", int(row[0]), state)
-
     async def apply(
         self,
         transaction: PostgreSQLTransaction,
@@ -103,7 +19,7 @@ class MoodEventOwner:
         assessment: MoodAssessment,
         result: EvaluatedAppraisal,
         at: datetime,
-    ) -> bool:
+    ) -> tuple[bool, UUID, bool]:
         row = await (
             await transaction.execute(
                 """SELECT mood_revision_id,mood_version,semantic_payload FROM armi.mood_revisions
@@ -158,38 +74,4 @@ class MoodEventOwner:
                     updated.model_dump_json(),
                 ),
             )
-        result_row = await (
-            await transaction.execute(
-                """UPDATE armi.mood_assessments SET status=%s,mood_revision_id=%s,
-                   appraisal=%s::jsonb,answers=%s::jsonb,input_tokens=%s,output_tokens=%s,
-                   completed_at=statement_timestamp()
-               WHERE mood_assessment_id=%s AND status='running' RETURNING mood_assessment_id""",
-                (
-                    "applied" if emotional_change else "unchanged",
-                    revision_id,
-                    result.appraisal.model_dump_json(),
-                    rfc8785.dumps(result.answers).decode(),
-                    result.input_tokens,
-                    result.output_tokens,
-                    assessment.assessment_id,
-                ),
-            )
-        ).fetchone()
-        if result_row is None:
-            raise MoodViolation("MOOD-ASSESSMENT-STALE")
-        return changed
-
-    async def fail(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        assessment_id: UUID,
-        code: str,
-        interrupted: bool = False,
-    ) -> None:
-        await transaction.execute(
-            """UPDATE armi.mood_assessments SET status=%s,error_code=%s,
-                   completed_at=statement_timestamp()
-               WHERE mood_assessment_id=%s AND status='running'""",
-            ("interrupted" if interrupted else "failed", code, assessment_id),
-        )
+        return changed, revision_id, emotional_change

@@ -202,6 +202,7 @@ from .database import (
     compose_exact_life_query_pipeline,
     compose_execution_custody,
     compose_expression_module,
+    compose_focus_module,
     compose_interaction_identity,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
@@ -493,6 +494,7 @@ async def _serve(
     sleep_module = None
     subject_state_module = None
     mind_module = None
+    focus_module = None
     cognition_operation = None
     mood_module = None
     mood_display: MoodDisplayAdapter | None = None
@@ -588,6 +590,8 @@ async def _serve(
         try:
             subject_state_module = compose_subject_state_module()
             await subject_state_module.open()
+            focus_module = compose_focus_module()
+            await focus_module.open()
             mind_module = compose_mind_module()
             await mind_module.open()
             mood_module = compose_mood_module()
@@ -1002,6 +1006,7 @@ async def _serve(
                 subject_state=subject_state_module.read,
                 subject_id=authority.require_writable().subject_id,
                 mind=mind_module.read,
+                focus=focus_module.read,
             )
             other_human_input = interaction_module.other_human_input
             external_message_input = interaction_module.external_message_input
@@ -1104,6 +1109,7 @@ async def _serve(
                     cognition=cognition_operation,
                     interaction=interaction_module.identity,
                     mind=mind_module.read,
+                    focus=focus_module.read,
                     outlet_health=autonomy_outlet_health,
                     model_revision=lambda: autonomy_model_revision(
                         prepared, configuration_consumption
@@ -1143,6 +1149,7 @@ async def _serve(
                 memory_projection=memory_module.projection,
                 mood_read=mood_module.read,
                 mood_events=mood_module.events,
+                mind_events=mind_module.event,
                 prompt_read=prompt_module.read,
                 material_projection=material_module.projection,
                 relationship_read=relationship_module.read,
@@ -1183,7 +1190,7 @@ async def _serve(
                 relationship_commit=relationship_module.commit,
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
-                mind_commit=mind_module.commit,
+                focus_commit=focus_module.commit,
                 catalog=artifact_catalog,
                 notifier=creator_events,
                 voice_results=(
@@ -1231,9 +1238,9 @@ async def _serve(
                 sleep_cognition=sleep_module.cognition,
                 sleep_read=sleep_module.read,
                 subject_state_cognition=subject_state_module.cognition,
-                mind_cognition=mind_module.cognition,
+                focus_cognition=focus_module.cognition,
                 subject_state_read=subject_state_module.read,
-                mind_read=mind_module.read,
+                focus_read=focus_module.read,
                 catalog=artifact_catalog,
                 visual_sources_active=frozenset(
                     kind.value for kind in live_vision_services
@@ -1415,6 +1422,8 @@ async def _serve(
                 await subject_state_module.close()
             if mind_module is not None:
                 await mind_module.close()
+            if focus_module is not None:
+                await focus_module.close()
             if authority is not None:
                 await authority.release()
             if execution_custody is not None:
@@ -1478,6 +1487,8 @@ async def _serve(
                 await subject_state_module.close()
             if mind_module is not None:
                 await mind_module.close()
+            if focus_module is not None:
+                await focus_module.close()
             if mood_module is not None:
                 await mood_module.close()
             if prompt_module is not None:
@@ -1815,6 +1826,7 @@ async def _serve(
                 None if subject_state_module is None else subject_state_module.close,
             ),
             ("mind", None if mind_module is None else mind_module.close),
+            ("focus", None if focus_module is None else focus_module.close),
             ("mood", None if mood_module is None else mood_module.close),
             ("prompt", None if prompt_module is None else prompt_module.close),
             (
@@ -2547,6 +2559,7 @@ async def _serve(
         or sleep_module is None
         or subject_state_module is None
         or mind_module is None
+        or focus_module is None
         or mood_module is None
         or cognition_operation is None
         or interaction_module is None
@@ -2560,10 +2573,12 @@ async def _serve(
                 interaction=interaction_module.identity,
                 mind=mind_module.read,
                 outlet_health=autonomy_outlet_health,
+                focus=focus_module.read,
                 model_revision=lambda: autonomy_model_revision(
                     prepared, configuration_consumption
                 ),
             ),
+            focus_module.read,
         ),
         usage_query=None
         if runtime_unit_of_work_factory is None
@@ -2739,6 +2754,8 @@ async def _serve(
             await subject_state_module.close()
         if mind_module is not None:
             await mind_module.close()
+        if focus_module is not None:
+            await focus_module.close()
         if mood_module is not None:
             await mood_module.close()
         if prompt_module is not None:

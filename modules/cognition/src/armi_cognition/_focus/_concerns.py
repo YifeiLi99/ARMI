@@ -43,7 +43,9 @@ ReviewCondition = Annotated[
 
 
 class ConcernContent(_Strict):
-    question: Text
+    question: Text = Field(
+        description="A persistent question or unrealized intention, in the subject's own terms"
+    )
     reason: Text
     resolution_condition: Text
     understanding: Text = Field(
@@ -119,7 +121,7 @@ def concern_attention_status(
         if item.review_at is not None:
             state = (
                 "consumed"
-                if ("mind", str(item.concern_id), str(item.source_commit_id))
+                if ("focus", str(item.concern_id), str(item.source_commit_id))
                 in consumed
                 else "due"
                 if item.review_at <= as_of
@@ -162,12 +164,12 @@ def apply_concern_changes(
                 else UUID(change.concern_ref)
             )
         except ValueError:
-            raise ValueError("MIND-CONCERN-REFERENCE") from None
+            raise ValueError("FOCUS-CONCERN-REFERENCE") from None
         previous = records.get(concern_id)
         if concern_id in touched or (
             not isinstance(change, CreateConcern) and previous is None
         ):
-            raise ValueError("MIND-CONCERN-REFERENCE")
+            raise ValueError("FOCUS-CONCERN-REFERENCE")
         touched.add(concern_id)
         if isinstance(change, CloseConcern):
             assert previous is not None
@@ -201,8 +203,6 @@ def apply_concern_changes(
                 source_commit_id=commit_id,
                 basis_ordinals=basis_ordinals,
             )
-    if sum(item.state in {"open", "waiting"} for item in records.values()) > 4:
-        raise ValueError("MIND-CONCERN-CAPACITY")
     return tuple(records.values())
 
 
@@ -221,7 +221,7 @@ def concern_signals(
         if item.review_at is not None:
             signals.append(
                 ConsiderationSignal(
-                    "mind",
+                    "focus",
                     item.concern_id,
                     str(item.source_commit_id),
                     "review_time_reached",
@@ -256,7 +256,7 @@ def concern_signals(
                 continue
             signals.append(
                 ConsiderationSignal(
-                    "mind",
+                    "focus",
                     item.concern_id,
                     f"{item.source_commit_id}:{event_ref}",
                     reason,

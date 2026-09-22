@@ -24,6 +24,8 @@ def signal_metadata(
                     "condition_version": signal.condition_version,
                     "reason": signal.reason,
                     "eligible_at": signal.eligible_at.isoformat(),
+                    "priority": signal.priority,
+                    "basis_refs": list(signal.basis_refs),
                 }
                 for signal in signals
             ],
@@ -46,6 +48,7 @@ async def unconsumed_signals(
              LATERAL jsonb_array_elements(o.consideration_signals->'signals') entry
            WHERE o.subject_id=%s
              AND o.consideration_signals->>'frozen_at' IS NOT NULL
+             AND o.purpose<>'consider_autonomy_check'
              AND entry->>'object_ref'=ANY(%s::text[])""",
             (subject_id, list({str(signal.object_ref) for signal in signals})),
         )

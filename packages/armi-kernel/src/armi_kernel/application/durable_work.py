@@ -35,7 +35,7 @@ class WorkStatus(StrEnum):
 class WorkType(StrEnum):
     """Closed set of durable responsibilities admitted by this Runtime."""
 
-    MOOD_EVALUATE = "mood.evaluate"
+    EVENT_APPRAISE = "event.appraise"
     COGNITION_CONTEXT_PREPARE = "cognition.context.prepare"
     COGNITION_EXECUTE = "cognition.execute"
     EXTERNAL_CONTENT_RECOGNIZE = "external.content.recognize"
@@ -61,7 +61,7 @@ class ResponsibilityBinding:
 
 
 RESPONSIBILITY_BINDINGS: tuple[ResponsibilityBinding, ...] = (
-    ResponsibilityBinding("cognitive_episode", WorkType.MOOD_EVALUATE, "mood"),
+    ResponsibilityBinding("cognitive_episode", WorkType.EVENT_APPRAISE, "cognition"),
     ResponsibilityBinding(
         "cognitive_episode", WorkType.COGNITION_CONTEXT_PREPARE, "cognition"
     ),

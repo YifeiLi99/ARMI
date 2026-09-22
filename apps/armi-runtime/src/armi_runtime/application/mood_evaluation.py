@@ -5,7 +5,11 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
-from armi_cognition.api import CognitionContextLifecyclePort
+from armi_cognition.api import (
+    CognitionContextLifecyclePort,
+    EventAppraisalStorePort,
+    EventAppraiserPort,
+)
 from armi_kernel.application import (
     PriceCatalog,
     ProviderCallReceipt,
@@ -20,8 +24,8 @@ from armi_kernel.application import (
     provider_meter_scope,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
+from armi_mind.api import MindEventPort, MindViolation
 from armi_mood.api import (
-    MoodAppraiserPort,
     MoodEvent,
     MoodEventStorePort,
     MoodViolation,
@@ -35,13 +39,17 @@ class RuntimeMoodEvaluation:
         *,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         episodes: CognitionContextLifecyclePort,
-        store: MoodEventStorePort,
-        appraiser: MoodAppraiserPort,
+        store: EventAppraisalStorePort,
+        mood: MoodEventStorePort,
+        mind: MindEventPort,
+        appraiser: EventAppraiserPort,
         prices: PriceCatalog,
     ) -> None:
         self._factory = factory
         self._episodes = episodes
         self._store = store
+        self._mood = mood
+        self._mind = mind
         self._appraiser = appraiser
         self._prices = prices
 
@@ -70,48 +78,154 @@ class RuntimeMoodEvaluation:
                 )
 
         try:
-            result = None
+            version = episode.base_subject_version
             if assessment.status == "new":
                 with provider_meter_scope(
-                    ProviderMeterScope(save_usage, self._prices, "mood.evaluate")
+                    ProviderMeterScope(save_usage, self._prices, "event.appraise")
                 ):
-                    result = await self._appraiser.evaluate(
-                        assessment=assessment,
+                    result = await self._appraiser.evaluate_event(
+                        assessment=assessment.mood,
                         context=json.loads(compiled_context),
+                        targets=assessment.targets,
                     )
+                # Each owner commits independently. A malformed sibling cannot
+                # roll back a valid psychological result.
+                for owner in ("mood", "mind"):
+                    try:
+                        async with self._factory.unit_of_work() as unit:
+                            await unit.work.validate_lease(lease)
+                            subject = await (
+                                await unit.transaction.execute(
+                                    "SELECT subject_version,state_epoch,current_bundle_activation_id "
+                                    "FROM armi.subjects WHERE subject_id=%s AND status='active' FOR UPDATE",
+                                    (event.subject_id,),
+                                )
+                            ).fetchone()
+                            if subject is None or tuple(subject) != (
+                                version,
+                                episode.base_state_epoch,
+                                episode.bundle_activation_id,
+                            ):
+                                raise MoodViolation("MOOD-EVENT-SUBJECT-STALE")
+                            changed = False
+                            revision_id = None
+                            if owner == "mood":
+                                if result.mood is not None:
+                                    (
+                                        changed,
+                                        revision_id,
+                                        emotional,
+                                    ) = await self._mood.apply(
+                                        unit.transaction,
+                                        assessment=assessment.mood,
+                                        result=result.mood,
+                                        at=datetime.now(UTC),
+                                    )
+                                    await self._store.record_result(
+                                        unit.transaction,
+                                        assessment_id=assessment.assessment_id,
+                                        owner="mood",
+                                        status="applied" if emotional else "unchanged",
+                                        revision_id=revision_id,
+                                        payload={
+                                            "appraisal": result.mood.appraisal.model_dump(
+                                                mode="json"
+                                            ),
+                                            "answers": result.mood.answers,
+                                        },
+                                        error=None,
+                                    )
+                                else:
+                                    await self._store.record_result(
+                                        unit.transaction,
+                                        assessment_id=assessment.assessment_id,
+                                        owner="mood",
+                                        status="failed",
+                                        revision_id=None,
+                                        payload=None,
+                                        error=result.mood_failure,
+                                    )
+                            else:
+                                if result.mind is not None:
+                                    changed, revision_id = await self._mind.apply_event(
+                                        unit.transaction,
+                                        subject_id=event.subject_id,
+                                        assessment_id=assessment.assessment_id,
+                                        expected_version=assessment.mind.version,
+                                        evidence=result.mind,
+                                    )
+                                    await self._store.record_result(
+                                        unit.transaction,
+                                        assessment_id=assessment.assessment_id,
+                                        owner="mind",
+                                        status="applied" if changed else "unchanged",
+                                        revision_id=revision_id,
+                                        payload={"objects": len(result.mind)},
+                                        error=None,
+                                    )
+                                else:
+                                    await self._store.record_result(
+                                        unit.transaction,
+                                        assessment_id=assessment.assessment_id,
+                                        owner="mind",
+                                        status="failed",
+                                        revision_id=None,
+                                        payload=None,
+                                        error=result.mind_failure,
+                                    )
+                            if changed:
+                                await unit.transaction.execute(
+                                    "UPDATE armi.subjects SET subject_version=%s WHERE subject_id=%s",
+                                    (version + 1, event.subject_id),
+                                )
+                        if changed:
+                            version += 1
+                    except (ValueError, MindViolation, MoodViolation) as error:
+                        if getattr(error, "code", "") == "MOOD-EVENT-SUBJECT-STALE":
+                            raise
+                        # A domain rejection rolls back only that owner's short
+                        # transaction; a valid sibling can still be committed.
+                        async with self._factory.unit_of_work() as unit:
+                            await unit.work.validate_lease(lease)
+                            await self._store.record_result(
+                                unit.transaction,
+                                assessment_id=assessment.assessment_id,
+                                owner=owner,
+                                status="failed",
+                                revision_id=None,
+                                payload=None,
+                                error=f"{owner.upper()}-EVENT-REJECTED",
+                            )
+                async with self._factory.unit_of_work() as unit:
+                    ready = await self._store.finish(
+                        unit.transaction,
+                        assessment_id=assessment.assessment_id,
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.output_tokens,
+                    )
+                if not ready:
+                    raise MoodViolation("MOOD-EVENT-APPRAISAL-PART-FAILED")
             async with self._factory.unit_of_work() as unit:
                 await unit.work.validate_lease(lease)
                 current_episode = await self._episodes.context_episode(
                     unit.transaction, episode_id=event.episode_id
                 )
                 if current_episode != episode:
-                    raise MoodViolation("MOOD-CONTEXT-STALE")
+                    raise MoodViolation("MOOD-EVENT-CONTEXT-STALE")
                 subject = await (
                     await unit.transaction.execute(
-                        """SELECT subject_version,state_epoch,current_bundle_activation_id
-                       FROM armi.subjects WHERE subject_id=%s AND status='active' FOR UPDATE""",
+                        "SELECT subject_version,state_epoch,current_bundle_activation_id "
+                        "FROM armi.subjects WHERE subject_id=%s AND status='active' FOR UPDATE",
                         (event.subject_id,),
                     )
                 ).fetchone()
                 if subject is None or tuple(subject) != (
-                    episode.base_subject_version,
+                    version,
                     episode.base_state_epoch,
                     episode.bundle_activation_id,
                 ):
-                    raise MoodViolation("MOOD-SUBJECT-STALE")
+                    raise MoodViolation("MOOD-EVENT-SUBJECT-STALE")
                 now = datetime.now(UTC)
-                changed = result is not None and await self._store.apply(
-                    unit.transaction,
-                    assessment=assessment,
-                    result=result,
-                    at=now,
-                )
-                version = episode.base_subject_version + int(changed)
-                if changed:
-                    await unit.transaction.execute(
-                        "UPDATE armi.subjects SET subject_version=%s WHERE subject_id=%s",
-                        (version, event.subject_id),
-                    )
                 await self._episodes.accept_mood(
                     unit.transaction,
                     episode_id=event.episode_id,

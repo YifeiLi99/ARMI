@@ -9,7 +9,7 @@ from armi_attention.api import (
     CreatorOutreachFacts,
     LifeOpportunityFactsPort,
 )
-from armi_cognition.api import CognitionOperationReadPort
+from armi_cognition.api import CognitionOperationReadPort, FocusReadPort
 from armi_interaction.api import InteractionIdentityPort
 from armi_kernel.application import ConsiderationSignal
 from armi_live_voice.api import VoiceActivityState
@@ -22,6 +22,7 @@ from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
     __slots__ = (
         "_cognition",
+        "_focus",
         "_interaction",
         "_mind",
         "_model_revision",
@@ -35,6 +36,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         cognition: CognitionOperationReadPort,
         interaction: InteractionIdentityPort,
         mind: MindReadPort,
+        focus: FocusReadPort,
         outlet_health: Callable[[str], Awaitable[tuple[str, str | None]]],
         model_revision: Callable[[], str],
         voice_activity_state: VoiceActivityState | None = None,
@@ -42,6 +44,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         self._cognition = cognition
         self._interaction = interaction
         self._mind = mind
+        self._focus = focus
         self._outlet_health = outlet_health
         self._model_revision = model_revision
         self._voice_activity = voice_activity_state
@@ -63,7 +66,9 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
             transaction,
             subject_id=subject_id,
         )
-        return mind
+        return mind + await self._focus.consideration_signals(
+            transaction, subject_id=subject_id
+        )
 
     async def state_epoch(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

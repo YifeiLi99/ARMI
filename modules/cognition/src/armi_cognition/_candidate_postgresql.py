@@ -52,7 +52,6 @@ from armi_memory.api import (
     MemoryCandidateContextPort,
     MemoryReadPort,
 )
-from armi_mind.api import MindReadPort
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
@@ -62,6 +61,7 @@ from armi_runtime_foundation import (
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
+from ._focus.api import FocusReadPort
 from ._owners import CandidateOwner
 from .api import (
     CandidateExactLifeQueryDraft,
@@ -149,12 +149,12 @@ class PostgreSQLCandidateValidationRepository:
         "_codex",
         "_context",
         "_evidence",
+        "_focus",
         "_interaction",
         "_material_context",
         "_materials",
         "_memories",
         "_memory_context",
-        "_mind",
         "_mood",
         "_opportunity_context",
         "_opportunity_transitions",
@@ -185,7 +185,7 @@ class PostgreSQLCandidateValidationRepository:
         prompts: PromptReadPort | None = None,
         materials: MaterialReadPort | None = None,
         subject_state: SubjectStateReadPort | None = None,
-        mind: MindReadPort | None = None,
+        focus: FocusReadPort | None = None,
     ) -> None:
         self._activities = activities
         self._catalog = catalog
@@ -203,7 +203,7 @@ class PostgreSQLCandidateValidationRepository:
         self._runtime_state = runtime_state
         self._sleep = sleep
         self._subject_state = subject_state
-        self._mind = mind
+        self._focus = focus
         self._opportunity_context = opportunity_context
         self._opportunity_transitions = opportunity_transitions
 
@@ -291,12 +291,12 @@ class PostgreSQLCandidateValidationRepository:
             )
             for item in component_rows
         )
-        if self._mind is None:
-            raise CandidateViolation("CANDIDATE-MIND-OWNER")
-        mind = await self._mind.current_head(
+        if self._focus is None:
+            raise CandidateViolation("CANDIDATE-FOCUS-OWNER")
+        focus = await self._focus.current_head(
             unit_of_work.transaction, subject_id=row[2]
         )
-        components += ((CandidateOwner.MIND, mind.version, mind.canonical_state),)
+        components += ((CandidateOwner.FOCUS, focus.version, focus.canonical_state),)
         if self._mood is None:
             raise CandidateViolation("CANDIDATE-MOOD-CONTEXT")
         mood = await self._mood.current(unit_of_work.transaction, subject_id=row[2])

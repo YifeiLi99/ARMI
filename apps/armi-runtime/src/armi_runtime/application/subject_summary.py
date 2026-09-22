@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from armi_cognition.api import CognitionOperationReadPort
+from armi_cognition.api import CognitionOperationReadPort, FocusReadPort
 from armi_mind.api import MindReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
@@ -16,6 +16,7 @@ from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 class SubjectComponentKind(StrEnum):
     SELF = "self"
     MIND = "mind"
+    FOCUS = "focus"
     LIFE_MODE = "life_mode"
 
 
@@ -30,6 +31,7 @@ class SubjectComponentSummary:
         expected = {
             SubjectComponentKind.SELF: "armi.self",
             SubjectComponentKind.MIND: "armi.mind",
+            SubjectComponentKind.FOCUS: "armi.focus",
             SubjectComponentKind.LIFE_MODE: "armi.life-mode",
         }
         if (
@@ -58,6 +60,7 @@ class SubjectSummary:
                 SubjectComponentKind.SELF,
                 SubjectComponentKind.MIND,
                 SubjectComponentKind.LIFE_MODE,
+                SubjectComponentKind.FOCUS,
             )
             or (
                 self.latest_commit_ref is not None
@@ -73,7 +76,14 @@ class SubjectSummary:
 
 
 class RuntimeSubjectSummaryAssembler:
-    __slots__ = ("_cognition", "_factory", "_mind", "_subject_id", "_subject_state")
+    __slots__ = (
+        "_cognition",
+        "_factory",
+        "_focus",
+        "_mind",
+        "_subject_id",
+        "_subject_state",
+    )
 
     def __init__(
         self,
@@ -82,12 +92,14 @@ class RuntimeSubjectSummaryAssembler:
         subject_id: UUID,
         subject_state: SubjectStateReadPort,
         mind: MindReadPort,
+        focus: FocusReadPort,
         cognition: CognitionOperationReadPort,
     ) -> None:
         self._factory = factory
         self._subject_id = subject_id
         self._subject_state = subject_state
         self._mind = mind
+        self._focus = focus
         self._cognition = cognition
 
     async def __call__(self) -> SubjectSummary:
@@ -113,6 +125,9 @@ class RuntimeSubjectSummaryAssembler:
             mind = await self._mind.current_head(
                 transaction, subject_id=self._subject_id
             )
+            focus = await self._focus.current_head(
+                transaction, subject_id=self._subject_id
+            )
         if len(heads) != 2:
             raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
         components = [
@@ -128,6 +143,11 @@ class RuntimeSubjectSummaryAssembler:
             SubjectComponentSummary(
                 SubjectComponentKind.MIND, mind.version, "armi.mind"
             ),
+        )
+        components.append(
+            SubjectComponentSummary(
+                SubjectComponentKind.FOCUS, focus.version, "armi.focus"
+            )
         )
         return SubjectSummary(int(row[0]), tuple(components), commit_id, row[1])
 

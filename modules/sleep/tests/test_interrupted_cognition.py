@@ -17,7 +17,7 @@ from armi_sleep.api import MaintenancePhase
         MaintenancePhase.MEMORY_MAINTENANCE,
         MaintenancePhase.SELF_CHECK,
         MaintenancePhase.REFLECT_SELF,
-        MaintenancePhase.REFLECT_MIND,
+        MaintenancePhase.REFLECT_FOCUS,
         MaintenancePhase.REFLECT_PROMPT,
     ],
 )

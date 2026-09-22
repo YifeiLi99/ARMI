@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from armi_mind.api import (
     MindEvaluationTarget,
@@ -20,6 +20,7 @@ from armi_mind.api import (
 from armi_mood.api import (
     JEV_MODEL,
     EvaluatedAppraisal,
+    MoodAssessment,
     appraisal_questions,
     parse_appraisal_response,
 )
@@ -53,6 +54,16 @@ class EventAppraisalResult:
     @property
     def ready_for_cognition(self) -> bool:
         return self.mood is not None and self.mind is not None
+
+
+class EventAppraiserPort(Protocol):
+    async def evaluate_event(
+        self,
+        *,
+        assessment: MoodAssessment,
+        context: dict[str, Any],
+        targets: tuple[MindEvaluationTarget, ...],
+    ) -> EventAppraisalResult: ...
 
 
 def parse_event_appraisal(

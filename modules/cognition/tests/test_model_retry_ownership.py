@@ -197,6 +197,10 @@ def test_recovery_ends_unfinished_cognition_without_resuming_exhausted_work() ->
 
     async def execute(statement: str, _parameters: object = None) -> _Cursor:
         statements.append(statement)
+        if "count(*) FROM armi.focus_revisions" in statement:
+            return _Cursor((1,))
+        if "count(*)=max(focus_version)" in statement:
+            return _Cursor((True,))
         if "dispatch_status='dispatched'" in statement:
             return _Cursor()
         if "SELECT opportunity_id, status" in statement:

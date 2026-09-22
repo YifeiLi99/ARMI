@@ -63,10 +63,6 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             set(self._candidate_schema.get("properties", {}))
         )
         business_instructions = self._instructions
-        if binding.profile == "autonomy_check":
-            business_instructions = business_instructions.replace(
-                "候选放在 candidate 属性中。", "字段直接放在根对象。"
-            )
         if (
             dialogue is not None
             or "AutonomousTerminalDecision" in self._candidate_schema.get("$defs", {})
@@ -116,8 +112,6 @@ class CompatibleStructuredTransport(StructuredRequestRenderer):
             parameters["top_p"] = 1.0
         else:
             raise ModelViolation("MODEL-BINDING")
-        if binding.profile == "autonomy_check":
-            parameters["temperature"] = 0.0
         example = _dialogue_example(set(properties), self.context_refs(request))
         if example is not None:
             # Both providers generate this same contract without a proven strict
@@ -263,7 +257,6 @@ def _dialogue_example(
         "decision",
         "experience",
         "changes",
-        "mind_appraisals",
         "concern_changes",
     }
     if not (creator or other_human):

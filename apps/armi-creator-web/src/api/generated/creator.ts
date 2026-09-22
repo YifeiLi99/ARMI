@@ -1207,6 +1207,8 @@ export interface components {
     };
     /** ConsiderationSignalItem */
     ConsiderationSignalItem: {
+      /** Basis Refs */
+      basis_refs: string[];
       /** Condition Version */
       condition_version: string;
       /** Eligible At */
@@ -1217,7 +1219,9 @@ export interface components {
        * Owner
        * @enum {string}
        */
-      owner: "mind" | "mood";
+      owner: "mind" | "mood" | "focus";
+      /** Priority */
+      priority: number;
       /**
        * Reason
        * @enum {string}
@@ -1226,7 +1230,10 @@ export interface components {
         | "review_time_reached"
         | "creator_input"
         | "activity_result"
-        | "affective_change";
+        | "affective_change"
+        | "threshold_reached"
+        | "material_change"
+        | "opportunity_restored";
     };
     /** ConsiderationSignals */
     ConsiderationSignals: {
@@ -2568,7 +2575,7 @@ export interface components {
       | "memory_maintenance"
       | "self_check"
       | "reflect_self"
-      | "reflect_mind"
+      | "reflect_focus"
       | "reflect_prompt"
       | "life_quiet"
       | "resume_check"
@@ -2591,32 +2598,77 @@ export interface components {
     /** @enum {string} */
     MemoryRevisionKindValue:
       "formed" | "recalled" | "faded" | "forgotten" | "reinterpreted";
+    /** MindConsideration */
+    MindConsideration: {
+      /** Attention Weight */
+      attention_weight: number;
+      /** Condition Version */
+      condition_version: number;
+      /** Eligible */
+      eligible: boolean;
+      importance: components["schemas"]["MindDimension"] | null;
+      /** Priority */
+      priority: number | null;
+      /** Reason */
+      reason: string | null;
+    };
+    /** MindDimension */
+    MindDimension: {
+      /** Basis Refs */
+      basis_refs: string[];
+      /**
+       * Choice
+       * @enum {string}
+       */
+      choice:
+        | "level_0"
+        | "level_1"
+        | "level_2"
+        | "level_3"
+        | "level_4"
+        | "unknown"
+        | "not_applicable";
+      /** Known At */
+      known_at: string | null;
+      /**
+       * Quality
+       * @enum {string}
+       */
+      quality: "known" | "unknown" | "not_applicable";
+      /** Value */
+      value: number | null;
+    };
+    /** MindObjectSource */
+    MindObjectSource: {
+      /** Source Kind */
+      source_kind: string;
+      /** Source Ref */
+      source_ref: string;
+    };
     /** MotivationAttentionStatus */
     MotivationAttentionStatus: {
-      /** Assessment */
-      assessment: {
-        [key: string]: string;
+      /** As Of */
+      as_of: string;
+      /**
+       * Association
+       * @enum {string}
+       */
+      association: "active" | "satisfied" | "released" | "invalid" | "unknown";
+      consideration: components["schemas"]["MindConsideration"];
+      /** Domains */
+      domains: {
+        [key: string]: {
+          [key: string]: components["schemas"]["MindDimension"] | number | null;
+        };
       };
+      /** Evaluated At */
+      evaluated_at: string;
+      object: components["schemas"]["MindObjectSource"];
       /**
-       * Condition State
+       * Opportunity
        * @enum {string}
        */
-      condition_state: "scheduled" | "due" | "consumed" | "waiting_for_event";
-      /** Level */
-      level: number;
-      /** Motivation Id */
-      motivation_id: string;
-      /** Object Kind */
-      object_kind: string;
-      /** Review At */
-      review_at: string | null;
-      /**
-       * Tendency
-       * @enum {string}
-       */
-      tendency: "explore" | "contact" | "change_activity" | "none";
-      /** Uncertain */
-      uncertain: boolean;
+      opportunity: "available" | "later" | "unavailable" | "unknown";
     };
     /** OperationAcceptedOutcomeResponse */
     OperationAcceptedOutcomeResponse: {
@@ -3097,12 +3149,12 @@ export interface components {
        * Kind
        * @enum {string}
        */
-      kind: "self" | "mind" | "life_mode";
+      kind: "self" | "mind" | "life_mode" | "focus";
       /**
        * Schema Kind
        * @enum {string}
        */
-      schema_kind: "armi.self" | "armi.mind" | "armi.life-mode";
+      schema_kind: "armi.self" | "armi.mind" | "armi.life-mode" | "armi.focus";
       /** Version */
       version: number;
     };

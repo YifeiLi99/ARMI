@@ -1,8 +1,9 @@
 """Instruction sections shared by cognition purposes, separate from turn data."""
 
-from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS
-
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
+from ._focus.api import (
+    FOCUS_COGNITIVE_INSTRUCTIONS,
+)
 
 
 def instruction_sections(*sections: tuple[str, str]) -> str:
@@ -51,7 +52,7 @@ def creator_instructions(task: str) -> str:
         ("任务处理规则", _TASKS[task]),
         ("行动与经历", CREATOR_ACTIONS),
         ("能力使用", CODEX_HELP),
-        ("内心与持续关注", MIND_COGNITIVE_INSTRUCTIONS),
+        ("内心与持续关注", FOCUS_COGNITIVE_INSTRUCTIONS),
         ("表达方式", CONVERSATIONAL_EXPRESSION_INSTRUCTIONS),
     )
 
@@ -112,13 +113,13 @@ AUTONOMOUS_ACTIVITY_INSTRUCTIONS = instruction_sections(
         "内心变化与表达",
         "\n".join(
             (
-                "- mind_change 可以独立于活动和表达,须引用当前依据;values 是对应字段完整的新内容。",
+                "- concern_changes 保存问题和未实施意向,引用当前依据并保留结束与复查条件。",
                 "- expression 是独立的可选表达,可与活动进展同时提出,也可以沉默。需要信息时可向 Creator 提问。",
                 "- 未回复和当前时间是判断依据,不自动禁止联系,也不要求定时问候。",
             )
         ),
     ),
-    ("内心与持续关注", MIND_COGNITIVE_INSTRUCTIONS),
+    ("内心与持续关注", FOCUS_COGNITIVE_INSTRUCTIONS),
     (
         "表达方式",
         CONVERSATIONAL_EXPRESSION_INSTRUCTIONS.replace("content", "expression"),

@@ -11,6 +11,7 @@ from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_cognition.bootstrap import bootstrap_appraisal_read, bootstrap_focus
 from armi_interaction.bootstrap import bootstrap_interaction_birth
 from armi_kernel.application import (
     ArtifactId,
@@ -255,12 +256,14 @@ async def execute_birth_with_conninfo(
         BirthRepository(
             bootstrap_subject_state().birth,
             bootstrap_mind().birth,
+            bootstrap_focus().birth,
             bootstrap_mood(
                 DynamicsParameters(
                     fast_half_life_seconds=config.mood.fast_half_life_seconds,
                     slow_half_life_seconds=config.mood.slow_half_life_seconds,
                     fast_weight=config.mood.fast_weight,
-                )
+                ),
+                assessments=bootstrap_appraisal_read(),
             ).birth,
             bootstrap_prompt().birth,
             bootstrap_interaction_birth(),

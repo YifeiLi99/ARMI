@@ -16,7 +16,7 @@ import rfc8785
 from armi_artifact_store.api import ArtifactAdminPort
 from armi_attention.api import OpportunityAdminPort
 from armi_codex.api import CodexAdminPort
-from armi_cognition.api import CognitionAdminPort
+from armi_cognition.api import CognitionAdminPort, FocusAdminCorrectionPort
 from armi_effect.api import EffectAdminPort
 from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
@@ -69,6 +69,7 @@ class AdminCorrectionGateway:
         "_evidence",
         "_expression",
         "_factory",
+        "_focus",
         "_incarnation",
         "_interaction",
         "_live_vision",
@@ -102,6 +103,7 @@ class AdminCorrectionGateway:
         prompts: PromptAdminReferencePort,
         subject_state: SubjectStateAdminCorrectionPort,
         mind: MindAdminCorrectionPort,
+        focus: FocusAdminCorrectionPort,
     ) -> None:
         self._factory = factory
         self._runtime = runtime
@@ -121,6 +123,7 @@ class AdminCorrectionGateway:
         self._prompts = prompts
         self._subject_state = subject_state
         self._mind = mind
+        self._focus = focus
 
     def _component_owner(
         self, kind: str
@@ -128,12 +131,15 @@ class AdminCorrectionGateway:
         SubjectStateAdminCorrectionPort
         | MoodAdminCorrectionPort
         | MindAdminCorrectionPort
+        | FocusAdminCorrectionPort
     ):
         return (
             self._mood
             if kind == "mood"
             else self._mind
             if kind == "mind"
+            else self._focus
+            if kind == "focus"
             else self._subject_state
         )
 

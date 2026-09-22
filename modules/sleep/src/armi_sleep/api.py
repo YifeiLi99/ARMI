@@ -163,7 +163,7 @@ class CandidateMaintenanceDecisionDraft:
                 MaintenancePhase.MEMORY_MAINTENANCE,
                 MaintenancePhase.SELF_CHECK,
                 MaintenancePhase.REFLECT_SELF,
-                MaintenancePhase.REFLECT_MIND,
+                MaintenancePhase.REFLECT_FOCUS,
                 MaintenancePhase.REFLECT_PROMPT,
             }
             or type(self.outcome) is not MaintenanceWorkOutcome
@@ -184,7 +184,7 @@ class CandidateMaintenanceDecisionDraft:
                     or self.memory_proposal_ref == self.proposal_ref
                 )
             )
-            or self.issue_target not in {None, "self", "mind", "prompt"}
+            or self.issue_target not in {None, "self", "focus", "prompt"}
         ):
             raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE")
         memory_phase = self.phase is MaintenancePhase.MEMORY_MAINTENANCE
@@ -204,7 +204,7 @@ class CandidateMaintenanceDecisionDraft:
             raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE-SHAPE")
         reflection_phase = self.phase in {
             MaintenancePhase.REFLECT_SELF,
-            MaintenancePhase.REFLECT_MIND,
+            MaintenancePhase.REFLECT_FOCUS,
             MaintenancePhase.REFLECT_PROMPT,
         }
         if reflection_phase != (
@@ -613,7 +613,7 @@ class CreatorMaintenanceTimelineItem:
                 self.phase
                 in {
                     MaintenancePhase.REFLECT_SELF,
-                    MaintenancePhase.REFLECT_MIND,
+                    MaintenancePhase.REFLECT_FOCUS,
                     MaintenancePhase.REFLECT_PROMPT,
                 }
                 and self.work_outcome is not None
@@ -629,7 +629,7 @@ class CreatorMaintenanceTimelineItem:
                     MaintenancePhase.MEMORY_MAINTENANCE,
                     MaintenancePhase.SELF_CHECK,
                     MaintenancePhase.REFLECT_SELF,
-                    MaintenancePhase.REFLECT_MIND,
+                    MaintenancePhase.REFLECT_FOCUS,
                     MaintenancePhase.REFLECT_PROMPT,
                 }
                 and self.work_outcome is not None

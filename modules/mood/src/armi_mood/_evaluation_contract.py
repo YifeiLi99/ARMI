@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from armi_kernel.application import ProviderCallReceipt, WorkLease
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_kernel.application import WorkLease
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._psychology import Affect, MoodDynamics
 from ._questions import EvaluatedAppraisal
@@ -65,22 +65,6 @@ class MoodEvaluationPort(Protocol):
 
 
 class MoodEventStorePort(Protocol):
-    async def record_provider_call(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        assessment_id: UUID,
-        receipt: ProviderCallReceipt,
-    ) -> None: ...
-
-    async def begin(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        event: MoodEvent,
-        context: dict[str, Any],
-    ) -> MoodAssessment: ...
-
     async def apply(
         self,
         transaction: PostgreSQLTransaction,
@@ -88,13 +72,13 @@ class MoodEventStorePort(Protocol):
         assessment: MoodAssessment,
         result: EvaluatedAppraisal,
         at: datetime,
-    ) -> bool: ...
+    ) -> tuple[bool, UUID, bool]: ...
 
-    async def fail(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        assessment_id: UUID,
-        code: str,
-        interrupted: bool = False,
-    ) -> None: ...
+
+class MoodAssessmentReadPort(Protocol):
+    async def latest(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[Any, ...] | None: ...
+    def latest_admin(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> tuple[Any, ...] | None: ...

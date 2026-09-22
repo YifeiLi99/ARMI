@@ -66,6 +66,7 @@ from armi_codex.api import (
 )
 from armi_cognition.api import (
     CandidateExactLifeQueryDraft,
+    CandidateFocusDraft,
     CognitionAcceptedCandidate,
     CognitionApplicationDraft,
     CognitionContextEpisodeDraft,
@@ -157,7 +158,6 @@ from armi_kernel.contracts import (
 from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_local_control.runtime_process import RuntimeProcessManager
-from armi_mind.api import CandidateMindDraft
 from armi_perception.api import (
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
@@ -213,7 +213,7 @@ from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import (
     packaged_birth_digests,
 )
-from armi_runtime.composition.candidate_validation_tool import bootstrap_mind_cognition
+from armi_runtime.composition.candidate_validation_tool import bootstrap_focus_cognition
 from armi_runtime.composition.data_rights_contracts import (
     DATA_RIGHTS_OWNER_CONTRACTS,
 )
@@ -254,6 +254,7 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_expression,
     bootstrap_expression_action_ports,
     bootstrap_expression_effect_registration,
+    bootstrap_focus,
     bootstrap_interaction_action_ports,
     bootstrap_interaction_birth,
     bootstrap_interaction_identity,
@@ -333,6 +334,7 @@ def _life_opportunity_facts(
         cognition=bootstrap_cognition_operation(),
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
         mind=bootstrap_mind().read,
+        focus=bootstrap_focus().read,
         outlet_health=outlet_health,
         model_revision=lambda: "isolated-model-config",
     )
@@ -345,6 +347,7 @@ def _birth_repository() -> BirthRepository:
     return BirthRepository(
         bootstrap_subject_state().birth,
         bootstrap_mind().birth,
+        bootstrap_focus().birth,
         bootstrap_mood().birth,
         bootstrap_prompt().birth,
         bootstrap_interaction_birth(),
@@ -1803,7 +1806,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(changed, repeated)
                     if concern:
-                        from armi_mind.api import ConcernRecord, TimedReview
+                        from armi_cognition.api import ConcernRecord, TimedReview
 
                         now = datetime.now(UTC) - timedelta(hours=8)
                         records = (
@@ -1827,7 +1830,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ),
                         )
                         await unit.transaction.execute(
-                            "UPDATE armi.mind_revisions SET semantic_payload="
+                            "UPDATE armi.focus_revisions SET semantic_payload="
                             "jsonb_set(semantic_payload,'{concerns}',%s::jsonb) WHERE subject_id=%s",
                             (
                                 json.dumps(
@@ -5708,11 +5711,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
             replacement = {
                 "schema_kind": "armi.mind",
-                "understanding": ["我知道这次变化来自隔离管理纠正"],
-                "attention": [],
-                "thoughts": [],
-                "wishes": [],
-                "motivations": [],
+                "objects": [],
             }
             preview = service.mutate(
                 "preview_correction",
@@ -5797,9 +5796,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone()
                 assert head is not None
                 self.assertEqual(head[0:2], (2, "admin_correction"))
-                self.assertEqual(
-                    head[2], {**replacement, "concerns": [], "motivation_states": []}
-                )
+                self.assertEqual(head[2], replacement)
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     runtime.execute("DELETE FROM armi.subjects")
@@ -7045,6 +7042,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     interaction=bootstrap_interaction_birth(),
                     subject_state=bootstrap_subject_state().birth,
                     mind=bootstrap_mind().birth,
+                    focus=bootstrap_focus().birth,
                     mood=bootstrap_mood().birth,
                     prompts=bootstrap_prompt().birth,
                 ),
@@ -7804,7 +7802,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     relationship_cognition=bootstrap_relationship_cognition(),
                     sleep_cognition=bootstrap_sleep_cognition(),
                     subject_state_cognition=bootstrap_subject_state_cognition(),
-                    mind_cognition=bootstrap_mind_cognition(),
+                    focus_cognition=bootstrap_focus_cognition(),
                 ).validate(
                     candidate_bytes,
                     bases=(
@@ -7904,36 +7902,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 autonomy_acted=True,
             )
         if concerns:
-            from armi_mind.api import (
+            from armi_cognition.api import (
                 CreateConcern,
-                DialogueMindChange,
-                MindAppraisal,
                 TimedReview,
-                apply_mind_text_change,
-                bind_mind_appraisals,
             )
 
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 mind = connection.execute(
-                    """SELECT h.semantic_payload FROM armi.mind_revisions AS h WHERE h.is_current AND h.subject_id=%s""",
+                    """SELECT h.semantic_payload FROM armi.focus_revisions AS h WHERE h.is_current AND h.subject_id=%s""",
                     (born.subject_id,),
                 ).fetchone()
             assert mind is not None
-            draft = bootstrap_mind_cognition().bind(
-                CandidateMindDraft(
+            draft = bootstrap_focus_cognition().bind(
+                CandidateFocusDraft(
                     "proposal:4",
                     "group:2",
                     (1,),
                     CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                     1,
-                    rfc8785.dumps(
-                        apply_mind_text_change(
-                            rfc8785.dumps(mind[0]),
-                            DialogueMindChange.model_validate_json(
-                                '{"motivations":{"values":["Explore the reason behind this preference"]}}'
-                            ),
-                        ).model_dump(mode="json")
-                    ),
+                    rfc8785.dumps(mind[0]),
                     (
                         CreateConcern(
                             operation="create",
@@ -7950,38 +7937,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             basis_refs=("ctx:1",),
                         ),
                     ),
-                    mind_appraisals=bind_mind_appraisals(
-                        (
-                            MindAppraisal.model_validate_json(
-                                json.dumps(
-                                    {
-                                        "object_ref": "ctx:1",
-                                        "basis_refs": ["ctx:1"],
-                                        "desired_outcome": "understand",
-                                        "significance": "important",
-                                        "discrepancy": "substantial",
-                                        "understanding": "unexplained",
-                                        "progress": "stalled",
-                                        "opportunity": "available",
-                                        "resolution": "open",
-                                        "explanation": "The described preference has an unknown reason",
-                                    }
-                                )
-                            ),
-                        ),
-                        basis_by_ref={
-                            "ctx:1": CandidateBasis(
-                                1,
-                                "current_evidence",
-                                "current_evidence",
-                                ids["evidence"],
-                                1,
-                                "external_claim",
-                                "private",
-                            )
-                        },
-                        payload=rfc8785.dumps(mind[0]),
-                    )[0],
                 )
             )
             from armi_activity.api import CandidateActivityDraft
@@ -8622,7 +8577,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationship_commit=relationship_module.commit,
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
-                mind_commit=bootstrap_mind().commit,
+                focus_commit=bootstrap_focus().commit,
                 visual_observation_commit=bootstrap_live_vision_commit(),
             )
             await memory_module.open()
@@ -9157,7 +9112,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         connection.execute(
-                            "SELECT mind_version,semantic_payload->'concerns' FROM armi.mind_revisions"
+                            "SELECT focus_version,semantic_payload->'concerns' FROM armi.focus_revisions"
                         ).fetchall(),
                         [(1, [])],
                     )
@@ -9334,22 +9289,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (1,),
                 )
                 rows = connection.execute(
-                    "SELECT mind_version,semantic_payload->'concerns' FROM armi.mind_revisions ORDER BY mind_version"
+                    "SELECT focus_version,semantic_payload->'concerns' FROM armi.focus_revisions ORDER BY focus_version"
                 ).fetchall()
                 self.assertEqual(
                     connection.execute(
-                        "SELECT jsonb_array_length(semantic_payload->'motivation_states') FROM armi.mind_revisions ORDER BY mind_version"
+                        "SELECT jsonb_array_length(semantic_payload->'objects') FROM armi.mind_revisions ORDER BY mind_version"
                     ).fetchall(),
-                    [(0,), (1,)],
+                    [(0,)],
                 )
                 self.assertEqual(rows[0], (1, []))
                 self.assertEqual(rows[1][0], 2)
-                self.assertEqual(
-                    connection.execute(
-                        "SELECT semantic_payload->'motivations' FROM armi.mind_revisions WHERE mind_version=2"
-                    ).fetchone(),
-                    (["Explore the reason behind this preference"],),
-                )
                 self.assertEqual(
                     rows[1][1][0]["question"], "What makes quiet reading appealing?"
                 )
@@ -9488,7 +9437,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
-            async def govern_mind():
+            async def govern_focus():
                 from armi_data_rights.api import (
                     DataRightsApplyRequest,
                     DataRightsDiscoveryRequest,
@@ -9504,18 +9453,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     statement_timeout_seconds=5,
                     require_runtime_fence=False,
                 )
-                mind = bootstrap_mind().read
+                mind = bootstrap_focus().read
                 roster = compose_runtime_owner_roster(
                     data_rights=bootstrap_data_rights_core().participant,
                     mood_read=bootstrap_mood().read,
                     prompt_read=bootstrap_prompt().read,
                     subject_state_read=bootstrap_subject_state().read,
-                    mind_read=mind,
+                    mind_read=bootstrap_mind().read,
                 )
                 participant = next(
                     item
                     for item in roster.data_rights
-                    if item.owner_identity.value == "mind"
+                    if item.owner_identity.value == "cognition"
                 )
                 await factory.open()
                 try:
@@ -9533,14 +9482,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 (DataRightsRelatedRef("subject-commit", commit_id),),
                             ),
                         )
-                    self.assertEqual(len(discovery.related_refs), 1)
+                    self.assertTrue(
+                        any(
+                            item.kind == "subject-component"
+                            for item in discovery.related_refs
+                        )
+                    )
                     request = DataRightsApplyRequest(
                         uuid7(),
                         manifest.creator_party_id,
                         "delete_related",
                         discovery.related_refs,
                         tuple(
-                            replace(item, responsible_owner="mind")
+                            replace(item, responsible_owner="cognition")
                             for item in discovery.targets
                         ),
                         (),
@@ -9579,7 +9533,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await factory.close()
 
             asyncio.run(
-                govern_mind(),
+                govern_focus(),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
                     selectors.SelectSelector()
                 ),
@@ -11308,7 +11262,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     with psycopg.connect(fixture.runtime_dsn) as db:
                         self.assertEqual(
                             db.execute(
-                                "SELECT status,error_code FROM armi.mood_assessments"
+                                "SELECT status,error_code FROM armi.event_appraisals"
                             ).fetchall(),
                             [("failed", "MOOD-JEV-CREDENTIAL-MISSING")],
                         )
@@ -11591,7 +11545,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchall(),
                     [
                         ("artifact.object.delete", 1),
-                        ("mood.evaluate", 1),
+                        ("event.appraise", 1),
                     ],
                 )
                 self.assertEqual(

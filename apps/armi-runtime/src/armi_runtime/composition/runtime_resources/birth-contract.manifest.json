@@ -10,13 +10,12 @@
       "schema_kind": "armi.life-mode"
     },
     "mind": {
-      "attention": [],
+      "objects": [],
+      "schema_kind": "armi.mind"
+    },
+    "focus": {
       "concerns": [],
-      "motivations": [],
-      "schema_kind": "armi.mind",
-      "thoughts": [],
-      "understanding": [],
-      "wishes": []
+      "schema_kind": "armi.focus"
     },
     "mood": {
       "dynamics_method": "exponential.v1",

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any
 
 import pytest
 from armi_kernel.application import ModelViolation
-from armi_mind.api import DialogueMindChange
 from armi_runtime.adapters.model.structured import _provider_output_schema
 from armi_runtime.composition.model_verification import (
     candidate_schema,
@@ -22,25 +20,6 @@ def _provider(schema):
     return Draft202012Validator(
         _provider_output_schema(schema, available_refs=("ctx:1",))
     )
-
-
-@pytest.mark.parametrize(
-    "values,accepted",
-    [(None, False), (["x", "x"], False), ([" "], False), ([], True), ([" x "], True)],
-)
-def test_mind_nonempty_change_and_unique_text_are_visible_to_provider(values, accepted):
-    value: dict[str, Any] = {key: None for key in DialogueMindChange.model_fields}
-    if values is not None:
-        value["thoughts"] = {"values": values}
-    assert (
-        _provider(DialogueMindChange.model_json_schema()).is_valid({"candidate": value})
-        is accepted
-    )
-    if accepted:
-        DialogueMindChange.model_validate_json(json.dumps(value))
-    else:
-        with pytest.raises(ValidationError):
-            DialogueMindChange.model_validate_json(json.dumps(value))
 
 
 @pytest.mark.parametrize(
@@ -124,9 +103,7 @@ def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted
         "next_step": "Reconsider the activity later",
         "resumption_cue": "review time",
         "review_after_seconds": seconds,
-        "mind_appraisals": [],
         "concern_changes": [],
-        "mind_change": None,
         "expression": None,
     }
     assert (

@@ -93,6 +93,7 @@ def read_case():
                 "mood",
                 "subject_state",
                 "mind",
+                "focus",
                 "sleep",
             )
         },

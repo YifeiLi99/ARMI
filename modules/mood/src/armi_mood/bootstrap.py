@@ -15,6 +15,7 @@ from .api import (
     MoodAdminContentPort,
     MoodAdminCorrectionPort,
     MoodAdminReadPort,
+    MoodAssessmentReadPort,
     MoodBirthPort,
     MoodReadPort,
 )
@@ -34,8 +35,10 @@ class MoodModule:
         await self._owner.close()
 
 
-def bootstrap_mood(parameters: DynamicsParameters | None = None) -> MoodModule:
-    read = MoodReadOwner(parameters or DynamicsParameters())
+def bootstrap_mood(
+    parameters: DynamicsParameters | None = None, *, assessments: MoodAssessmentReadPort
+) -> MoodModule:
+    read = MoodReadOwner(parameters or DynamicsParameters(), assessments)
     return MoodModule(read, read, read, MoodEventOwner())
 
 
@@ -43,8 +46,8 @@ def bootstrap_mood_admin_correction() -> MoodAdminCorrectionPort:
     return PostgreSQLMoodAdmin()
 
 
-def bootstrap_mood_admin_read() -> MoodAdminReadPort:
-    return PostgreSQLMoodAdmin()
+def bootstrap_mood_admin_read(assessments: MoodAssessmentReadPort) -> MoodAdminReadPort:
+    return PostgreSQLMoodAdmin(assessments)
 
 
 def bootstrap_mood_data_rights() -> DataRightsParticipant:
