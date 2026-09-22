@@ -115,6 +115,64 @@ def test_mixed_emotions_are_not_cancelled_by_neutral_valence():
     assert {e.kind for e in response.emotions} == {EmotionKind.JOY, EmotionKind.SADNESS}
 
 
+def test_small_completed_goal_does_not_equal_core_goal_or_partial_progress():
+    def result(relevance, gain):
+        return derive_response(
+            appraisal(
+                relevance=relevance,
+                gain=gain,
+                phase="realized",
+                agency="other",
+                intent="deliberate",
+                social_alignment=1,
+            )
+        )
+
+    partial = result(0.5, 0.5)
+    complete = result(0.5, 1)
+    core = result(1, 1)
+    assert 0 < partial.affect.valence < complete.affect.valence < core.affect.valence
+    assert {e.kind for e in complete.emotions} == {
+        EmotionKind.JOY,
+        EmotionKind.GRATITUDE,
+    }
+    assert all(0 < e.intensity < 1 for e in complete.emotions)
+    assert all(e.intensity == 1 for e in core.emotions)
+
+
+def test_missing_importance_does_not_invent_goal_impact():
+    result = derive_response(appraisal(gain=1, phase="realized"))
+    assert result.affect.valence == 0
+    assert result.emotions == ()
+    assert "relevance" in result.unknown
+
+
+def test_intrinsic_pleasure_does_not_invent_help_or_amplify_gratitude():
+    value = appraisal(
+        relevance=0.5,
+        gain=0.25,
+        pleasantness=1,
+        phase="realized",
+        agency="other",
+        intent="deliberate",
+        social_alignment=1,
+    )
+    emotions = {e.kind: e.intensity for e in derive_response(value).emotions}
+    assert emotions[EmotionKind.JOY] == 1
+    assert emotions[EmotionKind.GRATITUDE] == 0.125
+    no_help = derive_response(value.model_copy(update={"gain": None}))
+    assert EmotionKind.GRATITUDE not in {e.kind for e in no_help.emotions}
+
+
+def test_partial_loss_scales_with_stakes_and_keeps_mixed_components():
+    response = derive_response(
+        appraisal(relevance=0.5, gain=0.5, loss=0.5, phase="realized")
+    )
+    assert response.affect.valence == 0
+    assert {e.kind for e in response.emotions} == {EmotionKind.JOY, EmotionKind.SADNESS}
+    assert all(e.intensity == 0.25 for e in response.emotions)
+
+
 def test_repeated_delivery_and_unchanged_reappraisal_do_not_recharge():
     now = datetime(2026, 1, 1, tzinfo=UTC)
     value = appraisal(relevance=1, loss=1, phase="realized")

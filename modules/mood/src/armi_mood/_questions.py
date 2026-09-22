@@ -23,6 +23,8 @@ _RULES = (
     "不要输出或倒推主体应该有什么情绪。区分现实事实、他人报告、预测与想象。"
     "只能依据已提供的目标、价值、关系及经历判断相关性，不替主体创造目标。"
     "别人的心情陈述不等于主体自己的心情。unknown 与明确没有影响不同。"
+    "评价当前事件实际造成的变化：收到问候、感谢或批评是已经发生的交流；"
+    "话中提到的外部结果仍须区分报告与核验，不能借收到消息证明外部结果。"
     "拥有备份或能够补救不等于已经恢复。意外仍可能由别人造成。"
     "程序休眠、CPU 使用率和运行时间不是疲劳、饥饿或身体感受。"
 )
@@ -60,7 +62,10 @@ _LEVELS: dict[str, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     "pleasantness": (
-        "根据已有偏好，刺激本身有何正面性质？与目标收益分开判断。",
+        "仅根据已提供的刺激偏好，刺激的呈现或体验本身有何正面性质？"
+        "排除完成目标、获得帮助、符合准则和好消息这些后果收益，它们由其他题评价。"
+        "例如喜欢的音色或措辞风格可以支持本题；找到所需资料只证明目标达成，不证明刺激本身强烈愉快。"
+        "没有独立的刺激偏好依据时选 unknown；明确仅涉及结果收益且无独立刺激评价时选 not_applicable。",
         (
             "明确没有正面性质",
             "只有很轻微的喜好匹配",
@@ -70,7 +75,10 @@ _LEVELS: dict[str, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     "unpleasantness": (
-        "根据已有偏好，刺激本身有何负面性质？与目标损失分开判断。",
+        "仅根据已提供的刺激偏好，刺激的呈现或体验本身有何负面性质？"
+        "排除目标受阻、犯错和坏消息这些后果损失，它们由其他题评价。"
+        "例如明确厌恶的噪声或侮辱措辞可以支持本题；对方喜好不同不自动意味着刺激厌恶。"
+        "没有独立的刺激偏好依据时选 unknown；明确仅涉及结果损失且无独立刺激评价时选 not_applicable。",
         (
             "明确没有负面性质",
             "只有轻微的不适配",
@@ -80,17 +88,19 @@ _LEVELS: dict[str, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     "relevance": (
-        "事件与已有目标、关系或价值有多直接相关？",
+        "事件触及的已有目标、关系或价值对主体有多重要？不是问提及是否直接、目标完成比例或措辞强烈程度。"
+        "日常事项与核心事项按背景中的实际利害区分；直接完成一个小目标不自动成为核心事项。",
         (
             "明确无关",
-            "仅间接涉及边缘事项",
-            "影响一个已有的一般事项",
-            "直接涉及已有的重要事项",
-            "直接涉及明确的核心事项",
+            "涉及有依据的轻微、可有可无事项，例如一次随意闲聊的细节",
+            "涉及已有的一般事项，例如普通休闲计划、一次有用的小帮助；没有重大利害",
+            "涉及已有的重要事项，背景明确说明有显著利害，例如长期投入的重要项目",
+            "涉及明确的核心事项，背景明确说明关乎核心承诺、核心关系或不可替代的重大目标；仅说想要或在意不足以选此项",
         ),
     ),
     "gain": (
-        "事件带来的正面进展有多大？即使同时有损失也单独评价收益。",
+        "事件带来的正面进展占相关目标的多大比例？即使同时有损失也单独评价收益。"
+        "完成日常小目标也可选充分达成，其重要性由相关性题单独判断；口头感谢不等于新完成了整个目标。",
         (
             "明确没有进展",
             "小而局部的进展",
@@ -150,7 +160,8 @@ _LEVELS: dict[str, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     "resources": (
-        "相对该处境的要求，主体具有多少实际可用资源？",
+        "相对该处境的要求，主体具有多少实际可用资源？明确无需处理的普通招呼可选 not_applicable；"
+        "存在应对任务但没有资源信息选 unknown，不因没有提到困难就假定资源充足。",
         (
             "所需资源明确不存在",
             "资源仅覆盖很小部分要求",
@@ -231,19 +242,19 @@ _CATEGORIES: dict[str, tuple[str, dict[str, str]]] = {
         },
     ),
     "phase": (
-        "所评价的后果处于什么阶段？",
+        "所评价的后果处于什么阶段？说出了计划不等于计划完成；没有损失不等于威胁解除。",
         {
             "anticipated": "尚未发生，仅是预期",
             "ongoing": "仍在进行，结果尚未完成",
             "realized": "所述后果已经发生；有补救办法并不改变已经发生的损失",
-            "averted": "此前的不利后果已经被确认避免或消除",
+            "averted": "有明确的先前威胁，且该不利后果现已被确认避免或消除；日常小错没有造成损失不属于威胁解除",
             "unknown": "不能判断阶段",
         },
     ),
     "epistemic": (
         "关于该后果的证据性质是什么？",
         {
-            "confirmed": "有直接观察、明确事实记录或核验结果",
+            "confirmed": "有直接观察、明确事实记录或核验结果；收到问候、感谢、批评这一交流行为本身可直接确认，但不因此确认话中声称的外部结果",
             "reported": "仅有人声称、转述或报告，尚未核实",
             "imagined": "假设、设想或想象中的情境",
             "unknown": "证据性质无法确定",
@@ -365,10 +376,12 @@ def parse_appraisal_response(
         ):
             raise ValueError("MOOD-JEV-CONTRACT")
         choice = answer["choice"]
-        if (
-            not isinstance(choice, str)
-            or choice not in probabilities
-            or probabilities[choice] < max(probabilities.values())
+        if not isinstance(choice, str) or choice not in probabilities:
+            raise ValueError("MOOD-JEV-CONTRACT")
+        # Accept numerical ties, not a different winning option (see Mood design).
+        maximum = max(probabilities.values())
+        if probabilities[choice] < maximum and not math.isclose(
+            probabilities[choice], maximum, rel_tol=0, abs_tol=1e-12
         ):
             raise ValueError("MOOD-JEV-CONTRACT")
         field = name.rsplit("_", 1)[-1] if name.startswith("goal_") else name

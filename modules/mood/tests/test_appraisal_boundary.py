@@ -59,6 +59,22 @@ def test_selected_choice_must_have_maximum_probability():
         parse_appraisal_response(raw, event_id="one", situations=())
 
 
+def test_float_representation_tie_preserves_provider_choice_and_probabilities():
+    raw = response(self_alignment="level_4")
+    raw["answers"]["self_alignment"]["probabilities"].update(
+        level_4=0.22999999999999998,
+        level_3=0.23,
+        level_2=0.20,
+        level_1=0.18,
+        unknown=0.16,
+    )
+    original = deepcopy(raw)
+    parsed = parse_appraisal_response(raw, event_id="one", situations=())
+    assert parsed.appraisal.self_alignment == 1
+    assert parsed.answers == original["answers"]
+    assert raw == original
+
+
 def test_goal_unknown_and_not_applicable_are_preserved_separately():
     raw = response()
     for name, question in appraisal_questions((), ("goal-a",)).items():

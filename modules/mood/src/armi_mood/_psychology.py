@@ -151,6 +151,11 @@ def _supported_min(*values: float | None) -> float:
     return min(known) if len(known) == len(values) and known else 0.0
 
 
+def _weighted_impact(importance: float | None, extent: float | None) -> float:
+    # Goal completion and its stakes are distinct (Mood design: 本地计算).
+    return 0.0 if importance is None or extent is None else importance * extent
+
+
 def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Response:
     if value.goals:
         # Keep goal phases separate: a realized loss and anticipated gain cannot
@@ -219,9 +224,10 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
                 and name not in goal.not_applicable
             ),
         )
-    positive = max(_supported_min(value.relevance, value.gain), value.pleasantness or 0)
+    gain = _weighted_impact(value.relevance, value.gain)
+    positive = max(gain, value.pleasantness or 0)
     negative = max(
-        _supported_min(value.relevance, value.loss), value.unpleasantness or 0
+        _weighted_impact(value.relevance, value.loss), value.unpleasantness or 0
     )
     novelty = _known_max(
         value.suddenness,
@@ -247,7 +253,9 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
         else 0.0
     )
     relief = (
-        _supported_min(previous.relevance, previous.loss, previous.likelihood)
+        _supported_min(
+            _weighted_impact(previous.relevance, previous.loss), previous.likelihood
+        )
         if previous is not None
         and value.epistemic == "confirmed"
         and value.phase == "averted"
@@ -255,7 +263,9 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
         else 0.0
     )
     disappointment = (
-        _supported_min(previous.relevance, previous.gain, previous.likelihood)
+        _supported_min(
+            _weighted_impact(previous.relevance, previous.gain), previous.likelihood
+        )
         if previous is not None
         and value.epistemic == "confirmed"
         and value.outcome_change == "benefit_lost"
@@ -268,8 +278,15 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
             components.append(Emotion(kind=kind, intensity=strength, basis=basis))
 
     if realized:
-        add(EmotionKind.JOY, positive, "gain", "pleasantness", "phase")
-        add(EmotionKind.SADNESS, negative, "loss", "unpleasantness", "phase")
+        add(EmotionKind.JOY, positive, "relevance", "gain", "pleasantness", "phase")
+        add(
+            EmotionKind.SADNESS,
+            negative,
+            "relevance",
+            "loss",
+            "unpleasantness",
+            "phase",
+        )
     if prospective:
         add(
             EmotionKind.HOPE,
@@ -291,15 +308,18 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
         if realized:
             add(
                 EmotionKind.GRATITUDE,
-                _supported_min(positive, value.social_alignment),
+                _supported_min(gain, value.social_alignment),
                 "agency",
+                "relevance",
                 "gain",
                 "social_alignment",
             )
     if value.agency in {"self", "shared"} and realized:
         add(
             EmotionKind.PRIDE,
-            _supported_min(value.relevance, value.gain, value.self_alignment),
+            _supported_min(
+                _weighted_impact(value.relevance, value.gain), value.self_alignment
+            ),
             "agency",
             "gain",
             "self_alignment",
@@ -307,7 +327,7 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
         if value.self_scope == "action":
             add(
                 EmotionKind.GUILT,
-                _supported_min(value.relevance, value.self_violation),
+                _weighted_impact(value.relevance, value.self_violation),
                 "agency",
                 "self_scope",
                 "self_violation",
@@ -315,7 +335,7 @@ def derive_response(value: Appraisal, previous: Appraisal | None = None) -> Resp
         elif value.self_scope == "global":
             add(
                 EmotionKind.SHAME,
-                _supported_min(value.relevance, value.self_violation),
+                _weighted_impact(value.relevance, value.self_violation),
                 "agency",
                 "self_scope",
                 "self_violation",
