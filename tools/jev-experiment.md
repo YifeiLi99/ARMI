@@ -19,6 +19,12 @@
 
 这是隔离实验选项，不自动翻译正式主体的经历或改写正式 Mood 题库。
 
+中文评价对象对照使用 `--chinese-scoped`，与 `--context-language` 互斥。同一中文输入中比较原正式四题、上一版简短中文四题、按“主体／评价对象／问题”组织的中文四题，共 12 个 Choice，不含英文问题或 Score/Noul。新的独立检查输入为 `configs/jev-facts-chinese-transfer.yaml`；背景原话、预期均不因版本改变。候选规则将询问或计划表达与其提及的未来结果分开，尚未扩展到正式 Mood 的全部评价维度。
+
+```powershell
+.\.venv\Scripts\python.exe tools/experiment_jev_facts.py --config configs/jev-facts-chinese-transfer.yaml --chinese-scoped --output .tmp/jev-facts-chinese-scoped --live
+```
+
 从仓库根使用受管 `.venv/Scripts/python.exe` 运行 `tools/experiment_jev.py`。
 此入口只发送 [配置](../configs/jev-experiment.yaml) 中的人工场景，不读取当前主体或安装版环境，
 不接入 Runtime、不写数据库、不运行完整认知或发送消息。自主场景复用

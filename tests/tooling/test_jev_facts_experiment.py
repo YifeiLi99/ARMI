@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import httpx
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from tools import experiment_jev_facts as experiment
@@ -77,6 +78,23 @@ def test_background_language_comparison_preserves_quote_and_questions():
     assert en["state"]["context"] == value["context_en"]
     assert zh["state"]["context"] == value["context"]
     assert "hidden_gold" not in json.dumps(en)
+
+
+def test_chinese_scoped_comparison_keeps_background_and_gold_separate():
+    value = case() | {
+        "context": [{"content": "source facts"}],
+        "context_en": [{"content": "unused translation"}],
+    }
+    body = experiment.request_body(value, chinese_scoped=True)
+    assert len(body["questions"]) == 12
+    assert body["state"]["context"] == value["context"]
+    assert body["state"]["event"]["content"] == value["scene"]
+    assert "hidden_gold" not in json.dumps(body)
+    assert "unused translation" not in json.dumps(body)
+    assert all(q["type"] == "choice" for q in body["questions"].values())
+    assert not any("focused_en" in key for key in body["questions"])
+    with pytest.raises(ValueError, match="FACT-INCOMPATIBLE-MODES"):
+        experiment.request_body(value, chinese_scoped=True, context_language="en")
 
 
 def test_http_failure_stops_without_retry_or_secret_logging(tmp_path, monkeypatch):

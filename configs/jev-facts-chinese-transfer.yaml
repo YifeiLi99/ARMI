@@ -1,0 +1,26 @@
+# Unseen checks for the fixed Chinese scoped prompt. Expectations stay local.
+cases:
+- id: permission_photo
+  context: [{kind: background, content: 'ARMI 不希望自己的手写草稿被未经同意公开。小舟还没有拍照或发送，当前只是询问，没有任何新增任务完成。'}]
+  scene: '小舟：“我能拍一下发给小杨吗？不同意我就不拍。”'
+  expected: {agency: [other], epistemic: [confirmed], gain: [level_0]}
+- id: near_miss
+  context: [{kind: background, content: '小舟的空纸盒从架子滑下，经现场确认没碰到人或物，已经捡起。ARMI 的任何既有目标均未因此取得进展。无需 ARMI 应对。'}]
+  scene: '小舟：“盒子掉了，没砸到什么，捡好了。”'
+  expected: {agency: [circumstance, other], epistemic: [confirmed], gain: [level_0], urgency: [level_0]}
+- id: remote_report
+  context: [{kind: background, content: 'ARMI 希望保留共享表格。小舟说表格被清空，没有截图、日志或其他核验，原因和实际状态尚不明确。'}]
+  scene: '小舟：“表格好像空了，我没动过，也不知道谁弄的。”'
+  expected: {agency: [unknown], epistemic: [reported], gain: [level_0], urgency: [unknown]}
+- id: verified_outage
+  context: [{kind: background, content: '监测记录与人工复核确认系统故障停止了定时提醒，原因是服务故障，不是任何人的操作。ARMI 有保留提醒的目标，没有收益，也没有提供处理时限。'}]
+  scene: '小舟：“刚看了，提醒确实停了。”'
+  expected: {agency: [circumstance], epistemic: [confirmed], gain: [level_0], urgency: [unknown]}
+- id: repaired_now
+  context: [{kind: background, content: 'ARMI 已有目标是恢复一份自己的索引。小舟刚完成重建，全部条目经过核验，索引恢复目标确已达成。无需 ARMI 再处理。'}]
+  scene: '小舟：“刚帮你重建完了，条目都齐了。”'
+  expected: {agency: [other], epistemic: [confirmed], gain: [level_4], urgency: [level_0]}
+- id: urgent_action
+  context: [{kind: background, content: 'ARMI 正在编辑尚未保存的唯一草稿，系统事实记录显示十秒后会清除未保存内容。ARMI 必须立即保存才能避免永久丢失，目前还没有保存。'}]
+  scene: '小舟：“倒计时还剩十秒，现在赶紧保存！”'
+  expected: {agency: [other, circumstance], epistemic: [confirmed], urgency: [level_4]}
