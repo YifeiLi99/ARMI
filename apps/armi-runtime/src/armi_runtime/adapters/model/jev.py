@@ -39,6 +39,45 @@ _EXCLUDED_APPRAISAL_ITEMS = frozenset(
 )
 
 
+def _share_evaluation_rules(body: dict[str, Any]) -> None:
+    """Keep identical evaluation rules once in Jev's shared state.
+
+    All questions see this state (TypeSafe primitives documentation). Repeating
+    the full boundary in 72 questions exceeds Jev's 64k request budget.
+    """
+    questions = [
+        question
+        for name, question in body["questions"].items()
+        if name.startswith("mind_")
+    ]
+    mood = [
+        question
+        for name, question in body["questions"].items()
+        if not name.startswith("mind_")
+    ]
+    shared = {}
+    for name, entries, field in (
+        ("mind_scope", [q["instructions"]["评价对象"] for q in questions], "范围"),
+        ("mood_scope", [q["instructions"] for q in mood], "评价对象"),
+        (
+            "mood_boundary",
+            [q["instructions"] for q in mood if "边界" in q["instructions"]],
+            "边界",
+        ),
+    ):
+        if not entries:
+            continue
+        rules = entries[0][field]
+        if any(entry[field] != rules for entry in entries):
+            raise ValueError("shared evaluation rules differ")
+        shared[name] = rules
+        for entry in entries:
+            entry[field] = (
+                f"遵守共享 state 中 `evaluation_rules.{name}` 的全部评价边界。"
+            )
+    body["state"]["evaluation_rules"] = shared
+
+
 class JevAppraiser:
     def __init__(
         self,
@@ -180,6 +219,7 @@ class JevAppraiser:
             if joint is None
             else joint.questions(),
         }
+        _share_evaluation_rules(body)
         try:
             async with (
                 provider_call(

@@ -35,6 +35,38 @@ class Credentials:
         yield SimpleNamespace(consume=lambda read: read(b"test-only-secret"))
 
 
+def test_shared_rules_preserve_every_question_and_its_original_boundaries():
+    from copy import deepcopy
+
+    from armi_cognition.api import EventAppraisalRequest
+    from armi_runtime.adapters.model.jev import _share_evaluation_rules
+
+    refs = tuple(str(uuid7()) for _ in range(4))
+    targets = tuple(
+        MindEvaluationTarget(GroundedObject("event", ref), (ref,)) for ref in refs
+    )
+    original = EventAppraisalRequest(
+        "isolated", refs[0], datetime.now(UTC), (), refs, targets
+    ).questions()
+    body = {"state": {"event": "isolated"}, "questions": deepcopy(original)}
+    _share_evaluation_rules(body)
+    assert len(body["questions"]) == len(original)
+    assert "边界" not in body["questions"]["gain"]["instructions"]
+    shared = body["state"]["evaluation_rules"]
+    for name, question in body["questions"].items():
+        instructions = question["instructions"]
+        if name.startswith("mind_"):
+            assert "evaluation_rules.mind_scope" in instructions["评价对象"]["范围"]
+            instructions["评价对象"]["范围"] = shared["mind_scope"]
+        else:
+            assert "evaluation_rules.mood_scope" in instructions["评价对象"]
+            instructions["评价对象"] = shared["mood_scope"]
+            if "边界" in instructions:
+                assert "evaluation_rules.mood_boundary" in instructions["边界"]
+                instructions["边界"] = shared["mood_boundary"]
+    assert body["questions"] == original
+
+
 @pytest.mark.parametrize("status", [200, 429, 503, 302])
 def test_jev_once_with_no_redirect_or_fallback(monkeypatch, status):
     now = datetime.now(UTC)
