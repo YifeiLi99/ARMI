@@ -333,7 +333,7 @@ Mood 以 Scherer 的 16 个评价维度组织离散问题，按已有目标展�
 
 Mind 与 Mood 分别拥有评价语义。Mind 仍由主模型提交动机评价；Mood 题目只进入 Jev 适配器。Context 权限筛选在模型调用前落实，提示不替代隐私隔离。
 
-`tools/experiment_psychological_context.py --mode appraisal` 仅实验 Mind 评价。Mood 使用独立 `tools/experiment_jev_mood.py`，沿用正式题目、返回校验、本地算法与时间演化，前一步结果进入下一步；只使用合成数据，不提交当前主体。默认离线，`--live` 显式产生真实调用。
+`tools/experiment_psychological_context.py --mode appraisal` 仅实验 Mind 评价。Mood 的本地合成实验沿用正式题目、返回校验、本地算法与时间演化，前一步结果进入下一步；不提交当前主体。实验配置、脚本与专用工具测试保存在被 Git 忽略的本地实验区域，不作为正式运行入口交付。
 
 `--mode trajectory` 使用正式自主候选合同，在内存中保留 Mind Owner 准备后的状态和版本，通过 Owner 投影构造后续 Context。虚拟时间按 1→2→5 分钟节奏推进，未消费的 Mind 复查或预设合成反馈可缩短等待；反馈固定在两小时到达，若模型先表达则提前到表达后五分钟。模型决定是否形成关注、询问、等待或放下，宿主不指定动作。拒绝时停止；需要 Activity 或工具宿主时也停止，不伪造执行成功。Mood 不跨轮持久化，此工具不替代 Runtime/Attention、联合提交及渠道验收；dry run 只生成首轮，后续输入依赖真实前序候选。
 
