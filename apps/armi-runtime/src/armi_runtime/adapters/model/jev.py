@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any, cast
 
 import httpx
+from armi_cognition.api import (
+    EventAppraisalRequest,
+    EventAppraisalResult,
+    parse_event_appraisal,
+)
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -12,6 +17,7 @@ from armi_kernel.application import (
     provider_call,
 )
 from armi_local_control.configuration import ConfigurationViolation
+from armi_mind.api import MindEvaluationTarget
 from armi_mood.api import (
     JEV_MODEL,
     EvaluatedAppraisal,
@@ -19,6 +25,16 @@ from armi_mood.api import (
     MoodViolation,
     appraisal_questions,
     parse_appraisal_response,
+)
+
+_EXCLUDED_APPRAISAL_ITEMS = frozenset(
+    {
+        "fixed_prompt",
+        "creator_prompt",
+        "subject_prompt",
+        "mood",
+        "active_affective_episode",
+    }
 )
 
 
@@ -37,6 +53,34 @@ class JevAppraiser:
     async def evaluate(
         self, *, assessment: MoodAssessment, context: dict[str, Any]
     ) -> EvaluatedAppraisal:
+        result = await self._evaluate(
+            assessment=assessment, context=context, targets=None
+        )
+        if not isinstance(result, EvaluatedAppraisal):
+            raise ValueError("unexpected Jev result contract")
+        return result
+
+    async def evaluate_event(
+        self,
+        *,
+        assessment: MoodAssessment,
+        context: dict[str, Any],
+        targets: tuple[MindEvaluationTarget, ...],
+    ) -> EventAppraisalResult:
+        result = await self._evaluate(
+            assessment=assessment, context=context, targets=targets
+        )
+        if not isinstance(result, EventAppraisalResult):
+            raise ValueError("unexpected Jev result contract")
+        return result
+
+    async def _evaluate(
+        self,
+        *,
+        assessment: MoodAssessment,
+        context: dict[str, Any],
+        targets: tuple[MindEvaluationTarget, ...] | None,
+    ) -> EvaluatedAppraisal | EventAppraisalResult:
         if self._locator is None:
             raise MoodViolation("MOOD-JEV-CREDENTIAL-MISSING")
         try:
@@ -54,6 +98,20 @@ class JevAppraiser:
             raise MoodViolation("MOOD-JEV-CREDENTIAL-INVALID")
         # Only Context-authorized episodes may be exposed to this event's audience.
         items = [item for layer in context["layers"] for item in layer["items"]]
+        if targets is not None:
+            permitted = {
+                (item["source"]["kind"], item["source"]["reference"])
+                for item in items
+                if "reference" in item.get("source", {})
+                and item["item_kind"] not in _EXCLUDED_APPRAISAL_ITEMS
+            } | {("event", str(assessment.event.source_ref))}
+            basis = {reference for _, reference in permitted}
+            if any(
+                (target.object.source_kind, target.object.source_ref) not in permitted
+                or not set(target.basis_refs) <= basis
+                for target in targets
+            ):
+                raise MoodViolation("MOOD-JEV-MIND-SOURCE-FORBIDDEN")
         allowed = {
             item["source"]["reference"]
             for item in items
@@ -74,6 +132,18 @@ class JevAppraiser:
                 )
             )
         )
+        joint = (
+            None
+            if targets is None
+            else EventAppraisalRequest(
+                assessment.event.event_key,
+                str(assessment.assessment_id),
+                assessment.event.occurred_at,
+                situations,
+                goals,
+                targets,
+            )
+        )
         body = {
             "model": JEV_MODEL,
             "state": {
@@ -86,14 +156,7 @@ class JevAppraiser:
                 "context": [
                     item
                     for item in items
-                    if item["item_kind"]
-                    not in {
-                        "fixed_prompt",
-                        "creator_prompt",
-                        "subject_prompt",
-                        "mood",
-                        "active_affective_episode",
-                    }
+                    if item["item_kind"] not in _EXCLUDED_APPRAISAL_ITEMS
                 ],
                 "previous_situations": [
                     {
@@ -104,7 +167,9 @@ class JevAppraiser:
                     for episode in previous
                 ],
             },
-            "questions": appraisal_questions(situations, goals),
+            "questions": appraisal_questions(situations, goals)
+            if joint is None
+            else joint.questions(),
         }
         try:
             async with (
@@ -131,6 +196,8 @@ class JevAppraiser:
                     provider_request_id=response.headers.get("x-request-id"),
                 )
                 try:
+                    if joint is not None:
+                        return parse_event_appraisal(raw, request=joint)
                     return parse_appraisal_response(
                         raw,
                         event_id=str(assessment.assessment_id),

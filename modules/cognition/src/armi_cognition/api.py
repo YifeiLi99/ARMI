@@ -57,6 +57,11 @@ from ._dialogue_output import (
     dialogue_output_schema,
     flatten_dialogue_output,
 )
+from ._event_appraisal import (
+    EventAppraisalRequest,
+    EventAppraisalResult,
+    parse_event_appraisal,
+)
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _PROPOSAL = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
@@ -908,6 +913,8 @@ __all__ = (
     "CognitionWakeupPort",
     "CognitionWorkerPort",
     "CognitiveBranchRole",
+    "EventAppraisalRequest",
+    "EventAppraisalResult",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
     "autonomy_check_current",
@@ -917,4 +924,5 @@ __all__ = (
     "dialogue_output_schema",
     "flatten_dialogue_output",
     "parse_autonomy_check",
+    "parse_event_appraisal",
 )

@@ -313,6 +313,14 @@ Mood 在主认知之前独立结算，主模型失败不撤销已经形成的心
 
 ### 处境评价合同与算法
 
+已确认的替换方向（2026-09-22）：Mind 使用 Jev 事实评价与本地算法，与 Mood 基于同一事件的旧状态并行计算。三个心理需要分别保存满足与受挫；探索与投入作为两组认知状态，不称为统一五维测评量表。持续问题和未实施意向归 Cognition，主模型最终不再写 Mind。下文旧 `MindAppraisal` 和自主轻判描述仍是尚未替换的运行链路，不能据此声称联合评价已在 Runtime 生效。
+
+数值合同已在 [Mind 对象算法](modules/mind/src/armi_mind/_state_algorithm.py) 与[对象题库](modules/mind/src/armi_mind/_event_questions.py)实现：探索 `G*C*max(V,P,0.5*N)`；投入适配 `M*(1-max(U,O))`；调整投入 `max(1-M,U,O)`；联系需要只来自有依据的期望联系缺口。需要不随时间耗空，只有排序权重使用 30 分钟半衰期。五档映射、0.6 激活、0.4 重置及 0.25 实质变化阈值集中于 `MindParameters`，都是未实测校准的工程初值。同对象替换、不按消息累计；未知保留旧事实并暂停对应触发依据，不能借未知造成的低分重新激活旧高分。空对象集合表示出生未评价；每次至多四对象、72 道新增题，不限制长期对象数量。
+
+[Cognition 联合结果合同](modules/cognition/src/armi_cognition/_event_appraisal.py)保持 Mood 题目不变，并独立解析两部分回答。Jev 适配器的 `evaluate_event` 已提供单次联合传输与冻结来源检查；目前仍由原 `evaluate` 服务正式 Mood 调度。待完成的是共享协调记录及两个 owner 独立提交、旧 Mind 内容迁往 Cognition、Attention 本地判断、相关数据库和接口整体切换。当前离线测试只能证明算法、题库和传输合同，不能证明后台心理行为或真实 Jev 评价可靠性。
+
+变量依据：[基本心理需要满足与受挫](https://selfdeterminationtheory.org/wp-content/uploads/2015/01/2014_Chen-et-al._need-satisfaction.pdf)、[PACE](https://pmc.ncbi.nlm.nih.gov/articles/PMC6891259/)、[学习进展实验](https://www.nature.com/articles/s41467-021-26196-w)、[MAC 投入模型](https://www.erinwestgate.com/uploads/7/6/4/1/7641726/westgatewilson.psychreview.2018.pdf)。论文支持变量与假设，不提供这里的电子人数值公式；真实校准需要另行授权的隔离环境与费用。
+
 Mind 的 `MindAppraisal` 已接入正式认知，模型返回对象/依据引用、期望结果（理解、交流、有意义投入）、重要性、差距、理解程度、进展、行动机会、结束状态及解释，不填写情绪名称或强度增量。Mind 保存 `motivation_states`；Owner 绑定身份、时间、版本并在共同 Subject Commit 中计算。每轮最多四项评价，不限制跨轮保留的未结束动机数量，不能因积累到四条就拒绝整个认知提交。同一事项的后续消息与再次尝试应引用已有 current_motivation 更新，新消息作为依据；不按文字相似度自动合并不同对象。普通文字替换与管理修正不能清空已有动机。初次观察也可以确认当前愿望已满足，不补造过去的需求。
 
 Mind 公开投影进入 Context；开放且有非零目标的动机在 30 分钟后产生普通 `review_time_reached` 信号，由 Attention 合并与消费。未评价时保留状态，结束后退出当前 Context，历史保留。HTTP/CLI/MCP 自主状态共用 `motivations` 投影。没有第二次模型评价或独立调度器。
