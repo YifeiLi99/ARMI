@@ -102,8 +102,7 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.NOVELTY: (
-        "对象相对所提供的主体经历有哪些新内容？首次接触是新奇的依据。"
-        "新奇与信息价值、可理解性独立；即使是无价值且不可理解的随机输入，也可能此前从未接触。",
+        "对象相对 ARMI 的接触经历有多新？材料明确说首次接触或主体觉得新奇，即是新奇证据，无须额外经历记录。新奇与可理解性、价值独立；无价值的随机噪声也可以首次接触。仅说本次屏幕出现某物则不能证明首次。",
         (
             "完全熟悉或原样重复",
             "少量新细节",
@@ -125,12 +124,12 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.INFORMATION_VALUE: (
-        "填补该缺口对已有兴趣、目标或问题有什么价值？不得创造新的价值。",
+        "弄清这个对象中的未解问题，对 ARMI 已有兴趣、目标或问题有多大价值？判断解决问题的价值，不判断当前是否取得进展。",
         (
             "有依据表明无价值",
             "仅有很小关联价值",
             "对已有问题有部分帮助",
-            "能明显推进重要问题",
+            "弄清该问题会明显帮助 ARMI 已有的重要目标或重要问题，无须当前已经取得进展",
             "直接关系已存在的核心问题或价值",
         ),
     ),
@@ -155,12 +154,12 @@ _ANCHORS: dict[MindVariable, tuple[str, tuple[str, str, str, str, str]]] = {
         ),
     ),
     MindVariable.MEANING: (
-        "当前活动如何联系主体已认同的目标或价值？休息也可以有意义。",
+        "当前活动对 ARMI 有多少认同意义？主体明确认为有意义即是依据，休息也可以有意义，无须另外列出长期目标。只判断认同意义，不判断完成进展、难度或过载程度。",
         (
             "明确无认同意义",
             "只有很弱意义",
             "部分联系已认同目标",
-            "明确推进重要且认同的目标",
+            "当前活动明确联系到重要且认同的目标；即使过载或暂未成功，这个意义仍然成立",
             "充分体现当前核心目标或价值",
         ),
     ),
@@ -214,6 +213,22 @@ class MindEvaluationTarget:
             raise ValueError("invalid Mind evaluation target")
 
 
+def _instructions(scope: dict[str, str], question: str) -> dict[str, Any]:
+    # Jev never sees question IDs. Every independent question needs its own
+    # subject, source and evidence rules; see DESIGN's Mind prompt experiments.
+    return {
+        "评价主体": "ARMI；与引语说话者分别识别",
+        "评价对象": {
+            **{key: scope[key] for key in ("来源类型", "来源标识", "依据")},
+            "范围": scope["边界"]
+            + "`event.content` 是本次事件，`context` 是允许读取的背景；仅使用与来源对象有关的事实。事件对象指事件中描述的处境。"
+            + "评价对象始终是 ARMI 的需要或认知状态。别人成功、学习或被关心，不等于 ARMI 成功、学习或被关心。材料没有提供 ARMI 的本项状态时选 unknown。"
+            + "明确叙述和主体自身表达是证据；未提及不是零。只判断本题维度，不把另一维度的好坏当作本题证据。",
+        },
+        "问题": question,
+    }
+
+
 def mind_event_questions(
     targets: tuple[MindEvaluationTarget, ...],
     *,
@@ -235,10 +250,15 @@ def mind_event_questions(
             question, levels = _ANCHORS[variable]
             questions[f"mind_{index}_{variable.value}"] = {
                 "type": "choice",
-                "instructions": {**scope, "问题": question},
+                "instructions": _instructions(scope, question),
                 "criteria": {
                     **{f"level_{i}": text for i, text in enumerate(levels)},
-                    "unknown": "材料不足，不能判断",
+                    "unknown": "没有首次、熟悉或主体新奇感等接触依据，不能确定新奇程度；不能因为无法理解或没有价值而选本项。"
+                    if variable == MindVariable.NOVELTY
+                    else {
+                        "含义": "没有提供 ARMI 关于本题变量的证据，无法选档",
+                        "与零区别": "没有写到或没有提供证据不等于明确不存在；零档须有明确否定或零水平的依据",
+                    },
                     "not_applicable": "有明确依据表明本项不适用于此对象",
                 },
             }
@@ -267,7 +287,7 @@ def mind_event_questions(
         ):
             questions[f"mind_{index}_{field}"] = {
                 "type": "choice",
-                "instructions": {**scope, "问题": question},
+                "instructions": _instructions(scope, question),
                 "criteria": criteria,
             }
     if len(questions) > parameters.questions_per_event:
