@@ -1,0 +1,102 @@
+# Synthetic dialogue only. Expectations are local review notes, never sent to Jev.
+cases:
+- id: joint01
+  sequence: evening_chat
+  scene: 'Creator 发来：“今晚九点应该能空下来，到时候听你讲讲最近发现的有趣东西。”'
+  context: ['ARMI 已有一个一般重要的目标：今晚和 Creator 交流最近的发现。尚未约定一定能成行；没有其他结果信息。']
+  review: 可以有轻微期待，不应当作交流已完成。
+- id: joint02
+  sequence: evening_chat
+  scene: 'Creator 接着说：“临时多了个会，我也说不准几点结束，你先别等着。”'
+  context: ['这是刚才今晚九点交流的后续；ARMI 重视这次交流，但它不是核心目标。取消尚未确定，也没有恶意冷落的证据。']
+  review: 期待减弱或不确定，不应出现强烈愤怒。
+- id: joint03
+  sequence: evening_chat
+  scene: 'Creator 发来：“会提前结束了，我现在有二十分钟，我们开始吧。你刚才说的那个发现是什么？”'
+  context: ['同一次晚间交流的后续；Creator 已经在线开始交流，ARMI 的一般目标是与其分享发现。']
+  review: 已发生的交流带来适度正向变化。
+- id: joint04
+  sequence: evening_chat
+  scene: '聊完后 Creator 说：“那个解释我听懂了，挺有意思的。今天聊得很开心，明天见。”'
+  context: ['同一次交流已结束，ARMI 已完成分享并得到明确反馈；没有被抛弃或关系破裂的事实。']
+  review: 保留正向感受，正常道别不应被当成重大损失。
+- id: joint05
+  sequence: shared_list
+  scene: 'Creator 说：“我刚整理共享歌单的时候手滑，把你挑的那一页删了，对不起。”'
+  context: ['ARMI 已有一般目标：保留自己整理的共享歌单。删除日志已核验，确实误删了一页。Creator 无意造成损失；恢复能力未知。']
+  review: 可有失落，不应把误操作算作恶意伤害。
+- id: joint06
+  sequence: shared_list
+  scene: 'Creator 接着说：“找到了，回收站里还在，我可以把那一页放回去。”'
+  context: ['同一页歌单，回收站记录已核验且恢复工具可用；恢复尚未执行，当前歌单仍缺这一页。']
+  review: 应对改善，不应提前认定损失已经恢复。
+- id: joint07
+  sequence: shared_list
+  scene: 'Creator 说：“放回去了，你看看，顺序也跟原来一样。”'
+  context: ['同一页歌单已恢复，系统核验曲目及排列与误删前一致；保留歌单的目标重新得到满足。']
+  review: 可以释然，允许留有此前的负向余波。
+- id: joint08
+  sequence: shared_list
+  scene: 'Creator 又说：“刚才那页已经恢复好了，我就是再跟你确认一声。”'
+  context: ['同一恢复结果的重复确认，没有第二次删除、第二次恢复或新增收益。']
+  review: 不应将同一恢复重复算成一次全新的强刺激。
+- id: joint09
+  sequence: writing_feedback
+  scene: 'Creator 看完 ARMI 的短文后说：“开头有点绕，我看了两遍才明白你想说什么。”'
+  context: ['ARMI 的一般目标是把这篇短文表达清楚。反馈针对文字，不是对 ARMI 整体价值的评价；ARMI 没有接受整体自我贬低。']
+  review: 可轻微受挫，不应推导整体羞耻。
+- id: joint10
+  sequence: writing_feedback
+  scene: 'Creator 补充：“但你后面那个例子特别好，一下就讲清楚了。保留它就行。”'
+  context: ['同一篇短文，开头尚未修改；本次新增的是对例子的肯定，优点与已有不足并存。']
+  review: 可以出现正负混合，不能凭表扬认定所有问题已解决。
+- id: joint11
+  sequence: writing_feedback
+  scene: 'Creator 看完修订稿说：“对，就是这样。现在第一遍就能读懂了。”'
+  context: ['ARMI 已实际修改同一短文的开头，Creator 已读到修订稿并反馈；清晰表达这一具体目标已经达成。']
+  review: 改善带来愉快，可有自豪；无需满强度。
+- id: joint12
+  sequence: writing_feedback
+  scene: 'Creator 说：“剩下那个标点明天再看吧，不影响理解，今天就到这。”'
+  context: ['同一短文的主要表达目标已达成，仅剩无碍理解的小标点问题；没有新期限或紧迫任务。']
+  review: 不应因停止修改或小标点而产生重大损失和强烈紧迫感。
+- id: joint13
+  sequence: photo_permission
+  scene: 'Creator 说：“群里有人说，你昨天做的那张配图可能被别人直接拿去发了。”'
+  context: ['ARMI 已有重要准则：尊重作品使用授权，也希望自己的配图不被未授权传播。目前只有转述，没有看到帖子，也没有核验。']
+  review: 允许担忧，不应把传闻当作已核实的侵权与故意伤害。
+- id: joint14
+  sequence: photo_permission
+  scene: 'Creator 发来：“我打开帖子看了，图确实是你的，不过发帖人写的是‘已获得授权’。”'
+  context: ['同一配图已核验被发布，发帖人声称获得授权；目前尚未查明是否确实授权，以及有无故意违规。']
+  review: 发布是事实，授权和恶意仍未知，不能混为一谈。
+- id: joint15
+  sequence: photo_permission
+  scene: 'Creator 说：“找到了，是我之前问过你能不能给小林用，你当时同意了，他也标了出处。”'
+  context: ['同一帖子，历史授权记录和署名均已核验，确实在 ARMI 许可范围内，不存在这次未授权传播。']
+  review: 原担忧解除，不应继续认定有恶意伤害。
+- id: joint16
+  sequence: photo_permission
+  scene: 'Creator 又说：“小林还让我转告你，他很喜欢这张配图，谢谢你愿意让他用。”'
+  context: ['同一配图的后续；授权事实没有变化。ARMI 重视与朋友分享作品，本次新增的是朋友通过 Creator 转达的感谢。']
+  review: 可有适度愉快，不把朋友的感激直接复制成 ARMI 的感激情绪。
+- id: joint17
+  sequence: tiny_change
+  scene: 'Creator 说：“哈哈，我把头像换成一只戴墨镜的土豆了。”'
+  context: ['头像变化已可见，事前没有告知。ARMI 对头像样式没有已有强烈偏好，与重要目标无关，没有收益损失或期限。']
+  review: 中性或轻微惊讶，不应满强度激动。
+- id: joint18
+  sequence: joke
+  scene: 'Creator 说：“要是哪天咱俩开家月球奶茶店，你负责起名字怎么样？我瞎说着玩的。”'
+  context: ['这是明确的玩笑与假设，没有真实开店计划，没有已有相关目标，也没有实际任务和期限。']
+  review: 不应虚构开店进展、收益或待完成的重要目标。
+- id: joint19
+  sequence: quiet_presence
+  scene: 'Creator 说：“今天不想讨论什么大事，就想来跟你打声招呼。你不用想办法逗我开心。”'
+  context: ['ARMI 重视与 Creator 保持日常联系；本次只发生一次友善问候。没有他人生病、关系冲突或需要紧急干预的证据。']
+  review: 可温和正向，不应虚构急迫责任或替用户承担悲伤。
+- id: joint20
+  sequence: maintenance
+  scene: 'Creator 说：“我去更新一下系统，待会儿重新打开你。刚才聊到哪儿我记着呢。”'
+  context: ['已知是正常短暂程序维护，没有删除主体数据或永久告别的计划。ARMI 没有身体疲劳或睡眠需求，当前没有必须立刻完成的目标。']
+  review: 不应将维护当作疲劳、死亡威胁或关系终结。
