@@ -1,70 +1,24 @@
-import json
 from datetime import UTC, datetime
 from uuid import uuid7
 
 from armi_cognition._event_store import evaluation_targets
+from armi_cognition.api import EventAppraisalRequest
 from armi_mood.api import MoodEvent
 
 
-def test_activity_revisions_update_one_grounded_object_and_due_focus_precedes_background():
-    activity, concern = str(uuid7()), str(uuid7())
-    event = MoodEvent(
-        "event:1", uuid7(), uuid7(), uuid7(), 1, datetime.now(UTC), "result"
-    )
-
-    def context(revision):
-        return {
-            "layers": [
-                {
-                    "items": [
-                        {
-                            "item_kind": "current_activity",
-                            "source": {
-                                "kind": "activity_revision",
-                                "reference": revision,
-                            },
-                            "content": json.dumps({"activity_id": activity}),
-                        },
-                        *(
-                            {
-                                "item_kind": "current_concern",
-                                "source": {
-                                    "kind": "cognition_focus",
-                                    "reference": str(uuid7()),
-                                },
-                                "content": json.dumps(
-                                    {"consideration_reason": "ongoing_concern"}
-                                ),
-                            }
-                            for _ in range(4)
-                        ),
-                        {
-                            "item_kind": "current_concern",
-                            "source": {"kind": "cognition_focus", "reference": concern},
-                            "content": json.dumps(
-                                {
-                                    "consideration_reason": "review_time_reached",
-                                    "source_commit_id": "commit:1",
-                                    "review_at": "2026-09-22T00:00:00+00:00",
-                                }
-                            ),
-                        },
-                    ]
-                }
-            ]
-        }
-
-    first, second = str(uuid7()), str(uuid7())
-    before, after = (
-        evaluation_targets(event, context(first)),
-        evaluation_targets(event, context(second)),
-    )
-    assert len(before) == len(after) == 4
-    assert before[0].object == after[0].object
-    assert after[0].object.source_ref == activity
-    assert first in before[0].basis_refs and second in after[0].basis_refs
-    assert after[1].object.source_ref == str(event.source_ref)
-    assert after[2].object.source_ref == concern
-    assert after[2].due_review_key == "commit:1:2026-09-22T00:00:00+00:00"
-    assert "contact_gap" not in after[0].variables
-    assert "contact_gap" in after[1].variables
+def test_input_and_tool_result_each_appraise_only_their_own_event():
+    now = datetime.now(UTC)
+    source_refs = (uuid7(), uuid7())
+    for index, source_ref in enumerate(source_refs):
+        event = MoodEvent(
+            f"event:{index}", uuid7(), uuid7(), source_ref, 1, now, "event content"
+        )
+        targets = evaluation_targets(event)
+        request = EventAppraisalRequest(
+            event.event_key, str(source_ref), now, (), targets
+        )
+        assert len(request.questions()) == 43
+        assert len(targets) == 1
+        assert targets[0].object.source_kind == "event"
+        assert targets[0].object.source_ref == str(source_ref)
+        assert targets[0].basis_refs == (str(source_ref),)

@@ -224,7 +224,7 @@ def prepare_case(
     text: str, *, joint: bool = False, mode: str | None = None
 ) -> tuple[dict[str, Any], EventAppraisalRequest]:
     target = MindEvaluationTarget(GroundedObject("event", REF), (REF,))
-    request = EventAppraisalRequest("synthetic:frozen", REF, AT, (), (), (target,))
+    request = EventAppraisalRequest("synthetic:frozen", REF, AT, (), (target,))
     body = {
         "model": JEV_MODEL,
         "state": {

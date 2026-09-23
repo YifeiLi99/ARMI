@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid7
@@ -14,7 +13,6 @@ from armi_mind.api import (
     MindEvaluationTarget,
     MindHead,
     MindReadPort,
-    MindVariable,
 )
 from armi_mood.api import MoodAssessment, MoodEvent, MoodReadPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
@@ -105,66 +103,15 @@ class EventAppraisalStorePort(Protocol):
 
 
 def evaluation_targets(
-    event: MoodEvent, context: dict[str, Any]
+    event: MoodEvent,
 ) -> tuple[MindEvaluationTarget, ...]:
-    items = [item for layer in context["layers"] for item in layer["items"]]
-    candidates: list[tuple[int, MindEvaluationTarget]] = []
-    for kind in ("current_activity", "current_concern", "current_motivation"):
-        for item in items:
-            if item["item_kind"] != kind or "reference" not in item["source"]:
-                continue
-            source = item["source"]
-            content = json.loads(item["content"])
-            obj = GroundedObject(source["kind"], source["reference"])
-            if kind == "current_activity":
-                obj = GroundedObject("activity", content["activity_id"])
-            if kind == "current_motivation":
-                value = content["object"]
-                obj = GroundedObject(value["source_kind"], value["source_ref"])
-            due = content.get(
-                "consideration_reason"
-            ) == "review_time_reached" or content.get("consideration", {}).get(
-                "eligible", False
-            )
-            rank = 0 if kind == "current_activity" else 2 if due else 3
-            candidates.append(
-                (
-                    rank,
-                    MindEvaluationTarget(
-                        obj,
-                        (source["reference"], str(event.source_ref)),
-                        # A contact gap belongs to a person/contact intention, not
-                        # an activity identity; event/focus targets retain it.
-                        tuple(
-                            v
-                            for v in MindVariable
-                            if obj.source_kind != "activity"
-                            or v != MindVariable.CONTACT_GAP
-                        ),
-                        f"{content['source_commit_id']}:{content['review_at']}"
-                        if kind == "current_concern"
-                        and content.get("consideration_reason") == "review_time_reached"
-                        else None,
-                    ),
-                )
-            )
-    # Prefer a formally linked activity; otherwise the accepted event supplies a
-    # new source-bound object. Remaining slots follow the frozen owner window.
-    candidates.append(
-        (
-            1,
-            MindEvaluationTarget(
-                GroundedObject("event", str(event.source_ref)), (str(event.source_ref),)
-            ),
-        )
+    # One event owns one appraisal; background concerns are evidence, not extra
+    # targets. See DESIGN.md, “持续关注与好奇”.
+    return (
+        MindEvaluationTarget(
+            GroundedObject("event", str(event.source_ref)), (str(event.source_ref),)
+        ),
     )
-    ordered = [target for _, target in sorted(candidates, key=lambda item: item[0])]
-    unique: dict[str, MindEvaluationTarget] = {}
-    for target in ordered:
-        unique.setdefault(target.object.source_ref, target)
-        if len(unique) == 4:
-            break
-    return tuple(unique.values())
 
 
 class PostgreSQLEventAppraisalStore:
@@ -188,7 +135,7 @@ class PostgreSQLEventAppraisalStore:
             )
         ).fetchone()
         assessment_id, status = (row[0], str(row[1])) if row else (uuid7(), "new")
-        targets = evaluation_targets(event, context)
+        targets = evaluation_targets(event)
         if row is None:
             await transaction.execute(
                 """INSERT INTO armi.event_appraisals

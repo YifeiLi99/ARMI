@@ -10,7 +10,6 @@ REQUEST = EventAppraisalRequest(
     "event:1",
     datetime(2026, 9, 22, tzinfo=UTC),
     (),
-    (),
     (MindEvaluationTarget(GroundedObject("activity", "activity:1"), ("ctx:1",)),),
 )
 
@@ -76,7 +75,7 @@ def test_extra_keys_reject_only_the_responsible_owner(owner):
     assert (result.mood is None) == (owner == "mood")
 
 
-def test_empty_mind_window_is_explicit_valid_empty_result():
-    request = EventAppraisalRequest("e:1", "e:1", REQUEST.at, (), (), ())
-    result = parse_event_appraisal(response(request), request=request)
-    assert result.mind == () and result.ready_for_cognition
+@pytest.mark.parametrize("targets", [(), REQUEST.mind_targets * 2])
+def test_event_cannot_skip_mind_or_expand_background_targets(targets):
+    with pytest.raises(ValueError, match="one event"):
+        EventAppraisalRequest("e:1", "e:1", REQUEST.at, (), targets)

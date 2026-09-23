@@ -19,7 +19,7 @@ from armi_kernel.application import (
     record_diagnostic,
 )
 from armi_local_control.configuration import ConfigurationViolation
-from armi_mind.api import MindEvaluationTarget
+from armi_mind.api import GroundedObject, MindEvaluationTarget
 from armi_mood.api import (
     JEV_MODEL,
     EvaluatedAppraisal,
@@ -47,8 +47,7 @@ _EXCLUDED_APPRAISAL_ITEMS = frozenset(
 def _share_evaluation_rules(body: dict[str, Any]) -> None:
     """Keep identical evaluation rules once in Jev's shared state.
 
-    All questions see this state (TypeSafe primitives documentation). Repeating
-    the full boundary in 72 questions exceeds Jev's 64k request budget.
+    All questions see this state (TypeSafe primitives documentation).
     """
     questions = [
         question
@@ -80,25 +79,6 @@ def _share_evaluation_rules(body: dict[str, Any]) -> None:
             entry[field] = (
                 f"遵守共享 state 中 `evaluation_rules.{name}` 的全部评价边界。"
             )
-    goal_rules: dict[str, Any] = {}
-    for name, question in body["questions"].items():
-        if not name.startswith("goal_"):
-            continue
-        field = name.rsplit("_", 1)[-1]
-        if field not in {"relevance", "gain", "loss", "likelihood", "phase"}:
-            continue
-        instructions = question["instructions"]
-        target = instructions["目标范围"]
-        common = {key: value for key, value in instructions.items() if key != "目标范围"}
-        if common != body["questions"][field]["instructions"]:
-            raise ValueError("goal evaluation rules differ")
-        goal_rules[field] = common
-        question["instructions"] = {
-            "评价规则": f"遵守共享 state 中 `evaluation_rules.goal_questions.{field}` 的全部评价规则。",
-            "目标范围": target,
-        }
-    if goal_rules:
-        shared["goal_questions"] = goal_rules
     body["state"]["evaluation_rules"] = shared
 
 
@@ -163,25 +143,9 @@ class JevAppraiser:
         # Only Context-authorized episodes may be exposed to this event's audience.
         items = [item for layer in context["layers"] for item in layer["items"]]
         if targets is not None:
-            permitted = {
-                (item["source"]["kind"], item["source"]["reference"])
-                for item in items
-                if "reference" in item.get("source", {})
-                and item["item_kind"] not in _EXCLUDED_APPRAISAL_ITEMS
-            } | {("event", str(assessment.event.source_ref))}
-            for item in items:
-                if item["item_kind"] == "current_activity":
-                    permitted.add(
-                        ("activity", json.loads(item["content"])["activity_id"])
-                    )
-                if item["item_kind"] == "current_motivation":
-                    obj = json.loads(item["content"])["object"]
-                    permitted.add((obj["source_kind"], obj["source_ref"]))
-            basis = {reference for _, reference in permitted}
-            if any(
-                (target.object.source_kind, target.object.source_ref) not in permitted
-                or not set(target.basis_refs) <= basis
-                for target in targets
+            event_ref = str(assessment.event.source_ref)
+            if targets != (
+                MindEvaluationTarget(GroundedObject("event", event_ref), (event_ref,)),
             ):
                 raise MoodViolation("MOOD-JEV-MIND-SOURCE-FORBIDDEN")
         allowed = {
@@ -195,15 +159,6 @@ class JevAppraiser:
             if episode.situation_id in allowed
         )[-253:]
         situations = tuple(episode.situation_id for episode in previous)
-        goals = tuple(
-            sorted(
-                set(
-                    item["source"]["reference"]
-                    for item in items
-                    if item["item_kind"] in {"current_concern", "current_motivation"}
-                )
-            )
-        )
         joint = (
             None
             if targets is None
@@ -212,7 +167,6 @@ class JevAppraiser:
                 str(assessment.assessment_id),
                 assessment.event.occurred_at,
                 situations,
-                goals,
                 targets,
             )
         )
@@ -239,7 +193,7 @@ class JevAppraiser:
                     for episode in previous
                 ],
             },
-            "questions": appraisal_questions(situations, goals)
+            "questions": appraisal_questions(situations)
             if joint is None
             else joint.questions(),
         }
@@ -283,7 +237,6 @@ class JevAppraiser:
                         raw,
                         event_id=str(assessment.assessment_id),
                         situations=situations,
-                        goals=goals,
                     )
                 except ValueError, TypeError, KeyError:
                     raise MoodViolation("MOOD-JEV-CONTRACT") from None

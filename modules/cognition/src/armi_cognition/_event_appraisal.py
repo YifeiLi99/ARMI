@@ -33,12 +33,15 @@ class EventAppraisalRequest:
     event_id: str
     at: datetime
     situations: tuple[str, ...]
-    goals: tuple[str, ...]
     mind_targets: tuple[MindEvaluationTarget, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.mind_targets) != 1:
+            raise ValueError("one event requires one Mind appraisal target")
 
     def questions(self) -> dict[str, Any]:
         return {
-            **appraisal_questions(self.situations, self.goals),
+            **appraisal_questions(self.situations),
             **mind_event_questions(self.mind_targets),
         }
 
@@ -104,7 +107,6 @@ def parse_event_appraisal(
             },
             event_id=request.event_id,
             situations=request.situations,
-            goals=request.goals,
         )
     except (ValueError, TypeError, KeyError) as error:
         mood_failure = "MOOD-JEV-CONTRACT"

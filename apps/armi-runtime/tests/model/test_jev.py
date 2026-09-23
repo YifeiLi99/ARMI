@@ -41,12 +41,10 @@ def test_shared_rules_preserve_every_question_and_its_original_boundaries():
     from armi_cognition.api import EventAppraisalRequest
     from armi_runtime.adapters.model.jev import _share_evaluation_rules
 
-    refs = tuple(str(uuid7()) for _ in range(5))
-    targets = tuple(
-        MindEvaluationTarget(GroundedObject("event", ref), (ref,)) for ref in refs[:4]
-    )
+    ref = str(uuid7())
+    targets = (MindEvaluationTarget(GroundedObject("event", ref), (ref,)),)
     original = EventAppraisalRequest(
-        "isolated", refs[0], datetime.now(UTC), (), refs, targets
+        "isolated", ref, datetime.now(UTC), (), targets
     ).questions()
     body = {"state": {"event": "isolated"}, "questions": deepcopy(original)}
     original_bytes = len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
@@ -57,14 +55,6 @@ def test_shared_rules_preserve_every_question_and_its_original_boundaries():
     shared = body["state"]["evaluation_rules"]
     for name, question in body["questions"].items():
         instructions = question["instructions"]
-        if name.startswith("goal_"):
-            field = name.rsplit("_", 1)[-1]
-            assert f"goal_questions.{field}" in instructions["评价规则"]
-            question["instructions"] = {
-                **shared["goal_questions"][field],
-                "目标范围": instructions["目标范围"],
-            }
-            instructions = question["instructions"]
         if name.startswith("mind_"):
             assert "evaluation_rules.mind_scope" in instructions["评价对象"]["范围"]
             instructions["评价对象"]["范围"] = shared["mind_scope"]
@@ -194,8 +184,9 @@ def test_missing_jev_key_cannot_dispatch():
 
 
 @pytest.mark.parametrize("bad_owner", [None, "mind", "mood"])
+@pytest.mark.parametrize("background_count", [0, 5, 20])
 def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
-    monkeypatch, bad_owner
+    monkeypatch, bad_owner, background_count
 ):
     now = datetime.now(UTC)
     event = MoodEvent("e:1", uuid7(), uuid7(), uuid7(), 1, now, "Synthetic event")
@@ -206,10 +197,22 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
         GroundedObject("event", str(event.source_ref)), (str(event.source_ref),)
     )
     calls, receipts = [], []
+    background = [
+        {
+            "item_kind": kind,
+            "source": {"kind": kind, "reference": str(uuid7())},
+            "content": json.dumps({"summary": "Existing background only"}),
+        }
+        for _ in range(background_count)
+        for kind in ("current_concern", "current_motivation", "current_activity")
+    ]
 
     def handler(request):
         body = json.loads(request.content)
         calls.append(body)
+        assert body["state"]["context"] == background
+        assert len(body["questions"]) == 43
+        assert not any(name.startswith("goal_") for name in body["questions"])
         answers = {
             name: {
                 "type": "choice",
@@ -252,7 +255,9 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
             ProviderMeterScope(save, PriceCatalog(()), "event.evaluate")
         ):
             return await appraiser.evaluate_event(
-                assessment=assessment, context={"layers": []}, targets=(target,)
+                assessment=assessment,
+                context={"layers": [{"items": background}]},
+                targets=(target,),
             )
 
     result = asyncio.run(run())

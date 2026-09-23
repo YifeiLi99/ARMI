@@ -98,7 +98,6 @@ def test_shared_cognition_request_uses_the_live_validated_mind_questions():
         event_id="synthetic-event",
         at=START,
         situations=(),
-        goals=(),
         mind_targets=(target_for(recorded["case"]),),
     )
     actual = {
