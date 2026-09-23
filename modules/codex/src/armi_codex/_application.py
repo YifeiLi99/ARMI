@@ -607,6 +607,7 @@ class CodexEffectPipeline:
         except CodexRunnerViolation as error:
             if self._stop.is_set():
                 return True
+            self._diagnostic(f"codex.dispatch.runner_failed.{error.code}")
             if cleanup_failed and error.cleanup_error_code is None:
                 error.record_cleanup_failure("CODEX-CLEANUP")
             if snapshot is None:

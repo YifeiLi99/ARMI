@@ -726,6 +726,22 @@ def _mood_event(
     elif source_kind in {"subject_available", "autonomy_plan"}:
         source_ref = snapshot.root_opportunity_id
         source_version = 1
+    if source_kind == "codex_result":
+        if snapshot.evidence is None:
+            raise ContextViolation("CTX-CODEX-RESULT-EVIDENCE")
+        media_type = snapshot.evidence.ref.media_type
+        if media_type == "text/plain":
+            summary = "Codex 委托成功返回候选结果。结果正文由后续认知核验。"
+        elif media_type == "application/json":
+            summary = "Codex 委托返回失败或未知回执。具体原因由后续认知处理。"
+        else:
+            raise ContextViolation("CTX-CODEX-RESULT-FORMAT")
+    else:
+        summary = (
+            evidence_bytes
+            if evidence_bytes is not None
+            else snapshot.activity_summary_bytes
+        ).decode("utf-8")
     return MoodEvent(
         f"{source_kind}:{source_ref}:{source_version}",
         snapshot.subject_id,
@@ -733,11 +749,7 @@ def _mood_event(
         source_ref,
         source_version,
         snapshot.opportunity_available_after,
-        (
-            evidence_bytes
-            if evidence_bytes is not None
-            else snapshot.activity_summary_bytes
-        ).decode("utf-8"),
+        summary,
     )
 
 

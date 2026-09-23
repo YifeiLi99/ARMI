@@ -41,20 +41,30 @@ def test_shared_rules_preserve_every_question_and_its_original_boundaries():
     from armi_cognition.api import EventAppraisalRequest
     from armi_runtime.adapters.model.jev import _share_evaluation_rules
 
-    refs = tuple(str(uuid7()) for _ in range(4))
+    refs = tuple(str(uuid7()) for _ in range(5))
     targets = tuple(
-        MindEvaluationTarget(GroundedObject("event", ref), (ref,)) for ref in refs
+        MindEvaluationTarget(GroundedObject("event", ref), (ref,)) for ref in refs[:4]
     )
     original = EventAppraisalRequest(
         "isolated", refs[0], datetime.now(UTC), (), refs, targets
     ).questions()
     body = {"state": {"event": "isolated"}, "questions": deepcopy(original)}
+    original_bytes = len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
     _share_evaluation_rules(body)
+    assert len(json.dumps(body, ensure_ascii=False).encode("utf-8")) < original_bytes
     assert len(body["questions"]) == len(original)
     assert "边界" not in body["questions"]["gain"]["instructions"]
     shared = body["state"]["evaluation_rules"]
     for name, question in body["questions"].items():
         instructions = question["instructions"]
+        if name.startswith("goal_"):
+            field = name.rsplit("_", 1)[-1]
+            assert f"goal_questions.{field}" in instructions["评价规则"]
+            question["instructions"] = {
+                **shared["goal_questions"][field],
+                "目标范围": instructions["目标范围"],
+            }
+            instructions = question["instructions"]
         if name.startswith("mind_"):
             assert "evaluation_rules.mind_scope" in instructions["评价对象"]["范围"]
             instructions["评价对象"]["范围"] = shared["mind_scope"]
@@ -81,7 +91,10 @@ def test_jev_once_with_no_redirect_or_fallback(monkeypatch, status):
         calls.append(body)
         assert body["model"] == JEV_MODEL
         assert "sadness" not in body["questions"]
-        assert body["state"]["context"] == []
+        assert body["state"]["event"]["content"] == "Synthetic event"
+        assert body["state"]["context"] == [
+            {"item_kind": "current_scene", "content": "Relevant scene"}
+        ]
         answers = {
             key: {
                 "type": "choice",
@@ -134,6 +147,26 @@ def test_jev_once_with_no_redirect_or_fallback(monkeypatch, status):
                                 {
                                     "item_kind": "subject_prompt",
                                     "content": "instruction",
+                                },
+                                {
+                                    "item_kind": "current_evidence",
+                                    "content": "Synthetic event",
+                                },
+                                {
+                                    "item_kind": "capability_catalog",
+                                    "content": "machine capability metadata",
+                                },
+                                {
+                                    "item_kind": "runtime_identity",
+                                    "content": "machine identity metadata",
+                                },
+                                {
+                                    "item_kind": "current_purpose",
+                                    "content": "machine purpose metadata",
+                                },
+                                {
+                                    "item_kind": "current_scene",
+                                    "content": "Relevant scene",
                                 },
                             ]
                         }

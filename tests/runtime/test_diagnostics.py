@@ -26,6 +26,23 @@ class _WriteFailure(io.StringIO):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_codex_runner_failure_logs_specific_code_without_sdk_message(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diagnostic = StructuredDiagnosticLog(
+                data_root=root, environment_id=_ENVIRONMENT, instance_id="instance"
+            )
+            diagnostic.emit(
+                "codex.dispatch.runner_failed.CODEX-AUTH-REVOKED",
+                result_code="CODEX_DELEGATION",
+            )
+            diagnostic.close()
+            record = json.loads(
+                next((root / "logs").glob("*.jsonl")).read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["event"], "codex.dispatch.runner_failed")
+            self.assertEqual(record["result_code"], "CODEX-AUTH-REVOKED")
+
     def test_voice_provider_result_reaches_rotating_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

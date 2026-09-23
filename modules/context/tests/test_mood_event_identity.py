@@ -29,13 +29,16 @@ def snapshot(kind):
         "live_voice_turn",
         "external_message",
         "visual_observation",
-        "codex_task_result",
+        "codex_result",
     ],
 )
 def test_evidence_is_evaluated_once_across_cognitive_stages(kind):
     value = snapshot("derived_opportunity")
     value.evidence = SimpleNamespace(
-        source_id=uuid7(), source_version=2, source_kind=kind
+        source_id=uuid7(),
+        source_version=2,
+        source_kind=kind,
+        ref=SimpleNamespace(media_type="text/plain"),
     )
     first = _mood_event(cast(Any, value), uuid7(), b"actual event")
     value.opportunity_source_ref = uuid7()
@@ -43,10 +46,26 @@ def test_evidence_is_evaluated_once_across_cognitive_stages(kind):
     full = _mood_event(cast(Any, value), uuid7(), b"actual event")
     assert full.event_key == first.event_key
     assert full.episode_id != first.episode_id
-    assert first.summary == "actual event"
+    assert first.summary == (
+        "Codex 委托成功返回候选结果。结果正文由后续认知核验。"
+        if kind == "codex_result"
+        else "actual event"
+    )
     value.evidence.source_id = uuid7()
     tool_result = _mood_event(cast(Any, value), uuid7(), b"new result")
     assert tool_result.event_key != first.event_key
+
+
+def test_failed_codex_result_exposes_only_receipt_status_to_appraisal():
+    value = snapshot("derived_opportunity")
+    value.evidence = SimpleNamespace(
+        source_id=uuid7(),
+        source_version=1,
+        source_kind="codex_result",
+        ref=SimpleNamespace(media_type="application/json"),
+    )
+    event = _mood_event(cast(Any, value), uuid7(), b'{"error_code":"CODEX-AUTH"}')
+    assert event.summary == "Codex 委托返回失败或未知回执。具体原因由后续认知处理。"
 
 
 @pytest.mark.parametrize("kind", ["subject_available", "autonomy_plan"])

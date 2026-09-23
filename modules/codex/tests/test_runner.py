@@ -205,6 +205,38 @@ def test_task_options_use_luna_medium_reasoning_and_live_search(
     assert runner_module._prompt(task) == task.objective
 
 
+@pytest.mark.asyncio
+async def test_revoked_sdk_refresh_token_has_actionable_safe_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task, _ = _prepare(tmp_path)
+
+    class RejectedCodex:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        async def __aenter__(self) -> None:
+            raise RuntimeError(
+                "Your access token could not be refreshed because your refresh "
+                "token was revoked. Please log out and sign in again."
+            )
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+    monkeypatch.setattr(runner_module, "AsyncCodex", RejectedCodex)
+    with pytest.raises(CodexRunnerViolation) as captured:
+        await runner_module._invoke_sdk(
+            workspace=tmp_path,
+            platform_home=tmp_path,
+            temp=tmp_path,
+            task=task,
+        )
+    assert captured.value.code == "CODEX-AUTH-REVOKED"
+    assert not captured.value.outcome_unknown
+    assert "token" not in str(captured.value)
+
+
 def test_task_codec_rejects_duplicate_keys() -> None:
     with pytest.raises(CodexRunnerViolation, match="CODEX-TASK-FORMAT"):
         decode_task(b'{"schema_kind":"a","schema_kind":"b"}')

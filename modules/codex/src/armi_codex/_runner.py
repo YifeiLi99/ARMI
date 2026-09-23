@@ -257,7 +257,10 @@ async def _invoke_sdk(
     except asyncio.CancelledError:
         raise
     except RuntimeError as error:
-        if "stream disconnected before completion" in str(error):
+        message = str(error)
+        if "refresh token was revoked" in message:
+            raise CodexRunnerViolation("CODEX-AUTH-REVOKED") from None
+        if "stream disconnected before completion" in message:
             raise CodexRunnerViolation(
                 "CODEX-STREAM-DISCONNECTED",
                 outcome_unknown=True,

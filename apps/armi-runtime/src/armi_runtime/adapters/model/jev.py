@@ -16,6 +16,7 @@ from armi_kernel.application import (
     CredentialPort,
     CredentialPurpose,
     provider_call,
+    record_diagnostic,
 )
 from armi_local_control.configuration import ConfigurationViolation
 from armi_mind.api import MindEvaluationTarget
@@ -35,6 +36,10 @@ _EXCLUDED_APPRAISAL_ITEMS = frozenset(
         "subject_prompt",
         "mood",
         "active_affective_episode",
+        "runtime_identity",
+        "current_purpose",
+        "capability_catalog",
+        "current_evidence",
     }
 )
 
@@ -75,6 +80,25 @@ def _share_evaluation_rules(body: dict[str, Any]) -> None:
             entry[field] = (
                 f"遵守共享 state 中 `evaluation_rules.{name}` 的全部评价边界。"
             )
+    goal_rules: dict[str, Any] = {}
+    for name, question in body["questions"].items():
+        if not name.startswith("goal_"):
+            continue
+        field = name.rsplit("_", 1)[-1]
+        if field not in {"relevance", "gain", "loss", "likelihood", "phase"}:
+            continue
+        instructions = question["instructions"]
+        target = instructions["目标范围"]
+        common = {key: value for key, value in instructions.items() if key != "目标范围"}
+        if common != body["questions"][field]["instructions"]:
+            raise ValueError("goal evaluation rules differ")
+        goal_rules[field] = common
+        question["instructions"] = {
+            "评价规则": f"遵守共享 state 中 `evaluation_rules.goal_questions.{field}` 的全部评价规则。",
+            "目标范围": target,
+        }
+    if goal_rules:
+        shared["goal_questions"] = goal_rules
     body["state"]["evaluation_rules"] = shared
 
 
@@ -220,6 +244,14 @@ class JevAppraiser:
             else joint.questions(),
         }
         _share_evaluation_rules(body)
+        record_diagnostic(
+            "mood.jev.request.prepared",
+            component="appraisal",
+            request_bytes=len(json.dumps(body, ensure_ascii=False).encode("utf-8")),
+            question_count=len(body["questions"]),
+            context_item_count=len(body["state"]["context"]),
+            previous_situation_count=len(previous),
+        )
         try:
             async with (
                 provider_call(

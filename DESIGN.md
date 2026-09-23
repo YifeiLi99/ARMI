@@ -409,6 +409,8 @@ Runtime 启动时构建所有主认知适配器，`reflect_focus` 只使用 Focu
 
 Jev 传输将重复的 Mood 处境范围、Mood 边界和 Mind 对象边界原文放入共享 `state.evaluation_rules`，各题只引用自身原有规则。Owner 题库、情境锚点和选项保持不变，原本没有额外边界的题目不增加该引用。此去重用于满足 [Jev 官方模型限制](https://docs.typesafe.ai/models)：整请求 64k tokens，共享状态加最长单题 32k；不拆分收费请求或收到拒绝后重试。2026-09-23，89 题请求去重后实测 48,014 输入 tokens，四对象 117 题合成请求实测 57,525 tokens，均通过两域解析；原冻结四组 40 场景使用共享规则重新调用 Jev，全部通过既有预期，约 $0.016，未调用主模型。这些有限场景不构成任意长上下文都可容纳的保证。
 
+Codex 结果事件的 Jev 输入只描述已核验的委托结果状态；完整返回正文保留在 Evidence，供后续认知读取，不进入 Jev 的事件文本或背景。一般事件的正文已位于 `event.content` 时，背景不重复附带 `current_evidence`；Runtime 身份、当前 purpose 和能力目录等机器元数据不作为心理评价材料。逐目标评价的共用题目说明同样放在共享 `evaluation_rules.goal_questions`，各目标题只保留目标范围与规则引用，题目和选项不减少。
+
 Focus 到期复查将冻结的来源提交与复查时间作为稳定复查键，经 Jev 目标和解析结果传到 Mind owner；相同复查键不重复产生条件版本。已知活动对象省去联系缺口题，联系需求仍在具体事件或联系意向对象上评价，不能由活动身份创造联系人。其余领域没有结构依据判定不适用时保留题目，由 Jev 返回 unknown 或 not_applicable。
 
 主模型不能写 Mind 数值、自由心理文本或 `mind_appraisals`；文本、语音、视觉、自主与维护入口遵守同一边界。Self 拥有长期自我内容，Memory 拥有主观记忆，Relationship 拥有关系事实与解释，Focus 不复制全量内心独白。

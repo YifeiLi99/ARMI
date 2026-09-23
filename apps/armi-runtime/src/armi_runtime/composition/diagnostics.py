@@ -43,6 +43,9 @@ class StructuredDiagnosticLog(DiagnosticLog):
                 result_code = result_code or record[len(prefix) + 1 :].upper()
                 record = prefix
                 break
+        if record.startswith("codex.dispatch.runner_failed."):
+            result_code = record.removeprefix("codex.dispatch.runner_failed.")
+            record = "codex.dispatch.runner_failed"
         if level is None:
             if any(
                 word in record
