@@ -65,6 +65,7 @@ def runtime_credential_scope() -> dict[str, str]:
         "model.request.qwen": "model.qwen_api_key",
         "model.request.deepseek": "model.deepseek_api_key",
         "mood.appraisal": "mood.jev_api_key",
+        "autonomy.check": "mood.jev_api_key",
         "speech.recognition": "speech.volc_credentials",
         "codex.runner.auth": "codex.auth_json",
         QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,

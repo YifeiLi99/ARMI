@@ -47,6 +47,7 @@ from armi_runtime_foundation import (
     PostgreSQLTransaction,
 )
 
+from ._autonomy_decision import autonomy_check_questions
 from ._dialogue_output import (
     dialogue_output_instructions,
     dialogue_output_kind,
@@ -424,6 +425,15 @@ class CognitionModelPort(Protocol):
     def request_evidence(self, request: ModelRequest) -> bytes: ...
 
     async def invoke(self, request: ModelRequest) -> ModelInvocationResult: ...
+
+
+class AutonomyCheckPort(Protocol):
+    @property
+    def binding(self) -> ModelBinding: ...
+
+    def request_evidence(self, context: bytes) -> bytes: ...
+
+    async def invoke(self, request: bytes) -> ModelInvocationResult: ...
 
 
 class CognitionModelAdapterFactory(Protocol):
@@ -924,6 +934,7 @@ __all__ = (
     "FOCUS_COGNITIVE_INSTRUCTIONS",
     "FOCUS_CONTEXT_REFERENCES",
     "ActivityReview",
+    "AutonomyCheckPort",
     "CandidateDiagnostic",
     "CandidateExactLifeQueryDraft",
     "CandidateFocusDraft",
@@ -986,6 +997,7 @@ __all__ = (
     "TimedReview",
     "UpdateConcern",
     "autonomy_check_current",
+    "autonomy_check_questions",
     "bind_concern_changes",
     "dialogue_output_instructions",
     "dialogue_output_kind",

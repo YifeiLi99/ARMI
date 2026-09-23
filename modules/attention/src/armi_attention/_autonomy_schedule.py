@@ -25,7 +25,7 @@ class AutonomySchedule:
 
     @property
     def interval_seconds(self) -> int:
-        level = self.failure_streak - 1 if self.failure_streak else self.idle_streak
+        level = self.failure_streak - 1 if self.failure_streak else 0
         return CHECK_INTERVALS[min(level, len(CHECK_INTERVALS) - 1)]
 
     def settled(self, *, acted: bool) -> AutonomySchedule:

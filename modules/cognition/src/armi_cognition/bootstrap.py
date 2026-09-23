@@ -97,6 +97,7 @@ from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from ._validator import CandidateValidationContext, DeterministicCandidateValidator
 from .api import (
+    AutonomyCheckPort,
     CandidateValidationDiagnostic,
     CandidateValidator,
     CognitionAdminPort,
@@ -204,6 +205,7 @@ def bootstrap_cognition_model(
     custody: ExecutionCustodyPort,
     finalization: CognitionFinalizationPort,
     adapter_factory: CognitionModelAdapterFactory,
+    autonomy_check: AutonomyCheckPort,
     binding_path: Path,
     prices: PriceCatalog,
     wakeups: CognitionWakeupPort | None = None,
@@ -220,6 +222,7 @@ def bootstrap_cognition_model(
         custody=custody,
         finalization=finalization,
         adapter_factory=adapter_factory,
+        autonomy_check=autonomy_check,
         failure_notification=failure_notification,
         binding_path=binding_path,
         prices=prices,

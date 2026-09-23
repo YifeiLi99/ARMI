@@ -339,13 +339,14 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("engage", [False, True])
-async def test_local_check_resolves_attention_without_model_or_format_retry(
-    monkeypatch, engage
+@pytest.mark.parametrize("choice", ["wait", "engage", "unknown", "invalid"])
+async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
+    monkeypatch, choice
 ):
     from dataclasses import replace
 
-    pipeline, record, _frozen, response = _format_retry_execution(monkeypatch)
+    engage = choice == "engage"
+    pipeline, record, _frozen, _response = _format_retry_execution(monkeypatch)
     pipeline.episode = replace(pipeline.episode, purpose="consider_autonomy_check")
     pipeline._read_context = AsyncMock(
         return_value=json.dumps(
@@ -366,13 +367,48 @@ async def test_local_check_resolves_attention_without_model_or_format_retry(
         ).encode()
     )
     pipeline._repository.finalize_autonomy_check = AsyncMock()
-    pipeline.adapter.invoke.side_effect = [
-        response('{"engage":"true"}'),
-        response(json.dumps({"engage": engage})),
-    ]
+    raw = json.dumps(
+        {
+            "answers": {
+                "engage": {
+                    "type": "choice",
+                    "choice": choice,
+                    "confidence": 1,
+                    "probabilities": {
+                        "engage": int(engage),
+                        "wait": int(not engage),
+                        "unknown": 0,
+                    },
+                }
+            }
+        }
+    ).encode()
+    check = SimpleNamespace(
+        binding=SimpleNamespace(provider="typesafe"),
+        request_evidence=lambda context: context,
+        invoke=AsyncMock(
+            return_value=replace(
+                pipeline.adapter.invoke.return_value, response_bytes=raw
+            )
+        ),
+    )
+    pipeline._autonomy_check = cast(Any, check)
     await pipeline._execute(cast(Any, record))
     pipeline.adapter.invoke.assert_not_awaited()
+    pipeline.adapter.tokenize.assert_not_awaited()
+    check.invoke.assert_awaited_once()
+    pipeline._repository.settle_success.assert_awaited_once()
+    assert ("model.response", raw) in pipeline.published
     pipeline._finalization.finalize.assert_not_awaited()
+    if choice in {"unknown", "invalid"}:
+        pipeline._repository.finalize_autonomy_check.assert_not_awaited()
+        pipeline._repository.fail_episode.assert_awaited_once()
+        assert pipeline._repository.fail_episode.call_args.kwargs["code"] == (
+            "MODEL-JEV-CHECK-UNDETERMINED"
+            if choice == "unknown"
+            else "MODEL-JEV-CHECK-CONTRACT"
+        )
+        return
     pipeline._repository.finalize_autonomy_check.assert_awaited_once_with(
         ANY,
         lease=record.lease,

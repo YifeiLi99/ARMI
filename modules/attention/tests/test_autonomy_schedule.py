@@ -14,8 +14,8 @@ def test_idle_day_is_bounded_without_a_daily_quota() -> None:
         calls += 1
         schedule = schedule.settled(acted=False)
         next_check = schedule.next_check(next_check)
-    assert calls == 289
-    assert schedule.interval_seconds == 300
+    assert calls == 1439
+    assert schedule.interval_seconds == 60
 
 
 def test_progress_restores_one_minute_and_failure_is_not_an_idle_choice() -> None:

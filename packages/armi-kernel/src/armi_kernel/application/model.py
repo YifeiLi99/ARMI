@@ -86,6 +86,7 @@ class ModelBinding:
         ):
             _require_token(value)
         bases = {
+            "typesafe": r"https://api\.typesafe\.ai/v1",
             "volcengine_ark": r"https://ark\.cn-beijing\.volces\.com/api/v3",
             "qwen": r"https://(?:dashscope\.aliyuncs\.com|[a-zA-Z0-9-]+\.cn-beijing\.maas\.aliyuncs\.com)/compatible-mode/v1",
             "deepseek": r"https://api\.deepseek\.com",
@@ -172,8 +173,13 @@ class ModelInvocationResult:
         success = self.status is ModelResultStatus.SUCCEEDED
         if success:
             if (
-                type(self.provider_request_id) is not str
-                or not self.provider_request_id
+                (
+                    self.provider_request_id is not None
+                    and (
+                        type(self.provider_request_id) is not str
+                        or not self.provider_request_id
+                    )
+                )
                 or type(self.provider_model_id) is not str
                 or _MODEL_ID.fullmatch(self.provider_model_id) is None
                 or type(self.response_bytes) is not bytes

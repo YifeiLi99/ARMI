@@ -46,7 +46,7 @@ def test_jev_credential_uses_key_input_and_saves_without_paid_verification():
         setattr(instance, name, Mock())
     cast(
         Mock, instance.credential_name.get
-    ).return_value = "Jev API Key（必需的事件与心情评价）"  # noqa: RUF001 -- exact Chinese UI label
+    ).return_value = "Jev API Key（心理评价与自主检查）"  # noqa: RUF001 -- exact Chinese UI label
     instance.credential = Mock()
     instance._credential_selected()
     cast(Mock, instance.secret.pack).assert_called_once()

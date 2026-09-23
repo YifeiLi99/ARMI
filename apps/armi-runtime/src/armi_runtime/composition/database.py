@@ -278,6 +278,7 @@ from armi_runtime.adapters.model.external_content import (
     load_external_recognition_binding,
 )
 from armi_runtime.adapters.model.jev import JevAppraiser
+from armi_runtime.adapters.model.jev_autonomy import JevAutonomyCheck
 from armi_runtime.adapters.model.local_embedding import (
     LocalLlamaCppEmbeddingAdapter,
 )
@@ -1641,6 +1642,11 @@ def compose_model_pipeline(
         )
 
     return bootstrap_cognition_model(
+        autonomy_check=JevAutonomyCheck(
+            credentials=prepared.credential_port,
+            locator=config.secret_locators.get("mood.jev_api_key"),
+            timeout_seconds=config.mood.timeout_seconds,
+        ),
         prices=load_price_catalog(
             runtime_config_path("provider-pricing.yaml", environment_root=prepared.root)
         ),

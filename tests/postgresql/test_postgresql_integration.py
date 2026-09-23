@@ -2017,7 +2017,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(status.stage_usage["check"].calls, 0)
                     self.assertGreater(
                         datetime.fromisoformat(cast(str, status.next_consideration_at)),
-                        datetime.now(UTC) + timedelta(seconds=110),
+                        datetime.now(UTC) + timedelta(seconds=50),
                     )
                     statement, parameters = autonomy_statement("history")
                     history = AutonomyHistory.model_validate(
@@ -2071,7 +2071,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             self.assertIsNone(plan.opportunity_id)
                             self.assertGreater(
                                 plan.next_consideration_at,
-                                datetime.now(UTC) + timedelta(seconds=290),
+                                datetime.now(UTC) + timedelta(seconds=50),
+                            )
+                            self.assertLess(
+                                plan.next_consideration_at,
+                                datetime.now(UTC) + timedelta(seconds=70),
                             )
                             not_due = await owner.admit_due(
                                 unit.transaction,

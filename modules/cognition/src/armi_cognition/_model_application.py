@@ -62,7 +62,7 @@ from armi_runtime_foundation import (
 )
 
 from ._autonomous_activity_contract import autonomous_schema_for_context
-from ._autonomy_decision import should_consider_autonomy
+from ._autonomy_decision import parse_autonomy_check
 from ._candidate_application import model_response_candidate
 from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
@@ -102,6 +102,7 @@ from ._reflection_contract import (
     owner_reflection_schema,
 )
 from .api import (
+    AutonomyCheckPort,
     CognitionArtifactCatalogPort,
     CognitionFinalizationPort,
     CognitionModelAdapterFactory,
@@ -201,6 +202,7 @@ class ModelPipeline:
         "_adapter_schemas",
         "_adapters",
         "_autonomous_binding",
+        "_autonomy_check",
         "_catalog",
         "_custody",
         "_diagnostic",
@@ -228,6 +230,7 @@ class ModelPipeline:
         custody: ExecutionCustodyPort,
         finalization: CognitionFinalizationPort,
         adapter_factory: CognitionModelAdapterFactory,
+        autonomy_check: AutonomyCheckPort,
         binding_path: Path,
         prices: PriceCatalog,
         wakeups: CognitionWakeupPort | None = None,
@@ -235,6 +238,7 @@ class ModelPipeline:
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._prices = prices
+        self._autonomy_check = autonomy_check
         load_active_binding(
             binding_path,
         )
@@ -510,34 +514,38 @@ class ModelPipeline:
             # this worker with a stale lease before file/provider I/O begins.
             snapshot = await self._snapshot(record)
             context_bytes = await self._read_context(snapshot)
-            if snapshot.purpose == "consider_autonomy_check":
-                engage = should_consider_autonomy(context_bytes)
-                async with self._factory.unit_of_work() as unit_of_work:
-                    await self._repository.finalize_autonomy_check(
-                        unit_of_work,
-                        lease=lease,
-                        snapshot=snapshot,
-                        engage=engage,
-                    )
-                return
-            adapter = self._adapter_for(
-                snapshot.purpose, context_bytes, snapshot.included_context_refs
+            is_check = snapshot.purpose == "consider_autonomy_check"
+            adapter = (
+                None
+                if is_check
+                else self._adapter_for(
+                    snapshot.purpose, context_bytes, snapshot.included_context_refs
+                )
             )
-            request_bytes = build_request_bytes(
-                binding=adapter.binding,
-                compiled_context=context_bytes,
-                context_digest=snapshot.context_digest,
-                base_subject_version=snapshot.base_subject_version,
-                base_state_epoch=snapshot.base_state_epoch,
-                bundle_activation_id=snapshot.bundle_activation_id,
-                included_context_refs=snapshot.included_context_refs,
+            binding = (
+                self._autonomy_check.binding
+                if is_check
+                else cast(CognitionModelPort, adapter).binding
+            )
+            request_bytes = (
+                self._autonomy_check.request_evidence(context_bytes)
+                if is_check
+                else build_request_bytes(
+                    binding=binding,
+                    compiled_context=context_bytes,
+                    context_digest=snapshot.context_digest,
+                    base_subject_version=snapshot.base_subject_version,
+                    base_state_epoch=snapshot.base_state_epoch,
+                    bundle_activation_id=snapshot.bundle_activation_id,
+                    included_context_refs=snapshot.included_context_refs,
+                )
             )
             async with self._factory.unit_of_work() as unit_of_work:
                 attempt_id = await self._repository.prepare_attempt(
                     unit_of_work,
                     lease=lease,
                     snapshot=snapshot,
-                    binding=adapter.binding,
+                    binding=binding,
                     request_artifact=None,
                 )
             if attempt_id is None:
@@ -564,20 +572,24 @@ class ModelPipeline:
                     raise
 
             usage_scope = ProviderMeterScope(save_usage, self._prices, snapshot.purpose)
-            with (
-                provider_meter_scope(usage_scope),
-                diagnostic_scope(attempt_id=attempt_id),
-            ):
-                input_tokens = await self._tokenize(adapter, request_bytes, record)
-            request = checked_model_request(
-                prices=self._prices,
-                binding=adapter.binding,
-                request_bytes=request_bytes,
-                context_digest=snapshot.context_digest,
-                input_tokens=input_tokens,
-            )
+            request = None
+            evidence = request_bytes
+            if adapter is not None:
+                with (
+                    provider_meter_scope(usage_scope),
+                    diagnostic_scope(attempt_id=attempt_id),
+                ):
+                    input_tokens = await self._tokenize(adapter, request_bytes, record)
+                request = checked_model_request(
+                    prices=self._prices,
+                    binding=binding,
+                    request_bytes=request_bytes,
+                    context_digest=snapshot.context_digest,
+                    input_tokens=input_tokens,
+                )
+                evidence = adapter.request_evidence(request)
             published_request = await self._publish(
-                adapter.request_evidence(request),
+                evidence,
                 logical_kind="model.request",
                 snapshot=snapshot,
             )
@@ -623,7 +635,11 @@ class ModelPipeline:
                         component="cognition",
                         generation=generation,
                     )
-                    result = await adapter.invoke(request)
+                    if is_check:
+                        result = await self._autonomy_check.invoke(request_bytes)
+                    else:
+                        assert adapter is not None and request is not None
+                        result = await adapter.invoke(request)
                 if result.status is not ModelResultStatus.SUCCEEDED:
                     await self._settle_failure(
                         lease=lease,
@@ -632,9 +648,7 @@ class ModelPipeline:
                         result=result,
                     )
                     return
-                structure_error = _text_structure_error(
-                    adapter.binding, snapshot, result
-                )
+                structure_error = _text_structure_error(binding, snapshot, result)
                 published_response = await self._publish(
                     cast(bytes, result.response_bytes),
                     logical_kind="model.response",
@@ -699,7 +713,7 @@ class ModelPipeline:
                             unit_of_work,
                             lease=lease,
                             snapshot=snapshot,
-                            binding=adapter.binding,
+                            binding=binding,
                             request_artifact=request_registration.ref,
                         )
                     if attempt_id is None:
@@ -712,6 +726,16 @@ class ModelPipeline:
                     await self._fail_finalization(
                         lease, snapshot, result.response_error_code
                     )
+                    return
+                if is_check:
+                    engage = parse_autonomy_check(cast(bytes, result.response_bytes))
+                    async with self._factory.unit_of_work() as unit_of_work:
+                        await self._repository.finalize_autonomy_check(
+                            unit_of_work,
+                            lease=lease,
+                            snapshot=snapshot,
+                            engage=engage,
+                        )
                     return
                 await self._finalization.finalize(
                     record, attempt_id, cast(bytes, result.response_bytes)

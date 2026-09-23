@@ -2,41 +2,50 @@ import json
 import logging
 
 import pytest
-from armi_cognition._autonomy_decision import should_consider_autonomy
+from armi_cognition._autonomy_decision import parse_autonomy_check
+from armi_kernel.application import ModelViolation
 
 
-@pytest.mark.parametrize(
-    "kind,content,expected",
-    [
-        ("mind", {"assessed_objects": 10}, False),
-        ("current_motivation", {"consideration": {"eligible": False}}, False),
-        ("current_motivation", {"consideration": {"eligible": True}}, True),
-        ("current_concern", {"consideration_reason": "ongoing_concern"}, False),
-        ("current_concern", {"consideration_reason": "review_time_reached"}, True),
-        ("current_activity", {"status": "active"}, True),
-    ],
-)
-def test_local_check_respects_owner_conditions_and_formal_paths(
-    kind, content, expected
-):
-    context = json.dumps(
-        {"layers": [{"items": [{"item_kind": kind, "content": json.dumps(content)}]}]}
-    ).encode()
-    assert should_consider_autonomy(context) is expected
+def response(choice):
+    return {
+        "answers": {
+            "engage": {
+                "type": "choice",
+                "choice": choice,
+                "confidence": 0.6,
+                "probabilities": {"engage": 0.3, "wait": 0.6, "unknown": 0.1},
+            }
+        }
+    }
 
 
-def test_empty_check_does_not_manufacture_a_subject_decision(caplog):
+@pytest.mark.parametrize("choice,expected", [("engage", True), ("wait", False)])
+def test_consumes_jev_choice_without_probability_veto(caplog, choice, expected):
     with caplog.at_level(logging.INFO):
-        assert not should_consider_autonomy(b'{"layers":[]}')
+        assert parse_autonomy_check(json.dumps(response(choice)).encode()) is expected
     record = next(
         record
         for record in caplog.records
         if record.armi_event == "autonomy.check.evaluated"
     )
-    assert record.armi_details == {
-        "outcome": "not_scheduled",
-        "reason": "no_eligible_owner_signal",
-        "activity_count": 0,
-        "eligible_concern_count": 0,
-        "eligible_motivation_count": 0,
-    }
+    assert record.armi_details["reason"] == "jev_" + choice
+
+
+def test_unknown_is_not_a_decision_to_wait():
+    with pytest.raises(ModelViolation, match="MODEL-JEV-CHECK-UNDETERMINED"):
+        parse_autonomy_check(json.dumps(response("unknown")).encode())
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"broken",
+        b"{}",
+        b"null",
+        b'{"answers":[]}',
+        json.dumps(response("invented")).encode(),
+    ],
+)
+def test_invalid_response_does_not_become_silence(raw):
+    with pytest.raises(ModelViolation, match="MODEL-JEV-CHECK-CONTRACT"):
+        parse_autonomy_check(raw)

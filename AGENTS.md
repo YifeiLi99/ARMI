@@ -43,7 +43,7 @@
 - Durable work 使用 `armi_kernel.application.durable_work.WorkType` 闭集与责任 registry，新增时同步 owner、reconciliation、恢复和测试。数据库承载耐久事实，进程 wakeup 只优化延迟。实验使用隔离环境、离线回放或只读 shadow，未激活前不写 Active 主体、work 或 effect。
 - 数据库存储以长期保留必要性为标准：保留业务事实、实际效果和保证正确性所需的状态；仅供排查的过程、步骤与逐次细节写日志，不单独建表留档。
 - 新能力先确定事实 owner；新增表或模块应有独立生命周期、关系、权限/保留策略或查询需求，不能只因渠道或枚举不同而拆分。替换机制后清理失效入口、接线与兼容路径，不为假想需求预建框架。
-- Mood/Mind 在主认知前共享一次 Jev 请求，题库和算法由各自 owner 拥有，不隐藏重试或切换 Provider；主认知无 Mood/Mind 写入能力。持续问题与未实施意向归 Cognition Focus，自主检查为本地调度判断。Qwen/DeepSeek 文本生成仅在完整返回的 JSON 或候选结构不合格时，按同一冻结请求最多调用 5 次（含首次），成功即停；每次独立记录 attempt、原文和用量，业务校验及 Subject Commit 仍只执行一次。网络结果 unknown、权限/业务拒绝及状态冲突不重试；中断即结束，重启不续试。实时语音保持单次调用。Context 按 purpose profile 冻结来源与版本，落实 forbidden section；提示词不能替代隐私隔离。Jev 不直接填写情绪、愉快度、激活度或状态增量。 所有对话技术失败（含重试耗尽与发送 unknown）仅保留日志、诊断及真实失败状态，聊天渠道静默，不生成错误通知或补发。
+- Mood/Mind 在主认知前共享一次 Jev 请求，题库和算法由各自 owner 拥有，不隐藏重试或切换 Provider；主认知无 Mood/Mind 写入能力。持续问题与未实施意向归 Cognition Focus；自主检查在空闲时每 60 秒通过独立 Jev Choice 判断是否进入完整认知，正常不行动不退避，具体行动仍由完整认知形成。Qwen/DeepSeek 文本生成仅在完整返回的 JSON 或候选结构不合格时，按同一冻结请求最多调用 5 次（含首次），成功即停；每次独立记录 attempt、原文和用量，业务校验及 Subject Commit 仍只执行一次。网络结果 unknown、权限/业务拒绝及状态冲突不重试；中断即结束，重启不续试。实时语音和自主 Jev 判断保持单次调用。Context 按 purpose profile 冻结来源与版本，落实 forbidden section；提示词不能替代隐私隔离。Jev 不直接填写情绪、愉快度、激活度或状态增量。所有对话技术失败（含重试耗尽与发送 unknown）仅保留日志、诊断及真实失败状态，聊天渠道静默，不生成错误通知或补发。
 
 ## 4. 数据库与配置变更
 

@@ -46,7 +46,7 @@ _CREDENTIAL_NAMES = {
     "火山方舟 API Key（豆包模型、视觉与网页搜索）": "model.ark_api_key",
     "千问 API Key（北京地域文本模型）": "model.qwen_api_key",
     "DeepSeek API Key（官方文本模型）": "model.deepseek_api_key",
-    "Jev API Key（必需的事件与心情评价）": "mood.jev_api_key",
+    "Jev API Key（心理评价与自主检查）": "mood.jev_api_key",
     "豆包语音 API Key（识别与合成）": "speech.volc_credentials",
     "Codex 登录凭据": "codex.auth_json",
 }
@@ -504,7 +504,7 @@ class Desktop:
             self.secret.pack(fill="x", before=self.credential_actions)
         elif name == "mood.jev_api_key":
             self.credential_help.set(
-                "填写 TypeSafe 官方控制台的 API Key，用于每次事件的事实与心情评价。\n首次添加凭据配置需要重启 Runtime；之后替换 Key 在下一次心情评价生效。此处只保存，不发起付费验证，也不代表服务已经可用。"
+                "填写 TypeSafe 官方控制台的 API Key，用于每次事件的 Mood/Mind 评价，以及空闲时每分钟的自主检查。\n首次添加凭据配置需要重启 Runtime；之后替换 Key 在下一次 Jev 请求生效。此处只保存，不发起付费验证，也不代表服务已经可用。"
             )
             self.secret.pack(fill="x", before=self.credential_actions)
         elif name == "speech.volc_credentials":

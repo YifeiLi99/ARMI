@@ -482,7 +482,7 @@ class PostgreSQLCognitiveModelRepository:
             await unit_of_work.transaction.execute(
                 """SELECT e.opportunity_id FROM armi.cognitive_episodes e
                WHERE e.cognitive_episode_id=%s AND e.purpose='consider_autonomy_check'
-                 AND e.status='prepared'
+                 AND e.status='finalizing'
                FOR UPDATE OF e""",
                 (snapshot.episode_id,),
             )
@@ -499,9 +499,6 @@ class PostgreSQLCognitiveModelRepository:
         ):
             raise ModelViolation("MODEL-WORK-STALE")
         try:
-            await self._opportunities.mark_autonomy_check_started(
-                unit_of_work.transaction, opportunity_id=row[0]
-            )
             await self._opportunities.resolve_autonomy_check(
                 unit_of_work.transaction,
                 opportunity_id=row[0],
