@@ -368,9 +368,19 @@ class RuntimeCognitionCycleSelector:
                 await unit.work.enqueue(
                     WorkDraft(
                         WorkId(uuid7()),
-                        WorkType.EVENT_APPRAISE,
+                        # Scheduling and deciding what to do read existing psychology;
+                        # they are not new psychological events (DESIGN).
+                        WorkType.COGNITION_CONTEXT_PREPARE
+                        if candidate.purpose
+                        in {"consider_autonomy_check", "consider_autonomous_life"}
+                        else WorkType.EVENT_APPRAISE,
                         WorkOwner("cognitive_episode", episode_id),
-                        IdempotencyKey(f"mood:{candidate.opportunity_id}"),
+                        IdempotencyKey(
+                            f"context:{candidate.opportunity_id}"
+                            if candidate.purpose
+                            in {"consider_autonomy_check", "consider_autonomous_life"}
+                            else f"mood:{candidate.opportunity_id}"
+                        ),
                         work_digest,
                         50,
                         now,

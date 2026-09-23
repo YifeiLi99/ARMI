@@ -701,6 +701,12 @@ class ContextProjectionInvalidationPort(Protocol):
     ) -> None: ...
 
 
+def autonomy_wake_state(compiled_context: bytes) -> dict[str, object]:
+    from ._wake_state import wake_state
+
+    return wake_state(compiled_context)
+
+
 def autonomy_check_items(
     items: list[ContextItemCandidate],
     *,
@@ -773,5 +779,6 @@ __all__ = (
     "EmbeddingResponse",
     "RecallStatus",
     "autonomy_check_items",
+    "autonomy_wake_state",
     "load_embedding_binding",
 )

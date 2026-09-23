@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import httpx
 from armi_cognition.api import autonomy_check_questions
+from armi_context.api import autonomy_wake_state
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -39,22 +40,26 @@ class JevAutonomyCheck:
             profile="autonomy_check",
             response_contract_kind="armi.autonomy-check",
             credential_identity="mood.jev_api_key",
-            input_token_limit=64000,
-            output_token_limit=1024,
+            input_token_limit=500,
+            output_token_limit=128,
             timeout_seconds=timeout_seconds,
             attempt_cost_limit_microyuan=1_000_000,
         )
 
     def request_evidence(self, context: bytes) -> bytes:
-        return json.dumps(
+        request = json.dumps(
             {
                 "model": JEV_MODEL,
-                "state": {"context": json.loads(context)},
+                "state": autonomy_wake_state(context),
                 "questions": autonomy_check_questions(),
             },
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
+        # Bound prompt growth before a billable call; bytes are not provider tokens.
+        if len(request) > 1024:
+            raise ModelViolation("MODEL-JEV-CHECK-SIZE")
+        return request
 
     async def invoke(self, request: bytes) -> ModelInvocationResult:
         if self._locator is None:

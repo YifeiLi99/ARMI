@@ -337,7 +337,8 @@ class PostgreSQLCognitionContextLifecycle:
                       compiled_context_digest=%s,
                       context_items=%s::jsonb, prepared_at=statement_timestamp()
                WHERE cognitive_episode_id=%s AND status='preparing'
-                 AND event_appraisal_id IS NOT NULL
+                 AND (event_appraisal_id IS NOT NULL OR
+                      purpose IN ('consider_autonomy_check','consider_autonomous_life'))
                RETURNING cognitive_episode_id, opportunity_id, subject_id, scene_id,
                          context_party_id, purpose, base_subject_version,
                          base_state_epoch, bundle_activation_id, mechanism_identity,

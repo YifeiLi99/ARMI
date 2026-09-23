@@ -113,22 +113,12 @@ def test_activity_work_needs_an_actual_activity_but_concerns_do_not():
     ]["mapping"].keys()
 
 
-@pytest.mark.parametrize(
-    "category,label",
-    [
-        ("continue_activity", "继续活动"),
-        ("explore", "探索与思考"),
-        ("communicate", "主动交流"),
-        ("reflect", "回顾与整理"),
-    ],
-)
-def test_frozen_classification_guides_concrete_cognition_without_new_permissions(
-    category, label
-):
-    context = compiled([], category=category, outlet=False)
+def test_wake_does_not_choose_an_action_or_grant_permissions():
+    context = compiled([], category="wake", outlet=False)
     instructions = autonomous_instructions_for_context(context)
-    assert label in instructions
-    assert "不是重新自由选择另一大类" in instructions
+    assert instructions == autonomous_instructions_for_context(
+        compiled([], category=None)
+    )
     schema = autonomous_schema_for_context(context)
     assert "codex_delegation" not in schema["discriminator"]["mapping"]
     for branch in schema["oneOf"]:
@@ -137,7 +127,7 @@ def test_frozen_classification_guides_concrete_cognition_without_new_permissions
         ] == {"type": "null", "default": None}
 
 
-@pytest.mark.parametrize("category", ["wait", "unknown", "engage", "invented"])
+@pytest.mark.parametrize("category", ["wait", "unknown", "explore", "invented"])
 def test_non_action_or_invalid_category_cannot_enter_full_cognition(category):
     with pytest.raises(ModelViolation, match="MODEL-AUTONOMY-CATEGORY"):
         autonomous_instructions_for_context(compiled([], category=category))

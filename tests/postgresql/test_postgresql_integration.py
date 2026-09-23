@@ -1974,7 +1974,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 async def finish_check(
                     opportunity_id: UUID,
                     engage: bool,
-                    category: AutonomyCategory = AutonomyCategory.EXPLORE,
+                    category: AutonomyCategory = AutonomyCategory.WAKE,
                 ) -> UUID:
                     episode = uuid7()
                     async with factory.unit_of_work() as unit:
@@ -2112,7 +2112,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit.transaction,
                             opportunity_id=last_check_id,
                             episode_id=uuid7(),
-                            category=AutonomyCategory.EXPLORE,
+                            category=AutonomyCategory.WAKE,
                         )
                 # Preemption also discards an execution opportunity before it has
                 # an episode. The next idle period must start a fresh light check.

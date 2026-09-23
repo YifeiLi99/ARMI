@@ -14,10 +14,7 @@ def response(choice):
                 "choice": choice,
                 "confidence": 0.6,
                 "probabilities": {
-                    "continue_activity": 0.1,
-                    "explore": 0.1,
-                    "communicate": 0.1,
-                    "reflect": 0.1,
+                    "wake": 0.4,
                     "wait": 0.5,
                     "unknown": 0.1,
                 },

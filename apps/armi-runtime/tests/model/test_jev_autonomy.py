@@ -24,6 +24,38 @@ class Credentials:
         yield SimpleNamespace(consume=lambda read: read(b"isolated-test-key"))
 
 
+def test_wake_request_excludes_history_and_keeps_existing_state():
+    check = JevAutonomyCheck(
+        credentials=cast(Any, Credentials()), locator=None, timeout_seconds=20
+    )
+    items = [
+        {
+            "item_kind": "mood",
+            "content": json.dumps({"current": {"valence": 0.25, "arousal": 0.5}}),
+        },
+        {"item_kind": "recent_scene_turn", "content": "private dialogue" * 10000},
+        {"item_kind": "self", "content": "private identity" * 10000},
+    ]
+    context = json.dumps({"layers": [{"items": items}]}).encode()
+    request = check.request_evidence(context)
+    assert len(request) <= 1024
+    assert b"private" not in request
+    assert json.loads(request)["state"]["mood"] == {"valence": 0.25, "arousal": 0.5}
+    assert json.loads(request)["state"]["drives"]["explore"] is None
+
+
+def test_wake_request_growth_fails_before_provider(monkeypatch):
+    monkeypatch.setattr(
+        "armi_runtime.adapters.model.jev_autonomy.autonomy_check_questions",
+        lambda: {"accidental_growth": "x" * 1024},
+    )
+    check = JevAutonomyCheck(
+        credentials=cast(Any, Credentials()), locator=None, timeout_seconds=20
+    )
+    with pytest.raises(ModelViolation, match="MODEL-JEV-CHECK-SIZE"):
+        check.request_evidence(b'{"layers":[]}')
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure", [None, 401, 429, 503, "timeout", "disconnect", "invalid_json"]
@@ -96,7 +128,12 @@ async def test_jev_check_is_single_metered_request_without_main_model(
             if failure == 401:
                 assert caught.value.code == "MODEL-AUTH-JEV"
     assert len(calls) == 1
-    assert calls[0]["state"]["context"] == json.loads(context)
+    assert "context" not in calls[0]["state"]
+    assert set(calls[0]["questions"]["category"]["criteria"]) == {
+        "wake",
+        "wait",
+        "unknown",
+    }
     assert set(calls[0]["questions"]) == {"category"}
     assert len(receipts) >= 2
     assert len({receipt.call_id for receipt in receipts}) == 1

@@ -35,10 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const AUTONOMY_CATEGORIES = {
-  continue_activity: "继续活动",
-  explore: "探索与思考",
-  communicate: "主动交流",
-  reflect: "回顾与整理",
+  wake: "唤醒认知",
   wait: "暂不行动",
 };
 
@@ -308,7 +305,7 @@ export function ActivityPanel({
                                       : "正在处理"}
                     </p>
                     {item.autonomy_category ? (
-                      <p>自主方向：{AUTONOMY_CATEGORIES[item.autonomy_category]}</p>
+                      <p>唤醒判断：{AUTONOMY_CATEGORIES[item.autonomy_category]}</p>
                     ) : null}
                     {item.consideration_signals === null ? (
                       <p>本轮未记录考虑信号明细</p>

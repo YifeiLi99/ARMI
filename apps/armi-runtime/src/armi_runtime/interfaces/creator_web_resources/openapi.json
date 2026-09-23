@@ -136,10 +136,7 @@
             "anyOf": [
               {
                 "enum": [
-                  "continue_activity",
-                  "explore",
-                  "communicate",
-                  "reflect",
+                  "wake",
                   "wait"
                 ],
                 "type": "string"

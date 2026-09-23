@@ -1,11 +1,8 @@
-"""Autonomous attention directions, not permissions or executable actions."""
+"""Read-only wake decisions, not psychological events or actions."""
 
 from enum import StrEnum
 
 
 class AutonomyCategory(StrEnum):
-    CONTINUE_ACTIVITY = "continue_activity"
-    EXPLORE = "explore"
-    COMMUNICATE = "communicate"
-    REFLECT = "reflect"
+    WAKE = "wake"
     WAIT = "wait"

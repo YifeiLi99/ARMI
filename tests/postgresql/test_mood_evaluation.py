@@ -11,13 +11,14 @@ from uuid import uuid7
 
 import psycopg
 import pytest
-from armi_cognition.api import EventAppraisalResult
+from armi_cognition.api import CandidateViolation, EventAppraisalResult
 from armi_data_rights.api import (
     DataRightsApplyRequest,
     DataRightsDiscoveryRequest,
     DataRightsRelatedRef,
 )
 from armi_kernel.application import PriceCatalog, WorkType
+from armi_kernel.contracts import Digest
 from armi_mind.api import (
     Association,
     MindChoice,
@@ -45,6 +46,88 @@ pytestmark = [
         not os.environ.get("S009_ADMIN_DSN"), reason="isolated PostgreSQL required"
     ),
 ]
+
+
+@pytest.mark.parametrize(
+    "purpose",
+    ["consider_autonomy_check", "consider_autonomous_life", "consider_creator_input"],
+)
+def test_context_without_appraisal_is_allowed_only_for_autonomous_decisions(purpose):
+    case = support.PostgreSQLIntegrationTests()
+    case.setUpClass()
+
+    async def probe(fixture, born, ids, fence, old_lease):
+        with psycopg.connect(fixture.provisioner_dsn) as db:
+            artifacts = db.execute(
+                "SELECT context_manifest_artifact_id,compiled_context_artifact_id,compiled_context_digest "
+                "FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                (ids["episode"],),
+            ).fetchone()
+            db.execute(
+                "UPDATE armi.cognitive_episodes SET status='preparing',event_appraisal_id=NULL,purpose=%s,"
+                "scene_id=CASE WHEN %s='consider_creator_input' THEN scene_id ELSE NULL END,"
+                "final_disposition=NULL,validated_at=NULL,model_returned_at=NULL,prepared_at=NULL,"
+                "compiled_context_digest=NULL,context_manifest_artifact_id=NULL,"
+                "context_party_id=CASE WHEN %s='consider_creator_input' THEN context_party_id ELSE NULL END,"
+                "compiled_context_artifact_id=NULL,validation_status=NULL,candidate_validation_id=NULL,"
+                "validated_model_attempt_id=NULL,change_set_artifact_id=NULL WHERE cognitive_episode_id=%s",
+                (purpose, purpose, purpose, ids["episode"]),
+            )
+            initial_appraisals = db.execute(
+                "SELECT count(*) FROM armi.event_appraisals"
+            ).fetchone()
+        factory = support.PostgreSQLUnitOfWorkFactory(
+            fixture.runtime_dsn,
+            environment_id=fixture.environment_id,
+            pool_min=1,
+            pool_max=2,
+            acquire_timeout_seconds=2,
+            statement_timeout_seconds=5,
+            authority_admission=lambda: fence,
+        )
+        episodes = bootstrap_cognition_context(
+            experiences=bootstrap_experience_owner(),
+            maintenance=support.PostgreSQLSubjectMaintenance(),
+        )
+
+        async def prepare():
+            assert artifacts is not None
+            async with factory.unit_of_work() as unit:
+                return await episodes.mark_context_prepared(
+                    unit.transaction,
+                    episode_id=ids["episode"],
+                    manifest_artifact_id=artifacts[0],
+                    compiled_artifact_id=artifacts[1],
+                    compiled_digest=Digest(artifacts[2]),
+                    context_items=(),
+                )
+
+        try:
+            await factory.open()
+            if purpose == "consider_creator_input":
+                with pytest.raises(CandidateViolation, match="CANDIDATE-EPISODE-STATE"):
+                    await prepare()
+            else:
+                await prepare()
+            with psycopg.connect(fixture.provisioner_dsn) as db:
+                assert (
+                    db.execute("SELECT count(*) FROM armi.event_appraisals").fetchone()
+                    == initial_appraisals
+                )
+                assert db.execute(
+                    "SELECT status,event_appraisal_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+                    (ids["episode"],),
+                ).fetchone() == (
+                    "preparing" if purpose == "consider_creator_input" else "prepared",
+                    None,
+                )
+        finally:
+            await factory.close()
+
+    try:
+        case._exercise_creator_reply(mood_probe=probe)
+    finally:
+        case.tearDownClass()
 
 
 @pytest.mark.parametrize(

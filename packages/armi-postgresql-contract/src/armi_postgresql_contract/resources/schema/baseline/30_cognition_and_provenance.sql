@@ -489,7 +489,7 @@ CREATE TABLE armi.opportunities (
         autonomy_category IS NULL OR (
             source_kind='autonomy_plan'
             AND purpose IN ('consider_autonomy_check','consider_autonomous_life')
-            AND autonomy_category IN ('continue_activity','explore','communicate','reflect','wait')
+            AND autonomy_category IN ('wake','wait')
             AND (autonomy_category<>'wait' OR purpose='consider_autonomy_check')
         )
     ),

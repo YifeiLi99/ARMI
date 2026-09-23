@@ -376,10 +376,7 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
                     "choice": choice,
                     "confidence": 1,
                     "probabilities": {
-                        "continue_activity": 0,
-                        "explore": 0,
-                        "communicate": 0,
-                        "reflect": 0,
+                        "wake": 0,
                         "wait": 1,
                         "unknown": 0,
                     },

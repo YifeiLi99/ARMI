@@ -136,9 +136,7 @@ class AutonomyStatus(AutonomyResponse):
 
 
 class AutonomyHistoryItem(AutonomyResponse):
-    autonomy_category: (
-        Literal["continue_activity", "explore", "communicate", "reflect", "wait"] | None
-    )
+    autonomy_category: Literal["wake", "wait"] | None
     stage: Literal["check", "execute"]
     root_opportunity_id: str
     predecessor_opportunity_id: str | None
