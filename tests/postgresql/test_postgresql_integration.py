@@ -11528,8 +11528,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 [event for event in log_events if event in lifecycle_events][:9],
                 lifecycle_events,
             )
-            # Background context preparation and heartbeat can complete in either order.
-            self.assertIn("runtime.authority.heartbeat", log_events[9:])
+            # Normal heartbeats and transactions are not diagnostic events.
+            self.assertNotIn("runtime.authority.heartbeat", log_events)
+            self.assertNotIn("database.transaction.finished", log_events)
             self.assertTrue(
                 {"creator.event_stream.closed", "creator.event_stream.disconnected"}
                 & set(log_events[9:])

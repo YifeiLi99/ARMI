@@ -413,6 +413,13 @@ class DiagnosticLog(logging.Handler):
             return event_id
 
     def emit(self, record: logging.LogRecord) -> None:
+        # Provider owners retain results and failures; transport success polling
+        # adds no evidence. Keep library warnings/errors, including child loggers.
+        if (
+            record.name.split(".", 1)[0] in {"httpx", "httpcore"}
+            and record.levelno < logging.WARNING
+        ):
+            return
         self.write(
             getattr(record, "armi_event", "python.log"),
             level=record.levelno,

@@ -457,7 +457,9 @@ class PostgreSQLUnitOfWork:
             self._clear_active()
             await self._return_connection()
             # Emit only after returning the connection: file I/O never holds the transaction.
-            if not self._read_only or diagnostic_error is not None:
+            # Successful transactions include frequent polling; business commits
+            # already have owner diagnostics (DESIGN: 运行诊断与 Agent 排障).
+            if diagnostic_error is not None:
                 cancelled = isinstance(diagnostic_error, asyncio.CancelledError)
                 record_diagnostic(
                     "database.transaction.finished",

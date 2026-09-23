@@ -1914,19 +1914,21 @@ async def _serve(
                 server.should_exit = True
                 return
             if snapshot.state is LocalAuthorityState.SUSPENDED:
+                if not suspended:
+                    diagnostic.emit(
+                        "runtime.authority.suspended",
+                        level=logging.WARNING,
+                        result_code="AUTH_SUSPENDED",
+                        reason_codes=("RUNTIME_AUTHORITY_SUSPENDED",),
+                    )
                 suspended = True
-                diagnostic.emit(
-                    "runtime.authority.suspended",
-                    level=logging.WARNING,
-                    result_code="AUTH_SUSPENDED",
-                    reason_codes=("RUNTIME_AUTHORITY_SUSPENDED",),
-                )
             else:
+                if suspended:
+                    diagnostic.emit(
+                        "runtime.authority.resumed",
+                        result_code="AUTH_RESUMED",
+                    )
                 suspended = False
-                diagnostic.emit(
-                    "runtime.authority.heartbeat",
-                    result_code="AUTH_HEARTBEAT",
-                )
 
     def runtime_status() -> RuntimeStatusResponse:
         snapshot = lifecycle.snapshot()

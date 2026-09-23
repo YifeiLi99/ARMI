@@ -16,6 +16,30 @@ from armi_kernel.application import diagnostic_scope, record_diagnostic
 from armi_runtime_foundation import DiagnosticLog, DiagnosticQuery, exception_evidence
 
 
+def test_transport_polling_is_silent_but_failures_and_owner_results_survive(
+    tmp_path: Path,
+) -> None:
+    sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")
+    sink.install()
+    try:
+        for name in ("httpx", "httpcore.connection"):
+            logging.getLogger(name).info("poll succeeded")
+            logging.getLogger(name).warning("transport warning")
+        record_diagnostic("provider.call.completed", component="provider")
+        record_diagnostic(
+            "provider.call.failed", component="provider", level=logging.ERROR
+        )
+    finally:
+        sink.close()
+    page = DiagnosticQuery((tmp_path / "logs",), environment_id="env").query()
+    assert len(page["items"]) == 4
+    assert {item["event"] for item in page["items"]} == {
+        "python.log",
+        "provider.call.completed",
+        "provider.call.failed",
+    }
+
+
 @pytest.mark.parametrize("status", [400, 401, 429, 500, 503])
 def test_http_evidence_survives_logging_and_query(tmp_path: Path, status: int) -> None:
     sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")

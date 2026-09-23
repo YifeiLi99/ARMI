@@ -59,7 +59,10 @@ async def test_active_session_checkpoint_precedes_new_sleep_window() -> None:
 
 
 @pytest.mark.asyncio
-async def test_maintenance_phase_work_reports_first_admission_then_pending() -> None:
+async def test_maintenance_phase_work_reports_first_admission_then_pending(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="armi.maintenance")
     repository = AsyncMock()
     session_id = uuid7()
     opportunity_id = uuid7()
@@ -90,10 +93,14 @@ async def test_maintenance_phase_work_reports_first_admission_then_pending() -> 
     assert admitted.opportunity_id == opportunity_id
     assert pending.status is OpportunityAdmissionStatus.DUPLICATE
     assert pending.opportunity_id == opportunity_id
+    assert len(caplog.records) == 1
 
 
 @pytest.mark.asyncio
-async def test_no_active_session_scans_the_objective_window() -> None:
+async def test_no_active_session_scans_the_objective_window(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="armi.maintenance")
     repository = AsyncMock()
     repository.maintain_active_session.return_value = None
     repository.maintain_window.return_value = MaintenanceOpportunityOutcome(
@@ -105,6 +112,7 @@ async def test_no_active_session_scans_the_objective_window() -> None:
     assert outcome.status is OpportunityAdmissionStatus.REJECTED
     assert outcome.reason_code == "LIFE-MAINTENANCE-NOT-DUE"
     repository.maintain_window.assert_awaited_once()
+    assert not caplog.records
 
 
 @pytest.mark.asyncio
