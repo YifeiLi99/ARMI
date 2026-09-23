@@ -709,4 +709,6 @@ Creator Web 只缓冲技术元数据，内存最多 1 MiB，经鉴权的 `/v1/di
 
 分段较多时，分页快照保存为绑定日志目录中的不可变 `query-*.cursor`，MCP 返回短引用；快照读取也计入扫描预算，文件参与同一容量和保留期清理。引用已清理时返回 `DIAGNOSTICS-CURSOR-NOT-RETAINED`，需重新开始查询，不能把失去的分页状态当作没有后续记录。原生宿主的环境日志不可写时，改写安装实例 `control/logs/` 并标记 `emergency`；管理查询仍按绑定环境过滤这些记录。Python 安装版记录实际包版本，源码执行标记 `source`。
 
+Windows 启动器在加载 ARMI DLL 或启动 Python 前独立接入 JSONL，不依赖这两个组件。早期失败记录阶段、系统错误码和系统说明、退出码、包版本及进程身份，不保存命令行；写 `control/logs/`，目录不可用时尝试 `control/emergency/logs/`，均失败则 stderr/调试输出明确报告无法持久记录。此时环境身份尚未解析，记录标为 `unbound`，绑定安装实例的诊断查询可读取，使用 `service=armi-launcher` 或 `period=all_retained` 排查；不把安装实例启动记录当作某次 Runtime 的业务事实。临时签名包的早期失败验收入口为 `tools/test_msix_launcher.ps1`。
+
 诊断查询不依赖 PostgreSQL；数据库停止时业务关联单独报告不可用。本机拥有者使用绑定的管理入口，受限绑定分别检查诊断与追踪权限；不接收任意路径、SQL 或操作重放。默认汇总最近的 Runtime/启动尝试，也支持显式时间及留存的更新边界；边界不存在时明确说明。日志上线前发生的失败无法还原原始响应。

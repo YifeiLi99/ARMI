@@ -31,7 +31,7 @@ class NapCatContractTests(unittest.TestCase):
             ) as client:
                 return await NapCatHttpClient(
                     base_url="http://127.0.0.1:3000",
-                    access_token="test-token",
+                    access_token="test",
                     client=client,
                 ).list_groups()
 

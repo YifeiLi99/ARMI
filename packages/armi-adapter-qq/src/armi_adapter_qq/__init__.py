@@ -2,6 +2,7 @@
 
 from .adapter import (
     QQAdapterConfig,
+    QQConversationPolicy,
     QQEffectAdapter,
     QQEgressAdapter,
     QQIngressAdapter,
@@ -22,6 +23,7 @@ from .webhook import create_qq_event_app
 __all__ = (
     "QQ_NAPCAT_CONFIG_SCHEMA",
     "QQAdapterConfig",
+    "QQConversationPolicy",
     "QQEffectAdapter",
     "QQEgressAdapter",
     "QQIngressAdapter",

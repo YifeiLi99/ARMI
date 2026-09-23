@@ -313,11 +313,19 @@ name = "armi-capability"
 version = "0.0.0"
 source = { editable = "modules/capability" }
 dependencies = [
+    { name = "armi-data-rights" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
     { name = "rfc8785" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "rfc8785", specifier = "==0.1.4" }]
+requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
 
 [[package]]
 name = "armi-channel-napcat"
@@ -381,7 +389,6 @@ dependencies = [
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-live-vision" },
-    { name = "armi-live-voice" },
     { name = "armi-material" },
     { name = "armi-memory" },
     { name = "armi-mind" },
@@ -410,7 +417,6 @@ requires-dist = [
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-live-vision", editable = "modules/live-vision" },
-    { name = "armi-live-voice", editable = "modules/live-voice" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-mind", editable = "modules/mind" },

@@ -14,7 +14,7 @@ from armi_runtime.adapters.model.structured import (
 
 
 def test_codex_prompt_assembles_identity_and_task_once():
-    from armi_cognition._creator_cognitive_act_contract import (
+    from armi_runtime.composition.model_verification import (
         CODEX_RESULT_ACT_INSTRUCTIONS,
     )
 
@@ -414,13 +414,13 @@ def test_readable_context_preserves_scene_identity_and_capability_availability()
 def test_all_dialogue_contracts_require_strict_output_and_local_validation(version):
     from types import SimpleNamespace
 
-    from armi_cognition._other_human_contract import (
+    from armi_runtime.composition.model_verification import (
         candidate_schema,
-        parse_other_human_dialogue_candidate_value,
+        parse_candidate,
     )
 
     transport = OfficialArkTransport(
-        candidate_schema(), instructions="测试", schema_name="test"
+        candidate_schema(version), instructions="测试", schema_name="test"
     )
     request = SimpleNamespace(
         canonical_bytes=json.dumps(
@@ -458,9 +458,10 @@ def test_all_dialogue_contracts_require_strict_output_and_local_validation(versi
         is False
     )
     with pytest.raises(ModelViolation):
-        parse_other_human_dialogue_candidate_value(
+        parse_candidate(
             {"decision": {"kind": "reply", "content": 123}},
             allowed_context_refs=frozenset({"ctx:1"}),
+            expected_version=version,
         )
 
 

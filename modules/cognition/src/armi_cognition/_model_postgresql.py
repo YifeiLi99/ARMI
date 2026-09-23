@@ -30,7 +30,6 @@ from armi_kernel.contracts import (
     Digest,
     TraceId,
 )
-from armi_live_voice.api import voice_activity
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
@@ -494,16 +493,9 @@ class PostgreSQLCognitiveModelRepository:
         input_pending, _ = await human_input_activity(
             unit_of_work.transaction, subject_id=snapshot.subject_id
         )
-        voice_active, _ = await voice_activity(
-            unit_of_work.transaction, subject_id=snapshot.subject_id
-        )
-        if (
-            input_pending
-            or voice_active
-            or await self._opportunities.has_pending_human_input(
-                unit_of_work.transaction,
-                subject_id=snapshot.subject_id,
-            )
+        if input_pending or await self._opportunities.has_pending_human_input(
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
         ):
             raise ModelViolation("MODEL-WORK-STALE")
         try:

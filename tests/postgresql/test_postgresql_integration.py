@@ -73,10 +73,6 @@ from armi_cognition.api import (
     CognitionSchemaDocument,
     SubjectChangeSet,
 )
-from armi_cognition.bootstrap import (
-    bootstrap_cognition_context,
-    bootstrap_cognition_exact_life_query,
-)
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
 from armi_expression.api import (
@@ -242,6 +238,8 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_codex_commit,
     bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
+    bootstrap_cognition_context,
+    bootstrap_cognition_exact_life_query,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_data_rights_core,
@@ -790,10 +788,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("live-voice")
     def test_voice_playback_result_survives_restart_without_attempt_table(self) -> None:
-        from armi_interaction.bootstrap import (
-            bootstrap_interaction_recovery,
-            compose_interaction_perception,
-        )
         from armi_kernel.application import ProviderCallReceipt, estimate_cost
         from armi_live_voice.api import (
             AttemptOutcome,
@@ -806,6 +800,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         from armi_live_voice.bootstrap import (
             bootstrap_live_voice_recovery,
             compose_live_voice_journal,
+        )
+        from armi_runtime.composition.postgresql_test import (
+            bootstrap_interaction_recovery,
+            compose_interaction_perception,
         )
         from armi_runtime_foundation import RecoveryScope
 
@@ -1115,11 +1113,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("data-rights", "interaction")
     def test_data_rights_guards_live_on_party_and_environment(self) -> None:
-        from armi_data_rights._postgresql import DataRightsOrderRepository
         from armi_data_rights.api import DataRightsOrderKind, DataRightsViolation
-        from armi_interaction.bootstrap import bootstrap_interaction_party_catalog
         from armi_runtime.adapters.persistence.environment_identity import (
             PostgreSQLEnvironmentIdentity,
+        )
+        from armi_runtime.composition.postgresql_test import (
+            DataRightsOrderRepository,
+            bootstrap_interaction_party_catalog,
         )
 
         fixture = self.create_database()
@@ -1247,9 +1247,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     ) -> None:
         from unittest.mock import AsyncMock, Mock
 
-        from armi_data_rights._application import DataRightsOrderService
-        from armi_data_rights._postgresql import DataRightsOrderRepository
         from armi_data_rights.api import DataRightsRetryCommand
+        from armi_runtime.composition.postgresql_test import (
+            DataRightsOrderRepository,
+            DataRightsOrderService,
+        )
 
         fixture = self.create_database()
         self._install_current(
@@ -1367,11 +1369,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("data-rights")
     def test_export_file_state_and_party_links_share_export_record(self) -> None:
-        from armi_data_rights._creator_export import CreatorExportService
-        from armi_data_rights._data_rights_participant import (
+        from armi_data_rights.api import CreatorExportStatus, DataRightsDiscoveryRequest
+        from armi_runtime.composition.postgresql_test import (
+            CreatorExportService,
             PostgreSQLDataRightsParticipant,
         )
-        from armi_data_rights.api import CreatorExportStatus, DataRightsDiscoveryRequest
 
         fixture = self.create_database()
         self._install_current(
@@ -11160,9 +11162,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 fixture.runtime_dsn, autocommit=True
                             ) as db:
                                 deadline = time.monotonic() + 30
-                                while time.monotonic() < deadline:
+                                while True:
                                     state = _read_state(db, interaction_id)
-                                    if state.delivery_status == "delivered":
+                                    if (
+                                        state.delivery_status == "delivered"
+                                        or time.monotonic() >= deadline
+                                    ):
                                         break
                                     self.assertNotEqual(
                                         state.episode_status, "failed", state

@@ -14,6 +14,7 @@ from .configuration import (
 from .layout import (
     environment_bootstrap_control_root,
     environment_control_root,
+    installation_bootstrap_log_roots,
     installation_diagnostic_roots,
     program_installation_root,
 )
@@ -52,6 +53,7 @@ __all__ = (
     "environment_bootstrap_control_root",
     "environment_control_root",
     "free_loopback_port",
+    "installation_bootstrap_log_roots",
     "installation_diagnostic_roots",
     "load_effective_config",
     "preflight_config",

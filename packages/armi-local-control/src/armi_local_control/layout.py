@@ -44,6 +44,7 @@ def installation_diagnostic_roots(
     if environment.parent.name == "environments":
         installation = environment.parent.parent
         roots.add(installation / "control/logs")
+        roots.add(installation / "control/emergency/logs")
         for parent, suffix in (
             (installation / "environments", "data/logs"),
             (installation / "control/environments", "logs"),
@@ -55,3 +56,14 @@ def installation_diagnostic_roots(
                     if child.is_dir() and not child.is_symlink()
                 )
     return tuple(sorted(roots))
+
+
+def installation_bootstrap_log_roots(environment: Path) -> tuple[Path, ...]:
+    roots = (environment_bootstrap_control_root(environment) / "logs",)
+    if environment.parent.name == "environments":
+        installation = environment.parent.parent
+        roots += (
+            installation / "control/logs",
+            installation / "control/emergency/logs",
+        )
+    return roots

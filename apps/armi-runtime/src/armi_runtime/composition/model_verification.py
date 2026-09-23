@@ -2,6 +2,7 @@
 
 from armi_cognition.bootstrap import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+    CODEX_RESULT_ACT_INSTRUCTIONS,
     GENERIC_COGNITION_INSTRUCTIONS,
     CandidateOwner,
     autonomous_schema_for_context,
@@ -31,6 +32,7 @@ from armi_cognition.bootstrap import (
 
 __all__ = (
     "AUTONOMOUS_ACTIVITY_INSTRUCTIONS",
+    "CODEX_RESULT_ACT_INSTRUCTIONS",
     "GENERIC_COGNITION_INSTRUCTIONS",
     "CandidateOwner",
     "CandidateValidationContext",

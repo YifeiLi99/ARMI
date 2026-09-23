@@ -49,6 +49,7 @@ from ._candidate_application import CandidateValidationService, model_response_c
 from ._context_candidate_read import PostgreSQLContextCandidateRead
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._context_schema import bind_context_schema
+from ._creator_cognitive_act_contract import CODEX_RESULT_ACT_INSTRUCTIONS
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
 from ._event_store import (
     EventAppraisalStorePort,
@@ -317,6 +318,7 @@ def bootstrap_cognition_recovery(
 
 __all__ = (
     "AUTONOMOUS_ACTIVITY_INSTRUCTIONS",
+    "CODEX_RESULT_ACT_INSTRUCTIONS",
     "GENERIC_COGNITION_INSTRUCTIONS",
     "CandidateOwner",
     "ContextCandidateReadPorts",

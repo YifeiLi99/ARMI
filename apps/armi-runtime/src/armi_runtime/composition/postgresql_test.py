@@ -27,6 +27,7 @@ from armi_codex.bootstrap import (
 from armi_cognition.bootstrap import (
     bootstrap_appraisal_read,
     bootstrap_cognition_context,
+    bootstrap_cognition_exact_life_query,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_context_candidate_read,
@@ -41,6 +42,18 @@ from armi_cognition.bootstrap import (
     compose_deterministic_candidate_validator,
     load_active_model_binding,
     parse_model_candidate,
+)
+from armi_data_rights.bootstrap import (
+    compose_creator_export_service as CreatorExportService,
+)
+from armi_data_rights.bootstrap import (
+    compose_data_rights_order_repository as DataRightsOrderRepository,
+)
+from armi_data_rights.bootstrap import (
+    compose_data_rights_order_service as DataRightsOrderService,
+)
+from armi_data_rights.bootstrap import (
+    compose_data_rights_participant as PostgreSQLDataRightsParticipant,
 )
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
@@ -64,6 +77,8 @@ from armi_interaction.bootstrap import (
     bootstrap_interaction_birth,
     bootstrap_interaction_failure_notifications,
     bootstrap_interaction_identity,
+    bootstrap_interaction_party_catalog,
+    bootstrap_interaction_recovery,
     bootstrap_interaction_subject_commit,
     compose_creator_input_repository,
     compose_external_message_input_repository,
@@ -123,13 +138,17 @@ __all__ = (
     "ArtifactCatalogRepository",
     "CandidateValidationContext",
     "CodexTaskSourceGateway",
+    "CreatorExportService",
     "CreatorInputRepository",
+    "DataRightsOrderRepository",
+    "DataRightsOrderService",
     "DeterministicCandidateValidator",
     "ExternalContentPipeline",
     "ExternalMessageInputRepository",
     "ExternalMessageInputService",
     "OtherHumanInputRepository",
     "PostgreSQLCodexDelegationRepository",
+    "PostgreSQLDataRightsParticipant",
     "PostgreSQLEffectDispatchRepository",
     "PostgreSQLEffectLedgerRepository",
     "PostgreSQLInteractionPerception",
@@ -145,6 +164,7 @@ __all__ = (
     "bootstrap_codex_read_ports",
     "bootstrap_codex_timeline_projection",
     "bootstrap_cognition_context",
+    "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_operation",
     "bootstrap_cognition_subject_commit",
     "bootstrap_context_candidate_read",
@@ -166,6 +186,8 @@ __all__ = (
     "bootstrap_interaction_birth",
     "bootstrap_interaction_failure_notifications",
     "bootstrap_interaction_identity",
+    "bootstrap_interaction_party_catalog",
+    "bootstrap_interaction_recovery",
     "bootstrap_interaction_subject_commit",
     "bootstrap_material",
     "bootstrap_material_cognition",
@@ -192,6 +214,7 @@ __all__ = (
     "build_request_bytes",
     "candidate_schema",
     "checked_model_request",
+    "compose_interaction_perception",
     "load_active_binding",
     "parse_candidate",
 )

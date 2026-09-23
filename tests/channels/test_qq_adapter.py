@@ -423,7 +423,7 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
 
 class QQConfigTests(unittest.TestCase):
     def test_private_policy_is_open_except_explicit_blocklist(self) -> None:
-        from armi_adapter_qq.adapter import QQConversationPolicy
+        from armi_adapter_qq import QQConversationPolicy
 
         config = QQAdapterConfig(
             10001, 90009, {20002: "朋友群"}, frozenset({30003, 90009})

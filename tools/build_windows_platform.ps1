@@ -15,5 +15,5 @@ if ($LASTEXITCODE -ne 0) { throw 'MSIX-PLATFORM-COMPILE' }
 if ($LibraryOnly) { return }
 $launcher = Join-Path $PSScriptRoot 'windows/launcher.c'
 & (Join-Path $PSScriptRoot 'build_windows_icon.ps1') -OutputPath (Join-Path $objects 'icon.res')
-& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro /DARMI_GUI `"$launcher`" `"$objects\icon.res`" /Fo`"$objects\launcher.obj`" /Fe`"$output\ARMI.exe`" /link /Brepro /SUBSYSTEM:WINDOWS shell32.lib user32.lib`""
+& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro /DARMI_GUI `"$launcher`" `"$objects\icon.res`" /Fo`"$objects\launcher.obj`" /Fe`"$output\ARMI.exe`" /link /Brepro /SUBSYSTEM:WINDOWS shell32.lib user32.lib ole32.lib uuid.lib`""
 if ($LASTEXITCODE -ne 0) { throw 'MSIX-LAUNCHER-COMPILE' }

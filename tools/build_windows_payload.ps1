@@ -56,7 +56,7 @@ $launcherSource = Join-Path $workspace 'tools/windows/launcher.c'
 $objects = Join-Path $workspace ('.tmp/quality/windows-launcher-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $objects | Out-Null
 & (Join-Path $PSScriptRoot 'build_windows_icon.ps1') -OutputPath (Join-Path $objects 'icon.res')
-& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro /DARMI_GUI `"$launcherSource`" `"$objects\icon.res`" /Fo`"$objects\desktop.obj`" /Fe`"$output\ARMI.exe`" /link /Brepro /SUBSYSTEM:WINDOWS shell32.lib user32.lib`""
+& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro /DARMI_GUI `"$launcherSource`" `"$objects\icon.res`" /Fo`"$objects\desktop.obj`" /Fe`"$output\ARMI.exe`" /link /Brepro /SUBSYSTEM:WINDOWS shell32.lib user32.lib ole32.lib uuid.lib`""
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-DESKTOP-LAUNCHER' }
 & $python -I -B (Join-Path $workspace 'tools/seal_windows_payload.py') $output
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-SEAL' }

@@ -456,6 +456,7 @@ DISTRIBUTIONS = (
         project_dir=Path("modules/live-voice"),
         layers=(),
         dependencies=(
+            "armi-interaction==0.0.0",
             "armi-data-rights==0.0.0",
             "armi-runtime-foundation==0.0.0",
         ),

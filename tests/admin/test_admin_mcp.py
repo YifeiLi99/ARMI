@@ -562,6 +562,48 @@ class AdminToolServiceTests(unittest.TestCase):
 
 
 class AdminProtocolTests(unittest.TestCase):
+    def test_early_launcher_logs_are_queryable_through_bound_mcp(self) -> None:
+        from armi_runtime_foundation import DiagnosticLog
+
+        service = _service()
+        installation = service.config.environment_root / "installation"
+        service._config = service.config.model_copy(
+            update={"environment_root": installation / "environments/active"}
+        )
+        for root in (installation / "control", installation / "control/emergency"):
+            sink = DiagnosticLog(
+                data_root=root,
+                environment_id="unbound",
+                instance_id=str(uuid7()),
+                service="armi-launcher",
+            )
+            sink.write(
+                "process.launcher.failed",
+                level=40,
+                details={"phase": "start_python", "winerror": 2},
+            )
+            sink.close()
+
+        async def exercise() -> None:
+            async with Client(_server(service), mode="auto") as client:
+                response = await client.call_tool(
+                    "admin_diagnostics_query", {"service": "armi-launcher"}
+                )
+                content = response.structured_content
+                assert content is not None and content["status"] == "succeeded"
+                records = content["result"]["items"]
+                assert len(records) == 2
+                detail = await client.call_tool(
+                    "admin_diagnostics_read", {"log_ref": records[0]["log_ref"]}
+                )
+                assert detail.structured_content is not None
+                assert (
+                    detail.structured_content["result"]["record"]["details"]["winerror"]
+                    == 2
+                )
+
+        asyncio.run(exercise())
+
     def test_diagnostics_wire_preserves_scan_bytes_without_database(self) -> None:
         from armi_runtime_foundation import DiagnosticLog
 

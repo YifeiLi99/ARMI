@@ -78,7 +78,9 @@ def test_recorded_dialogues_preserve_state_and_consideration_behavior(batch):
         projection = project_mind_object(
             state, at=at, consumed_versions=frozenset(versions)
         )
-        assert projection["consideration"]["eligible"] == eligible
+        consideration = projection["consideration"]
+        assert isinstance(consideration, dict)
+        assert consideration["eligible"] == eligible
         assert update_mind_object(evidence, previous=state) is state
         assert (
             project_mind_object(state, at=at, consumed_versions=frozenset(versions))

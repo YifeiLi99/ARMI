@@ -182,6 +182,8 @@ CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不�
 
 日志默认保留 30 天、安装实例合计 1 GiB，单进程按日或 16 MiB 分段。Runtime 写环境 `data/logs/`，管理、早期启动与原生宿主写既有控制目录；日志写入失败报告降级，Runtime 可写入控制目录应急日志。对话、模型输入输出、图片音频仍经受治理制品读取，日志不进入主体认知或 Codex runner。详细合同见 [运行诊断](DESIGN.md#运行诊断与-agent-排障)。
 
+若程序未进入 Python 或 ARMI DLL 加载失败，用 `admin_diagnostics_query` 的 `service: "armi-launcher"` 查询安装实例的原生启动记录；汇总使用 `period: "all_retained"`，查看失败阶段、Windows 系统说明及退出码。独立签名包验收可运行 `./tools/test_msix_launcher.ps1 -CertificateThumbprint <已信任验收证书指纹>`，仅使用临时 `ARMI.MsixAcceptance` 身份。
+
 开发代理操作 ARMI 默认使用正式 CLI/MCP，包括查询、配置、启停、诊断和结果核验；构建及安装更新使用项目脚本和 Windows 包管理接口。只有用户针对当前操作明确要求 Computer Use（电脑操控）时才使用桌面或浏览器界面操控；“打开”“看看”“检查”及修改界面本身不构成该要求。打开窗口可调用正式入口，机器接口缺失时说明缺口，不自行切换界面操作。视觉验收遵守同一边界，未做的视觉检查如实说明。
 
 `ARMI cli interaction artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。

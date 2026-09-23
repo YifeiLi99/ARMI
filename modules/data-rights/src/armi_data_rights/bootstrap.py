@@ -182,6 +182,13 @@ def bootstrap_data_rights(
     )
 
 
+# Isolated PostgreSQL composition uses the same concrete owner implementations.
+compose_data_rights_order_repository = DataRightsOrderRepository
+compose_data_rights_order_service = DataRightsOrderService
+compose_creator_export_service = CreatorExportService
+compose_data_rights_participant = PostgreSQLDataRightsParticipant
+
+
 def bootstrap_data_rights_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("data-rights")
 
@@ -197,4 +204,8 @@ __all__ = (
     "bootstrap_data_rights_admin_content_guard",
     "bootstrap_data_rights_core",
     "bootstrap_data_rights_recovery",
+    "compose_creator_export_service",
+    "compose_data_rights_order_repository",
+    "compose_data_rights_order_service",
+    "compose_data_rights_participant",
 )

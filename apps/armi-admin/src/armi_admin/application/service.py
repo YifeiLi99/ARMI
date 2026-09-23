@@ -23,8 +23,8 @@ from armi_kernel.application import (
 from armi_local_control import (
     ConfigurationViolation,
     ProviderCheckReceipts,
-    environment_bootstrap_control_root,
     environment_control_root,
+    installation_bootstrap_log_roots,
 )
 from armi_local_control.configuration.defaults import runtime_defaults_file
 from armi_local_control.configuration.editing import (
@@ -845,22 +845,10 @@ class AdminToolService:
                             self._config.environment_root, self._config.environment_id
                         )
                         / "logs",
-                        *(
-                            (
-                                self._config.environment_root.parent.parent
-                                / "control/logs",
-                            )
-                            if self._config.environment_root.parent.name
-                            == "environments"
-                            else ()
-                        ),
                     ),
                     environment_id=self._config.environment_id,
-                    bootstrap_roots=(
-                        environment_bootstrap_control_root(
-                            self._config.environment_root
-                        )
-                        / "logs",
+                    bootstrap_roots=installation_bootstrap_log_roots(
+                        self._config.environment_root
                     ),
                 )
                 if name == "diagnostics_read":
@@ -956,17 +944,11 @@ class AdminToolService:
                                     self._config.environment_id,
                                 )
                                 / "logs",
-                                *(
-                                    (
-                                        self._config.environment_root.parent.parent
-                                        / "control/logs",
-                                    )
-                                    if self._config.environment_root.parent.name
-                                    == "environments"
-                                    else ()
-                                ),
                             ),
                             environment_id=self._config.environment_id,
+                            bootstrap_roots=installation_bootstrap_log_roots(
+                                self._config.environment_root
+                            ),
                         )
                         related: dict[str, list[str]] = {selector[0]: [selector[1]]}
                         identities = {
