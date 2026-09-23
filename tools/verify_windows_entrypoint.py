@@ -43,30 +43,41 @@ async def check(program: Path, *, installed: bool = False) -> None:
             check=False,
         )
         assert result.returncode == 0 and b"usage:" in result.stdout, result.stderr
-    result = subprocess.run(
-        [str(executable), "cli", "setup"],
-        input=b'{"action":"status"}',
-        capture_output=True,
-        env=environment,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0
-    status = json.loads(result.stdout)["status"]
-    assert status in {
-        "not_configured",
-        "claimed",
-        "configured",
-        "roles_ready",
-        "installing",
-        "ready",
-    }
-    if not installed:
-        assert status == "not_configured"
     scratch = Path(__file__).resolve().parents[1] / ".tmp"
     scratch.mkdir(exist_ok=True)
     with TemporaryDirectory(prefix="entrypoint-", dir=scratch) as raw:
         root = Path(raw)
+        # Setup records diagnostics even for status; keep build probes outside the payload.
+        status_arguments = (
+            []
+            if installed
+            else [
+                "--environment-root",
+                str(root / "environments" / "active"),
+                "--installation-root",
+                str(root),
+            ]
+        )
+        result = subprocess.run(
+            [str(executable), "cli", "setup", *status_arguments],
+            input=b'{"action":"status"}',
+            capture_output=True,
+            env=environment,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        status = json.loads(result.stdout)["status"]
+        assert status in {
+            "not_configured",
+            "claimed",
+            "configured",
+            "roles_ready",
+            "installing",
+            "ready",
+        }
+        if not installed:
+            assert status == "not_configured"
         await verify(root, executable)
         binding = root / "client.yaml"
         binding.write_text(
@@ -150,6 +161,11 @@ async def check(program: Path, *, installed: bool = False) -> None:
             if process.poll() is None:
                 process.terminate()
             process.communicate(timeout=10)
+    if not installed:
+        assert not any(
+            (program / name).exists()
+            for name in ("environments", "control", "cache", "tmp")
+        )
     print(
         "windows-entrypoint: unified MCP, native pipes, restricted bindings, EOF and cancellation passed"
     )
