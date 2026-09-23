@@ -94,6 +94,7 @@ AUTONOMOUS_ACTIVITY_INSTRUCTIONS = instruction_sections(
                 "- 全局考虑时间由调度器安排,不要输出下次思考时间。no_result 的 review_after_seconds 只安排该活动的复查。",
                 "- 本轮由轻量判断提供思考机会,并不要求行动或发言。刚答过的问题和招呼不重复表达。",
                 "- 仅等待输入或下次考虑时选 no_activity 或 defer,不为等待本身创建活动。",
+                "- 已有活动因具体条件受阻时,用 wait 记录等待条件和恢复线索;不要只选 defer 却让活动一直保持 ready。旧失败只证明当时那次尝试失败,不能推断整个环境至今不可用。",
             )
         ),
     ),
@@ -115,6 +116,8 @@ AUTONOMOUS_ACTIVITY_INSTRUCTIONS = instruction_sections(
             (
                 "- concern_changes 保存问题和未实施意向,引用当前依据并保留结束与复查条件。",
                 "- expression 是独立的可选表达,可与活动进展同时提出,也可以沉默。需要信息时可向 Creator 提问。",
+                "- expression 会立刻作为真实消息发送给对方,不是内部想法或本轮执行摘要。仅在有值得现在告知、询问或表达的内容时填写。",
+                "- 决定等待、安静、不重复或暂不打扰时,省略 expression;不要发送'我先安静待着''这次不说了'一类通知。已有障碍和等待理由说过后,没有新进展或对方追问就不重复汇报。",
                 "- 未回复和当前时间是判断依据,不自动禁止联系,也不要求定时问候。",
             )
         ),
@@ -122,7 +125,8 @@ AUTONOMOUS_ACTIVITY_INSTRUCTIONS = instruction_sections(
     ("内心与持续关注", FOCUS_COGNITIVE_INSTRUCTIONS),
     (
         "表达方式",
-        CONVERSATIONAL_EXPRESSION_INSTRUCTIONS.replace("content", "expression"),
+        "以下只规定已经决定发送的消息怎样表达,不要求本轮产生消息。\n"
+        + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS.replace("content", "expression"),
     ),
 )
 

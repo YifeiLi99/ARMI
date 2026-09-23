@@ -157,9 +157,15 @@ def check_context_items(
         elif item.item_kind == "recent_scene_turn":
             turn = cast(dict[str, Any], value)
             value = {
-                "speaker": turn["speaker"],
-                "text": turn["text"][:100],
-                "omitted_characters": max(0, len(turn["text"]) - 100),
+                key: turn[key]
+                for key in (
+                    "speaker",
+                    "text",
+                    "occurred_at",
+                    "creator_input_after",
+                    "response_origin_purpose",
+                )
+                if key in turn
             }
         elif item.item_kind == "current_concern":
             concern = cast(dict[str, Any], value)
@@ -191,8 +197,10 @@ def check_context_items(
         # status/count fields that distinguish waiting from missing information.
         value = _bounded(
             value,
-            text_limit=100
-            if item.item_kind in {"fixed_prompt", "recent_scene_turn"}
+            text_limit=2048
+            if item.item_kind == "recent_scene_turn"
+            else 100
+            if item.item_kind == "fixed_prompt"
             else 24
             if item.item_kind in {"current_concern", "current_motivation"}
             else 48,

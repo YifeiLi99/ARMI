@@ -438,6 +438,33 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
     assert opportunity.content is not None
     assert json.loads(opportunity.content)["omitted_concerns_and_motivations"] == 8
 
+    # Preserve the waiting condition at the end of a failed-attempt report and
+    # whether anyone replied, rather than making a ready activity look runnable.
+    waiting_report = "Earlier attempt details. " * 8 + "Wait for restored access."
+    turns = [
+        replace(
+            source,
+            item_kind="recent_scene_turn",
+            content=json.dumps(
+                {
+                    "speaker": "armi",
+                    "text": text,
+                    "occurred_at": "2026-09-23T13:02:00Z",
+                    "creator_input_after": False,
+                    "response_origin_purpose": "consider_autonomous_life",
+                }
+            ),
+        )
+        for text in ("older message", waiting_report, "Already said I would wait.")
+    ]
+    recent = autonomy_check_items(turns, signalled_refs=frozenset())
+    assert len(recent) == 2
+    contents = [json.loads(item.content) for item in recent]
+    assert contents[0]["text"] == waiting_report
+    assert contents[1]["creator_input_after"] is False
+    assert contents[1]["occurred_at"] == "2026-09-23T13:02:00Z"
+    assert contents[1]["response_origin_purpose"] == "consider_autonomous_life"
+
 
 def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:
     revision_id = uuid7()
