@@ -113,3 +113,62 @@ def test_installed_control_records_are_inside_installation(tmp_path):
     with environment_control_lock(environment, "environment-id"):
         assert (expected / "environment-control.lock").exists()
     assert not (tmp_path.parent / ".armi-admin/environment-id").exists()
+
+
+def test_database_rebuild_rejects_unregistered_target_before_opening_database(tmp_path):
+    service = application(tmp_path / "environments/active")
+    bundle = Mock()
+    with (
+        patch(
+            "armi_admin.application.installation.ProgramBundle.read",
+            return_value=bundle,
+        ),
+        patch(
+            "armi_admin.application.installation.package_identity", return_value=Mock()
+        ),
+        patch(
+            "armi_admin.application.deployment.installed_root", return_value=tmp_path
+        ),
+        patch(
+            "armi_admin.application.installation.registered_environments",
+            return_value=(),
+        ),
+        patch.object(service, "_database") as database,
+        pytest.raises(SetupError, match="SETUP-REBUILD-REGISTERED-MSIX-REQUIRED"),
+    ):
+        service.rebuild_database()
+    database.assert_not_called()
+
+
+def test_database_rebuild_rejects_current_contract_before_opening_database(tmp_path):
+    service = application(tmp_path / "environments/active")
+    service.control.mkdir(parents=True)
+    state = Mock(stage="ready")
+    database_contract = Mock()
+    bundle = Mock(database=database_contract)
+    with (
+        patch(
+            "armi_admin.application.installation.ProgramBundle.read",
+            return_value=bundle,
+        ),
+        patch(
+            "armi_admin.application.installation.package_identity",
+            return_value=Mock(family="same"),
+        ),
+        patch(
+            "armi_admin.application.deployment.installed_root", return_value=tmp_path
+        ),
+        patch(
+            "armi_admin.application.installation.registered_environments",
+            return_value=(service.root,),
+        ),
+        patch(
+            "armi_admin.application.installation.environment_binding",
+            return_value=Mock(package_family="same", database=database_contract),
+        ),
+        patch.object(service, "_read", return_value=state),
+        patch.object(service, "_database") as database,
+        pytest.raises(SetupError, match="SETUP-REBUILD-CONTRACT-CURRENT"),
+    ):
+        service.rebuild_database()
+    database.assert_not_called()

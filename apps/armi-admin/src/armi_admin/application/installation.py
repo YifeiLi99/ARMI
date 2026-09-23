@@ -8,6 +8,8 @@ import json
 import os
 import secrets
 import socket
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -27,6 +29,7 @@ from armi_local_control import (
 )
 from armi_local_control.configuration.models import AbsolutePath
 from armi_local_control.configuration.paths import has_reparse_point
+from armi_local_control.maintenance import MaintenanceInvocation
 from armi_local_control.runtime_process import LocalProcessLock
 from armi_local_control.windows_package import package_identity
 from cryptography.hazmat.primitives import serialization
@@ -35,7 +38,11 @@ from psycopg.conninfo import make_conninfo
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from .configuration import AdminConfig
-from .deployment import environment_binding, register_environment
+from .deployment import (
+    environment_binding,
+    register_environment,
+    registered_environments,
+)
 from .distribution import ProgramBundle
 from .package_identity import admin_program_identity
 from .postgresql_bootstrap import apply_policy, inspect_policy, physical_role_name
@@ -219,6 +226,102 @@ class SetupApplication:
             "status": "ready",
             "package_id": bundle.package_id,
             "distribution": "msix" if identity else "source_payload",
+        }
+
+    def rebuild_database(self) -> dict[str, object]:
+        """Replace an incompatible local database while retaining configuration and secrets."""
+        from .deployment import installed_root
+
+        bundle = ProgramBundle.read(self.paths.installation_root)
+        bundle.verify(self.paths.installation_root)
+        identity = package_identity()
+        installation = installed_root(self.paths.installation_root)
+        if (
+            identity is None
+            or installation is None
+            or self.root not in registered_environments(installation)
+        ):
+            raise SetupError("SETUP-REBUILD-REGISTERED-MSIX-REQUIRED")
+        with LocalProcessLock(self.control / "setup.lock"):
+            state = self._read()
+            if state.stage != "ready":
+                raise SetupError("SETUP-INITIALIZATION-INCOMPLETE")
+            binding = environment_binding(self.root)
+            if binding.package_family != identity.family:
+                raise SetupError("SETUP-REBUILD-PACKAGE-FAMILY")
+            if binding.database == bundle.database:
+                raise SetupError("SETUP-REBUILD-CONTRACT-CURRENT")
+            if any(
+                has_reparse_point(self.root / name, root=self.root)
+                for name in (
+                    ".setup",
+                    ".setup/program.json",
+                    "secrets",
+                    "secrets/migrator-database",
+                    "data",
+                    "run",
+                )
+            ):
+                raise SetupError("SETUP-REBUILD-PATH")
+            if (self.root / "run/runtime-process.json").exists() or (
+                self.root / "run/admin-control/runtime-control.json"
+            ).exists():
+                raise SetupError("SETUP-REBUILD-RUNTIME-NOT-STOPPED")
+            self._database(state).execute("start")
+            request = MaintenanceInvocation.model_validate(
+                {
+                    "environment_root": self.root,
+                    "environment_id": state.environment_id,
+                    "action": "reset",
+                    "apply": True,
+                }
+            )
+            environment = os.environ.copy()
+            environment["ARMI_SECRET_MIGRATOR_DATABASE"] = (
+                self.root / "secrets/migrator-database"
+            ).read_text(encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, "-m", "armi_runtime.maintenance_worker"],
+                input=request.model_dump_json().encode("utf-8"),
+                capture_output=True,
+                cwd=self.root,
+                env=environment,
+                timeout=600,
+                check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            try:
+                result = json.loads(completed.stdout)
+            except ValueError:
+                raise SetupError("SETUP-REBUILD-RESET-UNKNOWN") from None
+            if completed.returncode or result.get("status") != "succeeded":
+                raise SetupError(
+                    result.get("error_code") or "SETUP-REBUILD-RESET-UNKNOWN"
+                )
+            write_control(
+                self.control / "program.json",
+                {
+                    "package_family": identity.family,
+                    "database": bundle.database.model_dump(mode="json"),
+                },
+            )
+        # The Admin reset publishes the new incarnation and invalidates old work.
+        preview = self.invoke("environment_reset_preview", {})
+        if preview.get("status") != "succeeded":
+            raise SetupError("SETUP-REBUILD-PREVIEW-FAILED")
+        applied = self.invoke(
+            "environment_reset",
+            {
+                "preview_token": preview["result"]["preview_token"],
+                "idempotency_key": str(uuid7()),
+            },
+        )
+        if applied.get("status") != "succeeded":
+            raise SetupError("SETUP-REBUILD-APPLY-FAILED")
+        return {
+            "status": "ready",
+            "environment_id": state.environment_id,
+            "incarnation": applied["result"]["incarnation"],
         }
 
     def _save(self, state: SetupIdentity, stage: str) -> SetupIdentity:

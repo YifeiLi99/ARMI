@@ -51,6 +51,7 @@ class SetupRequest(BaseModel):
         "status",
         "check",
         "prepare",
+        "rebuild_database",
         "birth",
         "credential",
         "login_startup",
@@ -130,6 +131,8 @@ def _dispatch(
             if request.operation_id is None:
                 raise SetupError("SETUP-OPERATION-ID-REQUIRED")
             return application.prepare(operation_id=request.operation_id)
+        if request.action == "rebuild_database":
+            return application.rebuild_database()
         if request.action == "birth":
             if request.personality_anchor is None:
                 raise SetupError("SETUP-PERSONALITY-ANCHOR-REQUIRED")
