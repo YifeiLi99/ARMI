@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import Lock
 
 from armi_kernel import observe_configuration_reads
+from armi_kernel.application import record_diagnostic
 
 from .config_assets import runtime_config_path
 
@@ -52,10 +53,21 @@ class ConfigurationConsumption:
             yield
         with self._lock:
             self._consumers[identity] = reads
+        record_diagnostic(
+            "configuration.adopted",
+            component="configuration",
+            consumer=identity,
+            versions={target: value[1] for target, value in reads.items()},
+        )
 
     def release(self, identity: str) -> None:
         with self._lock:
             self._consumers.pop(identity, None)
+        record_diagnostic(
+            "configuration.consumer.released",
+            component="configuration",
+            consumer=identity,
+        )
 
     def snapshot(self) -> dict[str, dict[str, object]]:
         with self._lock:

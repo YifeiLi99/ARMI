@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, LiteralString, cast
@@ -27,6 +28,8 @@ from armi_kernel.application import (
     WorkStatus,
     WorkType,
     WorkViolation,
+    diagnostic_scope,
+    record_diagnostic,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -504,7 +507,21 @@ class PostgreSQLDurableWorkGateway:
                         )
                     )
                     records.append(record)
-                return tuple(records)
+            for record in records:
+                with diagnostic_scope(
+                    work_id=record.draft.work_id.value,
+                    trace_id=record.draft.trace_id.value,
+                ):
+                    record_diagnostic(
+                        "work.claimed",
+                        component="work",
+                        work_kind=work_kind.value,
+                        attempt_id=record.lease.attempt_id.value
+                        if record.lease
+                        else None,
+                        attempt_count=record.attempt_count,
+                    )
+            return tuple(records)
         except WorkViolation:
             raise
         except AuditViolation:
@@ -710,7 +727,27 @@ class PostgreSQLDurableWorkGateway:
                             attempt_id=lease.attempt_id,
                         )
                     )
-                return record
+            if operation is not None:
+                with diagnostic_scope(
+                    work_id=lease.work_id.value,
+                    attempt_id=lease.attempt_id.value,
+                    trace_id=record.draft.trace_id.value,
+                ):
+                    record_diagnostic(
+                        "work.transition.completed",
+                        component="work",
+                        level=logging.ERROR
+                        if operation == "failed"
+                        else logging.WARNING
+                        if record.last_error_code
+                        else logging.INFO,
+                        operation=operation,
+                        work_kind=record.draft.work_kind.value,
+                        outcome=record.status.value,
+                        result_code=record.last_error_code,
+                        not_before=record.draft.not_before.value.isoformat(),
+                    )
+            return record
         except WorkViolation:
             raise
         except AuditViolation:

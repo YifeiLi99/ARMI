@@ -94,6 +94,40 @@ if ($PrepareOnly) {
     Write-Output "Signed acceptance packages prepared (local trust and installation not verified): $output"
     return
 }
+function Save-ProbeDiagnostics([string]$EnvironmentId) {
+    $probeRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ARMI.MsixAcceptance'))
+    $directory = [IO.Path]::GetFullPath((Join-Path $probeRoot ('control/environments/' + $EnvironmentId)))
+    $expected = [IO.Path]::GetFullPath((Join-Path $probeRoot 'control/environments'))
+    if (-not $directory.StartsWith($expected + [IO.Path]::DirectorySeparatorChar) -or $EnvironmentId -notmatch '^[0-9a-f-]{36}$') {
+        throw 'MSIX-PROBE-DIAGNOSTIC-BOUNDARY'
+    }
+    $segments = @(Get-ChildItem -LiteralPath (Join-Path $directory 'logs') -Filter '*.jsonl')
+    if (-not $segments.Count) { throw 'MSIX-PROBE-DIAGNOSTICS-MISSING' }
+    $destination = Join-Path $output 'native-diagnostics'
+    New-Item -ItemType Directory -Path $destination -Force | Out-Null
+    foreach ($segment in $segments) {
+        $lines = @(Get-Content -LiteralPath $segment.FullName)
+        foreach ($line in $lines) {
+            if ($line.Contains('probe-private-credential')) { throw 'MSIX-PROBE-DIAGNOSTIC-SECRET' }
+            $event = $line | ConvertFrom-Json
+            if ($event.schema_kind -ne 'armi.diagnostic-event' -or $event.environment_id -ne $EnvironmentId) {
+                throw 'MSIX-PROBE-DIAGNOSTIC-CONTRACT'
+            }
+        }
+        Copy-Item -LiteralPath $segment.FullName -Destination $destination
+    }
+    $outputEvents = @(Get-ChildItem -LiteralPath $destination -Filter '*.jsonl' | ForEach-Object {
+        Get-Content -LiteralPath $_.FullName | ForEach-Object { $_ | ConvertFrom-Json }
+    } | Where-Object event -eq 'process.child.output')
+    if (-not ($outputEvents.details.stream -contains 'stdout') -or -not ($outputEvents.details.stream -contains 'stderr')) {
+        throw 'MSIX-PROBE-DIAGNOSTIC-OUTPUT-MISSING'
+    }
+    # All paths are the disposable probe's generated control directory.
+    Remove-Item -LiteralPath $directory -Recurse -Force
+    [IO.Directory]::Delete($expected)
+    $control = Join-Path $probeRoot 'control'
+    if (-not @(Get-ChildItem -LiteralPath $control -Force).Count) { [IO.Directory]::Delete($control) }
+}
 # Trust must be provisioned separately by an administrator. Never weaken deployment policy.
 foreach ($version in @('0.0.1.0', '0.0.2.0')) {
     & "$sdk\signtool.exe" verify /pa (Join-Path $output "ARMI-$version.msix")
@@ -134,6 +168,7 @@ try {
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
     if ($remaining.Count) { throw 'MSIX-PROBE-HOST-ORPHANS' }
+    Save-ProbeDiagnostics $environmentId
     $marker = Join-Path $env:LOCALAPPDATA 'ARMI.MsixAcceptance/probe.txt'
     if ((Get-Content -LiteralPath $marker -Raw) -ne '0.0.1.0') { throw 'MSIX-PROBE-DATA-LOCATION' }
     & $alias defer ([Uri](Join-Path $output 'ARMI-0.0.2.0.msix')).AbsoluteUri
@@ -174,6 +209,7 @@ public static class ArmiProbeActivation {
     if ($LASTEXITCODE -ne 0) { throw 'MSIX-PROBE-UNINSTALL-CHILD' }
     $executable = (Get-AppxPackage -Name $packageName).InstallLocation + '\ARMI.exe'
     Get-AppxPackage -Name $packageName | Remove-AppxPackage
+    Save-ProbeDiagnostics $environmentId
     if (Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $executable }) { throw 'MSIX-PROBE-UNINSTALL-ORPHANS' }
     if (-not (Test-Path -LiteralPath $marker)) { throw 'MSIX-PROBE-UNINSTALL-RETENTION' }
     # Delete only the disposable probe directory, never ARMI or ARMI.Acceptance.
@@ -207,6 +243,7 @@ public static class ArmiProbeActivation {
                 Start-Sleep -Milliseconds 100
             } while ([DateTime]::UtcNow -lt $deadline)
             if ($remaining.Count) { throw 'MSIX-PROBE-UNINSTALL-BUSY-ORPHANS' }
+            Save-ProbeDiagnostics $environmentId
             # Remove only the exact fixture files and empty directories just created.
             [IO.File]::Delete($probeState)
             [IO.File]::Delete($probeIndex)

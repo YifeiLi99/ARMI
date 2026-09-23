@@ -349,6 +349,7 @@ class NapCatNode:
                 process = spawn_owned(
                     (str(self.root / "node.exe"), str(self.root / "index.js")),
                     environment_id=environment_id,
+                    diagnostic_output=True,
                     cwd=self.root,
                     env=environment,
                     stdin=subprocess.DEVNULL,

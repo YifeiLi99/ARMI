@@ -56,13 +56,14 @@ class PostgreSQLLifeOpportunityRepository:
         model_concurrency: int,
         outlet_health: tuple[str, str | None],
         model_revision: str,
+        observations: dict[str, object] | None = None,
     ) -> OpportunityAdmissionOutcome:
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
         transaction = unit_of_work.transaction
         owner = PostgreSQLAutonomyOwner()
-        await owner.ensure_plan(
+        plan = await owner.ensure_plan(
             transaction,
             subject_id=fence.subject_id,
             policy=policy,
@@ -70,6 +71,14 @@ class PostgreSQLLifeOpportunityRepository:
                 transaction, subject_id=fence.subject_id
             ),
         )
+        if observations is not None:
+            observations.update(
+                next_check_at=plan.next_consideration_at.isoformat(),
+                schedule_observed="before_admission",
+                activity_count=None,
+                eligible_concern_count=None,
+                eligible_motivation_count=None,
+            )
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET model_configuration_revision=%s,
                    phase=CASE WHEN phase='blocked' THEN 'waiting' ELSE phase END,
@@ -99,6 +108,8 @@ class PostgreSQLLifeOpportunityRepository:
         active = await self._facts.active_cognition_count(
             transaction, subject_id=fence.subject_id
         )
+        if observations is not None:
+            observations["active_cognition_count"] = active
         if active > 0:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
@@ -121,6 +132,17 @@ class PostgreSQLLifeOpportunityRepository:
         heads = await self._activities.scheduling_heads(
             transaction, subject_id=fence.subject_id
         )
+        if observations is not None:
+            observations.update(
+                activity_count=len(heads),
+                eligible_concern_count=sum(
+                    signal.owner == "focus" for signal in signals
+                ),
+                eligible_motivation_count=sum(
+                    signal.owner == "mind" for signal in signals
+                ),
+                signal_reasons=sorted({signal.reason for signal in signals}),
+            )
         # An activity's deadline is a stable event, unlike periodic scheduler
         # refreshes. Consume its timestamp once so a waiting task cannot keep
         # resetting the backoff every tick.

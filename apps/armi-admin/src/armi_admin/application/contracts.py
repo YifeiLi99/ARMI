@@ -144,6 +144,9 @@ class TraceFlowRequest(EnvironmentRequest):
     operation_id: str | None = None
     episode_id: str | None = None
     effect_id: str | None = None
+    work_id: str | None = None
+    opportunity_id: str | None = None
+    call_id: str | None = None
     trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     limit: int = Field(default=100, ge=1, le=200)
     cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,512}$")
@@ -155,6 +158,9 @@ class TraceFlowRequest(EnvironmentRequest):
             self.operation_id,
             self.episode_id,
             self.effect_id,
+            self.work_id,
+            self.opportunity_id,
+            self.call_id,
             self.trace_id,
         )
         if sum(value is not None for value in values) != 1:
@@ -193,12 +199,74 @@ class InspectScopeRequest(EnvironmentRequest):
         return values
 
 
-class TailDiagnosticsRequest(EnvironmentRequest):
+class DiagnosticsQueryRequest(EnvironmentRequest):
+    related_ids: dict[str, list[str]] | None = None
+    incremental: bool = False
+    wait_seconds: int = Field(default=0, ge=0, le=30)
+    start: str | None = None
+    end: str | None = None
+    levels: list[Literal["info", "warning", "error", "critical"]] | None = None
+    service: str | None = None
+    component: str | None = None
+    event: str | None = None
+    result_code: str | None = None
+    provider: str | None = None
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    run_id: str | None = None
+    trace_id: str | None = None
+    request_id: str | None = None
+    operation_id: str | None = None
+    opportunity_id: str | None = None
+    episode_id: str | None = None
+    work_id: str | None = None
+    attempt_id: str | None = None
+    interaction_id: str | None = None
+    subject_commit_id: str | None = None
+    session_id: str | None = None
+    turn_id: str | None = None
+    artifact_id: str | None = None
+    call_id: str | None = None
+    effect_id: str | None = None
+    text: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=200)
-    runtime_instance_id: str
-    cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,512}$")
+    cursor: str | None = Field(default=None, max_length=32768)
 
-    _runtime_instance_id = field_validator("runtime_instance_id")(_uuid7)
+    @field_validator("related_ids")
+    @classmethod
+    def _related_ids(
+        cls, value: dict[str, list[str]] | None
+    ) -> dict[str, list[str]] | None:
+        if value is not None and (
+            set(value)
+            - {
+                "trace_id",
+                "request_id",
+                "interaction_id",
+                "operation_id",
+                "opportunity_id",
+                "episode_id",
+                "work_id",
+                "attempt_id",
+                "subject_commit_id",
+                "session_id",
+                "turn_id",
+                "artifact_id",
+                "call_id",
+                "effect_id",
+            }
+            or sum(map(len, value.values())) > 200
+            or any(len(item) > 64 for items in value.values() for item in items)
+        ):
+            raise ValueError("DIAGNOSTICS-RELATED-IDS")
+        return value
+
+
+class DiagnosticsSummaryRequest(DiagnosticsQueryRequest):
+    period: Literal["latest_runtime", "since_update", "all_retained"] = "latest_runtime"
+
+
+class DiagnosticsReadRequest(EnvironmentRequest):
+    log_ref: str = Field(min_length=8, max_length=2048)
 
 
 class CognitionReadRequest(EnvironmentRequest):
@@ -545,7 +613,9 @@ ObservationRequest = (
     | SubjectSnapshotRequest
     | TraceFlowRequest
     | InspectScopeRequest
-    | TailDiagnosticsRequest
+    | DiagnosticsQueryRequest
+    | DiagnosticsSummaryRequest
+    | DiagnosticsReadRequest
     | CorrectionStatusRequest
 )
 AdminMutationRequest = (
@@ -580,6 +650,9 @@ __all__ = (
     "DataDeletionApplyRequest",
     "DataDeletionPreviewRequest",
     "DeleteUncommittedCreatorInputSpec",
+    "DiagnosticsQueryRequest",
+    "DiagnosticsReadRequest",
+    "DiagnosticsSummaryRequest",
     "EnvironmentInitializeRequest",
     "EnvironmentRequest",
     "EnvironmentResetPreviewRequest",
@@ -603,7 +676,6 @@ __all__ = (
     "SchemaStatusResult",
     "SettleCorrectionWorkRequest",
     "SubjectSnapshotRequest",
-    "TailDiagnosticsRequest",
     "TraceFlowRequest",
     "UsageListRequest",
     "UsageReadRequest",

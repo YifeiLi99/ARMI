@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+from typing import Literal
+
+from armi_kernel.application import record_diagnostic
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from armi_runtime.application.creator_system import CreatorSystem
 from armi_runtime.application.interaction import InteractionResult
 
@@ -36,6 +42,27 @@ from .creator_http import (
 )
 from .interaction_authority import verify_interaction
 from .system_commands import invoke_system
+
+
+class ClientDiagnostic(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    event: Literal[
+        "unhandled_error", "unhandled_rejection", "request_failed", "buffer_status"
+    ]
+    message: str = Field(max_length=2048)
+    location: str | None = Field(default=None, max_length=512)
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    dropped: int = Field(default=0, ge=0)
+    rejected: int = Field(default=0, ge=0)
+
+
+class ClientDiagnosticBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    events: list[ClientDiagnostic] = Field(min_length=1, max_length=20)
+
+
+class ClientDiagnosticReceipt(BaseModel):
+    accepted: int
 
 
 def authorize_system(
@@ -78,6 +105,45 @@ def register_system_routes(
     creator_events: CreatorEventBroker | None,
     system: CreatorSystem,
 ) -> None:
+
+    @app.post(
+        "/v1/diagnostics/client",
+        operation_id="reportClientDiagnostics",
+        response_model=ClientDiagnosticReceipt,
+        dependencies=[Security(bearer)],
+    )
+    async def report_client_diagnostics(request: Request) -> Response:
+        denied = authorize_system(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > 65536:
+                return JSONResponse(
+                    status_code=413, content={"error_code": "DIAGNOSTICS-BATCH-SIZE"}
+                )
+        try:
+            batch = ClientDiagnosticBatch.model_validate_json(bytes(body))
+        except ValidationError:
+            return JSONResponse(
+                status_code=422, content={"error_code": "DIAGNOSTICS-CLIENT-INPUT"}
+            )
+        for event in batch.events:
+            record_diagnostic(
+                "creator.client." + event.event,
+                component="creator-web",
+                level=logging.WARNING
+                if event.event == "buffer_status"
+                else logging.ERROR,
+                message=event.message,
+                source_kind="client_report",
+                location=event.location,
+                http_status=event.http_status,
+                dropped=event.dropped,
+                rejected=event.rejected,
+            )
+        return JSONResponse(content={"accepted": len(batch.events)})
 
     @app.get("/health/live", operation_id="getHealthLive", response_model=LiveResponse)
     async def health_live() -> Response:
@@ -352,6 +418,7 @@ def register_system_routes(
         )
 
     route_handlers = (
+        report_client_diagnostics,
         health_live,
         health_ready,
         create_browser_session,

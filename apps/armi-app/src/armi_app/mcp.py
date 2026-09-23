@@ -5,20 +5,24 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
 from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid7
 
 from armi_admin.application import (
     AdminConfigError,
     AdminSecretError,
 )
+from armi_admin.application.catalog import AdminOutputContractError
 from armi_admin.application.installation import SetupApplication, SetupError, SetupPaths
 from armi_admin.application.setup_operations import SetupRequest, dispatch
 from armi_admin.composition import bootstrap_setup
 from armi_admin.machine import ADMIN_OPERATIONS, AdminSession
+from armi_kernel.application import diagnostic_scope, record_diagnostic
 from armi_local_control import program_installation_root
 from armi_local_control.binding import load_client_binding, read_binding
 from armi_local_control.windows_package import package_identity
@@ -193,6 +197,41 @@ class ARMIMCPServer(MCPServer[Any]):
         arguments: dict[str, Any],
         context: Context[Any, Any] | None = None,
     ) -> CallToolResult:
+        reference = str(uuid7())
+        with diagnostic_scope(request_id=reference):
+            record_diagnostic("mcp.operation.started", component="mcp", tool=name)
+            try:
+                result = await self._call_tool(name, arguments, context)
+            except Exception as error:
+                record_diagnostic(
+                    "mcp.operation.failed",
+                    component="mcp",
+                    level=logging.ERROR,
+                    error=error,
+                    tool=name,
+                )
+                return _result(
+                    {
+                        "status": "failed",
+                        "error_code": "MCP-SERVER-FAILED",
+                        "diagnostics": {
+                            "tool": "admin_diagnostics_query",
+                            "arguments": {"request_id": reference},
+                        },
+                    }
+                )
+            record_diagnostic(
+                "mcp.operation.completed",
+                component="mcp",
+                tool=name,
+                level=logging.ERROR if result.is_error else logging.INFO,
+                outcome="failed" if result.is_error else "completed",
+            )
+            return result
+
+    async def _call_tool(
+        self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None
+    ) -> CallToolResult:
         del context
         try:
             tool = next(
@@ -224,6 +263,26 @@ class ARMIMCPServer(MCPServer[Any]):
             return _result(
                 {"status": "rejected", "error_code": "MCP-TOOL-NOT-AUTHORIZED"}
             )
+        except AdminOutputContractError as error:
+            reference = str(uuid7())
+            with diagnostic_scope(request_id=reference):
+                record_diagnostic(
+                    "mcp.output.invalid",
+                    component="mcp",
+                    level=logging.ERROR,
+                    error=error,
+                    tool=name,
+                )
+            return _result(
+                {
+                    "status": "failed",
+                    "error_code": "MCP-SERVER-OUTPUT-INVALID",
+                    "diagnostics": {
+                        "tool": "admin_diagnostics_query",
+                        "arguments": {"request_id": reference},
+                    },
+                }
+            )
         except ValidationError:
             return _result({"status": "rejected", "error_code": "MCP-INPUT-INVALID"})
         except ValueError as error:
@@ -236,7 +295,14 @@ class ARMIMCPServer(MCPServer[Any]):
                     else "MCP-BINDING-INVALID",
                 }
             )
-        except OSError:
+        except OSError as error:
+            record_diagnostic(
+                "mcp.environment.unavailable",
+                component="mcp",
+                level=logging.ERROR,
+                error=error,
+                tool=name,
+            )
             return _result(
                 {"status": "failed", "error_code": "MCP-ENVIRONMENT-UNAVAILABLE"}
             )

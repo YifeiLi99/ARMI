@@ -16,17 +16,21 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from types import TracebackType
 from typing import Any, cast
 from uuid import uuid7
 
 from armi_local_control import (
     ManagedProcessIdentity,
     ManagedProcessState,
+    environment_bootstrap_control_root,
     private_directory,
     program_installation_root,
     write_control,
 )
 from armi_local_control.runtime_process import LocalProcessLock
+from armi_local_control.windows_package import package_identity
+from armi_runtime_foundation import DiagnosticLog
 
 from armi_admin.application.installation import SetupNapcatRequest, SetupPaths
 from armi_admin.application.setup_operations import (
@@ -51,6 +55,7 @@ _CREDENTIAL_NAMES = {
 class Desktop:
     def __init__(self, root: tk.Tk, installation: Path, environment: Path) -> None:
         self.root = root
+        self.root.report_callback_exception = self._callback_exception
         cast(Any, self.root).iconbitmap(
             str(Path(__file__).parent / "icon_resources/armi.ico")
         )
@@ -118,6 +123,24 @@ class Desktop:
         self.root.after(100, self._poll)
         self.root.after(5000, self._automatic_update)
         self.root.after(1000, self._refresh_runtime_status)
+
+    def _callback_exception(
+        self,
+        kind: type[BaseException],
+        error: BaseException,
+        traceback: TracebackType | None,
+    ) -> None:
+        sink = DiagnosticLog(
+            data_root=environment_bootstrap_control_root(self.environment),
+            environment_id="unbound",
+            instance_id=str(uuid7()),
+            service="armi-desktop",
+            version=package.version if (package := package_identity()) else "source",
+        )
+        try:
+            sink.write("desktop.callback.failed", level=40, error=error)
+        finally:
+            sink.close()
 
     def _update_tab(self) -> None:
         frame = ttk.Frame(self.tabs, padding=20)

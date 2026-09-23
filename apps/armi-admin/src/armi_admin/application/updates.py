@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -11,6 +12,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from armi_kernel import load_yaml_mapping
+from armi_kernel.application import record_diagnostic
 from armi_local_control import private_directory, write_control
 from armi_local_control.runtime_process import LocalProcessLock
 from armi_local_control.windows_package import (
@@ -116,6 +118,7 @@ class UpdateApplication:
             )
             actual = deployment_status()
             current = actual["version"]
+            previous_phase = state.phase
             if state.candidate and version_parts(current) >= version_parts(
                 state.candidate.version
             ):
@@ -213,11 +216,25 @@ class UpdateApplication:
                     )
                     state.phase = result["status"]
                     state.error_code = None
-            except httpx.HTTPError:
+            except httpx.HTTPError as error:
+                record_diagnostic(
+                    "update.failed",
+                    component="setup",
+                    level=logging.ERROR,
+                    error=error,
+                    action=action,
+                )
                 state.error_code = "UPDATE-NETWORK-FAILED"
                 if state.phase not in {"deployment_requested", "registration_deferred"}:
                     state.phase = "failed"
             except (OSError, ValueError, RuntimeError) as error:
+                record_diagnostic(
+                    "update.failed",
+                    component="setup",
+                    level=logging.ERROR,
+                    error=error,
+                    action=action,
+                )
                 state.error_code = (
                     str(error)
                     if str(error).startswith(("UPDATE-", "MSIX-"))
@@ -226,6 +243,21 @@ class UpdateApplication:
                 if state.phase not in {"deployment_requested", "registration_deferred"}:
                     state.phase = "failed"
             write_control(state_path, state.model_dump(mode="json"))
+            if state.phase == "deployed" and previous_phase != "deployed":
+                record_diagnostic(
+                    "update.deployed",
+                    component="setup",
+                    version=current,
+                    phase="deployed",
+                )
+            record_diagnostic(
+                "update.phase.completed",
+                component="setup",
+                action=action,
+                phase=state.phase,
+                version=current,
+                result_code=state.error_code,
+            )
             return self._result(state, actual)
 
     @staticmethod

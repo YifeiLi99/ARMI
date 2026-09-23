@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from uuid import UUID
+from time import monotonic
+from uuid import UUID, uuid4
 
-from armi_kernel.application import UsageQueryPort
+from armi_kernel.application import UsageQueryPort, diagnostic_scope, record_diagnostic
 
 from armi_runtime.application.autonomy_query import AutonomyQueryPort
 from armi_runtime.application.creator_commands import CreatorCommands
@@ -204,7 +206,6 @@ def create_runtime_app(
 
     del bounded_body_error
 
-    @app.middleware("http")
     async def enforce_local_boundary(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
@@ -264,6 +265,44 @@ def create_runtime_app(
         for name, value in _SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
         return response
+
+    @app.middleware("http")
+    async def observe_request(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        started = monotonic()
+        with diagnostic_scope(request_id=uuid4()):
+            record_diagnostic(
+                "http.request.started", component="http", method=request.method
+            )
+            try:
+                response = await enforce_local_boundary(request, call_next)
+            except Exception as error:
+                record_diagnostic(
+                    "http.request.failed",
+                    component="http",
+                    level=logging.ERROR,
+                    error=error,
+                    duration_ms=round((monotonic() - started) * 1000),
+                )
+                raise
+            route = request.scope.get("route")
+            record_diagnostic(
+                "http.request.completed",
+                component="http",
+                level=logging.ERROR
+                if response.status_code >= 500
+                else logging.WARNING
+                if response.status_code >= 400
+                else logging.INFO,
+                method=request.method,
+                route=getattr(route, "path", None),
+                http_status=response.status_code,
+                duration_ms=round((monotonic() - started) * 1000),
+            )
+            return response
+
+    del observe_request
 
     register_autonomy_routes(
         app=app,

@@ -86,9 +86,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(records[0]["details"]["model_attempt_id"], "attempt")
             self.assertEqual(records[1]["event"], "cognition.candidate.diagnostic")
             self.assertEqual(records[1]["details"]["code"], "string_type")
-            self.assertEqual(
-                json.loads(records[1]["details"]["path"]), ["decision", "content"]
-            )
+            self.assertEqual(records[1]["details"]["path"], ["decision", "content"])
 
     def test_deletion_attempt_reaches_rotating_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -211,6 +209,7 @@ class DiagnosticTests(unittest.TestCase):
             logs.mkdir()
             expired = logs / "runtime-expired.jsonl"
             expired.write_text("old\n", encoding="utf-8", newline="\n")
+            expired.with_suffix(".summary.json").write_text("{}", encoding="utf-8")
             os.utime(expired, (1, 1))
             diagnostic = StructuredDiagnosticLog(
                 data_root=root,

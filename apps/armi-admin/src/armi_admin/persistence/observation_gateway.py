@@ -27,6 +27,7 @@ from armi_interaction.api import InteractionAdminPort
 from armi_kernel.application import (
     RESPONSIBILITY_BINDINGS,
     ArtifactViolation,
+    UsageFilter,
     UsageQuery,
 )
 from armi_local_control.runtime_errors import RuntimeViolation
@@ -48,6 +49,7 @@ from .role_session import AdminRoleBoundPool
 from .runtime_foundation import RuntimeFoundationAdminAdapter
 
 _OWNER_BY_KIND = {
+    "provider_call": "runtime-foundation",
     **{
         binding.owner_kind: binding.reconciliation_owner
         for binding in RESPONSIBILITY_BINDINGS
@@ -542,6 +544,41 @@ class AdminObservationGateway:
                             occurred_at=row[4],
                         )
                     )
+            elif kind == "call_id":
+                statement, parameters = usage_statement(
+                    UsageQuery("read", UsageFilter.from_strings(), call_id=value), ()
+                )
+                row = tx.execute(statement, parameters).fetchone()
+                if row is None:
+                    missing.append({"kind": "provider_call", "id": value})
+                else:
+                    call = usage_result(row)
+                    receipt = cast(dict[str, object], call["receipt"])
+                    nodes.append(
+                        _node(
+                            "provider_call",
+                            key,
+                            status=receipt.get("outcome"),
+                            attempt_id=call.get("attempt_id"),
+                            usage_operation_id=call.get("operation_id"),
+                        )
+                    )
+                    if call.get("operation_id"):
+                        nodes.append(_node("opportunity", call["operation_id"]))
+            elif kind == "work_id":
+                work = self._runtime.work(tx, work_id=cast(UUID, key))
+                if work is None:
+                    missing.append({"kind": "work", "id": value})
+                else:
+                    nodes.append(_node("work", key, status=work.status))
+            elif kind == "opportunity_id":
+                opportunity = self._opportunity.snapshot(
+                    tx, opportunity_id=cast(UUID, key)
+                )
+                if opportunity is None:
+                    missing.append({"kind": "opportunity", "id": value})
+                else:
+                    nodes.append(_node("opportunity", key))
             elif kind == "interaction_id":
                 item = self._interaction.input_snapshot(
                     tx, interaction_id=cast(UUID, key)

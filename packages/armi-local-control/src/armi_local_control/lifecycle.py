@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from armi_kernel.application import record_diagnostic
+
 from .configuration import ConfigurationViolation, load_effective_config
 from .configuration.paths import has_reparse_point
 from .layout import environment_control_root
@@ -238,7 +240,29 @@ class LocalEnvironmentController:
         self.phase = phase
         if self.progress is not None:
             self.progress(phase)
-        result = operation()
+        started = time.monotonic()
+        record_diagnostic(
+            "lifecycle.step.started", component="local-control", phase=phase
+        )
+        try:
+            result = operation()
+        except Exception as error:
+            record_diagnostic(
+                "lifecycle.step.failed",
+                component="local-control",
+                level=40,
+                phase=phase,
+                error=error,
+                duration_ms=round((time.monotonic() - started) * 1000),
+            )
+            raise
+        record_diagnostic(
+            "lifecycle.step.completed",
+            component="local-control",
+            phase=phase,
+            outcome=result.get("status"),
+            duration_ms=round((time.monotonic() - started) * 1000),
+        )
         if self.completed_step is not None:
             self.completed_step(phase, result)
         return result

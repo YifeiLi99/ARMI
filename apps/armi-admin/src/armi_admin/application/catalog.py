@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .content_contracts import ContentWriteRequest
 from .contracts import (
@@ -22,6 +22,9 @@ from .contracts import (
     CorrectionStatusRequest,
     DataDeletionApplyRequest,
     DataDeletionPreviewRequest,
+    DiagnosticsQueryRequest,
+    DiagnosticsReadRequest,
+    DiagnosticsSummaryRequest,
     DoctorRequest,
     EnvironmentInitializeRequest,
     EnvironmentLifecycleRequest,
@@ -44,7 +47,6 @@ from .contracts import (
     ScopedOperationRequest,
     SettleCorrectionWorkRequest,
     SubjectSnapshotRequest,
-    TailDiagnosticsRequest,
     TraceFlowRequest,
     UsageListRequest,
     UsageReadRequest,
@@ -59,6 +61,10 @@ from .results import MAINTENANCE_PAYLOADS, OTHER_HUMAN_PAYLOADS, RESULT_PAYLOADS
 
 if TYPE_CHECKING:
     from .service import AdminToolService
+
+
+class AdminOutputContractError(RuntimeError):
+    """A server defect, never invalid caller input."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,13 +215,16 @@ class AdminOperation:
         self, service: AdminToolService, request: BaseModel
     ) -> AdminToolResult[Any]:
         result = self._invoke(service, request)
-        if isinstance(request, MaintenanceRequest):
-            model = AdminToolResult[MAINTENANCE_PAYLOADS[request.action]]
-            return model.model_validate_json(result.model_dump_json())
-        if isinstance(request, OtherHumanRequest):
-            model = AdminToolResult[OTHER_HUMAN_PAYLOADS[request.command.action]]
-            return model.model_validate_json(result.model_dump_json())
-        return self.result.model_validate_json(result.model_dump_json())
+        try:
+            if isinstance(request, MaintenanceRequest):
+                model = AdminToolResult[MAINTENANCE_PAYLOADS[request.action]]
+                return model.model_validate_json(result.model_dump_json())
+            if isinstance(request, OtherHumanRequest):
+                model = AdminToolResult[OTHER_HUMAN_PAYLOADS[request.command.action]]
+                return model.model_validate_json(result.model_dump_json())
+            return self.result.model_validate_json(result.model_dump_json())
+        except ValidationError as error:
+            raise AdminOutputContractError("ADMIN-OUTPUT-CONTRACT") from error
 
     def _invoke(
         self, service: AdminToolService, request: BaseModel
@@ -287,7 +296,9 @@ OPERATION_DESCRIPTIONS = {
     "usage_list": "List paginated cloud API calls with metering and pricing status.",
     "usage_read": "Read one cloud API call receipt and its frozen price components.",
     "inspect_scope": "Inspect a bounded, explicitly allowlisted dependency scope.",
-    "tail_diagnostics": "Read bounded redacted diagnostics for the bound environment.",
+    "diagnostics_summary": "Summarize recorded failures and coverage. Continue cursor pages before claiming complete statistics; use representative_log_ref with diagnostics_read.",
+    "diagnostics_query": "Search bound local diagnostics by time, severity, provider, HTTP status or task identity. Works with Runtime and PostgreSQL stopped; cursor fixes the scan snapshot.",
+    "diagnostics_read": "Read exact redacted exception evidence by log_ref and obtain related business query arguments. Never executes a failed operation.",
     "environment_initialize": "Register the configured environment template using the owner initialization path.",
     "environment_reset_preview": "Preview the exact target and impact of a disposable environment reset; this does not authorize applying it.",
     "environment_reset": "Apply an unchanged unexpired reset preview with specific authorization, including an explicitly authorized active environment reset; never infer approval from the preview.",
@@ -341,7 +352,9 @@ ADMIN_OPERATIONS = (
     AdminOperation("usage_read", UsageReadRequest, "observe"),
     AdminOperation("cognition_read", CognitionReadRequest, "observe"),
     AdminOperation("inspect_scope", InspectScopeRequest, "observe"),
-    AdminOperation("tail_diagnostics", TailDiagnosticsRequest, "observe"),
+    AdminOperation("diagnostics_summary", DiagnosticsSummaryRequest, "observe"),
+    AdminOperation("diagnostics_query", DiagnosticsQueryRequest, "observe"),
+    AdminOperation("diagnostics_read", DiagnosticsReadRequest, "observe"),
     AdminOperation("environment_initialize", EnvironmentInitializeRequest, "mutate"),
     AdminOperation(
         "environment_reset_preview", EnvironmentResetPreviewRequest, "mutate"

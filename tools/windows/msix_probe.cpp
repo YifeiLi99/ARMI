@@ -48,6 +48,8 @@ int wmain(int argc, wchar_t** argv) {
             return 0;
         }
         if (argc == 2 && std::wstring_view(argv[1]) == L"--child-tree") {
+            std::cout << "capture-stdout api_key=probe-private-credential" << std::endl;
+            std::cerr << "capture-stderr" << std::endl;
             std::wstring command = L"\"" + executable.wstring() + L"\" --child-sleep";
             STARTUPINFOW startup{sizeof(startup)};
             PROCESS_INFORMATION child{};
@@ -70,6 +72,7 @@ int wmain(int argc, wchar_t** argv) {
             using namespace winrt::Windows::Data::Json;
             JsonObject request;
             request.Insert(L"environment_id", JsonValue::CreateStringValue(argv[2]));
+            request.Insert(L"diagnostic_output", JsonValue::CreateBooleanValue(true));
             request.Insert(L"executable", JsonValue::CreateStringValue(executable.wstring()));
             request.Insert(L"command", JsonValue::CreateStringValue(command));
             request.Insert(L"cwd", JsonValue::CreateStringValue(executable.parent_path().wstring()));

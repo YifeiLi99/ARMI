@@ -675,3 +675,38 @@ Creator 导出文件的存在/移除状态直接保存在 `creator_exports`。�
 Context 来源清单保存在认知的 context_items，经历的证据依据保存在 evidence_links；仍经 owner 校验来源与冻结范围，隐私撤回继续追踪这些引用。观察的 frames 保存最多 4 张图片及各自保留期限，清理引用与 Artifact 退役同事务完成。经历和观察表的物理维护只读，引用只能经 owner 验证和写入。删除任务的 retry_requests 保存历次幂等键与轮次，不另建重试流水表。
 
 语音技术会话的设备与状态变化写日志，当前状态由 Runtime 共享内存记录。live_voice_turns 直接保存主体、Creator 和场景。无具体 turn 的调用用量保存在 interaction_scenes.voice_provider_calls，带会话标识；结束只结算对应会话，Runtime 中断将遗留 pending 标记 unknown，迟到真实回执仍可结算。last_voice_ended_at 保留跨重启的主动说话冷却依据。
+
+## 运行诊断与 Agent 排障
+
+诊断是管理证据，不是业务事实、主体记忆或权限来源。Kernel 的 `diagnostic_scope` 用 contextvars 关联既有请求、work、episode、attempt、call、effect 等身份，`record_diagnostic` 通过标准 Python logging 发出事件。Runtime Foundation 负责落盘、脱敏、标准日志与未处理异常接入、查询；业务模块不依赖 Runtime 私有记录器。运行事务在归还连接后记录提交、回滚或未知结果，日志 I/O 不进入权威写事务。
+
+每条 `armi.diagnostic-event` 保存 UTC 时间、级别、稳定事件名、说明、组件、进程运行身份/PID/序号、已有的关联身份及技术详情。标准日志带源码文件、行和函数；异常保留类型、消息、原因链和堆栈位置，不保存局部变量。HTTP 错误响应保留状态、服务端请求 ID 和脱敏正文，正文最多 16 KiB、整条记录最多 64 KiB，超限标明截断。凭据、认证头、Cookie、URL 查询、请求正文和 SQL 参数不得落盘；Pydantic 输入值和 PostgreSQL 参数回显不进入异常证据。完整业务正文由原 Artifact owner 管理。
+
+INFO 表示正常阶段及不行动/取消结果；WARNING 表示降级、重试、延期与可恢复异常；ERROR/CRITICAL 表示失败、未知结果及崩溃。标准 INFO 及以上接入共同记录器，不采样；DEBUG 默认关闭。内部错误码继续供业务判断，外部故障先记录原始异常再转换。收到 HTTP 4xx/5xx 与网络超时分别结算 Provider 回执，未知费用保持未知。本机制不改变重试次数、超时或自主决策。
+
+| 运行边界 | 记录入口与证据 |
+| --- | --- |
+| 安装、更新、生命周期 | setup 操作、更新阶段、local-control 生命周期步骤、Runtime 启动和原生宿主/子进程事件 |
+| 配置、能力 | ConfigurationConsumption 的消费者采用版本、配置读取失败、生命周期能力状态与恢复结果 |
+| HTTP、CLI、MCP | HTTP 请求身份/方法/路由模板/结果/耗时，Admin 与 setup 用例结果，MCP 执行和输出合同故障 |
+| 事件与任务 | work 领取、尝试身份、完成/延期/失败，Context 与认知从正式 work 恢复关联身份 |
+| 自主生活 | 自主接纳的触发来源与拒绝原因，冻结 Context 中活动、合格关注、合格动机数量及是否进入认知 |
+| Jev、Mood、Mind | 联合评价开始/返回，Provider 证据，两个 owner 独立提交、版本、无变化或失败 |
+| Context 与认知 | 准备与模型尝试、格式拒绝/重试、候选拒绝字段路径和责任 owner；正文保留制品引用 |
+| 主体与业务写入 | Subject Commit 开始/完成、提交身份与版本，数据库事务提交/回滚/未知结果及原始数据库错误 |
+| Provider、外部 I/O | call 身份、供应商/模型、HTTP 状态、请求 ID、超时类型、耗时及脱敏错误正文 |
+| Effect、渠道、设备 | 调度、未发送、分条回执和已确认条数、部分完成与 unknown；既有渠道、语音、视觉诊断统一落盘 |
+| 后台维护、资源 | 睡眠维护检查、索引/Artifact 删除诊断、数据库与磁盘异常、运行资源与积压观测 |
+| 界面、子进程、日志自身 | 桌面回调、浏览器异常/Promise 拒绝/请求失败、受管进程输出、日志降级和留存状态 |
+
+Runtime 日志放所属环境 `data/logs/`，Admin、setup、早期启动、原生宿主放控制目录日志子目录。每进程单独 UTF-8 JSONL 文件，逐行 flush，按日或 16 MiB 轮转；OS 文件租约保护活动段，进程崩溃释放租约。封闭段保存可重建的时间、级别与错误分组摘要；查询核对段大小后可跳过不相关的封闭段。默认保留 30 天、安装实例诊断目录合计 1 GiB，只清理已关闭/失去租约的旧段。留存状态记录超额、删除数及清理失败；活动段不可删除时明确保留超额状态。旧格式文件不改写，不补造历史详情。
+
+原生宿主持有受管子进程 stdout/stderr 的读取端，机器 CLI/MCP 退出不会切断采集。第三方行在采集边界脱敏并标为非结构化输出，不以 stderr 猜测业务失败。Runtime 的标准输出另接入进程日志，CLI/MCP stdout 始终只输出协议。Runtime 正式日志不可写时尝试控制目录应急日志，再降级 stderr；所有持久路径失败时不能报告正常日志状态。
+
+Creator Web 只缓冲技术元数据，内存最多 1 MiB，经鉴权的 `/v1/diagnostics/client` 批量提交。断网后留在缓冲区，恢复后发送；溢出和拒收计数另报。服务端限制批量字节、条数和字段，固定标记 `client_report`，不接受伪造环境/进程/服务端身份。
+
+管理工具共用 CLI/MCP 应用合同：`diagnostics_summary` 返回错误组和代表引用，`diagnostics_query` 返回紧凑筛选页，`diagnostics_read` 读取完整异常及同段前后文，`trace_flow` 把 work/opportunity/episode/effect/Provider call 关联到业务图和诊断页。输出合同错误为服务端故障，不冒充输入错误。每次扫描最多 64 MiB，响应以 128 KiB 为预算，列表默认 50/最多 200 条；游标绑定筛选、段身份和读取上界。增量查询最多等 30 秒，无新增返回原游标。缺段、损坏、残缺行和旧格式均单列；分页统计只代表本页，不能把部分证据当完整历史。
+
+分段较多时，分页快照保存为绑定日志目录中的不可变 `query-*.cursor`，MCP 返回短引用；快照读取也计入扫描预算，文件参与同一容量和保留期清理。引用已清理时返回 `DIAGNOSTICS-CURSOR-NOT-RETAINED`，需重新开始查询，不能把失去的分页状态当作没有后续记录。原生宿主的环境日志不可写时，改写安装实例 `control/logs/` 并标记 `emergency`；管理查询仍按绑定环境过滤这些记录。Python 安装版记录实际包版本，源码执行标记 `source`。
+
+诊断查询不依赖 PostgreSQL；数据库停止时业务关联单独报告不可用。本机拥有者使用绑定的管理入口，受限绑定分别检查诊断与追踪权限；不接收任意路径、SQL 或操作重放。默认汇总最近的 Runtime/启动尝试，也支持显式时间及留存的更新边界；边界不存在时明确说明。日志上线前发生的失败无法还原原始响应。

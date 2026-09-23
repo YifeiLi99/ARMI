@@ -49,8 +49,10 @@ from armi_kernel.application import (
     WorkRecord,
     WorkType,
     WorkViolation,
+    diagnostic_scope,
     ordered_custody_requests,
     provider_meter_scope,
+    record_diagnostic,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -435,7 +437,19 @@ class ModelPipeline:
             raise ModelViolation("MODEL-DATABASE") from None
         if not records:
             return False
-        await self._execute_with_renewal(records[0])
+        record = records[0]
+        with diagnostic_scope(
+            work_id=record.draft.work_id.value,
+            trace_id=record.draft.trace_id.value,
+            episode_id=record.draft.owner.reference,
+        ):
+            record_diagnostic(
+                "cognition.execution.started",
+                component="cognition",
+                attempt=record.attempt_count,
+            )
+            await self._execute_with_renewal(record)
+            record_diagnostic("cognition.execution.returned", component="cognition")
         return True
 
     async def _execute(self, record: WorkRecord) -> None:
@@ -497,12 +511,13 @@ class ModelPipeline:
             snapshot = await self._snapshot(record)
             context_bytes = await self._read_context(snapshot)
             if snapshot.purpose == "consider_autonomy_check":
+                engage = should_consider_autonomy(context_bytes)
                 async with self._factory.unit_of_work() as unit_of_work:
                     await self._repository.finalize_autonomy_check(
                         unit_of_work,
                         lease=lease,
                         snapshot=snapshot,
-                        engage=should_consider_autonomy(context_bytes),
+                        engage=engage,
                     )
                 return
             adapter = self._adapter_for(
@@ -549,7 +564,10 @@ class ModelPipeline:
                     raise
 
             usage_scope = ProviderMeterScope(save_usage, self._prices, snapshot.purpose)
-            with provider_meter_scope(usage_scope):
+            with (
+                provider_meter_scope(usage_scope),
+                diagnostic_scope(attempt_id=attempt_id),
+            ):
                 input_tokens = await self._tokenize(adapter, request_bytes, record)
             request = checked_model_request(
                 prices=self._prices,
@@ -596,7 +614,15 @@ class ModelPipeline:
                         attempt_id=attempt_id,
                         episode_id=snapshot.episode_id,
                     )
-                with provider_meter_scope(usage_scope):
+                with (
+                    provider_meter_scope(usage_scope),
+                    diagnostic_scope(attempt_id=attempt_id),
+                ):
+                    record_diagnostic(
+                        "cognition.model.request.started",
+                        component="cognition",
+                        generation=generation,
+                    )
                     result = await adapter.invoke(request)
                 if result.status is not ModelResultStatus.SUCCEEDED:
                     await self._settle_failure(
@@ -654,6 +680,14 @@ class ModelPipeline:
                         )
                 self._diagnostic("cognition.model.attempt.settled")
                 if structure_error is not None:
+                    record_diagnostic(
+                        "cognition.model.response.rejected",
+                        component="cognition",
+                        level=30,
+                        attempt_id=attempt_id,
+                        generation=generation,
+                        result_code=structure_error,
+                    )
                     self._diagnostic("cognition.model.response.format_rejected")
                 response_saved = True
                 if self._stop.is_set():

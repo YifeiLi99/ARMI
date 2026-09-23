@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import psutil
+from armi_kernel.application import record_diagnostic
 from pydantic import BaseModel, ConfigDict, Field
 
 from .configuration.models import AbsolutePath
@@ -145,11 +146,27 @@ class NativePostgreSQL:
                 )
                 output.seek(0)
                 captured = output.read()
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as error:
+            record_diagnostic(
+                "postgresql.command.failed",
+                component="postgresql",
+                level=40,
+                error=error,
+                tool=tool,
+                outcome="unknown",
+            )
             raise RuntimeViolation(
                 "LOCAL-POSTGRESQL-UNKNOWN", "query cluster status before retrying"
             ) from None
-        except OSError:
+        except OSError as error:
+            record_diagnostic(
+                "postgresql.command.failed",
+                component="postgresql",
+                level=40,
+                error=error,
+                tool=tool,
+                outcome="not_started",
+            )
             raise RuntimeViolation(
                 "LOCAL-POSTGRESQL-UNAVAILABLE", "native PostgreSQL cannot run"
             ) from None
@@ -157,7 +174,14 @@ class NativePostgreSQL:
             # These lifecycle tools receive no secret values on their command
             # line. Keep their diagnostic output in the protected control area;
             # never return it through the machine transport.
-            (self.control / "last-command-error.log").write_bytes(captured[-1048576:])
+            record_diagnostic(
+                "postgresql.command.failed",
+                component="postgresql",
+                level=40,
+                tool=tool,
+                exit_code=result.returncode,
+                output=captured[-16384:].decode("utf-8", errors="replace"),
+            )
             raise RuntimeViolation(
                 "LOCAL-POSTGRESQL-FAILED",
                 f"PostgreSQL {tool} failed; inspect the local database log",
@@ -260,6 +284,8 @@ class NativePostgreSQL:
                     "timezone = 'UTC'\nlog_timezone = 'UTC'\n"
                     "password_encryption = 'scram-sha-256'\n"
                     "log_statement = 'none'\nlog_min_error_statement = 'panic'\n"
+                    "log_parameter_max_length = 0\nlog_parameter_max_length_on_error = 0\n"
+                    "log_error_verbosity = 'terse'\n"
                 )
             identity: dict[str, object] = {
                 "schema_kind": "armi.native-postgresql",
@@ -289,6 +315,7 @@ class NativePostgreSQL:
                     str(self.data),
                 ],
                 environment_id=self.environment_id,
+                diagnostic_output=True,
                 stdin=subprocess.DEVNULL,
                 stdout=output,
                 stderr=output,

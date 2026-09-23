@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from contextvars import ContextVar, Token
@@ -21,6 +22,7 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeFence,
     TransactionIsolation,
+    record_diagnostic,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
 from psycopg import sql
@@ -375,6 +377,13 @@ class PostgreSQLUnitOfWork:
                 await self._verify_runtime_fence(lock_row=True)
         except BaseException as error:
             await self._rollback_after_enter_failure(error)
+            record_diagnostic(
+                "database.transaction.open_failed",
+                component="database",
+                level=logging.ERROR,
+                error=error,
+                owner=self._expected_role,
+            )
             if isinstance(error, asyncio.CancelledError):
                 raise
             if isinstance(error, DatabaseTransactionError):
@@ -394,6 +403,7 @@ class PostgreSQLUnitOfWork:
     ) -> Literal[False]:
         if self._state is not _State.ACTIVE or self._connection is None:
             raise _transaction_error("DB-TX-STATE")
+        diagnostic_error = exception
         try:
             if exception is not None:
                 await self._finish_rollback(exception_type, exception, traceback)
@@ -416,6 +426,7 @@ class PostgreSQLUnitOfWork:
             try:
                 await self._transaction.__aexit__(None, None, None)
             except BaseException as error:
+                diagnostic_error = error
                 self._state = _State.COMMIT_UNKNOWN
                 self._committed_actions = ()
                 if isinstance(error, asyncio.CancelledError):
@@ -432,6 +443,8 @@ class PostgreSQLUnitOfWork:
             self._committed_actions = tuple(self._deferred_actions)
             return False
         except BaseException as error:
+            if diagnostic_error is None:
+                diagnostic_error = error
             await self._rollback_after_failure(error)
             if isinstance(error, asyncio.CancelledError):
                 raise
@@ -443,6 +456,19 @@ class PostgreSQLUnitOfWork:
         finally:
             self._clear_active()
             await self._return_connection()
+            # Emit only after returning the connection: file I/O never holds the transaction.
+            if not self._read_only or diagnostic_error is not None:
+                cancelled = isinstance(diagnostic_error, asyncio.CancelledError)
+                record_diagnostic(
+                    "database.transaction.finished",
+                    component="database",
+                    level=logging.ERROR
+                    if diagnostic_error is not None and not cancelled
+                    else logging.INFO,
+                    error=None if cancelled else diagnostic_error,
+                    outcome="cancelled" if cancelled else self._state.value,
+                    owner=self._expected_role,
+                )
 
     def _require_active(self) -> None:
         if self._state is not _State.ACTIVE:

@@ -180,8 +180,16 @@ class _OwnedPopen(subprocess.Popen[Any]):
     installed stdio and lifecycle acceptance checks.
     """
 
-    def __init__(self, command: Any, *, environment_id: str, **options: Any) -> None:
+    def __init__(
+        self,
+        command: Any,
+        *,
+        environment_id: str,
+        diagnostic_output: bool = False,
+        **options: Any,
+    ) -> None:
         self._environment_id = environment_id
+        self._diagnostic_output = diagnostic_output
         super().__init__(command, **options)
 
     def _execute_child(
@@ -221,6 +229,7 @@ class _OwnedPopen(subprocess.Popen[Any]):
                 json.dumps(
                     {
                         "environment_id": self._environment_id,
+                        "diagnostic_output": self._diagnostic_output,
                         "executable": os.fsdecode(executable or command[0]),
                         "command": subprocess.list2cmdline(command),
                         "cwd": os.fsdecode(cwd) if cwd is not None else os.getcwd(),
@@ -245,7 +254,11 @@ class _OwnedPopen(subprocess.Popen[Any]):
 
 
 def spawn_owned(
-    command: Any, *, environment_id: str, **options: Any
+    command: Any,
+    *,
+    environment_id: str,
+    diagnostic_output: bool = False,
+    **options: Any,
 ) -> subprocess.Popen[Any]:
     """Create inside the independently activated host's process and Job tree."""
     if package_identity() is None:
@@ -254,7 +267,12 @@ def spawn_owned(
     flags = options.get("creationflags", 0)
     if flags & subprocess.CREATE_BREAKAWAY_FROM_JOB:
         raise WindowsPackageError("MSIX-HOST-BREAKAWAY-FORBIDDEN")
-    return _OwnedPopen(command, environment_id=environment_id, **options)
+    return _OwnedPopen(
+        command,
+        environment_id=environment_id,
+        diagnostic_output=diagnostic_output,
+        **options,
+    )
 
 
 def run_owned(

@@ -1177,6 +1177,41 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return str(response.json()["browser_session_token"])
 
+    def test_client_diagnostics_are_authenticated_and_cannot_supply_server_identity(
+        self,
+    ) -> None:
+        from unittest.mock import patch
+
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            batch = {
+                "events": [{"event": "unhandled_error", "message": "technical failure"}]
+            }
+            denied = client.post(
+                "/v1/diagnostics/client", headers=self._browser_headers(), json=batch
+            )
+            self.assertEqual(denied.status_code, 401)
+            token = self._connect_browser(client)
+            with patch(
+                "armi_runtime.interfaces.creator_routes_system.record_diagnostic"
+            ) as logged:
+                accepted = client.post(
+                    "/v1/diagnostics/client",
+                    headers=self._browser_headers(token),
+                    json=batch,
+                )
+                self.assertEqual(accepted.status_code, 200)
+                self.assertEqual(accepted.json(), {"accepted": 1})
+                self.assertEqual(
+                    logged.call_args.kwargs["source_kind"], "client_report"
+                )
+                forged = client.post(
+                    "/v1/diagnostics/client",
+                    headers=self._browser_headers(token),
+                    json={"events": [{**batch["events"][0], "run_id": "forged"}]},
+                )
+                self.assertEqual(forged.status_code, 422)
+                logged.assert_called_once()
+
     def test_local_other_human_http_control_surface_is_absent(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             party = client.post(

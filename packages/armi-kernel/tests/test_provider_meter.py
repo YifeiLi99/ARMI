@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from armi_kernel.application import (
     CostStatus,
@@ -21,6 +22,48 @@ async def test_no_sink_means_no_network_dispatch():
         async with provider_call(provider="p", model="m", service="generation"):
             dispatched = True
     assert not dispatched
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 429, 500, 503])
+async def test_http_failure_is_a_received_response_with_unknown_cost(status):
+    rows = []
+
+    async def save(receipt):
+        rows.append(receipt)
+
+    with (
+        provider_meter_scope(ProviderMeterScope(save, PriceCatalog(()), "test")),
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        async with provider_call(provider="p", model="m", service="generation"):
+            httpx.Response(
+                status,
+                request=httpx.Request("POST", "https://isolated.test"),
+                headers={"x-request-id": "received-request"},
+            ).raise_for_status()
+    assert rows[-1].outcome == "failed"
+    assert rows[-1].provider_request_id == "received-request"
+    assert rows[-1].error_code == f"USAGE-PROVIDER-HTTP-{status}"
+    assert rows[-1].cost.status is CostStatus.USAGE_UNKNOWN
+    assert len({row.call_id for row in rows}) == 1
+
+
+@pytest.mark.asyncio
+async def test_read_timeout_remains_unknown_without_http_status():
+    rows = []
+
+    async def save(receipt):
+        rows.append(receipt)
+
+    with (
+        provider_meter_scope(ProviderMeterScope(save, PriceCatalog(()), "test")),
+        pytest.raises(httpx.ReadTimeout),
+    ):
+        async with provider_call(provider="p", model="m", service="generation"):
+            raise httpx.ReadTimeout("isolated read timeout")
+    assert rows[-1].outcome == "unknown"
+    assert rows[-1].error_code == "USAGE-CALL-TIMEOUT"
 
 
 @pytest.mark.asyncio

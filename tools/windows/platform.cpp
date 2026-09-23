@@ -19,12 +19,145 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <thread>
+#include <regex>
+#include <mutex>
+#include <memory>
+#include <map>
 
 using namespace winrt;
 using namespace Windows::ApplicationModel;
 using namespace Windows::Data::Json;
 
 namespace {
+std::filesystem::path package_data_root();
+
+struct NativeSegment {
+    std::ofstream output;
+    std::filesystem::path path;
+    HANDLE lease = INVALID_HANDLE_VALUE;
+    size_t bytes = 0;
+    std::wstring day;
+    void seal() noexcept {
+        try {
+            if (output.is_open()) {
+                output.flush();
+                output.close();
+                auto summary = path;
+                summary.replace_extension(L".summary.json");
+                std::ofstream metadata(summary, std::ios::binary | std::ios::trunc);
+                metadata << "{\"closed\":true,\"bytes\":" << bytes << "}";
+            }
+        } catch (...) { OutputDebugStringW(L"ARMI-DIAGNOSTIC-SEAL-FAILED\n"); }
+        if (lease != INVALID_HANDLE_VALUE) { CloseHandle(lease); lease = INVALID_HANDLE_VALUE; }
+    }
+    ~NativeSegment() { seal(); }
+};
+
+void append_native(std::wstring const& environment, std::wstring const& run,
+    std::wstring const& identity, std::wstring const& day, std::string const& line,
+    bool emergency = false) {
+    static std::mutex mutex;
+    static std::map<std::wstring, NativeSegment> writers;
+    std::lock_guard lock(mutex);
+    auto& writer = writers[environment + (emergency ? L"-emergency" : L"")];
+    if (!writer.output.is_open() || writer.bytes + line.size() > 16777216 || writer.day != day) {
+        writer.seal();
+        auto root = emergency ? package_data_root() / L"control" / L"logs"
+            : package_data_root() / L"control" / L"environments" / environment / L"logs";
+        std::filesystem::create_directories(root);
+        writer.path = root / (L"native-" + run + L"-" + identity + L".jsonl");
+        auto leasePath = writer.path;
+        leasePath.replace_extension(L".lease");
+        writer.lease = CreateFileW(leasePath.c_str(), GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (writer.lease == INVALID_HANDLE_VALUE) throw_last_error();
+        DWORD written;
+        check_bool(WriteFile(writer.lease, "0", 1, &written, nullptr));
+        OVERLAPPED range{};
+        check_bool(LockFileEx(writer.lease, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &range));
+        writer.output.clear();
+        writer.output.open(writer.path, std::ios::binary | std::ios::trunc);
+        writer.bytes = 0;
+        writer.day = day;
+    }
+    writer.output << line;
+    writer.output.flush();
+    if (!writer.output) throw hresult_error(E_FAIL);
+    writer.bytes += line.size();
+}
+
+void native_diagnostic(std::wstring const& environment, wchar_t const* event,
+    wchar_t const* level, DWORD child = 0, HRESULT error = S_OK,
+    std::wstring outputText = L"", wchar_t const* stream = L"") noexcept {
+    // Native evidence contains only fixed event names and OS identities/codes.
+    // Never persist the command line, environment block, paths or credentials.
+    try {
+        if (environment.size() != 36 || environment.find_first_not_of(L"0123456789abcdef-") != std::wstring::npos) return;
+        GUID identity{};
+        check_hresult(CoCreateGuid(&identity));
+        wchar_t raw[40];
+        StringFromGUID2(identity, raw, ARRAYSIZE(raw));
+        std::wstring id(raw + 1, raw + 37);
+        SYSTEMTIME now{};
+        GetSystemTime(&now);
+        wchar_t timestamp[40];
+        swprintf_s(timestamp, L"%04u-%02u-%02uT%02u:%02u:%02u.%03u+00:00",
+            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+        static std::atomic<unsigned long long> sequence{0};
+        static const std::wstring run = id;
+        JsonObject value;
+        value.Insert(L"schema_kind", JsonValue::CreateStringValue(L"armi.diagnostic-event"));
+        value.Insert(L"event_id", JsonValue::CreateStringValue(id));
+        value.Insert(L"timestamp", JsonValue::CreateStringValue(timestamp));
+        value.Insert(L"event", JsonValue::CreateStringValue(event));
+        value.Insert(L"message", JsonValue::CreateStringValue(event));
+        value.Insert(L"level", JsonValue::CreateStringValue(level));
+        value.Insert(L"service", JsonValue::CreateStringValue(L"armi-native"));
+        value.Insert(L"component", JsonValue::CreateStringValue(L"windows-host"));
+        value.Insert(L"environment_id", JsonValue::CreateStringValue(environment));
+        value.Insert(L"run_id", JsonValue::CreateStringValue(run));
+        value.Insert(L"package_full_name", JsonValue::CreateStringValue(Package::Current().Id().FullName()));
+        value.Insert(L"pid", JsonValue::CreateNumberValue(GetCurrentProcessId()));
+        value.Insert(L"sequence", JsonValue::CreateNumberValue(static_cast<double>(++sequence)));
+        JsonObject details;
+        details.Insert(L"child_pid", JsonValue::CreateNumberValue(child));
+        details.Insert(L"hresult", JsonValue::CreateNumberValue(error));
+        if (!outputText.empty()) {
+            static const std::wregex credentials(LR"((authorization|cookie|api[_-]?key|password|secret|access[_-]?token)[\s\"']*[:=][\s\"']*[^\r\n,;}]+)", std::regex_constants::icase);
+            static const std::wregex bearer(LR"(Bearer\s+[A-Za-z0-9._~+/=-]+)", std::regex_constants::icase);
+            static const std::wregex body(LR"((request_body|prompt|messages|input_text|parameters)[\s\"']*[:=].*)", std::regex_constants::icase);
+            static const std::wregex query(LR"((https?://[^\s\"'?]+)\?[^\s\"']*)", std::regex_constants::icase);
+            static const std::wregex key(LR"(\b(sk|ts|jev)-[A-Za-z0-9_-]{12,}\b)");
+            outputText = std::regex_replace(outputText, credentials, L"$1=[REDACTED]");
+            outputText = std::regex_replace(outputText, bearer, L"Bearer [REDACTED]");
+            outputText = std::regex_replace(outputText, body, L"$1=[REDACTED]");
+            outputText = std::regex_replace(outputText, query, L"$1");
+            outputText = std::regex_replace(outputText, key, L"[REDACTED]");
+            details.Insert(L"output_original_characters", JsonValue::CreateNumberValue(static_cast<double>(outputText.size())));
+            details.Insert(L"output_truncated", JsonValue::CreateBooleanValue(outputText.size() > 4096));
+            details.Insert(L"output", JsonValue::CreateStringValue(outputText.substr(0, 4096)));
+            details.Insert(L"stream", JsonValue::CreateStringValue(stream));
+            details.Insert(L"unstructured", JsonValue::CreateBooleanValue(true));
+        }
+        value.Insert(L"details", details);
+        value.Insert(L"sink_mode", JsonValue::CreateStringValue(L"file"));
+        try {
+            append_native(environment, run, id, std::wstring(timestamp, 10), to_string(value.Stringify()) + '\n');
+        } catch (...) {
+            value.Insert(L"sink_mode", JsonValue::CreateStringValue(L"emergency"));
+            value.Insert(L"sink_reason", JsonValue::CreateStringValue(L"NATIVE-DIAGNOSTIC-FILE-UNAVAILABLE"));
+            append_native(environment, run, id, std::wstring(timestamp, 10), to_string(value.Stringify()) + '\n', true);
+        }
+    } catch (...) {
+        OutputDebugStringW(L"ARMI-DIAGNOSTIC-PERSISTENCE-UNAVAILABLE\n");
+        constexpr char message[] = "ARMI-DIAGNOSTIC-PERSISTENCE-UNAVAILABLE\n";
+        DWORD written = 0;
+        WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, sizeof(message) - 1, &written, nullptr);
+    }
+}
+
 struct Apartment {
     Apartment() { init_apartment(apartment_type::multi_threaded); }
     ~Apartment() {
@@ -43,6 +176,71 @@ struct Handle {
     ~Handle() { if (value) CloseHandle(value); }
     Handle(Handle const&) = delete;
 };
+
+std::vector<std::thread> output_readers;
+
+void join_output_readers() {
+    for (auto& reader : output_readers) if (reader.joinable()) reader.join();
+    output_readers.clear();
+}
+
+bool adopt_output(HWND window, COPYDATASTRUCT const& message) {
+    if (message.dwData != 0x41524d49 || message.cbData > 2048 || message.cbData < sizeof(wchar_t)) return false;
+    auto raw = static_cast<wchar_t const*>(message.lpData);
+    if (!raw || raw[message.cbData / sizeof(wchar_t) - 1]) return false;
+    auto request = JsonObject::Parse(raw);
+    Handle caller(OpenProcess(PROCESS_DUP_HANDLE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+        static_cast<DWORD>(request.GetNamedNumber(L"pid"))));
+    wchar_t family[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1];
+    UINT32 size = ARRAYSIZE(family);
+    if (GetPackageFamilyName(caller.value, &size, family) != ERROR_SUCCESS ||
+        std::wstring_view(family) != Package::Current().Id().FamilyName()) return false;
+    HANDLE pipe = nullptr;
+    check_bool(DuplicateHandle(caller.value,
+        reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(request.GetNamedNumber(L"handle"))),
+        GetCurrentProcess(), &pipe, GENERIC_READ, FALSE, 0));
+    Handle guard(pipe);
+    if (GetFileType(pipe) != FILE_TYPE_PIPE) return false;
+    wchar_t environment[40];
+    if (GetWindowTextW(window, environment, ARRAYSIZE(environment)) != 36) return false;
+    auto stream = std::wstring(request.GetNamedString(L"stream"));
+    if (stream != L"stdout" && stream != L"stderr") return false;
+    DWORD childPid = static_cast<DWORD>(request.GetNamedNumber(L"child_pid"));
+    output_readers.emplace_back([pipe, environment = std::wstring(environment), stream, childPid] {
+        Apartment apartment;
+        Handle input(pipe);
+        HANDLE child = stream == L"stdout" ? OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, childPid) : nullptr;
+        std::string pending;
+        char buffer[4096];
+        DWORD received = 0;
+        while (ReadFile(pipe, buffer, sizeof(buffer), &received, nullptr) && received) {
+            pending.append(buffer, received);
+            for (;;) {
+                auto end = pending.find('\n');
+                if (end == std::string::npos && pending.size() < 4096) break;
+                auto length = (std::min)(end == std::string::npos ? pending.size() : end, size_t{4096});
+                auto line = pending.substr(0, length);
+                pending.erase(0, length + (end == length ? 1 : 0));
+                try { native_diagnostic(environment, L"process.child.output", L"info", childPid, S_OK, to_hstring(line).c_str(), stream.c_str()); }
+                catch (...) { native_diagnostic(environment, L"process.child.output.invalid_encoding", L"warning"); }
+            }
+        }
+        if (!pending.empty()) {
+            try { native_diagnostic(environment, L"process.child.output", L"info", childPid, S_OK, to_hstring(pending).c_str(), stream.c_str()); }
+            catch (...) { native_diagnostic(environment, L"process.child.output.invalid_encoding", L"warning"); }
+        }
+        if (child) {
+            WaitForSingleObject(child, INFINITE);
+            DWORD exitCode = 0;
+            if (GetExitCodeProcess(child, &exitCode)) {
+                native_diagnostic(environment, L"process.child.exited", exitCode ? L"error" : L"info", childPid, static_cast<HRESULT>(exitCode));
+            }
+            CloseHandle(child);
+        }
+    });
+    guard.value = nullptr;
+    return true;
+}
 
 struct DeploymentGate {
     Handle mutex;
@@ -156,8 +354,16 @@ JsonObject spawn_child(JsonObject const& request) {
     auto handles = request.GetNamedArray(L"handles");
     if (handles.Size() != 3) throw hresult_invalid_argument(L"MSIX-HOST-STDIO");
     HostHandles inherited(host.value);
+    std::vector<std::unique_ptr<Handle>> outputPipes;
     for (UINT32 index = 0; index < 3; ++index) {
         auto source = reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(handles.GetNumberAt(index)));
+        if (index && request.GetNamedBoolean(L"diagnostic_output", false)) {
+            HANDLE read = nullptr, write = nullptr;
+            check_bool(CreatePipe(&read, &write, nullptr, 0));
+            outputPipes.push_back(std::make_unique<Handle>(read));
+            outputPipes.push_back(std::make_unique<Handle>(write));
+            source = write;
+        }
         check_bool(DuplicateHandle(GetCurrentProcess(), source, host.value,
             &inherited.values[index], 0, TRUE, DUPLICATE_SAME_ACCESS));
     }
@@ -190,10 +396,24 @@ JsonObject spawn_child(JsonObject const& request) {
     Handle processHandle(process.hProcess);
     Handle thread(process.hThread);
     try {
+        for (size_t index = 0; index < outputPipes.size(); index += 2) {
+            JsonObject pipe;
+            pipe.Insert(L"pid", JsonValue::CreateNumberValue(GetCurrentProcessId()));
+            pipe.Insert(L"child_pid", JsonValue::CreateNumberValue(process.dwProcessId));
+            pipe.Insert(L"handle", JsonValue::CreateNumberValue(static_cast<double>(reinterpret_cast<UINT_PTR>(outputPipes[index]->value))));
+            pipe.Insert(L"stream", JsonValue::CreateStringValue(index == 0 ? L"stdout" : L"stderr"));
+            auto payload = pipe.Stringify();
+            COPYDATASTRUCT data{0x41524d49, static_cast<DWORD>((payload.size() + 1) * sizeof(wchar_t)), const_cast<wchar_t*>(payload.c_str())};
+            DWORD_PTR accepted = 0;
+            if (!SendMessageTimeoutW(window, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data), SMTO_ABORTIFHUNG, 5000, &accepted) || accepted != TRUE) {
+                throw hresult_error(E_FAIL, L"MSIX-HOST-OUTPUT-CAPTURE");
+            }
+        }
         JsonObject result;
         result.Insert(L"pid", JsonValue::CreateNumberValue(process.dwProcessId));
         result.Insert(L"handle", JsonValue::CreateNumberValue(static_cast<double>(reinterpret_cast<UINT_PTR>(process.hProcess))));
         if (ResumeThread(thread.value) != 1) throw hresult_invalid_argument(L"MSIX-HOST-RESUME");
+        native_diagnostic(environment, L"process.child.started", L"info", process.dwProcessId);
         processHandle.value = nullptr; // transferred to the Python Popen instance
         return result;
     } catch (...) {
@@ -292,6 +512,10 @@ void close_package_clients() {
 }
 
 LRESULT CALLBACK host_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_COPYDATA) {
+        try { return adopt_output(window, *reinterpret_cast<COPYDATASTRUCT const*>(lparam)) ? TRUE : FALSE; }
+        catch (...) { return FALSE; }
+    }
     if (message == WM_QUERYENDSESSION) return TRUE;
     if (message == WM_ENDSESSION && wparam) { PostQuitMessage(0); return 0; }
     return DefWindowProcW(window, message, wparam, lparam);
@@ -616,18 +840,28 @@ extern "C" __declspec(dllexport) HRESULT __stdcall armi_environment_host(wchar_t
             0, 0, 0, 0, nullptr, nullptr, windowClass.hInstance, nullptr);
         check_bool(window != nullptr);
         check_bool(SetEvent(ready.value));
+        native_diagnostic(environment, L"process.host.ready", L"info");
         for (;;) {
             DWORD event = MsgWaitForMultipleObjects(1, &stop.value, FALSE, INFINITE, QS_ALLINPUT);
             if (event == WAIT_OBJECT_0) break;
             if (event == WAIT_FAILED) throw_last_error();
             MSG message;
             while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
-                if (message.message == WM_QUIT) { DestroyWindow(window); return S_OK; }
+                if (message.message == WM_QUIT) { SetEvent(stop.value); break; }
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
         }
         DestroyWindow(window);
+        CloseHandle(job.value);
+        job.value = nullptr;
+        join_output_readers();
+        native_diagnostic(environment, L"process.host.stopped", L"info");
         return S_OK;
-    } catch (...) { return to_hresult(); }
+    } catch (...) {
+        auto error = to_hresult();
+        join_output_readers();
+        if (environment) native_diagnostic(environment, L"process.host.failed", L"error", 0, error);
+        return error;
+    }
 }

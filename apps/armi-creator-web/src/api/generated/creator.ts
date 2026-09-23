@@ -243,6 +243,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/diagnostics/client": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Report Client Diagnostics */
+    post: operations["reportClientDiagnostics"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/effects/{effect_id}": {
     parameters: {
       query?: never;
@@ -1169,6 +1186,11 @@ export interface components {
       expires_at: string;
       /** Issued At */
       issued_at: string;
+    };
+    /** ClientDiagnosticReceipt */
+    ClientDiagnosticReceipt: {
+      /** Accepted */
+      accepted: number;
     };
     /** CodexAvailabilityResponse */
     CodexAvailabilityResponse: {
@@ -4027,6 +4049,26 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["DataRightsOrderResponse"];
+        };
+      };
+    };
+  };
+  reportClientDiagnostics: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ClientDiagnosticReceipt"];
         };
       };
     };

@@ -7,14 +7,17 @@ an external adapter cannot dispatch without a bound durable sink.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Literal, cast
 from uuid import uuid7
 
+from .diagnostics import diagnostic_scope, record_diagnostic
 from .provider_usage import (
     CostEstimate,
     PriceCatalog,
@@ -237,25 +240,73 @@ async def provider_call(
     # Commit before yielding control to the adapter: failure means no request.
     await scope.write(receipt)
     call = MeteredProviderCall(receipt, scope.write)
+    diagnostic_binding = diagnostic_scope(call_id=receipt.call_id)
+    diagnostic_binding.__enter__()
+    started = monotonic()
+    record_diagnostic(
+        "provider.call.started",
+        component="provider",
+        provider=provider,
+        model=model,
+        purpose=scope.purpose,
+        service=service,
+    )
     try:
         yield call
     except BaseException as error:
+        response = getattr(error, "response", None)
+        status = getattr(error, "status_code", None) or getattr(
+            response, "status_code", None
+        )
+        timed_out = isinstance(error, TimeoutError) or any(
+            cls.__name__ in {"TimeoutException", "APITimeoutError"}
+            for cls in type(error).__mro__
+        )
+        record_diagnostic(
+            "provider.call.failed",
+            component="provider",
+            level=logging.ERROR,
+            error=error,
+            provider=provider,
+            model=model,
+            purpose=scope.purpose,
+            http_status=status,
+            timeout_type=type(error).__name__ if timed_out else None,
+            duration_ms=round((monotonic() - started) * 1000),
+        )
         # A returned receipt remains useful even when cancellation or parsing fails.
         if call.receipt.outcome == "pending":
-            status = getattr(error, "status_code", None)
             if type(status) is int and 400 <= status < 600:
+                headers = getattr(response, "headers", {})
+                call.receipt = replace(
+                    call.receipt,
+                    provider_request_id=headers.get("x-request-id")
+                    or headers.get("request-id"),
+                )
                 await call.finish("failed", error_code=f"USAGE-PROVIDER-HTTP-{status}")
             else:
                 await call.finish(
                     "unknown",
                     error_code="USAGE-CALL-TIMEOUT"
-                    if isinstance(error, TimeoutError)
+                    if timed_out
                     else "USAGE-CALL-INTERRUPTED",
                 )
         raise
     else:
         if call.receipt.outcome == "pending":
             await call.finish("returned")
+        record_diagnostic(
+            "provider.call.completed",
+            component="provider",
+            provider=provider,
+            model=model,
+            purpose=scope.purpose,
+            outcome=call.receipt.outcome,
+            provider_request_id=call.receipt.provider_request_id,
+            duration_ms=round((monotonic() - started) * 1000),
+        )
+    finally:
+        diagnostic_binding.__exit__(None, None, None)
 
 
 def normalize_token_usage(

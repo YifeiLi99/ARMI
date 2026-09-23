@@ -32,7 +32,9 @@ from armi_kernel.application import (
     ExecutionCustodyScopeKind,
     ExecutionCustodyViolation,
     RuntimeFence,
+    diagnostic_scope,
     ordered_custody_requests,
+    record_diagnostic,
 )
 from armi_kernel.contracts import ContractViolation
 from armi_runtime_foundation import (
@@ -291,8 +293,19 @@ class EffectPipeline:
                 ExecutionCustodyMode.EXCLUSIVE,
             ),
         )
-        async with self._custody.hold(requests, deadline_at=snapshot.dispatch_deadline):
-            return await self._dispatch_claimed(snapshot, runtime_fence)
+        with diagnostic_scope(
+            effect_id=snapshot.request.effect_id.value,
+            trace_id=snapshot.request.trace_id.value,
+        ):
+            record_diagnostic(
+                "effect.dispatch.started",
+                component="effect",
+                attempt=snapshot.attempt_no,
+            )
+            async with self._custody.hold(
+                requests, deadline_at=snapshot.dispatch_deadline
+            ):
+                return await self._dispatch_claimed(snapshot, runtime_fence)
 
     async def _dispatch_claimed(
         self,
@@ -350,6 +363,12 @@ class EffectPipeline:
                             data_rights_fence=data_fence,
                         )
             if not dispatching:
+                record_diagnostic(
+                    "effect.dispatch.not_sent",
+                    component="effect",
+                    outcome="not_sent",
+                    reason="dispatch_boundary_rejected",
+                )
                 await self._notify_dispatch(snapshot, include_scene=False)
                 return True
             await self._notify_dispatch(snapshot, include_scene=False)
@@ -358,6 +377,16 @@ class EffectPipeline:
                     snapshot, payload, runtime_fence, data_fence
                 )
             except EffectViolation as error:
+                record_diagnostic(
+                    "effect.dispatch.failed",
+                    component="effect",
+                    level=40,
+                    error=error,
+                    result_code=error.code,
+                    outcome="unknown"
+                    if error.code == "EFFECT-RESULT-UNKNOWN"
+                    else "failed",
+                )
                 if error.code == "EFFECT-RECEIVER-CONFLICT":
                     async with self._factory.unit_of_work() as uow:
                         await self._dispatcher.settle_integrity_failure(uow, snapshot)
@@ -389,6 +418,9 @@ class EffectPipeline:
                 )
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
                 await self._record_party_response(uow, snapshot, receipt)
+            record_diagnostic(
+                "effect.dispatch.completed", component="effect", outcome="completed"
+            )
             await self._notify_dispatch(snapshot, include_scene=True)
             return True
         except RuntimeTransactionFailure, EffectViolation:
@@ -512,7 +544,31 @@ class EffectPipeline:
                     )
                     await self._dispatcher.validate_message_route(uow, snapshot)
                     self._adapter.validate(snapshot.request)
-            receipt = await self._adapter.dispatch(snapshot.request, part)
+            try:
+                receipt = await self._adapter.dispatch(snapshot.request, part)
+            except BaseException as error:
+                record_diagnostic(
+                    "effect.part.failed",
+                    component="effect",
+                    level=20 if isinstance(error, asyncio.CancelledError) else 40,
+                    error=None if isinstance(error, asyncio.CancelledError) else error,
+                    part_index=index,
+                    part_count=len(parts),
+                    confirmed_parts=index,
+                    delivery_extent="partial" if index else "none_confirmed",
+                    outcome="unknown"
+                    if getattr(error, "code", None) == "EFFECT-RESULT-UNKNOWN"
+                    else "cancelled"
+                    if isinstance(error, asyncio.CancelledError)
+                    else "failed",
+                )
+                raise
+            record_diagnostic(
+                "effect.part.received",
+                component="effect",
+                part_index=index,
+                part_count=len(parts),
+            )
             if index == len(parts) - 1:
                 return receipt
             async with self._factory.unit_of_work() as uow:

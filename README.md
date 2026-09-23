@@ -176,6 +176,12 @@ ARMI cli interaction operation wait --result-ref <返回的引用> --timeout-sec
 
 CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不是完成；等待超时或断线返回继续查询的引用，不重新发送输入。用 `ARMI cli interaction schema` 和 `ARMI cli admin schema` 离线读取当前操作参数。
 
+运行排障从 `admin_diagnostics_summary` 开始：默认选择最近一次 Runtime（包括失败的启动尝试），用 `representative_log_ref` 调用 `admin_diagnostics_read` 读取脱敏异常链、HTTP 错误正文及相关业务查询参数。`admin_diagnostics_query` 支持错误码、供应商、HTTP 状态和工作身份筛选；`admin_trace_flow` 同时返回业务图和诊断时间线。CLI 对应 `diagnostics-summary`、`diagnostics-query`、`diagnostics-read`、`trace-flow`，参数以 `admin schema` 为准。
+
+汇总可传 `period: "since_update"` 或 `"all_retained"`，也可传带时区的 `start` / `end`。没有留存的更新边界时明确返回证据不完整，不猜测更新时间。列表默认 50 条、最多 200 条，正文通过引用单独读取；有 `cursor` 时继续查询，`complete` 只表示该快照扫描结束，仍须检查 `coverage.evidence_complete`、损坏记录与清理缺口。Runtime 和 PostgreSQL 停止时仍可读取绑定目录中的本地日志。旧 `tail_diagnostics` 已删除。
+
+日志默认保留 30 天、安装实例合计 1 GiB，单进程按日或 16 MiB 分段。Runtime 写环境 `data/logs/`，管理、早期启动与原生宿主写既有控制目录；日志写入失败报告降级，Runtime 可写入控制目录应急日志。对话、模型输入输出、图片音频仍经受治理制品读取，日志不进入主体认知或 Codex runner。详细合同见 [运行诊断](DESIGN.md#运行诊断与-agent-排障)。
+
 开发代理操作 ARMI 默认使用正式 CLI/MCP，包括查询、配置、启停、诊断和结果核验；构建及安装更新使用项目脚本和 Windows 包管理接口。只有用户针对当前操作明确要求 Computer Use（电脑操控）时才使用桌面或浏览器界面操控；“打开”“看看”“检查”及修改界面本身不构成该要求。打开窗口可调用正式入口，机器接口缺失时说明缺口，不自行切换界面操作。视觉验收遵守同一边界，未做的视觉检查如实说明。
 
 `ARMI cli interaction artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。

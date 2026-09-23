@@ -455,7 +455,10 @@ class SemanticRecallProcessManager:
             from .windows_package import spawn_owned
 
             process = spawn_owned(
-                command, environment_id=self._environment_identity(), **options
+                command,
+                environment_id=self._environment_identity(),
+                diagnostic_output=True,
+                **options,
             )
         except OSError as exc:
             log_handle.close()

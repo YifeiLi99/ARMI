@@ -344,7 +344,10 @@ class RuntimeProcessManager:
                 from .windows_package import spawn_owned
 
                 process = spawn_owned(
-                    command, environment_id=self._environment_id, **options
+                    command,
+                    environment_id=self._environment_id,
+                    diagnostic_output=True,
+                    **options,
                 )
             except OSError as exc:
                 self._clear_stale_files()

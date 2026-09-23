@@ -562,6 +562,47 @@ class AdminToolServiceTests(unittest.TestCase):
 
 
 class AdminProtocolTests(unittest.TestCase):
+    def test_diagnostics_wire_preserves_scan_bytes_without_database(self) -> None:
+        from armi_runtime_foundation import DiagnosticLog
+
+        service = _service()
+        sink = DiagnosticLog(
+            data_root=service.config.environment_root / "data",
+            environment_id=ENVIRONMENT_ID,
+            instance_id="test-run",
+        )
+        sink.write("provider.failed", level=40, details={"http_status": 503})
+        sink.close()
+
+        async def exercise() -> None:
+            async with Client(_server(service), mode="auto") as client:
+                response = await client.call_tool("admin_diagnostics_query", {})
+                content = response.structured_content
+                assert content is not None
+                assert content["status"] == "succeeded"
+                assert content["result"]["bytes_examined"] > 0
+                assert content["result"]["items"][0]["event"] == "provider.failed"
+
+        asyncio.run(exercise())
+
+    def test_invalid_server_output_is_not_reported_as_invalid_input(self) -> None:
+        from armi_runtime_foundation import DiagnosticQuery
+
+        async def exercise() -> None:
+            with patch.object(
+                DiagnosticQuery, "query", return_value={"bytes_examined": "invalid"}
+            ):
+                response = await _server(_service()).call_tool(
+                    "admin_diagnostics_query", {}
+                )
+                content = response.structured_content
+                assert content is not None
+                assert content["status"] == "failed"
+                assert content["error_code"] == "MCP-SERVER-OUTPUT-INVALID"
+                assert content["diagnostics"]["tool"] == "admin_diagnostics_query"
+
+        asyncio.run(exercise())
+
     def test_modern_discover_and_legacy_initialize(self) -> None:
         async def exercise() -> tuple[str, str, list[str]]:
             server = _server(_service())

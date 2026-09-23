@@ -13,6 +13,7 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    record_diagnostic,
 )
 from armi_kernel.contracts import Instant
 from armi_runtime_foundation import (
@@ -111,6 +112,14 @@ class MaintenanceCoordinator:
                     session_id = await self._repository.active_session_id(unit_of_work)
         if session_id is not None:
             await self._notify(session_id)
+        record_diagnostic(
+            "maintenance.check.completed",
+            component="maintenance",
+            session_id=session_id,
+            opportunity_id=outcome.opportunity_id,
+            outcome=outcome.status.value,
+            result_code=outcome.reason_code,
+        )
         return outcome
 
     async def request_emergency_wake(
@@ -201,6 +210,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         self._stop.set()
 
     async def admit_once(self) -> OpportunityAdmissionOutcome:
+        observations: dict[str, object] = {}
         try:
             # Local channel inspection may perform I/O and must precede the write transaction.
             outlet_health = await self._facts.outlet_health(
@@ -214,6 +224,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
                     model_concurrency=self._model_concurrency,
                     outlet_health=outlet_health,
                     model_revision=model_revision,
+                    observations=observations,
                 )
         except LifeViolation:
             raise
@@ -221,6 +232,15 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
             raise LifeViolation("LIFE-DATABASE") from None
         if result.status is OpportunityAdmissionStatus.ADMITTED:
             self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+        record_diagnostic(
+            "autonomy.admission.checked",
+            component="autonomy",
+            trigger="scheduler",
+            opportunity_id=result.opportunity_id,
+            outcome=result.status.value,
+            reason=result.reason_code,
+            conditions=observations,
+        )
         return result
 
     async def run(self) -> None:

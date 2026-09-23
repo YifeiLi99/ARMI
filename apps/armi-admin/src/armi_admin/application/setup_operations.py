@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import traceback
 from pathlib import Path
+from time import monotonic
 from typing import Any, Literal
+from uuid import uuid7
 
 from armi_kernel.application import PersonalityAnchor
+from armi_local_control import (
+    environment_bootstrap_control_root,
+    installation_diagnostic_roots,
+)
 from armi_local_control.runtime_errors import RuntimeViolation
-from armi_local_control.windows_package import WindowsPackageError
+from armi_local_control.windows_package import WindowsPackageError, package_identity
+from armi_runtime_foundation import DiagnosticLog
 from pydantic import BaseModel, ConfigDict, Field
 
 from .installation import (
@@ -83,6 +90,37 @@ def _diagnostic(error: Exception) -> dict[str, Any]:
 
 
 def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, Any]:
+    sink = DiagnosticLog(
+        data_root=environment_bootstrap_control_root(application.root),
+        environment_id="unbound",
+        instance_id=str(uuid7()),
+        service="armi-setup",
+        version=package.version if (package := package_identity()) else "source",
+        retention_roots=installation_diagnostic_roots(application.root, "unbound"),
+    )
+    started = monotonic()
+    sink.install()
+    sink.write("setup.operation.started", details={"operation": request.action})
+    try:
+        result = _dispatch(application, request, sink)
+        sink.write(
+            "setup.operation.completed",
+            level=40 if result.get("status") == "failed" else 20,
+            details={
+                "operation": request.action,
+                "outcome": result.get("status"),
+                "error_code": result.get("error_code"),
+            },
+            duration_ms=round((monotonic() - started) * 1000),
+        )
+        return result
+    finally:
+        sink.close()
+
+
+def _dispatch(
+    application: SetupApplication, request: SetupRequest, sink: DiagnosticLog
+) -> dict[str, Any]:
     try:
         if request.action == "status":
             return application.status()
@@ -116,16 +154,28 @@ def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, 
             raise SetupError("SETUP-ADMIN-OPERATION-REQUIRED")
         return application.invoke(request.operation, request.arguments)
     except SetupError as error:
+        sink.write(
+            "setup.operation.failed", level=40, error=error, operation=request.action
+        )
         return {"status": "failed", "error_code": str(error)}
     except WindowsPackageError as error:
+        sink.write(
+            "setup.operation.failed", level=40, error=error, operation=request.action
+        )
         return {"status": "failed", "error_code": str(error)}
     except RuntimeViolation as error:
+        sink.write(
+            "setup.operation.failed", level=40, error=error, operation=request.action
+        )
         return {
             "status": "failed",
             "error_code": error.code,
             "diagnostic": _diagnostic(error),
         }
     except Exception as error:
+        sink.write(
+            "setup.operation.failed", level=40, error=error, operation=request.action
+        )
         # Pydantic and provider exceptions can contain submitted credentials.
         # Report code locations only, never exception messages or local values.
         return {

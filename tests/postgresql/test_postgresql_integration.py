@@ -11452,19 +11452,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 .read_text(encoding="utf-8")
                 .splitlines()
             ]
+            lifecycle_events = [
+                "runtime.lifecycle.starting",
+                "runtime.authority.acquired",
+                "runtime.lifecycle.recovering",
+                "runtime.recovery.safe",
+                "runtime.lifecycle.degraded",
+                "creator.session.established",
+                "creator.event_stream.connected",
+                "creator.input.accepted",
+                "creator.input.idempotent",
+            ]
             self.assertEqual(
-                log_events[:9],
-                [
-                    "runtime.lifecycle.starting",
-                    "runtime.authority.acquired",
-                    "runtime.lifecycle.recovering",
-                    "runtime.recovery.safe",
-                    "runtime.lifecycle.degraded",
-                    "creator.session.established",
-                    "creator.event_stream.connected",
-                    "creator.input.accepted",
-                    "creator.input.idempotent",
-                ],
+                [event for event in log_events if event in lifecycle_events][:9],
+                lifecycle_events,
             )
             # Background context preparation and heartbeat can complete in either order.
             self.assertIn("runtime.authority.heartbeat", log_events[9:])

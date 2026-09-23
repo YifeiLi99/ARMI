@@ -682,6 +682,19 @@
         "title": "BrowserSessionResponse",
         "type": "object"
       },
+      "ClientDiagnosticReceipt": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "ClientDiagnosticReceipt",
+        "type": "object"
+      },
       "CodexAvailabilityResponse": {
         "additionalProperties": false,
         "properties": {
@@ -7708,6 +7721,29 @@
           }
         ],
         "summary": "Retry Creator Data Rights Order"
+      }
+    },
+    "/v1/diagnostics/client": {
+      "post": {
+        "operationId": "reportClientDiagnostics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientDiagnosticReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Report Client Diagnostics"
       }
     },
     "/v1/effects/{effect_id}": {

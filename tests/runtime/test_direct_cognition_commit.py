@@ -72,7 +72,11 @@ async def test_validation_and_application_commit_or_rollback_together(fail) -> N
         )
         if fail:
             raise SubjectCommitViolation("SUBJECT-INJECTED")
-        return object()
+        return SimpleNamespace(
+            subject_commit_id=None,
+            subject_version=1,
+            status=SimpleNamespace(value="committed"),
+        )
 
     submission = object.__new__(_Submission)
     submission._factory = cast(Any, SimpleNamespace(unit_of_work=transaction))
@@ -96,12 +100,13 @@ async def test_validation_and_application_commit_or_rollback_together(fail) -> N
         record=record,
         accepted_candidates=(),
     )
+    lease = SimpleNamespace(work_id=SimpleNamespace(value=uuid7()))
     if fail:
         with pytest.raises(SubjectCommitViolation, match="SUBJECT-INJECTED"):
-            await submission.submit(cast(Any, object()), cast(Any, candidate))
+            await submission.submit(cast(Any, lease), cast(Any, candidate))
         assert committed == []
     else:
-        await submission.submit(cast(Any, object()), cast(Any, candidate))
+        await submission.submit(cast(Any, lease), cast(Any, candidate))
         assert committed == [
             "validation",
             "subject",
@@ -136,7 +141,10 @@ async def test_autonomous_codex_preparation_failure_never_opens_commit_transacti
         record=record,
     )
     with pytest.raises(SubjectCommitViolation, match="CODEX-TASK-ARTIFACT"):
-        await submission.submit(cast(Any, object()), cast(Any, candidate))
+        await submission.submit(
+            cast(Any, SimpleNamespace(work_id=SimpleNamespace(value=uuid7()))),
+            cast(Any, candidate),
+        )
     prepare.assert_awaited_once()
     transaction.assert_not_called()
     record.assert_not_called()

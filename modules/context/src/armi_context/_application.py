@@ -49,7 +49,9 @@ from armi_kernel.application import (
     WorkLease,
     WorkType,
     WorkViolation,
+    diagnostic_scope,
     ordered_custody_requests,
+    record_diagnostic,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
@@ -322,7 +324,18 @@ class ContextPipeline:
             return True
         custody_context = None
         custody_held = False
+        log_scope = diagnostic_scope(
+            work_id=record.draft.work_id.value,
+            trace_id=record.draft.trace_id.value,
+            episode_id=episode_id,
+        )
+        log_scope.__enter__()
         try:
+            record_diagnostic(
+                "context.preparation.started",
+                component="context",
+                work_kind=record.draft.work_kind,
+            )
             snapshot = await self._snapshot(episode_id)
             requests = [
                 ExecutionCustodyRequest(
@@ -516,8 +529,11 @@ class ContextPipeline:
             self._diagnostic("context.prepare.custody_unavailable")
             return True
         finally:
-            if custody_context is not None and custody_held:
-                await custody_context.__aexit__(None, None, None)
+            try:
+                if custody_context is not None and custody_held:
+                    await custody_context.__aexit__(None, None, None)
+            finally:
+                log_scope.__exit__(None, None, None)
 
     async def run_selector(self) -> None:
         observed = self._wakeups.version(OPPORTUNITY_AVAILABLE)

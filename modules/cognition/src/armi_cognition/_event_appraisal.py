@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol, cast
 
+from armi_kernel.application import record_diagnostic
 from armi_mind.api import (
     MindEvaluationTarget,
     MindEvidence,
@@ -105,8 +106,16 @@ def parse_event_appraisal(
             situations=request.situations,
             goals=request.goals,
         )
-    except ValueError, TypeError, KeyError:
+    except (ValueError, TypeError, KeyError) as error:
         mood_failure = "MOOD-JEV-CONTRACT"
+        record_diagnostic(
+            "appraisal.owner.rejected",
+            component="cognition",
+            level=40,
+            error=error,
+            owner="mood",
+            result_code=mood_failure,
+        )
     try:
         mind = parse_mind_event_answers(
             {key: value for key, value in answers.items() if key.startswith("mind_")},
@@ -114,8 +123,16 @@ def parse_event_appraisal(
             evidence_key=request.evidence_key,
             at=request.at,
         )
-    except ValueError, TypeError, KeyError:
+    except (ValueError, TypeError, KeyError) as error:
         mind_failure = "MIND-JEV-CONTRACT"
+        record_diagnostic(
+            "appraisal.owner.rejected",
+            component="cognition",
+            level=40,
+            error=error,
+            owner="mind",
+            result_code=mind_failure,
+        )
     return EventAppraisalResult(
         mood,
         mind,

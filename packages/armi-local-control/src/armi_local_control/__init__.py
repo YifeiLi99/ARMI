@@ -11,7 +11,12 @@ from .configuration import (
     load_effective_config,
     preflight_config,
 )
-from .layout import environment_control_root, program_installation_root
+from .layout import (
+    environment_bootstrap_control_root,
+    environment_control_root,
+    installation_diagnostic_roots,
+    program_installation_root,
+)
 from .native_postgresql import (
     NativePostgreSQL,
     PostgreSQLControlBinding,
@@ -44,8 +49,10 @@ __all__ = (
     "UsageCall",
     "UsageCalls",
     "UsageSummary",
+    "environment_bootstrap_control_root",
     "environment_control_root",
     "free_loopback_port",
+    "installation_diagnostic_roots",
     "load_effective_config",
     "preflight_config",
     "private_directory",

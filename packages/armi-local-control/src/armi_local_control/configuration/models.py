@@ -296,7 +296,8 @@ class ArtifactsConfig(_FrozenModel):
 
 class DiagnosticsConfig(_FrozenModel):
     rotation_max_bytes: PositiveInt = 16_777_216
-    retention_seconds: PositiveInt = 604_800
+    retention_seconds: PositiveInt = 2_592_000
+    total_max_bytes: PositiveInt = 1_073_741_824
 
 
 class ObservabilityConfig(_FrozenModel):

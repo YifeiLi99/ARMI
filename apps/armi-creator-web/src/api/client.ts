@@ -1,10 +1,11 @@
+import { reportDiagnostic } from "./diagnostics";
 import type { components } from "./generated/creator";
 
 export type AutonomyStatus = components["schemas"]["AutonomyStatus"];
 export type AutonomyHistory = components["schemas"]["AutonomyHistory"];
 
 export async function getAutonomyStatus(token: string, signal?: AbortSignal) {
-  const response = await fetch("/v1/autonomy/status", {
+  const response = await technicalFetch("/v1/autonomy/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -17,7 +18,7 @@ export async function getAutonomyHistory(
   offset: number,
   signal?: AbortSignal,
 ) {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/autonomy/history?limit=25&offset=${offset}`,
     {
       credentials: "omit",
@@ -52,7 +53,7 @@ async function queryUsage<T>(
   for (const [key, value] of Object.entries(parameters)) {
     if (value !== undefined && value !== "") query.set(key, String(value));
   }
-  const response = await fetch(`/v1/usage/${path}?${query}`, {
+  const response = await technicalFetch(`/v1/usage/${path}?${query}`, {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -165,7 +166,7 @@ export async function createCreatorExport(
   directoryName: string,
   idempotencyKey: string,
 ): Promise<CreatorExport> {
-  const response = await fetch("/v1/exports", {
+  const response = await technicalFetch("/v1/exports", {
     method: "POST",
     credentials: "omit",
     headers: {
@@ -185,11 +186,14 @@ export async function getCreatorExport(
   exportId: string,
   signal?: AbortSignal,
 ): Promise<CreatorExport> {
-  const response = await fetch(`/v1/exports/${encodeURIComponent(exportId)}`, {
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-    ...(signal === undefined ? {} : { signal }),
-  });
+  const response = await technicalFetch(
+    `/v1/exports/${encodeURIComponent(exportId)}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
   return requireJson(response);
 }
 
@@ -198,7 +202,7 @@ export async function createDataRightsOrder(
   orderKind: "stop_contact" | "stop_use" | "delete_related",
   idempotencyKey: string,
 ): Promise<DataRightsOrder> {
-  const response = await fetch("/v1/data-rights/orders", {
+  const response = await technicalFetch("/v1/data-rights/orders", {
     method: "POST",
     credentials: "omit",
     headers: {
@@ -215,7 +219,7 @@ export async function getDataRightsOrders(
   token: string,
   signal?: AbortSignal,
 ): Promise<DataRightsOrderCollection> {
-  const response = await fetch("/v1/data-rights/orders", {
+  const response = await technicalFetch("/v1/data-rights/orders", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -228,14 +232,17 @@ export async function retryDataRightsOrder(
   orderId: string,
   idempotencyKey: string,
 ): Promise<DataRightsOrder> {
-  const response = await fetch(`/v1/data-rights/orders/${orderId}/retry`, {
-    method: "POST",
-    credentials: "omit",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Idempotency-Key": idempotencyKey,
+  const response = await technicalFetch(
+    `/v1/data-rights/orders/${orderId}/retry`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Idempotency-Key": idempotencyKey,
+      },
     },
-  });
+  );
   return requireJson(response);
 }
 
@@ -266,6 +273,11 @@ async function requireJson<Response>(
   response: globalThis.Response,
 ): Promise<Response> {
   if (!response.ok) {
+    reportDiagnostic({
+      event: "request_failed",
+      message: "Creator API request failed",
+      http_status: response.status,
+    });
     throw new ApiFailure(response.status, await safeErrorCode(response));
   }
   return (await response.json()) as Response;
@@ -274,7 +286,7 @@ async function requireJson<Response>(
 export async function createBrowserSession(
   signal?: AbortSignal,
 ): Promise<BrowserSessionEstablished> {
-  const response = await fetch("/v1/browser-sessions", {
+  const response = await technicalFetch("/v1/browser-sessions", {
     method: "POST",
     credentials: "omit",
     ...(signal === undefined ? {} : { signal }),
@@ -286,7 +298,7 @@ export async function getCurrentBrowserSession(
   token: string,
   signal?: AbortSignal,
 ): Promise<BrowserSession> {
-  const response = await fetch("/v1/browser-sessions/current", {
+  const response = await technicalFetch("/v1/browser-sessions/current", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -298,7 +310,7 @@ export async function getRuntimeStatus(
   token: string,
   signal?: AbortSignal,
 ): Promise<RuntimeStatus> {
-  const response = await fetch("/v1/runtime/status", {
+  const response = await technicalFetch("/v1/runtime/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -310,7 +322,7 @@ export async function getQQChannelHealth(
   token: string,
   signal?: AbortSignal,
 ): Promise<QQChannelHealth> {
-  const response = await fetch("/v1/channels/qq/status", {
+  const response = await technicalFetch("/v1/channels/qq/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -322,7 +334,7 @@ export async function setQQChannelEnabled(
   token: string,
   enabled: boolean,
 ): Promise<QQChannelHealth> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/channels/qq/${enabled ? "start" : "stop"}`,
     {
       method: "POST",
@@ -337,7 +349,7 @@ export async function getLiveVoiceStatus(
   token: string,
   signal?: AbortSignal,
 ): Promise<LiveVoiceStatus> {
-  const response = await fetch("/v1/voice/status", {
+  const response = await technicalFetch("/v1/voice/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -349,11 +361,14 @@ export async function setLiveVoiceRunning(
   token: string,
   running: boolean,
 ): Promise<LiveVoiceStatus> {
-  const response = await fetch(`/v1/voice/${running ? "start" : "stop"}`, {
-    method: "POST",
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await technicalFetch(
+    `/v1/voice/${running ? "start" : "stop"}`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   return requireJson(response);
 }
 
@@ -361,7 +376,7 @@ export async function getLiveVisionStatus(
   token: string,
   signal?: AbortSignal,
 ): Promise<LiveVisionStatus> {
-  const response = await fetch("/v1/vision/status", {
+  const response = await technicalFetch("/v1/vision/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -374,11 +389,14 @@ export async function controlLiveVision(
   source: LiveVisionSourceKind,
   action: "start" | "stop",
 ): Promise<LiveVisionStatus> {
-  const response = await fetch(`/v1/vision/sources/${source}/${action}`, {
-    method: "POST",
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await technicalFetch(
+    `/v1/vision/sources/${source}/${action}`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   return requireJson(response);
 }
 
@@ -387,7 +405,7 @@ export async function observeLiveVision(
   source: LiveVisionSourceKind,
   idempotencyKey: string,
 ): Promise<LiveVisionObservation> {
-  const response = await fetch("/v1/vision/observe", {
+  const response = await technicalFetch("/v1/vision/observe", {
     method: "POST",
     credentials: "omit",
     headers: {
@@ -405,7 +423,7 @@ export async function getLiveVisionObservation(
   observationId: string,
   signal?: AbortSignal,
 ): Promise<LiveVisionObservation> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/vision/observations/${encodeURIComponent(observationId)}`,
     {
       credentials: "omit",
@@ -420,11 +438,14 @@ export async function getLiveVisionPreview(
   token: string,
   source: LiveVisionSourceKind,
 ): Promise<Blob | null> {
-  const response = await fetch(`/v1/vision/sources/${source}/preview`, {
-    credentials: "omit",
-    cache: "no-store",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await technicalFetch(
+    `/v1/vision/sources/${source}/preview`,
+    {
+      credentials: "omit",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   if (response.status === 404) return null;
   if (!response.ok)
     throw new ApiFailure(response.status, await response.text());
@@ -442,7 +463,7 @@ export async function getSceneTimeline(
   if (cursor !== undefined) {
     query.set("cursor", cursor);
   }
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/scenes/${encodeURIComponent(sceneKey)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
@@ -457,7 +478,7 @@ export async function getCreatorScenes(
   token: string,
   signal?: AbortSignal,
 ): Promise<CreatorSceneCollection> {
-  const response = await fetch("/v1/scenes", {
+  const response = await technicalFetch("/v1/scenes", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -469,7 +490,7 @@ export async function createCreatorScene(
   token: string,
   sceneKey: string,
 ): Promise<CreatorScene> {
-  const response = await fetch("/v1/scenes", {
+  const response = await technicalFetch("/v1/scenes", {
     method: "POST",
     credentials: "omit",
     headers: {
@@ -487,7 +508,7 @@ export async function setCreatorSceneOpen(
   open: boolean,
 ): Promise<CreatorScene> {
   const action = open ? "reopen" : "close";
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/scenes/${encodeURIComponent(sceneKey)}/${action}`,
     {
       method: "POST",
@@ -506,7 +527,7 @@ export async function getCreatorActivities(
 ): Promise<CreatorActivityPage> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(`/v1/activities?${query.toString()}`, {
+  const response = await technicalFetch(`/v1/activities?${query.toString()}`, {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -523,7 +544,7 @@ export async function getCreatorActivityTimeline(
 ): Promise<CreatorActivityTimeline> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/activities/${encodeURIComponent(activityId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
@@ -560,11 +581,14 @@ export async function queryCreatorLifeRecords(
   if (cursor !== undefined) {
     query.set("cursor", cursor);
   }
-  const response = await fetch(`/v1/life-records?${query.toString()}`, {
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-    ...(signal === undefined ? {} : { signal }),
-  });
+  const response = await technicalFetch(
+    `/v1/life-records?${query.toString()}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
   return requireJson(response);
 }
 
@@ -573,7 +597,7 @@ export async function getCreatorLifeMaterial(
   materialId: string,
   signal?: AbortSignal,
 ): Promise<CreatorLifeMaterial> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/materials/${encodeURIComponent(materialId)}`,
     {
       credentials: "omit",
@@ -598,7 +622,7 @@ export async function getCreatorMemories(
   if (cursor !== undefined) {
     query.set("cursor", cursor);
   }
-  const response = await fetch(`/v1/memories?${query.toString()}`, {
+  const response = await technicalFetch(`/v1/memories?${query.toString()}`, {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -617,7 +641,7 @@ export async function getCreatorMemoryTimeline(
   if (cursor !== undefined) {
     query.set("cursor", cursor);
   }
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/memories/${encodeURIComponent(memoryId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
@@ -632,7 +656,7 @@ export async function getCreatorMaintenanceStatus(
   token: string,
   signal?: AbortSignal,
 ): Promise<CreatorMaintenanceStatus> {
-  const response = await fetch("/v1/maintenance/status", {
+  const response = await technicalFetch("/v1/maintenance/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -644,7 +668,7 @@ export async function getCreatorRelationshipCurrent(
   token: string,
   signal?: AbortSignal,
 ): Promise<CreatorRelationshipCurrent> {
-  const response = await fetch("/v1/relationships/current", {
+  const response = await technicalFetch("/v1/relationships/current", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -661,7 +685,7 @@ export async function getCreatorRelationshipTimeline(
 ): Promise<CreatorRelationshipTimeline> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/relationships/${encodeURIComponent(relationshipId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
@@ -680,11 +704,14 @@ export async function getOtherHumanRecordParties(
 ): Promise<OtherHumanPartyRecordPage> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(`/v1/other-human-records?${query.toString()}`, {
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-    ...(signal === undefined ? {} : { signal }),
-  });
+  const response = await technicalFetch(
+    `/v1/other-human-records?${query.toString()}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
   return requireJson(response);
 }
 
@@ -697,7 +724,7 @@ export async function getOtherHumanRecordScenes(
 ): Promise<OtherHumanSceneRecordPage> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/other-human-records/${encodeURIComponent(partyId)}/scenes?${query.toString()}`,
     {
       credentials: "omit",
@@ -718,7 +745,7 @@ export async function getOtherHumanRecordTimeline(
 ): Promise<OtherHumanTimelineRecordPage> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/other-human-records/${encodeURIComponent(partyId)}/scenes/${encodeURIComponent(sceneId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
@@ -735,17 +762,20 @@ export async function expressCreatorRelationshipBoundary(
   boundary: CreatorRelationshipBoundary,
   signal?: AbortSignal,
 ): Promise<AcceptedOperation> {
-  const response = await fetch("/v1/relationships/current/boundaries", {
-    method: "POST",
-    credentials: "omit",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": idempotencyKey,
+  const response = await technicalFetch(
+    "/v1/relationships/current/boundaries",
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(boundary),
+      ...(signal === undefined ? {} : { signal }),
     },
-    body: JSON.stringify(boundary),
-    ...(signal === undefined ? {} : { signal }),
-  });
+  );
   return requireJson(response);
 }
 
@@ -758,7 +788,7 @@ export async function getCreatorMaintenanceTimeline(
 ): Promise<CreatorMaintenanceTimeline> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor !== undefined) query.set("cursor", cursor);
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/maintenance/${encodeURIComponent(maintenanceSessionId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
@@ -773,7 +803,7 @@ export async function requestCreatorEmergencyWake(
   token: string,
   maintenanceSessionId: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/maintenance/${encodeURIComponent(maintenanceSessionId)}/wake`,
     {
       method: "POST",
@@ -793,7 +823,7 @@ export async function acceptCreatorMessage(
   message: string,
   signal?: AbortSignal,
 ): Promise<AcceptedOperation> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/scenes/${encodeURIComponent(sceneKey)}/messages`,
     {
       method: "POST",
@@ -817,7 +847,7 @@ export async function acceptCreatorCodexTask(
   objective: string,
   signal?: AbortSignal,
 ): Promise<AcceptedOperation> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/scenes/${encodeURIComponent(sceneKey)}/codex-tasks`,
     {
       method: "POST",
@@ -839,7 +869,7 @@ export async function getCreatorOperation(
   operationRef: string,
   signal?: AbortSignal,
 ): Promise<CreatorOperation> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/operations/${encodeURIComponent(operationRef)}`,
     {
       credentials: "omit",
@@ -854,7 +884,7 @@ export async function getSubjectSummary(
   token: string,
   signal?: AbortSignal,
 ): Promise<SubjectSummary> {
-  const response = await fetch("/v1/subject/summary", {
+  const response = await technicalFetch("/v1/subject/summary", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -866,7 +896,7 @@ export async function getCreatorPrompt(
   token: string,
   signal?: AbortSignal,
 ): Promise<CreatorPrompt> {
-  const response = await fetch("/v1/prompts/creator-guidance", {
+  const response = await technicalFetch("/v1/prompts/creator-guidance", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -880,7 +910,7 @@ export async function reviseCreatorPrompt(
   content: string,
   signal?: AbortSignal,
 ): Promise<CreatorPrompt> {
-  const response = await fetch("/v1/prompts/creator-guidance", {
+  const response = await technicalFetch("/v1/prompts/creator-guidance", {
     method: "PUT",
     credentials: "omit",
     headers: {
@@ -901,18 +931,21 @@ export async function deactivateCreatorPrompt(
   expectedRevisionId: string,
   signal?: AbortSignal,
 ): Promise<CreatorPrompt> {
-  const response = await fetch("/v1/prompts/creator-guidance/deactivation", {
-    method: "POST",
-    credentials: "omit",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const response = await technicalFetch(
+    "/v1/prompts/creator-guidance/deactivation",
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        expected_revision_id: expectedRevisionId,
+      }),
+      ...(signal === undefined ? {} : { signal }),
     },
-    body: JSON.stringify({
-      expected_revision_id: expectedRevisionId,
-    }),
-    ...(signal === undefined ? {} : { signal }),
-  });
+  );
   return requireJson(response);
 }
 
@@ -921,11 +954,14 @@ export async function getEffectDetail(
   effectId: string,
   signal?: AbortSignal,
 ): Promise<EffectDetail> {
-  const response = await fetch(`/v1/effects/${encodeURIComponent(effectId)}`, {
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-    ...(signal === undefined ? {} : { signal }),
-  });
+  const response = await technicalFetch(
+    `/v1/effects/${encodeURIComponent(effectId)}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
   return requireJson(response);
 }
 
@@ -937,7 +973,7 @@ export async function getEffectArtifact(
   kind: CodexEffectArtifactKind,
   signal?: AbortSignal,
 ): Promise<string> {
-  const response = await fetch(
+  const response = await technicalFetch(
     `/v1/effects/${encodeURIComponent(effectId)}/artifacts/${kind}`,
     {
       credentials: "omit",
@@ -949,4 +985,36 @@ export async function getEffectArtifact(
     throw new ApiFailure(response.status, await safeErrorCode(response));
   }
   return response.text();
+}
+
+export function sendClientDiagnostics(
+  token: string,
+  events: readonly object[],
+) {
+  return fetch("/v1/diagnostics/client", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ events }),
+  });
+}
+
+async function technicalFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<globalThis.Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === "AbortError")) {
+      reportDiagnostic({
+        event: "request_failed",
+        message: "Creator API transport failed",
+      });
+    }
+    throw error;
+  }
 }

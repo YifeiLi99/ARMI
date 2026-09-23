@@ -145,6 +145,8 @@ class FlowGraphPayload(GraphPage):
     selector: GraphReference
     expansion_limit: int
     expansion_truncated: bool
+    diagnostics: dict[str, JsonValue] | None = None
+    business_evidence: Literal["available", "unavailable"] = "available"
 
 
 class ScopeGraphPayload(GraphPage):
@@ -195,22 +197,33 @@ class SubjectSnapshotPayload(Payload):
     materials_truncated: bool | None = None
 
 
-class DiagnosticEvent(Payload):
-    timestamp: str | None = None
-    sequence: int | None = None
-    event: str | None = None
-    level: str | None = None
-    service: str | None = None
-    instance_id: str | None = None
-    result_code: str | None = None
-    reason_codes: list[str] | None = None
-    duration_ms: float | int | None = None
-
-
 class DiagnosticPagePayload(Payload):
-    events: list[DiagnosticEvent]
-    truncated: bool
+    items: list[dict[str, JsonValue]]
+    complete: bool
     cursor: str | None
+    bytes_examined: int
+    coverage: dict[str, JsonValue]
+
+
+class DiagnosticSummaryPayload(Payload):
+    complete: bool
+    cursor: str | None
+    bytes_examined: int
+    coverage: dict[str, JsonValue]
+    levels: dict[str, int]
+    components: dict[str, int]
+    errors: list[dict[str, JsonValue]]
+    statistics_scope: str
+    observed_at: str
+
+
+class DiagnosticReadPayload(Payload):
+    status: str
+    reason: str | None = None
+    record: dict[str, JsonValue] | None = None
+    next_operations: list[dict[str, JsonValue]] | None = None
+    context: list[dict[str, JsonValue]] | None = None
+    context_scope: str | None = None
 
 
 class ConsumerVersion(Payload):
@@ -1043,7 +1056,9 @@ RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
     "usage_read": UsageCall,
     "inspect_scope": ScopeGraphPayload,
     "subject_snapshot": SubjectSnapshotPayload,
-    "tail_diagnostics": DiagnosticPagePayload,
+    "diagnostics_query": DiagnosticPagePayload,
+    "diagnostics_summary": DiagnosticSummaryPayload,
+    "diagnostics_read": DiagnosticReadPayload,
     "configuration": ConfigurationPayload,
     "runtime_status": ProcessPayload,
     "runtime_start": ProcessPayload,

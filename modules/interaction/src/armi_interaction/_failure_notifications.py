@@ -14,7 +14,7 @@ from armi_evidence.api import (
     EvidenceSnapshot,
     EvidenceViolation,
 )
-from armi_kernel.application import RuntimeFence
+from armi_kernel.application import RuntimeFence, diagnostic_scope, record_diagnostic
 from armi_kernel.contracts import ContractViolation, TraceId
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
@@ -85,9 +85,18 @@ class InteractionFailureNotifications:
         # notification here; failure facts remain owned by their original owners.
         if re.fullmatch(r"[A-Z][A-Z0-9_-]{0,127}", failure_code) is None:
             raise ValueError("invalid failure code")
-        # The callback accepts an event name, not a free-form log message.
-        # The source owner retains the code and identifiers in its failure fact.
-        self._diagnostic("interaction.processing.failed")
+        with diagnostic_scope(
+            opportunity_id=opportunity_id, interaction_id=interaction_id
+        ):
+            self._diagnostic("interaction.processing.failed")
+            record_diagnostic(
+                "interaction.failure.outcome",
+                component="interaction",
+                level=40,
+                result_code=failure_code,
+                outcome="unknown" if send_unknown else "failed",
+                channel_response="silent",
+            )
         if self._voice_failure is None:
             return
         try:

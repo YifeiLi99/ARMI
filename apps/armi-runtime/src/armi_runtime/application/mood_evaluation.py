@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
@@ -21,7 +22,9 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkResultRef,
     WorkType,
+    diagnostic_scope,
     provider_meter_scope,
+    record_diagnostic,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_mind.api import MindEventPort, MindViolation
@@ -56,6 +59,19 @@ class RuntimeMoodEvaluation:
     async def evaluate(
         self, *, event: MoodEvent, lease: WorkLease, compiled_context: bytes
     ) -> None:
+        with diagnostic_scope(
+            episode_id=event.episode_id,
+            work_id=lease.work_id.value,
+            attempt_id=lease.attempt_id.value,
+        ):
+            await self._evaluate(
+                event=event, lease=lease, compiled_context=compiled_context
+            )
+
+    async def _evaluate(
+        self, *, event: MoodEvent, lease: WorkLease, compiled_context: bytes
+    ) -> None:
+        record_diagnostic("appraisal.started", component="appraisal")
         async with self._factory.unit_of_work() as unit:
             await unit.work.validate_lease(lease)
             episode = await self._episodes.context_episode(
@@ -88,6 +104,11 @@ class RuntimeMoodEvaluation:
                         context=json.loads(compiled_context),
                         targets=assessment.targets,
                     )
+                record_diagnostic(
+                    "appraisal.returned",
+                    component="appraisal",
+                    assessment_id=assessment.assessment_id,
+                )
                 # Each owner commits independently. A malformed sibling cannot
                 # roll back a valid psychological result.
                 for owner in ("mood", "mind"):
@@ -180,7 +201,35 @@ class RuntimeMoodEvaluation:
                                 )
                         if changed:
                             version += 1
+                        failure = (
+                            result.mood_failure
+                            if owner == "mood"
+                            else result.mind_failure
+                        )
+                        record_diagnostic(
+                            "appraisal.owner.committed",
+                            component="appraisal",
+                            level=logging.ERROR if failure else logging.INFO,
+                            owner=owner,
+                            assessment_id=assessment.assessment_id,
+                            revision_id=revision_id,
+                            subject_version=version,
+                            outcome="failed"
+                            if failure
+                            else "applied"
+                            if changed
+                            else "unchanged",
+                            result_code=failure,
+                        )
                     except (ValueError, MindViolation, MoodViolation) as error:
+                        record_diagnostic(
+                            "appraisal.owner.failed",
+                            component="appraisal",
+                            level=logging.ERROR,
+                            error=error,
+                            owner=owner,
+                            assessment_id=assessment.assessment_id,
+                        )
                         if getattr(error, "code", "") == "MOOD-EVENT-SUBJECT-STALE":
                             raise
                         # A domain rejection rolls back only that owner's short
@@ -252,6 +301,12 @@ class RuntimeMoodEvaluation:
                 await unit.work.complete(
                     lease, WorkResultRef("cognitive_episode", event.episode_id)
                 )
+            record_diagnostic(
+                "appraisal.completed",
+                component="appraisal",
+                assessment_id=assessment.assessment_id,
+                subject_version=version,
+            )
         except BaseException as error:
             # Cleanup the dispatched receipt without ever repeating the model call.
             async with self._factory.unit_of_work() as unit:

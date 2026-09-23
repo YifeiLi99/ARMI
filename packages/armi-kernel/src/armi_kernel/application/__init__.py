@@ -61,6 +61,7 @@ from .credentials import (
     CredentialPurpose,
     SecretHandle,
 )
+from .diagnostics import diagnostic_context, diagnostic_scope, record_diagnostic
 from .durable_work import (
     RESPONSIBILITY_BINDINGS,
     DurableWorkPort,
@@ -313,12 +314,15 @@ __all__: tuple[str, ...] = (
     "WorkStatus",
     "WorkType",
     "WorkViolation",
+    "diagnostic_context",
+    "diagnostic_scope",
     "estimate_cost",
     "load_price_catalog",
     "normalize_token_usage",
     "ordered_custody_requests",
     "provider_call",
     "provider_meter_scope",
+    "record_diagnostic",
     "require_cognition_purpose",
     "responsibility_binding",
 )

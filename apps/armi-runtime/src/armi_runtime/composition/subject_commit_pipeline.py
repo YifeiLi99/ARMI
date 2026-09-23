@@ -60,6 +60,7 @@ from armi_kernel.application import (
     SubjectCommitViolation,
     WorkLease,
     WorkViolation,
+    record_diagnostic,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_live_vision.api import VisualObservationCommitPort
@@ -203,6 +204,12 @@ class SubjectCommitPipeline:
     ) -> None:
         snapshot: SubjectCommitSnapshot | None = None
         episode_id = candidate.episode_id
+        record_diagnostic(
+            "subject_commit.started",
+            component="subject_commit",
+            episode_id=episode_id,
+            work_id=lease.work_id.value,
+        )
         change_set = candidate.result.change_set
         has_reply = False
         awaits_followup = False
@@ -210,6 +217,12 @@ class SubjectCommitPipeline:
             if change_set is None:
                 async with self._factory.unit_of_work() as unit_of_work:
                     await candidate.record(unit_of_work, lease)
+                record_diagnostic(
+                    "subject_commit.completed",
+                    component="subject_commit",
+                    episode_id=episode_id,
+                    outcome="no_changes",
+                )
                 self._wake_downstream()
                 return
             owner_drafts = self.collect_owner_drafts(change_set)
@@ -342,6 +355,16 @@ class SubjectCommitPipeline:
                     material_artifacts=material_artifacts,
                     prompt_artifacts=prompt_artifacts,
                 )
+            record_diagnostic(
+                "subject_commit.completed",
+                component="subject_commit",
+                episode_id=episode_id,
+                subject_commit_id=result.subject_commit_id.value
+                if result.subject_commit_id
+                else None,
+                subject_version=result.subject_version,
+                outcome=result.status.value,
+            )
             self._wake_downstream()
             await self._notify(snapshot, result)
             await self._notify_voice(

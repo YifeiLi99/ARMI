@@ -110,7 +110,9 @@ from armi_live_voice.api import (
     VoiceActivityState,
 )
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
+from armi_local_control import environment_control_root, installation_diagnostic_roots
 from armi_local_control.runtime_errors import RuntimeViolation
+from armi_local_control.windows_package import package_identity
 from armi_memory.api import MemoryViolation
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
@@ -443,13 +445,23 @@ async def _serve(
         environment_id=str(config.environment.environment_id)
     )
     diagnostic = StructuredDiagnosticLog(
+        version=package.version if (package := package_identity()) else "source",
         data_root=prepared.data_root,
         environment_id=str(config.environment.environment_id),
         instance_id=instance_id,
         on_degraded=lifecycle.add_degradation,
         rotation_max_bytes=config.diagnostics.rotation_max_bytes,
         retention_seconds=config.diagnostics.retention_seconds,
+        total_max_bytes=config.diagnostics.total_max_bytes,
+        emergency_root=environment_control_root(
+            prepared.root, str(config.environment.environment_id)
+        )
+        / "logs",
+        retention_roots=installation_diagnostic_roots(
+            prepared.root, str(config.environment.environment_id)
+        ),
     )
+    diagnostic.install(capture_output=True)
     web_assets_error: str | None = None
     try:
         assets = (
@@ -1539,8 +1551,10 @@ async def _serve(
         if not safe_error_code:
             safe_error_code = "unknown"
         diagnostic.emit(
-            f"runtime.background_worker.{name}.failed.{safe_error_code}",
+            "runtime.background_worker.failed",
             level=logging.ERROR,
+            error=error,
+            details={"worker": name, "error_code": safe_error_code},
             result_code="BACKGROUND_WORKER_FAILED",
             reason_codes=("RUNTIME_BACKGROUND_WORKER_FAILED",),
         )
@@ -2647,7 +2661,7 @@ async def _serve(
             proxy_headers=False,
             forwarded_allow_ips="",
             access_log=False,
-            log_level="warning",
+            log_level="info",
             log_config=None,
             server_header=False,
             limit_concurrency=config.http.connection_limit,
@@ -2668,7 +2682,7 @@ async def _serve(
                 proxy_headers=False,
                 forwarded_allow_ips="",
                 access_log=False,
-                log_level="warning",
+                log_level="info",
                 log_config=None,
                 server_header=False,
                 limit_concurrency=config.http.connection_limit,

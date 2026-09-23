@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
+import logging
 import re
-import stat
+import sys
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -14,10 +14,16 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
 
-from armi_kernel.application import CredentialPurpose, UsageFilter, UsageQuery
+from armi_kernel.application import (
+    CredentialPurpose,
+    UsageFilter,
+    UsageQuery,
+    record_diagnostic,
+)
 from armi_local_control import (
     ConfigurationViolation,
     ProviderCheckReceipts,
+    environment_bootstrap_control_root,
     environment_control_root,
 )
 from armi_local_control.configuration.defaults import runtime_defaults_file
@@ -76,6 +82,8 @@ from .contracts import (
     CorrectionStatusRequest,
     DataDeletionApplyRequest,
     DataDeletionPreviewRequest,
+    DiagnosticsQueryRequest,
+    DiagnosticsReadRequest,
     EnvironmentInitializeRequest,
     EnvironmentLifecycleRequest,
     EnvironmentResetRequest,
@@ -96,7 +104,6 @@ from .contracts import (
     SchemaStatusResult,
     SettleCorrectionWorkRequest,
     SubjectSnapshotRequest,
-    TailDiagnosticsRequest,
     TraceFlowRequest,
 )
 from .credentials import AdminSecretError
@@ -126,7 +133,9 @@ ObservationToolName = Literal[
     "inspect_scope",
     "runtime_status",
     "subject_snapshot",
-    "tail_diagnostics",
+    "diagnostics_query",
+    "diagnostics_summary",
+    "diagnostics_read",
     "trace_flow",
     "cognition_read",
     "autonomy_status",
@@ -754,6 +763,7 @@ class AdminToolService:
         self, name: ObservationToolName, request: ObservationRequest
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
+        result: dict[str, Any]
         if name not in self._config.authorized_operations:
             return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
         if (
@@ -821,13 +831,76 @@ class AdminToolService:
             elif name == "correction_status":
                 typed = cast(CorrectionStatusRequest, request)
                 result = self._corrections.status(str(typed.preview_token))
-            elif name == "tail_diagnostics":
-                typed_tail = cast(TailDiagnosticsRequest, request)
-                result = self._tail_diagnostics(
-                    runtime_instance_id=typed_tail.runtime_instance_id,
-                    limit=int(typed_tail.limit),
-                    cursor=typed_tail.cursor,
+            elif name in {
+                "diagnostics_query",
+                "diagnostics_summary",
+                "diagnostics_read",
+            }:
+                from armi_runtime_foundation import DiagnosticQuery
+
+                reader = DiagnosticQuery(
+                    (
+                        self._config.environment_root / "data" / "logs",
+                        environment_control_root(
+                            self._config.environment_root, self._config.environment_id
+                        )
+                        / "logs",
+                        *(
+                            (
+                                self._config.environment_root.parent.parent
+                                / "control/logs",
+                            )
+                            if self._config.environment_root.parent.name
+                            == "environments"
+                            else ()
+                        ),
+                    ),
+                    environment_id=self._config.environment_id,
+                    bootstrap_roots=(
+                        environment_bootstrap_control_root(
+                            self._config.environment_root
+                        )
+                        / "logs",
+                    ),
                 )
+                if name == "diagnostics_read":
+                    result = reader.read(cast(DiagnosticsReadRequest, request).log_ref)
+                else:
+                    typed_query = cast(DiagnosticsQueryRequest, request)
+                    filters = typed_query.model_dump(
+                        exclude={
+                            "environment_id",
+                            "cursor",
+                            "limit",
+                            "incremental",
+                            "wait_seconds",
+                            "period",
+                        },
+                        exclude_none=True,
+                    )
+                    if name == "diagnostics_summary":
+                        result = reader.summary(
+                            filters=filters,
+                            cursor=typed_query.cursor,
+                            period=getattr(typed_query, "period", "latest_runtime"),
+                        )
+                    elif typed_query.incremental:
+                        result = dict(
+                            reader.follow(
+                                filters=filters,
+                                cursor=typed_query.cursor,
+                                wait_seconds=typed_query.wait_seconds,
+                                limit=typed_query.limit,
+                            )
+                        )
+                    else:
+                        result = dict(
+                            reader.query(
+                                filters=filters,
+                                cursor=typed_query.cursor,
+                                limit=typed_query.limit,
+                            )
+                        )
             else:
                 gateway = self._observation
                 if name == "runtime_status":
@@ -846,15 +919,120 @@ class AdminToolService:
                             "operation_id",
                             "episode_id",
                             "effect_id",
+                            "work_id",
+                            "opportunity_id",
+                            "call_id",
                             "trace_id",
                         )
                         if (value := getattr(typed_trace, key)) is not None
                     )
-                    result = gateway.trace_flow(
-                        selector,
-                        limit=int(typed_trace.limit),
-                        cursor=typed_trace.cursor,
-                    )
+                    try:
+                        result = gateway.trace_flow(
+                            selector,
+                            limit=int(typed_trace.limit),
+                            cursor=typed_trace.cursor,
+                        )
+                    except PostgreSQLError, AdminRoleSessionError:
+                        result = {
+                            "schema_kind": "armi.admin-flow-graph",
+                            "selector": {"kind": selector[0], "id": selector[1]},
+                            "nodes": [],
+                            "edges": [],
+                            "missing": [],
+                            "truncated": False,
+                            "cursor": None,
+                            "expansion_limit": 200,
+                            "expansion_truncated": False,
+                            "business_evidence": "unavailable",
+                        }
+                    if "diagnostics_query" in self._config.authorized_operations:
+                        from armi_runtime_foundation import DiagnosticQuery
+
+                        reader = DiagnosticQuery(
+                            (
+                                self._config.environment_root / "data/logs",
+                                environment_control_root(
+                                    self._config.environment_root,
+                                    self._config.environment_id,
+                                )
+                                / "logs",
+                                *(
+                                    (
+                                        self._config.environment_root.parent.parent
+                                        / "control/logs",
+                                    )
+                                    if self._config.environment_root.parent.name
+                                    == "environments"
+                                    else ()
+                                ),
+                            ),
+                            environment_id=self._config.environment_id,
+                        )
+                        related: dict[str, list[str]] = {selector[0]: [selector[1]]}
+                        identities = {
+                            "input": "interaction_id",
+                            "operation": "operation_id",
+                            "episode": "episode_id",
+                            "effect": "effect_id",
+                            "work": "work_id",
+                            "opportunity": "opportunity_id",
+                            "provider_call": "call_id",
+                        }
+                        for node in cast(list[dict[str, object]], result["nodes"]):
+                            identity = identities.get(str(node["kind"]))
+                            if identity:
+                                related.setdefault(identity, []).append(str(node["id"]))
+                        related = {
+                            key: list(dict.fromkeys(values))
+                            for key, values in related.items()
+                        }
+                        remaining = 200
+                        omitted_identities = 0
+                        for identity, values in related.items():
+                            retained = values[:remaining]
+                            omitted_identities += len(values) - len(retained)
+                            related[identity] = retained
+                            remaining -= len(retained)
+                        related = {
+                            key: values for key, values in related.items() if values
+                        }
+                        timeline = reader.query(
+                            filters={"related_ids": related}, limit=50
+                        )
+                        timeline["items"].sort(key=lambda item: str(item["timestamp"]))
+                        failures = [
+                            item
+                            for item in timeline["items"]
+                            if item["level"] in {"error", "critical"}
+                        ]
+                        successes = [
+                            item
+                            for item in timeline["items"]
+                            if item.get("outcome")
+                            in {
+                                "completed",
+                                "applied",
+                                "unchanged",
+                                "returned",
+                                "committed",
+                            }
+                        ]
+                        result["diagnostics"] = {
+                            **timeline,
+                            "first_observed_failure": failures[0] if failures else None,
+                            "last_observed_success": successes[-1]
+                            if successes
+                            else None,
+                            "assessment_scope": "returned_page",
+                            "omitted_related_identities": omitted_identities,
+                            "next_operation": {
+                                "tool": "admin_diagnostics_query",
+                                "arguments": {
+                                    "related_ids": related,
+                                    "cursor": timeline["cursor"],
+                                },
+                            },
+                        }
                 elif name == "cognition_read":
                     typed_read = cast(CognitionReadRequest, request)
                     result = gateway.cognition_read(
@@ -1307,7 +1485,7 @@ class AdminToolService:
                         "runtime_status",
                         "trace_flow",
                         "inspect_scope",
-                        "tail_diagnostics",
+                        "diagnostics_query",
                     ],
                 }
             )
@@ -1320,7 +1498,7 @@ class AdminToolService:
                     "next_operations": [
                         "environment_status",
                         "environment_start",
-                        "tail_diagnostics",
+                        "diagnostics_query",
                     ],
                 }
             )
@@ -1781,138 +1959,6 @@ class AdminToolService:
         }
         gateway.register_environment(values)
 
-    def _tail_diagnostics(
-        self,
-        *,
-        runtime_instance_id: str,
-        limit: int,
-        cursor: str | None,
-    ) -> dict[str, Any]:
-        log_root = self._config.environment_root / "data" / "logs"
-        if not log_root.is_dir() or log_root.is_symlink():
-            return {"events": [], "truncated": False, "cursor": None}
-        query_digest = hashlib.sha256(runtime_instance_id.encode("ascii")).hexdigest()
-        offset = self._diagnostic_cursor_offset(cursor, query_digest)
-        events: list[dict[str, Any]] = []
-        allowed = {
-            "duration_ms",
-            "event",
-            "instance_id",
-            "level",
-            "reason_codes",
-            "result_code",
-            "sequence",
-            "service",
-            "timestamp",
-        }
-        total_bytes = 0
-        prefix = f"runtime-{runtime_instance_id}"
-        paths = sorted(
-            (
-                path
-                for path in log_root.iterdir()
-                if path.name == f"{prefix}.jsonl"
-                or (path.name.startswith(f"{prefix}.") and path.name.endswith(".jsonl"))
-            ),
-            key=lambda path: path.stat().st_mtime_ns,
-            reverse=True,
-        )
-        all_events: list[dict[str, Any]] = []
-        budget_exhausted = False
-        for path in paths:
-            before = path.lstat()
-            if (
-                not stat.S_ISREG(before.st_mode)
-                or path.is_symlink()
-                or before.st_nlink != 1
-                or getattr(before, "st_file_attributes", 0) & 0x400
-            ):
-                continue
-            remaining = _DIAGNOSTIC_TOTAL_BYTES - total_bytes
-            if remaining <= 0:
-                budget_exhausted = True
-                break
-            read_bytes = min(before.st_size, remaining)
-            with path.open("rb") as stream:
-                stream.seek(max(0, before.st_size - read_bytes))
-                data = stream.read(read_bytes)
-            after = path.lstat()
-            if (
-                before.st_dev,
-                before.st_ino,
-                before.st_size,
-                before.st_mtime_ns,
-            ) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
-                raise RuntimeError("ADMIN-DIAGNOSTIC-FILE-RACE")
-            total_bytes += len(data)
-            lines = data.splitlines()
-            if read_bytes < before.st_size and lines:
-                lines = lines[1:]
-                budget_exhausted = True
-            for raw_line in reversed(lines):
-                if len(raw_line) > _DIAGNOSTIC_LINE_BYTES:
-                    budget_exhausted = True
-                    continue
-                try:
-                    value = json.loads(raw_line.decode("utf-8"))
-                except UnicodeDecodeError, json.JSONDecodeError:
-                    continue
-                if (
-                    isinstance(value, dict)
-                    and cast(dict[str, object], value).get("instance_id")
-                    == runtime_instance_id
-                    and isinstance(cast(dict[str, object], value).get("sequence"), int)
-                ):
-                    typed_value = cast(dict[str, object], value)
-                    all_events.append(
-                        {
-                            key: typed_value[key]
-                            for key in sorted(allowed)
-                            if key in typed_value
-                        }
-                    )
-        events = all_events[offset : offset + limit]
-        next_offset = offset + len(events)
-        truncated = next_offset < len(all_events) or budget_exhausted
-        return {
-            "events": events,
-            "truncated": truncated,
-            "cursor": self._diagnostic_cursor(query_digest, next_offset)
-            if truncated and events
-            else None,
-            "bytes_examined": total_bytes,
-        }
-
-    @staticmethod
-    def _diagnostic_cursor(query_digest: str, offset: int) -> str:
-        payload = json.dumps(
-            {"offset": offset, "query": query_digest},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-
-    @staticmethod
-    def _diagnostic_cursor_offset(cursor: str | None, query_digest: str) -> int:
-        if cursor is None:
-            return 0
-        try:
-            payload = json.loads(
-                base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode(
-                    "utf-8"
-                )
-            )
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError("ADMIN-DIAGNOSTIC-CURSOR") from exc
-        if (
-            not isinstance(payload, dict)
-            or cast(dict[str, object], payload).get("query") != query_digest
-            or not isinstance(cast(dict[str, object], payload).get("offset"), int)
-            or cast(int, cast(dict[str, object], payload)["offset"]) < 0
-        ):
-            raise ValueError("ADMIN-DIAGNOSTIC-CURSOR")
-        return cast(int, cast(dict[str, object], payload)["offset"])
-
     def _require_test_controls(self) -> None:
         if not self._config.test_controls_enabled:
             raise AdminControlError("ADMIN-TEST-CONTROLS-DISABLED")
@@ -1938,6 +1984,14 @@ class AdminToolService:
         status: Literal["rejected", "conflict", "failed", "unknown"],
         code: str,
     ) -> AdminToolResult[dict[str, Any]]:
+        record_diagnostic(
+            "admin.result.failed",
+            component="admin",
+            level=logging.ERROR if status in {"failed", "unknown"} else logging.WARNING,
+            error=sys.exception(),
+            result_code=code,
+            outcome=status,
+        )
         return AdminToolResult[dict[str, Any]](
             operator_id=self._config.operator_id,
             operation_id=str(uuid7()),
