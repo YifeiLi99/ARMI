@@ -65,6 +65,7 @@ describe("Creator Activity panel", () => {
           items: [
             {
               operation_id: `${ACTIVITY_ID}-${offset}`,
+              autonomy_category: "reflect",
               available_after: "2026-09-16T10:00:00Z",
               current_disposition: "resolved",
               resolution_reason_code: null,
@@ -86,6 +87,7 @@ describe("Creator Activity panel", () => {
     expect(await screen.findByText("自主判断等待配置修正")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "查看自主记录" }));
     expect(await screen.findByText("本轮自主沉默")).toBeInTheDocument();
+    expect(screen.getByText("自主方向：回顾与整理")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "加载更早自主记录" }));
     expect(await screen.findByText("表达交付：completed")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "加载更早自主记录" }));

@@ -132,6 +132,24 @@
       "AutonomyHistoryItem": {
         "additionalProperties": false,
         "properties": {
+          "autonomy_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "continue_activity",
+                  "explore",
+                  "communicate",
+                  "reflect",
+                  "wait"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autonomy Category"
+          },
           "available_after": {
             "title": "Available After",
             "type": "string"
@@ -256,6 +274,7 @@
           }
         },
         "required": [
+          "autonomy_category",
           "stage",
           "root_opportunity_id",
           "predecessor_opportunity_id",

@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from armi_cognition.api import autonomy_check_questions
 from armi_kernel.application import (
     CredentialLocator,
     ModelViolation,
@@ -35,11 +36,14 @@ async def test_jev_check_is_single_metered_request_without_main_model(
         "model": JEV_MODEL,
         "usage": {"input_tokens": 120, "output_tokens": 10},
         "answers": {
-            "engage": {
+            "category": {
                 "type": "choice",
                 "choice": "wait",
                 "confidence": 1,
-                "probabilities": {"engage": 0, "wait": 1, "unknown": 0},
+                "probabilities": {
+                    key: int(key == "wait")
+                    for key in autonomy_check_questions()["category"]["criteria"]
+                },
             }
         },
     }
@@ -93,7 +97,7 @@ async def test_jev_check_is_single_metered_request_without_main_model(
                 assert caught.value.code == "MODEL-AUTH-JEV"
     assert len(calls) == 1
     assert calls[0]["state"]["context"] == json.loads(context)
-    assert set(calls[0]["questions"]) == {"engage"}
+    assert set(calls[0]["questions"]) == {"category"}
     assert len(receipts) >= 2
     assert len({receipt.call_id for receipt in receipts}) == 1
     assert receipts[0].registration and not receipts[-1].registration

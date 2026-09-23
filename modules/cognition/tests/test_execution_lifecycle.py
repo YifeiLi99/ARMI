@@ -15,6 +15,7 @@ from armi_cognition import _model_application as model
 from armi_cognition._candidate_application import model_response_candidate
 from armi_cognition._model_postgresql import ModelEpisodeSnapshot
 from armi_kernel.application import (
+    AutonomyCategory,
     CandidateViolation,
     ModelInvocationResult,
     ModelResultStatus,
@@ -339,13 +340,13 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("choice", ["wait", "engage", "unknown", "invalid"])
+@pytest.mark.parametrize("choice", [*AutonomyCategory, "unknown", "invalid"])
 async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
     monkeypatch, choice
 ):
     from dataclasses import replace
 
-    engage = choice == "engage"
+    engage = choice not in {"wait", "unknown", "invalid"}
     pipeline, record, _frozen, _response = _format_retry_execution(monkeypatch)
     pipeline.episode = replace(pipeline.episode, purpose="consider_autonomy_check")
     pipeline._read_context = AsyncMock(
@@ -370,13 +371,16 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
     raw = json.dumps(
         {
             "answers": {
-                "engage": {
+                "category": {
                     "type": "choice",
                     "choice": choice,
                     "confidence": 1,
                     "probabilities": {
-                        "engage": int(engage),
-                        "wait": int(not engage),
+                        "continue_activity": 0,
+                        "explore": 0,
+                        "communicate": 0,
+                        "reflect": 0,
+                        "wait": 1,
                         "unknown": 0,
                     },
                 }
@@ -413,7 +417,7 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
         ANY,
         lease=record.lease,
         snapshot=pipeline.episode,
-        engage=engage,
+        category=AutonomyCategory(choice),
     )
     pipeline._failure_notification.assert_not_awaited()
 

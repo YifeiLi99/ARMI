@@ -3,32 +3,40 @@ import logging
 
 import pytest
 from armi_cognition._autonomy_decision import parse_autonomy_check
-from armi_kernel.application import ModelViolation
+from armi_kernel.application import AutonomyCategory, ModelViolation
 
 
 def response(choice):
     return {
         "answers": {
-            "engage": {
+            "category": {
                 "type": "choice",
                 "choice": choice,
                 "confidence": 0.6,
-                "probabilities": {"engage": 0.3, "wait": 0.6, "unknown": 0.1},
+                "probabilities": {
+                    "continue_activity": 0.1,
+                    "explore": 0.1,
+                    "communicate": 0.1,
+                    "reflect": 0.1,
+                    "wait": 0.5,
+                    "unknown": 0.1,
+                },
             }
         }
     }
 
 
-@pytest.mark.parametrize("choice,expected", [("engage", True), ("wait", False)])
-def test_consumes_jev_choice_without_probability_veto(caplog, choice, expected):
+@pytest.mark.parametrize("choice", list(AutonomyCategory))
+def test_consumes_jev_choice_without_probability_veto(caplog, choice):
     with caplog.at_level(logging.INFO):
-        assert parse_autonomy_check(json.dumps(response(choice)).encode()) is expected
+        assert parse_autonomy_check(json.dumps(response(choice)).encode()) is choice
     record = next(
         record
         for record in caplog.records
         if record.armi_event == "autonomy.check.evaluated"
     )
     assert record.armi_details["reason"] == "jev_" + choice
+    assert record.armi_details["category"] == choice
 
 
 def test_unknown_is_not_a_decision_to_wait():

@@ -25,6 +25,7 @@ from .auditing import (
     AuditViolation,
     AuditWriter,
 )
+from .autonomy import AutonomyCategory
 from .birth import (
     BirthManifest,
     BirthResult,
@@ -202,6 +203,7 @@ __all__: tuple[str, ...] = (
     "AuditSensitivity",
     "AuditViolation",
     "AuditWriter",
+    "AutonomyCategory",
     "BeforeCommitHook",
     "BirthManifest",
     "BirthResult",

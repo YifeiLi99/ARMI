@@ -13,6 +13,7 @@ from armi_interaction.api import human_input_activity
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
+    AutonomyCategory,
     ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
@@ -467,7 +468,7 @@ class PostgreSQLCognitiveModelRepository:
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
-        engage: bool,
+        category: AutonomyCategory,
     ) -> None:
         await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
         if not await subject_context_current(
@@ -503,7 +504,7 @@ class PostgreSQLCognitiveModelRepository:
                 unit_of_work.transaction,
                 opportunity_id=row[0],
                 episode_id=snapshot.episode_id,
-                engage=engage,
+                category=category,
             )
         except LifeViolation as exc:
             raise ModelViolation("MODEL-WORK-STALE") from exc
@@ -513,7 +514,7 @@ class PostgreSQLCognitiveModelRepository:
                    validated_at=statement_timestamp(),committed_at=statement_timestamp()
                WHERE cognitive_episode_id=%s""",
             (
-                "scheduled" if engage else "not_scheduled",
+                "not_scheduled" if category is AutonomyCategory.WAIT else "scheduled",
                 snapshot.episode_id,
             ),
         )

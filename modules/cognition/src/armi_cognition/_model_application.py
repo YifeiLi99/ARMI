@@ -61,7 +61,10 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
-from ._autonomous_activity_contract import autonomous_schema_for_context
+from ._autonomous_activity_contract import (
+    autonomous_instructions_for_context,
+    autonomous_schema_for_context,
+)
 from ._autonomy_decision import parse_autonomy_check
 from ._candidate_application import model_response_candidate
 from ._context_schema import bind_context_schema
@@ -75,7 +78,6 @@ from ._creator_cognitive_act_contract import (
     creator_voice_act_schema,
 )
 from ._model_contract import (
-    AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     GENERIC_COGNITION_INSTRUCTIONS,
     MEMORY_MAINTENANCE_INSTRUCTIONS,
     SLEEP_DECISION_INSTRUCTIONS,
@@ -728,13 +730,13 @@ class ModelPipeline:
                     )
                     return
                 if is_check:
-                    engage = parse_autonomy_check(cast(bytes, result.response_bytes))
+                    category = parse_autonomy_check(cast(bytes, result.response_bytes))
                     async with self._factory.unit_of_work() as unit_of_work:
                         await self._repository.finalize_autonomy_check(
                             unit_of_work,
                             lease=lease,
                             snapshot=snapshot,
-                            engage=engage,
+                            category=category,
                         )
                     return
                 await self._finalization.finalize(
@@ -955,7 +957,7 @@ class ModelPipeline:
                         )
                     )
                 ),
-                instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+                instructions=autonomous_instructions_for_context(context_bytes),
                 schema_name="armi_autonomous_activity_candidate_v12",
             )
         try:

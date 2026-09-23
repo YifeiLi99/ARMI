@@ -11,6 +11,7 @@ from uuid import UUID
 
 from armi_kernel.application import (
     COGNITION_PURPOSES,
+    AutonomyCategory,
     CognitionPurpose,
     ConsiderationSignal,
 )
@@ -349,7 +350,7 @@ class OpportunityCognitionSelectionPort(Protocol):
         *,
         opportunity_id: UUID,
         episode_id: UUID,
-        engage: bool,
+        category: AutonomyCategory,
     ) -> None: ...
 
     async def freeze_signals(

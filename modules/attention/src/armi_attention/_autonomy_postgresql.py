@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from uuid import UUID, uuid7
 
-from armi_kernel.application import ConsiderationSignal
+from armi_kernel.application import AutonomyCategory, ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._autonomy_schedule import AutonomySchedule
@@ -163,7 +163,7 @@ class PostgreSQLAutonomyOwner:
         *,
         opportunity_id: UUID,
         episode_id: UUID,
-        engage: bool,
+        category: AutonomyCategory,
         policy: AutonomyPolicy,
     ) -> None:
         if not policy.enabled:
@@ -182,15 +182,16 @@ class PostgreSQLAutonomyOwner:
         ).fetchone()
         if row is None:
             raise LifeViolation("LIFE-AUTONOMY-PLAN-STALE")
+        engage = category is not AutonomyCategory.WAIT
         successor = uuid7() if engage else None
         if successor is not None:
             await transaction.execute(
                 """INSERT INTO armi.opportunities
                    (opportunity_id,subject_id,purpose,current_disposition,
                     root_opportunity_id,predecessor_opportunity_id,source_kind,source_ref,
-                    source_version,scene_id,context_party_id,activity_id,consideration_signals,reconsideration_no)
+                    source_version,scene_id,context_party_id,activity_id,consideration_signals,reconsideration_no,autonomy_category)
                    VALUES (%s,%s,'consider_autonomous_life','open',%s,%s,
-                           'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb,1)""",
+                           'autonomy_plan',%s,%s,%s,%s,%s,%s::jsonb,1,%s)""",
                 (
                     successor,
                     row[0],
@@ -202,6 +203,7 @@ class PostgreSQLAutonomyOwner:
                     row[4],
                     row[5],
                     json.dumps({**(row[6] or {}), "frozen_at": None}),
+                    category.value,
                 ),
             )
         schedule = AutonomySchedule(int(row[2]))
@@ -209,10 +211,11 @@ class PostgreSQLAutonomyOwner:
             schedule = schedule.settled(acted=False)
         await transaction.execute(
             """UPDATE armi.opportunities SET current_disposition='resolved',
-                   resolved_at=statement_timestamp(),resolution_reason_code=%s
+                   resolved_at=statement_timestamp(),resolution_reason_code=%s,autonomy_category=%s
                WHERE opportunity_id=%s""",
             (
                 "LIFE-AUTONOMY-SCHEDULED" if engage else "LIFE-AUTONOMY-NOT-SCHEDULED",
+                category.value,
                 opportunity_id,
             ),
         )

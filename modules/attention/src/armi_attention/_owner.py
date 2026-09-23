@@ -9,7 +9,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import ConsiderationSignal
+from armi_kernel.application import AutonomyCategory, ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLTransaction
 from armi_sleep.api import (
     SleepOpportunityDraft,
@@ -315,7 +315,8 @@ class PostgreSQLOpportunityOwner:
                 """SELECT o.opportunity_id, o.root_opportunity_id, o.evidence_id,
                           o.subject_id, o.scene_id, o.context_party_id, o.purpose,
                           o.source_kind, o.source_ref, o.source_version,
-                          o.available_after, o.expires_at, COALESCE(o.activity_id,root.activity_id)
+                          o.available_after, o.expires_at, COALESCE(o.activity_id,root.activity_id),
+                          o.autonomy_category
                    FROM armi.opportunities o JOIN armi.opportunities root
                      ON root.opportunity_id=o.root_opportunity_id
                    WHERE o.opportunity_id=%s""",
@@ -356,6 +357,7 @@ class PostgreSQLOpportunityOwner:
                     "phase": state[2],
                     "idle_streak": int(state[6]),
                     "last_engage": state[7],
+                    "category": row[13],
                     "outlet_bound": candidate.scene_id is not None,
                     "outlet_state": state[3],
                     "outlet_reason_code": state[4],
@@ -406,13 +408,13 @@ class PostgreSQLOpportunityOwner:
         *,
         opportunity_id: UUID,
         episode_id: UUID,
-        engage: bool,
+        category: AutonomyCategory,
     ) -> None:
         await PostgreSQLAutonomyOwner().commit_check(
             transaction,
             opportunity_id=opportunity_id,
             episode_id=episode_id,
-            engage=engage,
+            category=category,
             policy=self._autonomy_policy,
         )
 

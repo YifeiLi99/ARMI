@@ -109,6 +109,7 @@ from armi_kernel.application import (
     ArtifactRef,
     ArtifactViolation,
     AuditQuery,
+    AutonomyCategory,
     BirthManifest,
     BirthResult,
     BirthViolation,
@@ -1970,7 +1971,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
                 assert admitted.opportunity_id is not None
 
-                async def finish_check(opportunity_id: UUID, engage: bool) -> UUID:
+                async def finish_check(
+                    opportunity_id: UUID,
+                    engage: bool,
+                    category: AutonomyCategory = AutonomyCategory.EXPLORE,
+                ) -> UUID:
                     episode = uuid7()
                     async with factory.unit_of_work() as unit:
                         await unit.transaction.execute(
@@ -1988,7 +1993,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit.transaction,
                             opportunity_id=opportunity_id,
                             episode_id=episode,
-                            engage=engage,
+                            category=category if engage else AutonomyCategory.WAIT,
                         )
                         await unit.transaction.execute(
                             """UPDATE armi.cognitive_episodes SET status='completed',
@@ -2032,6 +2037,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(history.total, 1)
                     self.assertEqual(history.items[0].stage, "check")
+                    self.assertEqual(history.items[0].autonomy_category, "wait")
 
                 # Virtual time: no quota after repeated checks and no catch-up burst.
                 last_check_id = admitted.opportunity_id
@@ -2106,7 +2112,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit.transaction,
                             opportunity_id=last_check_id,
                             episode_id=uuid7(),
-                            engage=True,
+                            category=AutonomyCategory.EXPLORE,
                         )
                 # Preemption also discards an execution opportunity before it has
                 # an episode. The next idle period must start a fresh light check.
@@ -2122,6 +2128,52 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         reset.next_consideration_at,
                         datetime.now(UTC) + timedelta(seconds=50),
                     )
+                # Every action category survives owner settlement and the frozen
+                # Context projection; classification never dispatches an Effect.
+                for category in AutonomyCategory:
+                    if category is AutonomyCategory.WAIT:
+                        continue
+                    async with factory.unit_of_work() as unit:
+                        await unit.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second',last_check_started_at=statement_timestamp()-interval '61 seconds' WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
+                        check = await owner.admit_due(
+                            unit.transaction, subject_id=born.subject_id, policy=policy
+                        )
+                        assert check.opportunity_id is not None
+                        self.assertTrue(
+                            await cognition_owner.select_for_cognition(
+                                unit.transaction, opportunity_id=check.opportunity_id
+                            )
+                        )
+                    await finish_check(check.opportunity_id, True, category)
+                    async with factory.unit_of_work() as unit:
+                        plan = await owner.ensure_plan(
+                            unit.transaction, subject_id=born.subject_id, policy=policy
+                        )
+                        assert plan.opportunity_id is not None
+                        projected = await cognition_owner.context_snapshot(
+                            unit.transaction, opportunity_id=plan.opportunity_id
+                        )
+                        assert projected.autonomy_context is not None
+                        self.assertEqual(
+                            json.loads(projected.autonomy_context)["category"],
+                            category.value,
+                        )
+                        categories = await (
+                            await unit.transaction.execute(
+                                "SELECT autonomy_category FROM armi.opportunities WHERE opportunity_id IN (%s,%s)",
+                                (check.opportunity_id, plan.opportunity_id),
+                            )
+                        ).fetchall()
+                        self.assertEqual(
+                            categories, [(category.value,), (category.value,)]
+                        )
+                        await cognition_owner.interrupt_autonomy(
+                            unit.transaction, subject_id=born.subject_id
+                        )
+
                 for index, code in enumerate(
                     (
                         "MODEL-CONNECTION",

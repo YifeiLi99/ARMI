@@ -106,7 +106,10 @@ def check_context_items(
                     "current_time",
                     "last_considered_at",
                     "outlet_state",
+                    "outlet_bound",
+                    "outlet_reason_code",
                     "last_engage",
+                    "category",
                 )
                 if key in autonomy
             }

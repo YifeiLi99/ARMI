@@ -34,6 +34,14 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "技术失败",
 };
 
+const AUTONOMY_CATEGORIES = {
+  continue_activity: "继续活动",
+  explore: "探索与思考",
+  communicate: "主动交流",
+  reflect: "回顾与整理",
+  wait: "暂不行动",
+};
+
 const AUTONOMY_LABELS: Record<string, string> = {
   not_initialized: "尚未建立自主计划",
   disabled: "自主生活未开启",
@@ -227,7 +235,7 @@ export function ActivityPanel({
                   : autonomy.data.phase === "blocked"
                     ? "等待配置修正"
                     : "等待"}
-              ； 空闲退避档位：{autonomy.data.idle_streak ?? 0}；失败退避档位：
+              ；正常检查间隔：60 秒；失败退避档位：
               {autonomy.data.failure_streak ?? 0}
             </p>
             <p>
@@ -299,6 +307,9 @@ export function ActivityPanel({
                                       ? "本轮决定已结算"
                                       : "正在处理"}
                     </p>
+                    {item.autonomy_category ? (
+                      <p>自主方向：{AUTONOMY_CATEGORIES[item.autonomy_category]}</p>
+                    ) : null}
                     {item.consideration_signals === null ? (
                       <p>本轮未记录考虑信号明细</p>
                     ) : item.consideration_signals ? (

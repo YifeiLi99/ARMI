@@ -88,7 +88,7 @@ def autonomy_statement(
         SELECT o.opportunity_id AS operation_id,o.available_after,o.current_disposition,
                CASE WHEN o.purpose='consider_autonomy_check' THEN 'check' ELSE 'execute' END AS stage,
                o.root_opportunity_id,o.predecessor_opportunity_id,
-               o.consideration_signals,
+               o.consideration_signals,o.autonomy_category,
                o.resolution_reason_code,e.cognitive_episode_id AS episode_id,e.status AS cognition_status,
                e.final_disposition,e.failure_code,delivery.effect_id,delivery.status AS effect_status
         FROM armi.opportunities o

@@ -1026,6 +1026,10 @@ export interface components {
     };
     /** AutonomyHistoryItem */
     AutonomyHistoryItem: {
+      /** Autonomy Category */
+      autonomy_category:
+        | ("continue_activity" | "explore" | "communicate" | "reflect" | "wait")
+        | null;
       /** Available After */
       available_after: string;
       /** Cognition Status */

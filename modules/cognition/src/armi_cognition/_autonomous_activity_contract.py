@@ -1,11 +1,13 @@
 """Compact model output contract for one autonomous Activity choice."""
 
+# ruff: noqa: RUF001 -- Chinese directions for the cognition provider.
+
 from __future__ import annotations
 
 import json
 from typing import Annotated, Any, Literal, cast
 
-from armi_kernel.application import ModelViolation
+from armi_kernel.application import AutonomyCategory, ModelViolation
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -23,10 +25,46 @@ from ._creator_cognitive_act_contract import RecordKind
 from ._focus.api import (
     ConcernChange,
 )
+from ._prompt_instructions import AUTONOMOUS_ACTIVITY_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
 AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate"
+
+_CATEGORY_TASKS = {
+    AutonomyCategory.CONTINUE_ACTIVITY: "本轮方向是继续活动。围绕已有正式活动选择当前可推进、核验或调整的一步，不重复启动等待中的任务。",
+    AutonomyCategory.EXPLORE: "本轮方向是探索与思考。围绕已有兴趣、疑问或关注进行有界的理解、构思或研究，再决定具体下一步。",
+    AutonomyCategory.COMMUNICATE: "本轮方向是主动交流。先确定有意义的分享、问题或表达及现有合法接收目标，再形成 expression；不为联系而编造话题。",
+    AutonomyCategory.REFLECT: "本轮方向是回顾与整理。基于可见经历和认识梳理关注、形成反思，必要时通过已有生活查询补充依据；不直接触发睡眠维护或越过记忆写入条件。",
+}
+
+
+def autonomous_instructions_for_context(compiled_context: bytes) -> str:
+    try:
+        document = json.loads(compiled_context)
+        opportunity = next(
+            item
+            for layer in document["layers"]
+            for item in layer["items"]
+            if item["item_kind"] == "current_life_opportunity"
+        )
+        raw = json.loads(opportunity["content"])["autonomy"]["category"]
+        # Non-plan autonomous opportunities have no preceding Jev classification.
+        if raw is None:
+            return AUTONOMOUS_ACTIVITY_INSTRUCTIONS
+        category = AutonomyCategory(raw)
+        task = _CATEGORY_TASKS[category]
+    except ValueError, KeyError, TypeError, StopIteration:
+        raise ModelViolation("MODEL-AUTONOMY-CATEGORY") from None
+    return (
+        AUTONOMOUS_ACTIVITY_INSTRUCTIONS
+        + "\n\n# Jev 前置分类\n\n"
+        + task
+        + (
+            "\n沿此方向细化具体内容，而不是重新自由选择另一大类。分类不构成行动许可或事实；"
+            "若当前依据或条件不足，可明确不行动、延期或需要信息，不强行执行或悄悄换任务。"
+        )
+    )
 
 
 class _StrictModel(BaseModel):
