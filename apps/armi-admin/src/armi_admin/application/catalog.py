@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from .content_contracts import ContentWriteRequest
 from .contracts import (
     AdminToolResult,
+    AdvanceTestTimeRequest,
     ApplyCorrectionRequest,
     ArmFaultRequest,
     AuthorizationApproveRequest,
@@ -307,6 +308,7 @@ OPERATION_DESCRIPTIONS = {
     "runtime_stop": "Stop the drained bound Runtime and retain shared dependencies.",
     "runtime_restart": "Drain, stop and restart the fixed bound Runtime.",
     "inject_creator_input": "Inject formal Creator intake only in an explicitly enabled test environment.",
+    "advance_test_time": "Advance Mind/Attention effective time in a system_test Runtime; leases and wall time remain unchanged. Never replay an uncertain invocation.",
     "arm_fault": "Arm one allowlisted one-shot fault only in an explicitly enabled test environment.",
     "clear_faults": "Clear armed faults in the bound test Runtime.",
     "preview_correction": "Preview a fixed owner correction without changing authority facts or authorizing its application.",
@@ -365,6 +367,7 @@ ADMIN_OPERATIONS = (
     AdminOperation("runtime_stop", RuntimeControlRequest, "mutate"),
     AdminOperation("runtime_restart", RuntimeControlRequest, "mutate"),
     AdminOperation("inject_creator_input", InjectCreatorInputRequest, "mutate"),
+    AdminOperation("advance_test_time", AdvanceTestTimeRequest, "mutate"),
     AdminOperation("arm_fault", ArmFaultRequest, "mutate"),
     AdminOperation("clear_faults", ClearFaultsRequest, "mutate"),
     AdminOperation("preview_correction", PreviewCorrectionRequest, "mutate"),

@@ -2715,7 +2715,22 @@ async def _serve(
                     and control_environment[0] in {"system_test", "acceptance"}
                     and control_environment[1] is True
                 )
+
+        async def advance_test_time(seconds: int) -> dict[str, Any]:
+            from .admin_control import RuntimeAdminControlError
+
+            if authority is None or authority_port is None:
+                raise RuntimeAdminControlError("ADMIN-TEST-TIME-UNAVAILABLE")
+            try:
+                value = await authority_port.advance_test_time(
+                    authority.require_writable(), seconds=seconds
+                )
+            except RuntimeAuthorityViolation as error:
+                raise RuntimeAdminControlError(error.code) from None
+            return {"advanced_seconds": seconds, "instance_active_microseconds": value}
+
         admin_control = RuntimeAdminControlServer(
+            on_advance_test_time=advance_test_time,
             test_controls_enabled=test_controls_enabled,
             run_root=prepared.root / "run" / "admin-control",
             environment_id=str(config.environment.environment_id),

@@ -10737,6 +10737,29 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 # A suspended/sleeping clock contributes no guessed wall time.
                 await authorities[2].heartbeat(default.fence, lease_seconds=30)
+                with self.assertRaises(RuntimeAuthorityViolation):
+                    await authorities[2].advance_test_time(default.fence, seconds=14400)
+                with psycopg.connect(fixture.provisioner_dsn) as test_environment:
+                    test_environment.execute(
+                        """INSERT INTO armi.deployment_environments
+                        (environment_id,environment_kind,incarnation,resettable,test_controls_enabled)
+                        VALUES (%s,'system_test',1,true,true)""",
+                        (fixture.environment_id,),
+                    )
+                self.assertEqual(
+                    await authorities[2].advance_test_time(
+                        default.fence, seconds=14400
+                    ),
+                    14_410_000_000,
+                )
+                with psycopg.connect(fixture.provisioner_dsn) as test_environment:
+                    test_environment.execute(
+                        """UPDATE armi.deployment_environments SET environment_kind='active',
+                        resettable=false,test_controls_enabled=false WHERE environment_id=%s""",
+                        (fixture.environment_id,),
+                    )
+                with self.assertRaises(RuntimeAuthorityViolation):
+                    await authorities[2].advance_test_time(default.fence, seconds=14400)
                 clock_tick[0] += 2_000_000
                 await authorities[2].release(default.fence)
                 with psycopg.connect(fixture.runtime_dsn) as clock_connection:
@@ -10744,7 +10767,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "SELECT active_runtime_microseconds FROM armi.runtime_instances WHERE runtime_instance_id=%s",
                         (default.fence.runtime_instance_id.value,),
                     ).fetchone()
-                    self.assertEqual(elapsed, (12_000_000,))
+                    self.assertEqual(elapsed, (14_412_000_000,))
 
                 with psycopg.connect(
                     fixture.provisioner_dsn,

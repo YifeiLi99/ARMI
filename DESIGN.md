@@ -353,6 +353,8 @@ Attention 每分钟计算整体需要与 Creator 思念的最大值，实际正�
 
 离线复现：`python -m tools.test_mind --continuous --scenario tests/fixtures/mind/continuous_time.yaml`；模拟使用生产算法、虚拟有效时间和固定随机种子，不连接模型、数据库或消息渠道。
 
+源码实测通过 [对话实验室](README.md#源码对话实验室) 复用正式启动、Interaction intake 与 Admin 查询。测试跳时由 Runtime owner 校验有效 fence、lease、主体激活及数据库中的 system_test/test_controls_enabled 后，只增加当前实例的 active_runtime_microseconds；不改变墙钟、租约、Mood 或调度间隔，不追补中间事件。Admin 用既有耐久调用幂等与 unknown 合同保存此次动作，不能重试不确定结果。实验室捕获现存认知制品与 event_appraisals 的实际模型内容，不自行拼装第二套 prompt；凭据、安装版环境和数据库恢复制品不进入捕获文件。
+
 变量依据：[基本心理需要满足与受挫](https://selfdeterminationtheory.org/wp-content/uploads/2015/01/2014_Chen-et-al._need-satisfaction.pdf)、[PACE](https://pmc.ncbi.nlm.nih.gov/articles/PMC6891259/)、[学习进展实验](https://www.nature.com/articles/s41467-021-26196-w)、[MAC 投入模型](https://www.erinwestgate.com/uploads/7/6/4/1/7641726/westgatewilson.psychreview.2018.pdf)。这些研究支持变量与因果假设，不提供这里的电子人数值公式。[Jev 官方合同](https://docs.typesafe.ai/primitives)支持共享输入、各题独立的批量评价。题目见 [对象题库](modules/mind/src/armi_mind/_event_questions.py)。
 
 Mind 提供领域、对象、依据、时间、质量和考虑信号，不提供总分、消息、工具参数、权限或采样参数。主认知可以继续、换方法、联系、等待或放下；真实效果经 Expression/Activity/Effect 登记、执行和核验。

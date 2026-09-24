@@ -73,6 +73,7 @@ from .contracts import (
     AdminIdentity,
     AdminMutationRequest,
     AdminToolResult,
+    AdvanceTestTimeRequest,
     ApplyCorrectionRequest,
     ArmFaultRequest,
     AuthorizationApproveRequest,
@@ -145,6 +146,7 @@ ObservationToolName = Literal[
     "usage_read",
 ]
 MutationToolName = Literal[
+    "advance_test_time",
     "data_deletion_preview",
     "data_deletion_apply",
     "other_human",
@@ -241,6 +243,7 @@ class AdminToolService:
         except AdminControlError, RuntimeViolation, OSError, ValueError:
             runtime_status = "unknown"
         runtime_required = {
+            "advance_test_time",
             "inject_creator_input",
             "arm_fault",
             "clear_faults",
@@ -264,7 +267,18 @@ class AdminToolService:
             if not authorized(name):
                 return "scope_not_granted"
             if (
-                name in {"arm_fault", "clear_faults", "inject_creator_input"}
+                name == "advance_test_time"
+                and self._config.environment_kind.value != "system_test"
+            ):
+                return "test_environment_required"
+            if (
+                name
+                in {
+                    "advance_test_time",
+                    "arm_fault",
+                    "clear_faults",
+                    "inject_creator_input",
+                }
                 and not self._config.test_controls_enabled
             ):
                 return "test_controls_disabled"
@@ -1752,6 +1766,23 @@ class AdminToolService:
                         "idempotency_key": str(typed_input.idempotency_key),
                     },
                 )
+            elif name == "advance_test_time":
+                self._require_test_controls()
+                if self._config.environment_kind.value != "system_test":
+                    raise AdminControlError("ADMIN-TEST-TIME-ENVIRONMENT")
+                try:
+                    result = self._control.send_control(
+                        "advance_test_time",
+                        {"seconds": cast(AdvanceTestTimeRequest, request).seconds},
+                    )
+                except AdminControlError as error:
+                    if str(error) in {
+                        "ADMIN-CONTROL-UNAVAILABLE",
+                        "ADMIN-CONTROL-PROTOCOL",
+                        "ADMIN-CONTROL-RESPONSE-SIZE",
+                    }:
+                        raise AdminControlError("ADMIN-TEST-TIME-UNKNOWN") from error
+                    raise
             elif name == "arm_fault":
                 typed_fault = cast(ArmFaultRequest, request)
                 self._require_test_controls()

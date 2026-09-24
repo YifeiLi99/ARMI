@@ -22,6 +22,7 @@ from armi_local_control import RuntimeViolation
 _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
 _COMMANDS = {
+    "advance_test_time",
     "status",
     "drain",
     "stop",
@@ -87,6 +88,7 @@ class RuntimeAdminControlServer:
     """Own one loopback control listener only when a matching manifest exists."""
 
     __slots__ = (
+        "_advance_test_time",
         "_armed_faults",
         "_data_deletion",
         "_descriptor",
@@ -126,6 +128,7 @@ class RuntimeAdminControlServer:
         test_controls_enabled: bool = False,
         on_data_deletion: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
         | None = None,
+        on_advance_test_time: Callable[[int], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._run_root = run_root
         self._manifest = run_root / "runtime-control.manifest.json"
@@ -145,6 +148,7 @@ class RuntimeAdminControlServer:
         self._token = ""
         self._armed_faults: dict[str, datetime] = {}
         self._test_controls_enabled = test_controls_enabled
+        self._advance_test_time = on_advance_test_time
 
     @classmethod
     def configured(cls, environment_root: Path) -> bool:
@@ -295,6 +299,16 @@ class RuntimeAdminControlServer:
         elif command == "stop":
             self._on_stop()
             result = {"runtime_state": "stopping"}
+        elif command == "advance_test_time":
+            if not self._test_controls_enabled or self._advance_test_time is None:
+                raise RuntimeAdminControlError("ADMIN-TEST-CONTROLS-DISABLED")
+            if (
+                set(arguments) != {"seconds"}
+                or type(arguments["seconds"]) is not int
+                or not 1 <= arguments["seconds"] <= 604800
+            ):
+                raise RuntimeAdminControlError("ADMIN-TEST-TIME-RANGE")
+            result = await self._advance_test_time(arguments["seconds"])
         elif command == "input":
             if not self._test_controls_enabled:
                 raise RuntimeAdminControlError("ADMIN-TEST-CONTROLS-DISABLED")

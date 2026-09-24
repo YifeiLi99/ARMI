@@ -272,6 +272,7 @@ class AdminControlPlane:
         expected_instance_id: str | None = None,
     ) -> dict[str, Any]:
         if command not in {
+            "advance_test_time",
             "status",
             "drain",
             "stop",

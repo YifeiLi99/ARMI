@@ -23,6 +23,7 @@ from armi_admin.application.configuration import (
 )
 from armi_admin.persistence import AdminObservationGateway
 from armi_runtime.composition.admin_control import (
+    RuntimeAdminControlError,
     RuntimeAdminControlServer,
     RuntimeAdminInjectedFault,
 )
@@ -220,6 +221,56 @@ class AdminResetPreviewTests(unittest.TestCase):
 
 
 class RuntimeControlProtocolTests(unittest.TestCase):
+    def test_time_advance_requires_enabled_test_control_and_integer_range(self):
+        async def exercise(root):
+            calls = []
+
+            async def advance(seconds):
+                calls.append(seconds)
+                return {
+                    "advanced_seconds": seconds,
+                    "instance_active_microseconds": seconds * 1000000,
+                }
+
+            request = {
+                "schema_kind": "armi.runtime-admin-control",
+                "request_id": "request",
+                "environment_id": ENVIRONMENT_ID,
+                "incarnation": 1,
+                "instance_id": "instance",
+                "token": "",
+                "command": "advance_test_time",
+                "arguments": {"seconds": 300},
+            }
+            for enabled in (False, True):
+                server = RuntimeAdminControlServer(
+                    run_root=root,
+                    environment_id=ENVIRONMENT_ID,
+                    incarnation=1,
+                    instance_id="instance",
+                    on_status=lambda: {},
+                    on_drain=lambda: None,
+                    on_stop=lambda: None,
+                    on_input=None,
+                    test_controls_enabled=enabled,
+                    on_advance_test_time=advance,
+                )
+                if not enabled:
+                    with self.assertRaisesRegex(RuntimeAdminControlError, "DISABLED"):
+                        await server._dispatch(request)  # pyright: ignore[reportPrivateUsage]
+                else:
+                    for bad in (True, 0, -1, 604801, 1.5):
+                        with self.assertRaisesRegex(RuntimeAdminControlError, "RANGE"):
+                            await server._dispatch(
+                                {**request, "arguments": {"seconds": bad}}
+                            )  # pyright: ignore[reportPrivateUsage]
+                    response = await server._dispatch(request)  # pyright: ignore[reportPrivateUsage]
+                    self.assertEqual(response["result"]["advanced_seconds"], 300)
+            self.assertEqual(calls, [300])
+
+        with tempfile.TemporaryDirectory() as directory:
+            asyncio.run(exercise(Path(directory)))
+
     def test_internal_dispatch_error_is_not_reported_as_protocol_rejection(
         self,
     ) -> None:

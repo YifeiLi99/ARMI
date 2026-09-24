@@ -417,6 +417,11 @@ class ControlPayload[ResultT](Payload):
     result: ResultT
 
 
+class TestTimePayload(Payload):
+    advanced_seconds: int
+    instance_active_microseconds: int
+
+
 class FaultPayload(Payload):
     armed_faults: list[str]
 
@@ -1065,6 +1070,7 @@ RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
     "runtime_stop": ProcessPayload,
     "runtime_restart": ProcessPayload,
     "runtime_drain": ControlPayload[RuntimeStatePayload],
+    "advance_test_time": ControlPayload[TestTimePayload],
     "arm_fault": ControlPayload[FaultPayload],
     "clear_faults": ControlPayload[FaultPayload],
     "inject_creator_input": ControlPayload[InputAdmissionPayload],

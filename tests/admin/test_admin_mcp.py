@@ -121,6 +121,29 @@ def test_private_snapshot_requires_separate_scope_before_owner_read() -> None:
     assert result.error_code == "ADMIN-PRIVATE-SCOPE-REQUIRED"
 
 
+def test_test_time_disconnect_is_unknown_and_same_key_never_dispatches_twice():
+    from armi_admin.application import AdminControlError
+    from armi_admin.application.contracts import AdvanceTestTimeRequest
+
+    service = _service()
+    request = AdvanceTestTimeRequest(
+        environment_id=ENVIRONMENT_ID,
+        environment_incarnation=1,
+        idempotency_key="jump-once",
+        purpose="admin.advance_test_time",
+        seconds=300,
+    )
+    with patch(
+        "armi_admin.application.control_plane.AdminControlPlane.send_control",
+        side_effect=AdminControlError("ADMIN-CONTROL-UNAVAILABLE"),
+    ) as send:
+        first = service.mutate("advance_test_time", request)
+        second = service.mutate("advance_test_time", request)
+    assert first.status == second.status == "unknown"
+    assert first.error_code == "ADMIN-TEST-TIME-UNKNOWN"
+    send.assert_called_once()
+
+
 def test_cognition_read_requires_its_scope_before_owner_read() -> None:
     from armi_admin.application.contracts import CognitionReadRequest
 

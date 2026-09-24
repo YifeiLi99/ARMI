@@ -438,6 +438,45 @@ class PostgreSQLRuntimeAuthority:
             self._active_tick = None
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
 
+    async def advance_test_time(self, fence: RuntimeFence, *, seconds: int) -> int:
+        """Advance only Mind/Attention effective time in a registered test environment.
+
+        Wall time, leases, deadlines and external I/O timeouts remain real time.
+        This owner write is exposed through the authenticated Admin test control.
+        """
+        if type(seconds) is not int or not 1 <= seconds <= 604800:
+            raise RuntimeAuthorityViolation("AUTH-TEST-TIME-RANGE")
+        async with (
+            self._pool.connection(
+                timeout=float(self._pool_timeout_seconds)
+            ) as connection,
+            connection.transaction(),
+        ):
+            row = await (
+                await connection.execute(
+                    """UPDATE armi.runtime_instances AS instance
+                SET active_runtime_microseconds=active_runtime_microseconds+%s
+                FROM armi.subjects AS subject, armi.deployment_environments AS environment
+                WHERE instance.runtime_instance_id=%s AND instance.fence_token=%s
+                  AND instance.status='active' AND instance.lease_expires_at>statement_timestamp()
+                  AND subject.singleton_key=1 AND subject.subject_id=instance.subject_id
+                  AND subject.current_bundle_activation_id=instance.bundle_activation_id
+                  AND environment.environment_id=%s
+                  AND environment.environment_kind='system_test'
+                  AND environment.test_controls_enabled=true
+                RETURNING instance.active_runtime_microseconds""",
+                    (
+                        seconds * 1_000_000,
+                        fence.runtime_instance_id.value,
+                        fence.fence_token,
+                        self._environment_id,
+                    ),
+                )
+            ).fetchone()
+            if row is None:
+                raise RuntimeAuthorityViolation("AUTH-TEST-TIME-NOT-AVAILABLE")
+            return int(row[0])
+
     async def release(self, fence: RuntimeFence) -> RuntimeAuthorityRecord:
         delta = self._elapsed_active()
         try:

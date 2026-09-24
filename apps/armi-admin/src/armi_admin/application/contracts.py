@@ -429,6 +429,10 @@ class InjectCreatorInputRequest(MutationRequest):
         return value
 
 
+class AdvanceTestTimeRequest(MutationRequest):
+    seconds: int = Field(ge=1, le=604800)
+
+
 class ArmFaultRequest(MutationRequest):
     fault: Literal[
         "artifact_after_publish_before_commit",
@@ -628,6 +632,7 @@ AdminMutationRequest = (
     | EnvironmentResetRequest
     | RuntimeControlRequest
     | InjectCreatorInputRequest
+    | AdvanceTestTimeRequest
     | ArmFaultRequest
     | ClearFaultsRequest
     | PreviewCorrectionRequest
@@ -640,6 +645,7 @@ __all__ = (
     "AdminIdentity",
     "AdminMutationRequest",
     "AdminToolResult",
+    "AdvanceTestTimeRequest",
     "ApplyCorrectionRequest",
     "ArmFaultRequest",
     "AutonomyHistoryRequest",

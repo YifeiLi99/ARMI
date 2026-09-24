@@ -99,6 +99,32 @@ class SetupCredentialRequest(BaseModel):
     value: SecretStr | None = None
 
 
+def store_provider_secret(root: Path, name: ProviderCredential, raw: bytes) -> None:
+    """Publish an already validated provider value in the environment secret store.
+
+    Shared by setup and the explicitly bound source dialogue laboratory.
+    """
+    if (
+        name not in _PROVIDER_CREDENTIALS
+        or not raw
+        or len(raw) > 16_384
+        or b"\x00" in raw
+    ):
+        raise SetupError("SETUP-CREDENTIAL-VALUE-INVALID")
+    path = root / "secrets" / ("provider-" + name)
+    if has_reparse_point(path, root=root):
+        raise SetupError("SETUP-CREDENTIAL-PATH")
+    temporary = path.with_name(path.name + f".{uuid7()}.pending")
+    try:
+        with temporary.open("xb") as output:
+            output.write(raw)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class SetupPaths(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -727,15 +753,7 @@ class SetupApplication:
                             raise ValueError
                     except ValueError:
                         raise SetupError("SETUP-CREDENTIAL-FORMAT-INVALID") from None
-                temporary = path.with_suffix(path.suffix + ".pending")
-                try:
-                    with temporary.open("wb") as output:
-                        output.write(raw)
-                        output.flush()
-                        os.fsync(output.fileno())
-                    os.replace(temporary, path)
-                finally:
-                    temporary.unlink(missing_ok=True)
+                store_provider_secret(self.root, request.name, raw)
                 if environment_update is not None:
                     write_control(self.root / "environment.yaml", environment_update)
             elif request.action == "remove":
