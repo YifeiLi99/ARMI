@@ -8,10 +8,20 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_kernel.application import ConsiderationSignal
-from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLTransaction,
+    active_runtime_seconds,
+)
 
+from ._dynamics import (
+    DEFAULT_DYNAMICS_PARAMETERS,
+    DynamicsParameters,
+    contact_drive,
+    dimensions_projection,
+)
 from ._state_algorithm import MindEvidence
-from ._state_storage import apply_mind_evidence
+from ._state_storage import apply_mind_evidence, numeric_mind_state
 from .api import (
     MindBirthContinuity,
     MindHead,
@@ -25,6 +35,34 @@ from .api import (
 
 
 class PostgreSQLMindOwner:
+    def __init__(
+        self, parameters: DynamicsParameters = DEFAULT_DYNAMICS_PARAMETERS
+    ) -> None:
+        self._parameters = parameters
+
+    async def dynamics_status(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> list[dict[str, object]]:
+        head = await self.current_head(transaction, subject_id=subject_id)
+        return dimensions_projection(
+            numeric_mind_state(head.canonical_state).dimensions,
+            active_seconds=await active_runtime_seconds(
+                transaction, subject_id=subject_id
+            ),
+        )
+
+    async def contact_motivation(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, person_id: UUID
+    ) -> float:
+        head = await self.current_head(transaction, subject_id=subject_id)
+        return contact_drive(
+            numeric_mind_state(head.canonical_state).dimensions,
+            person_ref=str(person_id),
+            active_seconds=await active_runtime_seconds(
+                transaction, subject_id=subject_id
+            ),
+        )
+
     async def motivation_status(
         self,
         transaction: PostgreSQLTransaction,
@@ -220,7 +258,12 @@ class PostgreSQLMindOwner:
         await transaction.execute(
             "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,origin_kind,origin_ref,semantic_payload) "
             "VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb)",
-            (revision_id, subject_id, subject_id, initial_mind_state().decode()),
+            (
+                revision_id,
+                subject_id,
+                subject_id,
+                initial_mind_state(self._parameters).decode(),
+            ),
         )
         await transaction.execute(
             """UPDATE armi.mind_revisions SET is_current=true WHERE subject_id=%s AND mind_revision_id=%s AND mind_version=1 AND NOT is_current""",

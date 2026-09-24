@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid7
 
@@ -154,6 +154,8 @@ class PostgreSQLEventAppraisalStore:
         event: MoodEvent,
         context: dict[str, Any],
     ) -> EventAssessment:
+        from armi_runtime_foundation import active_runtime_seconds
+
         mood = await self._mood.snapshot(transaction, subject_id=event.subject_id)
         mind = await self._mind.current_head(transaction, subject_id=event.subject_id)
         row = await (
@@ -163,7 +165,33 @@ class PostgreSQLEventAppraisalStore:
             )
         ).fetchone()
         assessment_id, status = (row[0], str(row[1])) if row else (uuid7(), "new")
-        targets = evaluation_targets(event)
+        target = replace(
+            evaluation_targets(event)[0],
+            active_seconds=await active_runtime_seconds(
+                transaction, subject_id=event.subject_id
+            ),
+        )
+        identity = await (
+            await transaction.execute(
+                "SELECT context_party_id,purpose FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s AND subject_id=%s",
+                (event.episode_id, event.subject_id),
+            )
+        ).fetchone()
+        if identity is not None and identity[0] is not None:
+            target = replace(
+                target,
+                person_ref=str(identity[0]),
+                received_contact=identity[1]
+                in {
+                    "consider_creator_input",
+                    "consider_creator_voice_input",
+                    "consider_other_human_input",
+                },
+                active_seconds=await active_runtime_seconds(
+                    transaction, subject_id=event.subject_id
+                ),
+            )
+        targets = (target,)
         if row is None:
             await transaction.execute(
                 """INSERT INTO armi.event_appraisals
@@ -189,6 +217,11 @@ class PostgreSQLEventAppraisalStore:
                                 "source_version": event.source_version,
                             },
                             "context": context,
+                            "mind_target": {
+                                "person_ref": target.person_ref,
+                                "received_contact": target.received_contact,
+                                "active_seconds": target.active_seconds,
+                            },
                         }
                     ).decode(),
                 ),

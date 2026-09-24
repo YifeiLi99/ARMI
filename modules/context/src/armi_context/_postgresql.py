@@ -42,7 +42,7 @@ from armi_mind.api import MindReadPort
 from armi_mood.api import MoodReadPort, mood_snapshot_bytes
 from armi_prompt.api import PromptContextSource, PromptReadPort
 from armi_relationship.api import RelationshipReadPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, active_runtime_seconds
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
@@ -127,6 +127,7 @@ class ContextEpisodeSnapshot:
     recent_scene_sources: tuple[ContextDialogueItem, ...] = ()
     autonomy_context: bytes | None = None
     focus_items: tuple[PsychologicalContextItem, ...] = ()
+    active_seconds: float = 0.0
 
 
 class PostgreSQLContextRepository:
@@ -415,6 +416,9 @@ class PostgreSQLContextRepository:
             mechanism_identity=episode.mechanism_identity,
             trace_id=episode.trace_id,
             observed_at=mood.as_of,
+            active_seconds=await active_runtime_seconds(
+                tx, subject_id=episode.subject_id
+            ),
             consideration_signals=signals,
             component_payloads=component_payloads,
             focus_items=focus_items,

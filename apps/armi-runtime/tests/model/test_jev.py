@@ -185,8 +185,9 @@ def test_missing_jev_key_cannot_dispatch():
 
 @pytest.mark.parametrize("bad_owner", [None, "mind", "mood"])
 @pytest.mark.parametrize("background_count", [0, 5, 20])
+@pytest.mark.parametrize("social", [False, True])
 def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
-    monkeypatch, bad_owner, background_count
+    monkeypatch, bad_owner, background_count, social
 ):
     now = datetime.now(UTC)
     event = MoodEvent("e:1", uuid7(), uuid7(), uuid7(), 1, now, "Synthetic event")
@@ -194,7 +195,11 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
         uuid7(), event, "new", 1, initial_dynamics(now, DynamicsParameters())
     )
     target = MindEvaluationTarget(
-        GroundedObject("event", str(event.source_ref)), (str(event.source_ref),)
+        GroundedObject("event", str(event.source_ref)),
+        (str(event.source_ref),),
+        person_ref=str(uuid7()) if social else None,
+        received_contact=social,
+        active_seconds=14400.0,
     )
     calls, receipts, captured = [], [], {}
     background = [
@@ -211,7 +216,7 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
         body = json.loads(request.content)
         calls.append(body)
         assert body["state"]["context"] == background
-        assert len(body["questions"]) == 43
+        assert len(body["questions"]) == (46 if social else 43)
         assert not any(name.startswith("goal_") for name in body["questions"])
         answers = {
             name: {
@@ -274,7 +279,9 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
     assert result.ready_for_cognition == (bad_owner is None)
     assert (result.mind is None) == (bad_owner == "mind")
     assert (result.mood is None) == (bad_owner == "mood")
-    assert len([key for key in calls[0]["questions"] if key.startswith("mind_")]) == 18
+    assert len([key for key in calls[0]["questions"] if key.startswith("mind_")]) == (
+        21 if social else 18
+    )
 
 
 def test_joint_event_rejects_target_outside_frozen_context():

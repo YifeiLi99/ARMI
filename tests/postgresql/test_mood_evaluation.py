@@ -25,6 +25,7 @@ from armi_mind.api import (
     MindEvidence,
     MindVariable,
     Opportunity,
+    SocialEvidence,
 )
 from armi_mood.api import Appraisal, EvaluatedAppraisal, MoodEvent, MoodViolation
 from armi_runtime.application.mood_evaluation import RuntimeMoodEvaluation
@@ -247,6 +248,14 @@ def test_joint_event_commits_valid_parts_and_only_full_success_releases_context(
                         ),
                         Association.ACTIVE,
                         Opportunity.AVAILABLE,
+                        social=SocialEvidence(
+                            person_ref=t.person_ref,
+                            received_contact=t.received_contact,
+                            quality="level_4",
+                            importance="level_4",
+                            cue="not_applicable",
+                        ),
+                        active_seconds=t.active_seconds,
                     )
                     for t in targets
                 )
@@ -363,9 +372,13 @@ def test_joint_event_commits_valid_parts_and_only_full_success_releases_context(
                         DataRightsDiscoveryRequest(uuid7(), party, refs),
                     )
                     assert discovered.targets
-                    assert await mind.read.consideration_signals(
+                    dimensions = await mind.read.dynamics_status(
                         unit.transaction, subject_id=born.subject_id
                     )
+                    assert {d["dimension"] for d in dimensions} == {
+                        "companionship",
+                        "longing",
+                    }
                     await participant.apply(
                         unit.transaction,
                         DataRightsApplyRequest(
@@ -388,6 +401,13 @@ def test_joint_event_commits_valid_parts_and_only_full_success_releases_context(
                         unit.transaction, subject_id=born.subject_id
                     )
                     assert json.loads(head.canonical_state)["objects"] == []
+                    remaining = json.loads(head.canonical_state)["dimensions"]
+                    assert (
+                        len(remaining) == 1
+                        and remaining[0]["dimension"] == "companionship"
+                    )
+                    assert remaining[0]["basis_refs"] == []
+                    assert remaining[0]["last_event_key"] is None
                     assert await mind.read.history_is_continuous(
                         unit.transaction, subject_id=born.subject_id
                     )

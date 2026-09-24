@@ -102,6 +102,9 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     }:
         if purpose == "consider_autonomous_life":
             value["expression"] = None
+            value["expression_kind"] = None
+            value["expression_basis"] = []
+            value["social_decision"] = None
     elif version == "armi.cognition-candidate":
         value = {
             "schema_kind": version,

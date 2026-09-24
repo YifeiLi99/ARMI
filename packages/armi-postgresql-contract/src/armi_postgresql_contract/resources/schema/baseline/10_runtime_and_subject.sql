@@ -103,6 +103,7 @@ CREATE TABLE armi.runtime_instances (
     process_incarnation bigint,
     started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     last_heartbeat_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    active_runtime_microseconds bigint DEFAULT 0 NOT NULL CHECK (active_runtime_microseconds >= 0),
     lease_expires_at timestamp(6) with time zone NOT NULL,
     stopped_at timestamp(6) with time zone,
     recovery_status text,

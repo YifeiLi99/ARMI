@@ -6,6 +6,26 @@ from uuid import UUID
 from armi_runtime_foundation import PostgreSQLTransaction
 
 
+async def social_delivery_status(
+    transaction: PostgreSQLTransaction, *, root_opportunity_id: UUID
+) -> str:
+    rows = await (
+        await transaction.execute(
+            """SELECT dispatch_status FROM armi.effects WHERE root_opportunity_id=%s
+           AND effect_kind='creator_response'""",
+            (root_opportunity_id,),
+        )
+    ).fetchall()
+    if not rows:
+        return "missing"
+    states = {str(row[0]) for row in rows}
+    if states <= {"delivered"}:
+        return "delivered"
+    if states & {"ready", "claimed"}:
+        return "pending"
+    return "unknown" if "unknown" in states else "failed"
+
+
 async def response_delivery_activity(
     transaction: PostgreSQLTransaction, *, action_intent_ids: tuple[UUID, ...]
 ) -> tuple[bool, datetime | None]:

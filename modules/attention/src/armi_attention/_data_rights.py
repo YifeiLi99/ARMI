@@ -55,11 +55,17 @@ class PostgreSQLOpportunityDataRightsParticipant:
                SET current_disposition='cancelled',
                    resolved_at=statement_timestamp(),
                    resolution_reason_code=%s
-               WHERE context_party_id=%s AND current_disposition='open'""",
+               WHERE context_party_id=%s AND current_disposition IN ('open','selected')""",
             (
                 f"DATA-RIGHTS-{request.order_kind.upper().replace('_', '-')}",
                 request.party_id,
             ),
+        )
+        await transaction.execute(
+            """UPDATE armi.autonomy_plans p SET social_cycle=NULL
+               WHERE social_cycle->>'target_ref'=%s OR EXISTS (SELECT 1 FROM armi.opportunities o WHERE o.subject_id=p.subject_id
+                   AND o.context_party_id=%s AND o.source_kind='autonomy_plan')""",
+            (str(request.party_id), request.party_id),
         )
         return DataRightsApplyContribution(
             _OWNER,

@@ -14,6 +14,19 @@ from armi_runtime_foundation import AdminContentPort as MindAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._domain import initial_mind_state
+from ._dynamics import (
+    DIMENSIONS,
+    DimensionDefinition,
+    DimensionEvent,
+    DimensionState,
+    DynamicsParameters,
+    SocialEvidence,
+    contact_drive,
+    dimensions_projection,
+    exponential_value,
+    initial_dimensions,
+    update_dimensions,
+)
 from ._event_questions import (
     MindEvaluationTarget,
     mind_event_questions,
@@ -96,6 +109,12 @@ class MindRevision:
 
 
 class MindReadPort(Protocol):
+    async def dynamics_status(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> list[dict[str, object]]: ...
+    async def contact_motivation(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, person_id: UUID
+    ) -> float: ...
     async def motivation_status(
         self,
         transaction: PostgreSQLTransaction,
@@ -166,6 +185,10 @@ class MindBirthPort(Protocol):
 
 
 class MindAdminReadPort(Protocol):
+    def dynamics_status(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> list[dict[str, object]]: ...
+
     def current(
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MindAdminState: ...
@@ -219,9 +242,14 @@ class MindAdminCorrectionPort(Protocol):
 
 
 __all__ = (
+    "DIMENSIONS",
     "MIND_PARAMETERS",
     "Association",
     "DerivedMindState",
+    "DimensionDefinition",
+    "DimensionEvent",
+    "DimensionState",
+    "DynamicsParameters",
     "GroundedObject",
     "MindAdminContentPort",
     "MindAdminCorrectionPort",
@@ -242,8 +270,13 @@ __all__ = (
     "MindVariable",
     "MindViolation",
     "Opportunity",
+    "SocialEvidence",
     "VariableState",
+    "contact_drive",
     "derive_mind",
+    "dimensions_projection",
+    "exponential_value",
+    "initial_dimensions",
     "initial_mind_state",
     "mind_attention_projection",
     "mind_attention_weight",
@@ -254,5 +287,6 @@ __all__ = (
     "mind_signals",
     "parse_mind_event_answers",
     "project_mind_object",
+    "update_dimensions",
     "update_mind_object",
 )

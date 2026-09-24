@@ -1,0 +1,29 @@
+synthetic: true
+seed: 7
+person_ref: creator
+steps:
+  - label: birth
+    seconds: 0.0
+  - label: four active hours
+    seconds: 14400.0
+  - label: delivered without satisfaction
+    seconds: 0.0
+    result: delivered
+  - label: overnight shutdown
+    seconds: 43200.0
+    running: false
+  - label: first unanswered review
+    seconds: 7200.0
+  - label: second confirmed delivery
+    seconds: 0.0
+    result: delivered
+  - label: one hour without response
+    seconds: 3600.0
+  - label: meaningful interaction
+    seconds: 0.0
+    event:
+      person_ref: creator
+      received_contact: true
+      quality: level_4
+      importance: level_3
+      cue: not_applicable

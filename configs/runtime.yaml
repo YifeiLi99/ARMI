@@ -113,4 +113,9 @@ autonomy:
   enabled: true
   outlet: qq
 
+mind:
+  half_life_seconds: 14400.0
+  contact_base_relief: 0.05
+  cue_gain: 0.1
+
 secret_locators: {}

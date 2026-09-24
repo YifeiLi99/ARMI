@@ -23,6 +23,7 @@ from armi_runtime_foundation import (
 
 from ._autonomy_policy import AutonomyPolicy
 from ._signals import project_signal_status
+from ._social_cycle import SocialCycle
 
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
 
@@ -173,10 +174,17 @@ class OpportunityId:
 class CreatorOutreachFacts:
     scene_id: UUID
     creator_party_id: UUID
+    contact_drive: float = 0.0
+    active_seconds: float = 0.0
+    latest_input_id: UUID | None = None
 
 
 @runtime_checkable
 class LifeOpportunityFactsPort(Protocol):
+    async def social_delivery_status(
+        self, transaction: PostgreSQLTransaction, *, root_opportunity_id: UUID
+    ) -> str: ...
+
     def model_configuration_revision(self) -> str: ...
 
     async def autonomy_idle(
@@ -486,6 +494,7 @@ class OpportunityTransitionPort(Protocol):
         opportunity_id: UUID,
         disposition: str = "resolved",
         autonomy_acted: bool | None = None,
+        social_decision: tuple[str, str] | None = None,
         source_episode_id: UUID | None = None,
     ) -> None: ...
 
@@ -598,6 +607,7 @@ __all__ = (
     "OpportunitySelectionCursor",
     "OpportunityTransitionPort",
     "OpportunityWakeupPort",
+    "SocialCycle",
     "human_opportunity_pending",
     "project_signal_status",
 )

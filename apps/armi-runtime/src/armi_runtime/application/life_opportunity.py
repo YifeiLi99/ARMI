@@ -20,6 +20,15 @@ from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 
 
 class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
+    async def social_delivery_status(
+        self, transaction: PostgreSQLTransaction, *, root_opportunity_id: UUID
+    ) -> str:
+        from armi_effect.api import social_delivery_status
+
+        return await social_delivery_status(
+            transaction, root_opportunity_id=root_opportunity_id
+        )
+
     __slots__ = (
         "_cognition",
         "_focus",
@@ -136,9 +145,18 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         if not scenes:
             return None
         selected = scenes[0]
+        from armi_runtime_foundation import active_runtime_seconds
+
         return CreatorOutreachFacts(
             selected.scene_id,
             selected.creator_party_id,
+            await self._mind.contact_motivation(
+                transaction,
+                subject_id=fence.subject_id,
+                person_id=selected.creator_party_id,
+            ),
+            await active_runtime_seconds(transaction, subject_id=fence.subject_id),
+            selected.latest_input_id,
         )
 
 

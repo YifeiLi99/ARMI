@@ -163,6 +163,7 @@ class SubjectChangeSet:
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
     autonomy_acted: bool | None = None
+    social_decision: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         if (

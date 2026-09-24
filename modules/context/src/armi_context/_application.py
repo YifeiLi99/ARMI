@@ -823,6 +823,10 @@ def _context_request(
                     as_of=snapshot.observed_at,
                     purpose=snapshot.purpose,
                     signals=snapshot.consideration_signals,
+                    active_seconds=snapshot.active_seconds,
+                    person_ref=str(snapshot.other_party_id or snapshot.creator_party_id)
+                    if (snapshot.other_party_id or snapshot.creator_party_id)
+                    else None,
                     related_object_refs=frozenset(
                         ref
                         for ref in (

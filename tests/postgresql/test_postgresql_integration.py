@@ -5767,10 +5767,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             service = new_service()
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
-            replacement = {
-                "schema_kind": "armi.mind",
-                "objects": [],
-            }
+            from armi_mind.api import initial_mind_state
+
+            replacement = json.loads(initial_mind_state())
             preview = service.mutate(
                 "preview_correction",
                 PreviewCorrectionRequest.model_validate_json(
@@ -10570,6 +10569,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     @pytest.mark.test_group("runtime", "recovery")
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
+        clock_tick = [0]
         fixture = self.create_database()
         self._install_current(
             fixture.migrator_dsn,
@@ -10621,6 +10621,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     pool_timeout_seconds=2,
                     statement_timeout_seconds=5,
                     process_absent=lambda _identity: True,
+                    active_clock=lambda: clock_tick[0],
                 )
                 for _ in range(3)
             ]
@@ -10725,6 +10726,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     lease_seconds=30,
                 )
                 await asyncio.sleep(10)
+                clock_tick[0] += 10_000_000
                 renewed = await authorities[2].heartbeat(
                     default.fence,
                     lease_seconds=30,
@@ -10733,7 +10735,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     renewed.lease_expires_at,
                     default.lease_expires_at,
                 )
+                # A suspended/sleeping clock contributes no guessed wall time.
+                await authorities[2].heartbeat(default.fence, lease_seconds=30)
+                clock_tick[0] += 2_000_000
                 await authorities[2].release(default.fence)
+                with psycopg.connect(fixture.runtime_dsn) as clock_connection:
+                    elapsed = clock_connection.execute(
+                        "SELECT active_runtime_microseconds FROM armi.runtime_instances WHERE runtime_instance_id=%s",
+                        (default.fence.runtime_instance_id.value,),
+                    ).fetchone()
+                    self.assertEqual(elapsed, (12_000_000,))
 
                 with psycopg.connect(
                     fixture.provisioner_dsn,

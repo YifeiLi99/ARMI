@@ -604,7 +604,7 @@ async def _serve(
             await subject_state_module.open()
             focus_module = compose_focus_module()
             await focus_module.open()
-            mind_module = compose_mind_module()
+            mind_module = compose_mind_module(config)
             await mind_module.open()
             mood_module = compose_mood_module()
             await mood_module.open()

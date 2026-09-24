@@ -259,6 +259,9 @@ class AdminObservationGateway:
             )
             if mode == "status" and result.get("observed_at") is not None:
                 mind = self._mind.current(uow.transaction, private=True)
+                result["continuous_dimensions"] = self._mind.dynamics_status(
+                    uow.transaction
+                )
                 focus = self._focus.current(uow.transaction, private=True)
                 signals = mind_signals(json.dumps(mind.payload).encode("utf-8"))
                 signals += focus_signals(json.dumps(focus.payload).encode("utf-8"))

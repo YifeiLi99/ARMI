@@ -77,4 +77,4 @@ def test_frustration_never_invents_contact_and_satisfaction_does_not_cancel_it()
     rejected = state(relatedness_frustration=4, importance=4, meaning=4)
     assert not mind_condition_eligible(chosen, consumed_versions=frozenset())
     assert mind_condition_eligible(forced, consumed_versions=frozenset())
-    assert derive_mind(rejected.variables).contact_need == 0
+    assert derive_mind(rejected.variables).contact_need is None

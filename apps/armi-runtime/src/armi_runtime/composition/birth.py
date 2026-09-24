@@ -32,6 +32,7 @@ from armi_kernel.application import (
     TransactionIsolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_mind.api import DynamicsParameters as MindDynamicsParameters
 from armi_mind.bootstrap import bootstrap_mind
 from armi_mood.api import DynamicsParameters
 from armi_mood.bootstrap import bootstrap_mood
@@ -255,7 +256,9 @@ async def execute_birth_with_conninfo(
         catalog,
         BirthRepository(
             bootstrap_subject_state().birth,
-            bootstrap_mind().birth,
+            bootstrap_mind(
+                MindDynamicsParameters.model_validate(config.mind.model_dump())
+            ).birth,
             bootstrap_focus().birth,
             bootstrap_mood(
                 DynamicsParameters(

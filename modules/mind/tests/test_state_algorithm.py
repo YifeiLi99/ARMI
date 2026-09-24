@@ -29,7 +29,8 @@ def test_projection_keeps_domains_evidence_quality_and_read_only_time():
         project_mind_object(state, at=NOW, consumed_versions=frozenset()),
     )
     assert view["object"] == {"source_kind": "activity", "source_ref": "test-activity"}
-    assert view["domains"]["relatedness"]["contact_need"] == 75
+    assert view["domains"]["relatedness"]["contact_need"] is None
+    assert view["domains"]["relatedness"]["contact_gap"]["value"] == 75
     uncertain = update_mind_object(
         evidence(key="2", contact_gap="unknown"), previous=state
     )
@@ -145,12 +146,20 @@ def test_unknown_inputs_remain_unknown_when_known_evidence_determines_formula():
 
 
 def test_rearm_material_change_and_opportunity_restoration():
-    state = update_mind_object(evidence(contact_gap="level_3", importance="level_4"))
-    state = update_mind_object(evidence(key="2", contact_gap="level_4"), previous=state)
+    state = update_mind_object(
+        evidence(competence_frustration="level_3", importance="level_4")
+    )
+    state = update_mind_object(
+        evidence(key="2", competence_frustration="level_4"), previous=state
+    )
     assert state.condition_version == 2
-    state = update_mind_object(evidence(key="3", contact_gap="level_1"), previous=state)
+    state = update_mind_object(
+        evidence(key="3", competence_frustration="level_1"), previous=state
+    )
     assert state.armed
-    state = update_mind_object(evidence(key="4", contact_gap="level_3"), previous=state)
+    state = update_mind_object(
+        evidence(key="4", competence_frustration="level_3"), previous=state
+    )
     assert state.condition_version == 3
     waiting = update_mind_object(
         evidence(key="5", opportunity=Opportunity.LATER), previous=state
@@ -162,7 +171,9 @@ def test_rearm_material_change_and_opportunity_restoration():
 
 
 def test_due_review_is_explicit_and_one_time():
-    state = update_mind_object(evidence(contact_gap="level_4", importance="level_4"))
+    state = update_mind_object(
+        evidence(competence_frustration="level_4", importance="level_4")
+    )
     state = update_mind_object(
         evidence(key="2"), previous=state, due_review_key="review:1"
     )
@@ -230,12 +241,14 @@ def test_exploration_uses_only_mathematically_determined_unknown_completions(
 
 
 def test_material_change_after_unknown_uses_last_trigger_evidence():
-    first = update_mind_object(evidence(contact_gap="level_4", importance="level_4"))
+    first = update_mind_object(
+        evidence(competence_frustration="level_4", importance="level_4")
+    )
     uncertain = update_mind_object(
-        evidence(key="2", contact_gap="unknown"), previous=first
+        evidence(key="2", competence_frustration="unknown"), previous=first
     )
     changed = update_mind_object(
-        evidence(key="3", contact_gap="level_3"), previous=uncertain
+        evidence(key="3", competence_frustration="level_3"), previous=uncertain
     )
     assert changed.condition_version == 2
     assert changed.condition_reason == "material_change"
@@ -245,14 +258,19 @@ def test_material_change_after_unknown_uses_last_trigger_evidence():
 def test_rearm_requires_strictly_below_threshold():
     parameters = replace(MIND_PARAMETERS, rearm_threshold=0.375)
     first = update_mind_object(
-        evidence(contact_gap="level_4", importance="level_3"), parameters=parameters
+        evidence(competence_frustration="level_4", importance="level_3"),
+        parameters=parameters,
     )
     equal = update_mind_object(
-        evidence(key="2", contact_gap="level_2"), previous=first, parameters=parameters
+        evidence(key="2", competence_frustration="level_2"),
+        previous=first,
+        parameters=parameters,
     )
     assert not equal.armed
     lower = update_mind_object(
-        evidence(key="3", contact_gap="level_1"), previous=equal, parameters=parameters
+        evidence(key="3", competence_frustration="level_1"),
+        previous=equal,
+        parameters=parameters,
     )
     assert lower.armed
 
@@ -260,17 +278,17 @@ def test_rearm_requires_strictly_below_threshold():
 def test_unknown_high_motive_cannot_rearm_from_an_unrelated_known_zero():
     state = update_mind_object(
         evidence(
-            contact_gap="level_4",
+            competence_frustration="level_4",
             importance="level_4",
             autonomy_frustration="level_0",
         )
     )
     uncertain = update_mind_object(
-        evidence(key="2", contact_gap="unknown"), previous=state
+        evidence(key="2", competence_frustration="unknown"), previous=state
     )
     assert not uncertain.armed
     recovered = update_mind_object(
-        evidence(key="3", contact_gap="level_4"), previous=uncertain
+        evidence(key="3", competence_frustration="level_4"), previous=uncertain
     )
     assert recovered.condition_version == 1
     assert not mind_condition_eligible(recovered, consumed_versions=frozenset({1}))
@@ -279,7 +297,7 @@ def test_unknown_high_motive_cannot_rearm_from_an_unrelated_known_zero():
 def test_unknown_cannot_block_rearm_when_its_formula_is_determined():
     first = update_mind_object(
         evidence(
-            contact_gap="level_4",
+            competence_frustration="level_4",
             importance="level_4",
             information_gap="level_0",
             comprehensibility="unknown",
@@ -288,11 +306,13 @@ def test_unknown_cannot_block_rearm_when_its_formula_is_determined():
             novelty="unknown",
         )
     )
-    lower = update_mind_object(evidence(key="2", contact_gap="level_1"), previous=first)
+    lower = update_mind_object(
+        evidence(key="2", competence_frustration="level_1"), previous=first
+    )
     assert derive_mind(lower.variables).exploration == 0
     assert lower.armed
     restored = update_mind_object(
-        evidence(key="3", contact_gap="level_4"), previous=lower
+        evidence(key="3", competence_frustration="level_4"), previous=lower
     )
     assert restored.condition_version == 2
 
@@ -327,7 +347,7 @@ def test_object_isolation_stale_evidence_and_source_invalidation():
             None,
             1,
             0,
-            0,
+            None,
         ),
         # Company does not prevent an activity from lacking engagement.
         (

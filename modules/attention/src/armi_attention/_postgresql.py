@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from armi_activity.api import (
     ActivityReadPort,
@@ -177,6 +178,30 @@ class PostgreSQLLifeOpportunityRepository:
             ),
             None,
         )
+        focused = selected is not None
+        social_ready = False
+        if outlet is not None:
+
+            async def delivery_status(root_id: UUID) -> str:
+                return await self._facts.social_delivery_status(
+                    transaction, root_opportunity_id=root_id
+                )
+
+            cycle = await owner.social_cycle(
+                transaction,
+                subject_id=fence.subject_id,
+                target_ref=str(outlet.creator_party_id),
+                input_ref=None
+                if outlet.latest_input_id is None
+                else str(outlet.latest_input_id),
+                active_seconds=outlet.active_seconds,
+                delivery_status=delivery_status,
+            )
+            social_ready = outlet_state == "ready" and cycle.ready(
+                drive=outlet.contact_drive,
+                active_seconds=outlet.active_seconds,
+                focused=focused,
+            )
         if selected is None:
             selection = ActivityScheduler().select(
                 ActivitySchedulingSnapshot(
@@ -204,6 +229,7 @@ class PostgreSQLLifeOpportunityRepository:
             creator_party_id=None if outlet is None else outlet.creator_party_id,
             activity_id=None if selected is None else selected.activity_id.value,
             signals=signals,
+            social_ready=social_ready,
         )
 
 

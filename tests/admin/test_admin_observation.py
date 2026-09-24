@@ -386,6 +386,9 @@ class _Runtime:
 
 
 class _Mind:
+    def dynamics_status(self, transaction):
+        return []
+
     def current(self, transaction, *, private):
         import json
 

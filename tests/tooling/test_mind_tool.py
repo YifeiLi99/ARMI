@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def invoke(path):
+def invoke(path, *, continuous=False):
     return subprocess.run(
         [
             sys.executable,
@@ -15,6 +15,7 @@ def invoke(path):
             str(path),
             "--format",
             "json",
+            *(["--continuous"] if continuous else []),
         ],
         cwd=ROOT,
         capture_output=True,
@@ -46,3 +47,20 @@ def test_scenario_rejects_extra_fields_and_non_synthetic_input(tmp_path):
         result = invoke(path)
         assert result.returncode == 1
         assert not json.loads(result.stdout)["passed"]
+
+
+def test_continuous_scenario_replays_seed_and_freezes_shutdown_time():
+    path = ROOT / "tests/fixtures/mind/continuous_time.yaml"
+    first, second = invoke(path, continuous=True), invoke(path, continuous=True)
+    assert first.returncode == second.returncode == 0, first.stdout + first.stderr
+    assert first.stdout == second.stdout
+    steps = json.loads(first.stdout)["steps"]
+    assert steps[1]["triggered"]
+    assert (
+        steps[1]["dimensions"][0]["value"] == steps[2]["dimensions"][0]["value"] == 50.0
+    )
+    assert steps[2]["active_seconds"] == steps[3]["active_seconds"]
+    assert steps[2]["cycle"] == steps[3]["cycle"]
+    assert steps[5]["cycle"]["unanswered"] == 2
+    assert steps[7]["cycle"]["unanswered"] == 0
+    assert steps[7]["dimensions"][0]["value"] < steps[6]["dimensions"][0]["value"]

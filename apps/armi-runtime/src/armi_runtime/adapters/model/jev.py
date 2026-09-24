@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any, Literal, cast
 
 import httpx
@@ -149,9 +150,11 @@ class JevAppraiser:
         items = [item for layer in context["layers"] for item in layer["items"]]
         if targets is not None:
             event_ref = str(assessment.event.source_ref)
-            if targets != (
-                MindEvaluationTarget(GroundedObject("event", event_ref), (event_ref,)),
-            ):
+            # Person identity, actual interaction and active time are frozen by
+            # the event owner. They do not expand the permitted source objects.
+            if len(targets) != 1 or replace(
+                targets[0], person_ref=None, received_contact=False, active_seconds=0.0
+            ) != MindEvaluationTarget(GroundedObject("event", event_ref), (event_ref,)):
                 raise MoodViolation("MOOD-JEV-MIND-SOURCE-FORBIDDEN")
         allowed = {
             item["source"]["reference"]

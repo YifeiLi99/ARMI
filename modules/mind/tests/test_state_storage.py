@@ -98,6 +98,7 @@ def test_persistent_objects_are_independent_unbounded_and_corrections_recompute_
     after = numeric_mind_state(changed)
     assert after.objects[1:] == before.objects[1:]
     forged = after.model_dump(mode="json")
+    forged["dimensions"] = before.model_dump(mode="json")["dimensions"]
     forged["objects"][0]["condition_version"] = 999
     corrected = numeric_mind_state(
         correct_numeric_mind(

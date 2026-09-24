@@ -24,6 +24,7 @@ from armi_context.api import ContextDialogueItem, ContextItemDisposition
 from armi_interaction.api import InteractionContextTurn
 from armi_kernel.application import ConsiderationSignal, PsychologicalContextItem
 from armi_kernel.contracts import Digest, TraceId
+from armi_mind.api import initial_mind_state
 
 
 def _snapshot(
@@ -50,6 +51,9 @@ def _snapshot(
         ContextEpisodeSnapshot,
         SimpleNamespace(
             subject_id=uuid7(),
+            active_seconds=0.0,
+            other_party_id=None,
+            creator_party_id=None,
             subject_version=3,
             state_epoch=1,
             bundle_activation_id=uuid7(),
@@ -133,9 +137,7 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
                 95,
             ),
         ),
-        component_payloads=(
-            ("mind", uuid7(), 1, b'{"schema_kind":"armi.mind","objects":[]}'),
-        ),
+        component_payloads=(("mind", uuid7(), 1, initial_mind_state()),),
     )
     snapshot = cast(
         ContextEpisodeSnapshot,
@@ -351,12 +353,7 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
             "mind",
             uuid7(),
             2,
-            rfc8785.dumps(
-                {
-                    "schema_kind": "armi.mind",
-                    "objects": [],
-                }
-            ),
+            initial_mind_state(),
         ),
         (
             "mood",
@@ -459,7 +456,8 @@ def test_light_check_uses_bounded_owner_projections_without_private_recall() -> 
     ]
     recent = autonomy_check_items(turns, signalled_refs=frozenset())
     assert len(recent) == 2
-    contents = [json.loads(item.content) for item in recent]
+    assert all(item.content is not None for item in recent)
+    contents = [json.loads(cast(str, item.content)) for item in recent]
     assert contents[0]["text"] == waiting_report
     assert contents[1]["creator_input_after"] is False
     assert contents[1]["occurred_at"] == "2026-09-23T13:02:00Z"
@@ -870,7 +868,7 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     "mind",
                     uuid7(),
                     1,
-                    b'{"schema_kind":"armi.mind","objects":[]}',
+                    initial_mind_state(),
                 ),
             ),
         ),

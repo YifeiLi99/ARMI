@@ -19,5 +19,6 @@ CREATE TABLE armi.autonomy_plans (
     last_event_at timestamptz,
     last_engage boolean,
     blocked_reason_code text,
-    model_configuration_revision text
+    model_configuration_revision text,
+    social_cycle jsonb CHECK (social_cycle IS NULL OR jsonb_typeof(social_cycle)='object')
 );

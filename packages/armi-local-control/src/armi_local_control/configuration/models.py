@@ -148,6 +148,12 @@ class MoodConfig(_FrozenModel):
     fast_weight: Annotated[float, Field(ge=0, le=1)] = 0.7
 
 
+class MindConfig(_FrozenModel):
+    half_life_seconds: Annotated[float, Field(gt=0)] = 14400.0
+    contact_base_relief: Annotated[float, Field(ge=0, le=0.5)] = 0.05
+    cue_gain: Annotated[float, Field(ge=0, le=1)] = 0.1
+
+
 class CreatorConfig(_FrozenModel):
     bind_host: Literal["127.0.0.1"] = "127.0.0.1"
     port: Annotated[int, Field(ge=1024, le=65535)]
@@ -345,6 +351,7 @@ class RuntimeConfig(_FrozenModel):
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()
     model: ModelConfig = ModelConfig()
     mood: MoodConfig = MoodConfig()
+    mind: MindConfig = MindConfig()
     creator: CreatorConfig
     http: HttpConfig = HttpConfig()
     codex: CodexConfig = CodexConfig()

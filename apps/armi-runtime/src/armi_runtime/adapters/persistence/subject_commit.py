@@ -1027,6 +1027,7 @@ class PostgreSQLSubjectCommitRepository:
             status=CandidateApplicationStatus.APPLIED,
             result_ref=application_id.value,
             autonomy_acted=change_set.autonomy_acted,
+            social_decision=change_set.social_decision,
             voice_activity_state=self._voice_activity,
         )
         await unit_of_work.audit.append(
@@ -1189,6 +1190,7 @@ async def _settle_without_commit(
         status=status,
         result_ref=application_id.value,
         autonomy_acted=change_set.autonomy_acted,
+        social_decision=change_set.social_decision,
         voice_activity_state=voice_activity_state,
     )
     audit_status = (
@@ -1283,6 +1285,7 @@ async def _finish_episode_and_work(
     status: CandidateApplicationStatus,
     result_ref: UUID,
     autonomy_acted: bool | None = None,
+    social_decision: tuple[str, str] | None = None,
     voice_activity_state: VoiceActivityState | None = None,
 ) -> None:
     if autonomy_acted is not None:
@@ -1310,6 +1313,7 @@ async def _finish_episode_and_work(
             unit_of_work.transaction,
             opportunity_id=snapshot.opportunity_id,
             autonomy_acted=autonomy_acted,
+            social_decision=social_decision,
             source_episode_id=snapshot.episode_id,
         )
     except LifeViolation:

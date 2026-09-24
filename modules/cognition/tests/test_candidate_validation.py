@@ -1698,6 +1698,8 @@ def test_autonomous_codex_task_is_subject_authored_and_can_express(
                 "kind": "codex_delegation",
                 "objective": "整理已知资料中的概念并给出简短说明",
                 "expression": "我打算整理一下刚才想到的问题。",
+                "expression_kind": "sharing",
+                "expression_basis": ["ctx:2"],
             }
         ),
         bases=(*bases, source),
@@ -1750,6 +1752,8 @@ def test_autonomous_progress_and_expression_share_one_candidate(
                 "progress_summary": "整理出一个新的比较角度",
                 "next_step": "核对尚不确定的细节",
                 "expression": "我想到一个新角度。想听听吗?",
+                "expression_kind": "sharing",
+                "expression_basis": ["ctx:4"],
             }
         ),
         bases=(*bases, source),
@@ -1768,6 +1772,113 @@ def test_autonomous_progress_and_expression_share_one_candidate(
         == 1
     )
     assert result.change_set.autonomy_acted is True
+
+
+@pytest.mark.parametrize(
+    "motivated,outcome,expression,accepted",
+    [
+        (True, "express", "Want to chat?", True),
+        (True, "defer", None, True),
+        (True, "release", None, True),
+        (True, None, None, False),
+        (True, "express", None, False),
+        (False, "express", "Want to chat?", False),
+        (False, None, "Want to chat?", False),
+    ],
+)
+def test_social_motivation_must_be_handled_and_cannot_be_forged(
+    motivated, outcome, expression, accepted
+):
+    context, bases = _fixture()
+    context = replace(
+        context,
+        purpose="consider_autonomous_life",
+        opportunity_id=uuid7(),
+        social_motivation=motivated,
+    )
+    source = CandidateBasis(
+        4,
+        "activity",
+        "current_life_opportunity",
+        uuid7(),
+        1,
+        "runtime_authority",
+        "private",
+    )
+    candidate = {
+        "kind": "no_activity",
+        "expression": expression,
+        "expression_kind": "companionship" if expression is not None else None,
+        "social_decision": None
+        if outcome is None
+        else {"outcome": outcome, "reason": "current context"},
+    }
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=(*bases, source)
+    )
+    assert (result.status is CandidateValidationStatus.ACCEPTED) == accepted
+    if accepted:
+        assert result.change_set is not None
+        assert result.change_set.social_decision == (outcome, "current context")
+
+
+@pytest.mark.parametrize("kind", ["companionship", "sharing"])
+def test_autonomous_expression_cannot_bypass_explicit_contact_refusal(kind):
+    context, bases = _fixture()
+    relationship = CandidateRelationshipContext(
+        uuid7(),
+        uuid7(),
+        1,
+        (
+            RelationshipFact(
+                uuid7(),
+                RelationshipFactKind.PARTY_EXPRESSION,
+                "Please do not contact me.",
+            ),
+        ),
+        "The contact boundary remains in effect.",
+        (
+            RelationshipBoundary(
+                RelationshipPartyRole.OTHER,
+                RelationshipBoundaryKind.CONTACT,
+                RelationshipBoundaryAction.REFUSE,
+                "Do not initiate contact.",
+            ),
+        ),
+        RelationshipStatus.ACTIVE,
+    )
+    context = replace(
+        context,
+        purpose="consider_autonomous_life",
+        opportunity_id=uuid7(),
+        social_motivation=kind == "companionship",
+        subject_party_id=uuid7(),
+        current_relationship=relationship,
+    )
+    source = CandidateBasis(
+        4,
+        "activity",
+        "current_life_opportunity",
+        uuid7(),
+        1,
+        "runtime_authority",
+        "private",
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "no_activity",
+                "expression": "Hello",
+                "expression_kind": kind,
+                "expression_basis": ["ctx:2"],
+                "social_decision": {"outcome": "express", "reason": "High need"}
+                if kind == "companionship"
+                else None,
+            }
+        ),
+        bases=(*bases, source),
+    )
+    assert result.error_code == "CANDIDATE-RELATIONSHIP-BOUNDARY"
 
 
 def test_autonomous_candidate_rejects_scene_or_missing_source() -> None:

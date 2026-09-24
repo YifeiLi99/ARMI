@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -13,6 +14,22 @@ from armi_mind.api import (
 
 NOW = datetime(2026, 9, 22, tzinfo=UTC)
 TARGET = MindEvaluationTarget(GroundedObject("activity", "activity:1"), ("ctx:1",))
+
+
+def test_grounded_person_adds_only_semantic_social_questions():
+    target = replace(
+        TARGET, person_ref="person:1", received_contact=True, active_seconds=14400.0
+    )
+    questions = mind_event_questions((target,))
+    assert len(questions) == 21
+    (result,) = parse_mind_event_answers(
+        answers_for((target,)), targets=(target,), evidence_key="event", at=NOW
+    )
+    assert result.social is not None
+    assert result.social.person_ref == "person:1"
+    assert result.social.received_contact is True
+    assert result.social.importance == "level_3"
+    assert result.active_seconds == 14400.0
 
 
 def answers_for(targets, *, selected="level_3", confidence=0.5):

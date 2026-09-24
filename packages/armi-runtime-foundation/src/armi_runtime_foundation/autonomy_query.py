@@ -75,6 +75,7 @@ def autonomy_statement(
           'outlet_state',CASE WHEN running THEN outlet_state ELSE 'unavailable' END,
           'outlet_reason_code',CASE WHEN running THEN outlet_reason_code ELSE 'LIFE-RUNTIME-STOPPED' END,
           'outlet_observed_at',outlet_observed_at,
+          'social_cycle',jsonb_set(social_cycle,'{threshold}',to_jsonb((social_cycle->>'threshold')::double precision * 100)),
           'timezone','Asia/Shanghai') FROM current LIMIT 1),
           jsonb_build_object('state','not_initialized'))
         """,

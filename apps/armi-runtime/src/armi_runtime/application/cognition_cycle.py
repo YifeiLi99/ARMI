@@ -289,6 +289,7 @@ class RuntimeCognitionCycleSelector:
                 if (
                     candidate.purpose == "consider_autonomous_life"
                     and candidate.source_kind == "autonomy_plan"
+                    and candidate.root_opportunity_id != candidate.opportunity_id
                     and not await autonomy_check_current(
                         unit.transaction,
                         root_opportunity_id=candidate.root_opportunity_id,

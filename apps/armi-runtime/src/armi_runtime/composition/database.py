@@ -195,7 +195,7 @@ from armi_live_voice.api import (
     VoiceCognitionResultPort,
 )
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
-from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.configuration import ConfigurationViolation, RuntimeConfig
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_local_control.semantic_recall_process import SemanticRecallProcessManager
 from armi_material.api import (
@@ -220,6 +220,7 @@ from armi_memory.bootstrap import (
     MemoryModule,
     bootstrap_memory,
 )
+from armi_mind.api import DynamicsParameters as MindDynamicsParameters
 from armi_mind.api import MindEventPort, MindReadPort
 from armi_mind.bootstrap import MindModule, bootstrap_mind
 from armi_mood.api import MoodEventStorePort, MoodReadPort
@@ -765,8 +766,14 @@ def compose_focus_module() -> FocusModule:
     return bootstrap_focus()
 
 
-def compose_mind_module() -> MindModule:
-    return bootstrap_mind()
+def compose_mind_module(config: RuntimeConfig | None = None) -> MindModule:
+    return (
+        bootstrap_mind()
+        if config is None
+        else bootstrap_mind(
+            MindDynamicsParameters.model_validate(config.mind.model_dump())
+        )
+    )
 
 
 def compose_subject_state_module() -> SubjectStateModule:

@@ -340,7 +340,7 @@ class PostgreSQLOpportunityOwner:
                       p.outlet_state,p.outlet_reason_code,
                       (SELECT max(resolved_at) FROM armi.opportunities o
                        WHERE o.subject_id=p.subject_id AND o.purpose='consider_autonomous_life'),
-                      p.idle_streak,p.last_engage,p.last_check_started_at
+                      p.idle_streak,p.last_engage,p.last_check_started_at,p.social_cycle
                FROM armi.autonomy_plans p WHERE p.subject_id=%s""",
                 (candidate.subject_id,),
             )
@@ -358,6 +358,11 @@ class PostgreSQLOpportunityOwner:
                     "idle_streak": int(state[6]),
                     "last_engage": state[7],
                     "category": row[13],
+                    "social_motivation": state[9]
+                    if state[9] is not None
+                    and state[9].get("phase") == "cognition"
+                    and state[9].get("episode_ref") == str(opportunity_id)
+                    else None,
                     "outlet_bound": candidate.scene_id is not None,
                     "outlet_state": state[3],
                     "outlet_reason_code": state[4],
@@ -581,6 +586,7 @@ class PostgreSQLOpportunityOwner:
         opportunity_id: UUID,
         disposition: str = "resolved",
         autonomy_acted: bool | None = None,
+        social_decision: tuple[str, str] | None = None,
         source_episode_id: UUID | None = None,
     ) -> None:
         if disposition not in {"resolved", "superseded"}:
@@ -614,6 +620,12 @@ class PostgreSQLOpportunityOwner:
                 raise LifeViolation("LIFE-AUTONOMY-HUMAN-INPUT-PREEMPTED")
             if autonomy_acted is None:
                 raise LifeViolation("LIFE-AUTONOMY-SCHEDULE-REQUIRED")
+            await PostgreSQLAutonomyOwner().commit_social_decision(
+                transaction,
+                subject_id=row[1],
+                opportunity_id=opportunity_id,
+                decision=social_decision,
+            )
             await PostgreSQLAutonomyOwner().commit_plan(
                 transaction,
                 subject_id=row[1],

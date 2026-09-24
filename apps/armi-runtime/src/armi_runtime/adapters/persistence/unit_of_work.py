@@ -464,9 +464,7 @@ class PostgreSQLUnitOfWork:
                 record_diagnostic(
                     "database.transaction.finished",
                     component="database",
-                    level=logging.ERROR
-                    if diagnostic_error is not None and not cancelled
-                    else logging.INFO,
+                    level=logging.ERROR if not cancelled else logging.INFO,
                     error=None if cancelled else diagnostic_error,
                     outcome="cancelled" if cancelled else self._state.value,
                     owner=self._expected_role,

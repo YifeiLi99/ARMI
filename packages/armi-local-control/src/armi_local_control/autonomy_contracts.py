@@ -99,7 +99,33 @@ class AutonomyStageUsage(AutonomyResponse):
     unknown_calls: int
 
 
+class ContinuousMindDimension(AutonomyResponse):
+    dimension: str
+    target_ref: str | None
+    value: float = Field(ge=0, le=100)
+    equilibrium: float = Field(ge=0, le=100)
+    active_seconds: float = Field(ge=0)
+    anchor_active_seconds: float = Field(ge=0)
+    half_life_seconds: float = Field(gt=0)
+    basis_refs: list[str]
+
+
+class SocialCycleStatus(AutonomyResponse):
+    threshold: float = Field(ge=40, le=60)
+    phase: Literal[
+        "considering", "cognition", "delivery", "waiting", "deferred", "released"
+    ]
+    review_at: float
+    unanswered: int
+    input_ref: str | None
+    target_ref: str | None
+    episode_ref: str | None
+    reason: str | None
+
+
 class AutonomyStatus(AutonomyResponse):
+    continuous_dimensions: list[ContinuousMindDimension] = []
+    social_cycle: SocialCycleStatus | None = None
     phase: Literal["waiting", "check", "execute", "blocked"] | None = None
     idle_streak: int | None = None
     failure_streak: int | None = None

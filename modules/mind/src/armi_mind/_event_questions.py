@@ -8,6 +8,7 @@ from datetime import datetime
 from math import isclose, isfinite
 from typing import Any, cast
 
+from ._dynamics import SocialEvidence
 from ._state_algorithm import (
     MIND_PARAMETERS,
     Association,
@@ -202,6 +203,9 @@ class MindEvaluationTarget:
     basis_refs: tuple[str, ...]
     variables: tuple[MindVariable, ...] = tuple(MindVariable)
     due_review_key: str | None = None
+    person_ref: str | None = None
+    received_contact: bool = False
+    active_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if (
@@ -246,6 +250,59 @@ def mind_event_questions(
             "依据": ", ".join(target.basis_refs),
             "边界": _BOUNDARY,
         }
+        if target.person_ref is not None:
+            social_context = f"本次关系评价仅针对正式人物 {target.person_ref}。" + (
+                "本次已由正式入口确认收到该人物的交流。"
+                if target.received_contact
+                else "本次不是该人物发来的交流；互动质量选 not_applicable。"
+            )
+            for field, question, anchors in (
+                (
+                    "social_quality",
+                    "本次真实交流对 ARMI 的陪伴需要提供了怎样的回应？只评价本次，不把旧关系的亲近当作本次互动。拒绝或冲突选 rejecting。",
+                    (
+                        "明确没有满足",
+                        "简单招呼或礼貌回应",
+                        "有具体双向回应",
+                        "认真关心或充分交流",
+                        "深入且充分满足当前交流需要",
+                    ),
+                ),
+                (
+                    "social_importance",
+                    "已有关系事实对 ARMI 想保持与这个人的联系，提供多强的重要性依据？只用 ARMI 已有经历、关系理解与自身表达，不因 Creator 身份或对方单方面自称亲密推断。",
+                    (
+                        "明确不想维持联系",
+                        "轻微联系意愿",
+                        "一般联系意愿",
+                        "重要的持续联系",
+                        "明确核心且持续重要的联系",
+                    ),
+                ),
+                (
+                    "social_cue",
+                    "本次非交流事件是否使 ARMI 想起这个人并产生联系念头？仅有背景材料里的人名不算唤起；正在与此人交流时选 not_applicable。",
+                    (
+                        "明确没有唤起",
+                        "轻微想起",
+                        "具体联系念头",
+                        "明显想与其分享或交流",
+                        "强烈且有直接依据的联系念头",
+                    ),
+                ),
+            ):
+                criteria = {f"level_{i}": text for i, text in enumerate(anchors)}
+                criteria.update(
+                    unknown="缺少对应事实，无法判断",
+                    not_applicable="明确不适用于本次事件",
+                )
+                if field == "social_quality":
+                    criteria["rejecting"] = "本次明确拒绝、排斥或冲突，没有提供陪伴满足"
+                questions[f"mind_{index}_{field}"] = {
+                    "type": "choice",
+                    "instructions": _instructions(scope, social_context + question),
+                    "criteria": criteria,
+                }
         for variable in target.variables:
             question, levels = _ANCHORS[variable]
             questions[f"mind_{index}_{variable.value}"] = {
@@ -364,6 +421,19 @@ def parse_mind_event_answers(
             Association(selected[f"mind_{i}_association"]),
             Opportunity(selected[f"mind_{i}_opportunity"]),
             target.due_review_key,
+            None
+            if target.person_ref is None
+            else SocialEvidence.model_validate(
+                {
+                    "person_ref": target.person_ref,
+                    "received_contact": target.received_contact,
+                    "quality": selected[f"mind_{i}_social_quality"],
+                    "importance": selected[f"mind_{i}_social_importance"],
+                    "cue": selected[f"mind_{i}_social_cue"],
+                },
+                strict=True,
+            ),
+            target.active_seconds,
         )
         for i, target in enumerate(targets)
     )

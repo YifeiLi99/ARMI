@@ -632,6 +632,7 @@ __all__ = (
     "FrozenEffectRequest",
     "response_delivery_activity",
     "response_intent_ids",
+    "social_delivery_status",
 )
 
 
@@ -641,3 +642,11 @@ async def response_intent_ids(
     from ._intent_autonomy import response_intent_ids as read
 
     return await read(transaction, subject_id=subject_id)
+
+
+async def social_delivery_status(
+    transaction: PostgreSQLTransaction, *, root_opportunity_id: UUID
+) -> str:
+    from ._autonomy_read import social_delivery_status as read
+
+    return await read(transaction, root_opportunity_id=root_opportunity_id)

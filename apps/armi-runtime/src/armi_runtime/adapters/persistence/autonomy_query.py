@@ -80,4 +80,8 @@ class PostgreSQLAutonomyQuery:
                     as_of=datetime.fromisoformat(str(result["observed_at"])),
                     consumed=consumed,
                 )
+                result["continuous_dimensions"] = await self._mind.dynamics_status(
+                    unit.transaction,
+                    subject_id=unit.runtime_fence.subject_id,
+                )
             return result

@@ -66,6 +66,24 @@ def test_recorded_dialogues_preserve_state_and_consideration_behavior(batch):
         derived = asdict(derive_mind(state.variables))
         for metric, expected in case["outputs"].items():
             actual = derived[metric]
+            if metric == "priority" and case["id"] in {"contact_open", "wish_open"}:
+                assert actual == 0.0
+                continue
+            if metric == "contact_need":
+                # These recordings predate continuous needs. Preserve the raw
+                # appraisal evidence, but it no longer creates a contact motive.
+                assert actual is None
+                if expected is not None:
+                    gap = next(
+                        v
+                        for v in state.variables
+                        if v.variable == MindVariable.CONTACT_GAP
+                    )
+                    assert (
+                        gap.value is not None
+                        and expected[0] <= gap.value <= expected[1]
+                    )
+                continue
             if expected is None:
                 assert actual is None, (case["id"], metric)
             else:
@@ -74,7 +92,12 @@ def test_recorded_dialogues_preserve_state_and_consideration_behavior(batch):
         versions = consumed.setdefault(target.object, set())
         eligible = mind_condition_eligible(state, consumed_versions=frozenset(versions))
         if "eligible" in case:
-            assert eligible == case["eligible"], case["id"]
+            expected_eligible = (
+                False
+                if case["id"] in {"contact_open", "wish_open"}
+                else case["eligible"]
+            )
+            assert eligible == expected_eligible, case["id"]
         projection = project_mind_object(
             state, at=at, consumed_versions=frozenset(versions)
         )

@@ -146,6 +146,9 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
         scene_id=scene,
         creator_party_id=creator,
         awaiting_creator=awaiting_creator,
+        contact_drive=0.0,
+        active_seconds=0.0,
+        latest_input_id=None,
     )
     sleep = AsyncMock()
     sleep.active_maintenance.return_value = None
@@ -168,6 +171,9 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
         owner.admit_due.return_value = OpportunityAdmissionOutcome(
             OpportunityAdmissionStatus.ADMITTED, uuid7()
         )
+        from armi_attention.api import SocialCycle
+
+        owner.social_cycle.return_value = SocialCycle.begin(lambda: 0.5)
         result = await repository.admit_autonomy(
             cast(Any, unit),
             policy=AutonomyPolicy(),
@@ -184,6 +190,7 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
             creator_party_id=creator,
             activity_id=None,
             signals=(),
+            social_ready=False,
         )
         facts.consideration_signals.assert_awaited_once_with(
             unit.transaction, subject_id=subject, minimum_delay_seconds=60

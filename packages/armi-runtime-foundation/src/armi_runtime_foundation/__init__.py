@@ -1,5 +1,6 @@
 """Stable, business-neutral Runtime integration contracts."""
 
+from .active_time import active_runtime_seconds, active_runtime_seconds_admin
 from .admin_content import (
     AdminContentArtifactPort,
     AdminContentCommand,
@@ -104,6 +105,8 @@ __all__ = (
     "RecoveryWorkSnapshot",
     "RuntimeTransactionFailure",
     "StopSignal",
+    "active_runtime_seconds",
+    "active_runtime_seconds_admin",
     "autonomy_result",
     "autonomy_statement",
     "bootstrap_diagnostics",

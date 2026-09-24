@@ -1097,6 +1097,11 @@ export interface components {
        * @default []
        */
       consideration_signals: components["schemas"]["ConsiderationSignalItem"][];
+      /**
+       * Continuous Dimensions
+       * @default []
+       */
+      continuous_dimensions: components["schemas"]["ContinuousMindDimension"][];
       /** Effective Consideration At */
       effective_consideration_at?: string | null;
       /** Failure Streak */
@@ -1131,6 +1136,7 @@ export interface components {
       /** Plan Version */
       plan_version?: number | null;
       policy?: components["schemas"]["AutonomyPolicyResponse"] | null;
+      social_cycle?: components["schemas"]["SocialCycleStatus"] | null;
       /** Source Episode Id */
       source_episode_id?: string | null;
       /**
@@ -1270,6 +1276,25 @@ export interface components {
       schema_kind: "armi.consideration-signals";
       /** Signals */
       signals: components["schemas"]["ConsiderationSignalItem"][];
+    };
+    /** ContinuousMindDimension */
+    ContinuousMindDimension: {
+      /** Active Seconds */
+      active_seconds: number;
+      /** Anchor Active Seconds */
+      anchor_active_seconds: number;
+      /** Basis Refs */
+      basis_refs: string[];
+      /** Dimension */
+      dimension: string;
+      /** Equilibrium */
+      equilibrium: number;
+      /** Half Life Seconds */
+      half_life_seconds: number;
+      /** Target Ref */
+      target_ref: string | null;
+      /** Value */
+      value: number;
     };
     /** CreatorActivityItemResponse */
     CreatorActivityItemResponse: {
@@ -3161,6 +3186,34 @@ export interface components {
       projection_kind: "scene-timeline";
       /** Scene Key */
       scene_key: string;
+    };
+    /** SocialCycleStatus */
+    SocialCycleStatus: {
+      /** Episode Ref */
+      episode_ref: string | null;
+      /** Input Ref */
+      input_ref: string | null;
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase:
+        | "considering"
+        | "cognition"
+        | "delivery"
+        | "waiting"
+        | "deferred"
+        | "released";
+      /** Reason */
+      reason: string | null;
+      /** Review At */
+      review_at: number;
+      /** Target Ref */
+      target_ref: string | null;
+      /** Threshold */
+      threshold: number;
+      /** Unanswered */
+      unanswered: number;
     };
     /** SubjectComponentSummaryResponse */
     SubjectComponentSummaryResponse: {

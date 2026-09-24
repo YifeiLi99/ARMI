@@ -1,5 +1,7 @@
 """Compact model output contract for one autonomous Activity choice."""
 
+# ruff: noqa: RUF001 -- Chinese instructions are part of the model contract.
+
 from __future__ import annotations
 
 import json
@@ -41,47 +43,61 @@ def autonomous_instructions_for_context(compiled_context: bytes) -> str:
         )
         raw = json.loads(opportunity["content"])["autonomy"]["category"]
         # Waking grants a thinking opportunity, never an action direction.
-        if raw is None:
-            return AUTONOMOUS_ACTIVITY_INSTRUCTIONS
-        if AutonomyCategory(raw) is not AutonomyCategory.WAKE:
+        if raw is not None and AutonomyCategory(raw) is not AutonomyCategory.WAKE:
             raise ValueError("full cognition requires wake")
     except ValueError, KeyError, TypeError, StopIteration:
         raise ModelViolation("MODEL-AUTONOMY-CATEGORY") from None
-    return AUTONOMOUS_ACTIVITY_INSTRUCTIONS
+    return AUTONOMOUS_ACTIVITY_INSTRUCTIONS + (
+        "\n主动表达必须填写 expression_kind：companionship（寻求陪伴）、sharing（具体分享）或 commitment（履行约定）。"
+        "分享和履约必须通过 expression_basis 引用真实依据的 ctx 序号。"
+        "存在 social_motivation 时，这是已经达到阈值的寻求陪伴动机，默认形成聊天表达；"
+        "必须填写 social_decision 的 outcome（express、defer、release）及具体 reason。"
+        "明确禁止联系、当前拒绝和联系时间约定优先；因此等待时选择 defer 或 release，不得借分享标签绕过。"
+        "推迟或放弃应基于当前处境说明原因。没有该动机时不得生成 companionship 表达或 social_decision。"
+    )
 
 
-class _StrictModel(BaseModel):
+class SocialDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    outcome: Literal["express", "defer", "release"]
+    reason: Text1024
+
+
+class AutonomousDecisionBase(BaseModel):
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     expression: Text65536 | None = None
+    expression_kind: Literal["companionship", "sharing", "commitment"] | None = None
+    expression_basis: tuple[str, ...] = ()
+    social_decision: SocialDecision | None = None
 
     @property
     def schema_kind(self) -> str:
         return AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
 
 
-class StartActivityDecision(_StrictModel):
+class StartActivityDecision(AutonomousDecisionBase):
     kind: Literal["start_activity"]
     goal: Text2048
     next_step: Text1024
 
 
-class AutonomousTerminalDecision(_StrictModel):
+class AutonomousTerminalDecision(AutonomousDecisionBase):
     kind: Literal["no_activity", "defer", "need_information"]
 
 
-class AutonomousVisualObservationDecision(_StrictModel):
+class AutonomousVisualObservationDecision(AutonomousDecisionBase):
     kind: Literal["visual_observation"]
     source_kind: Literal["camera", "screen"]
 
 
-class AutonomousLifeQueryDecision(_StrictModel):
+class AutonomousLifeQueryDecision(AutonomousDecisionBase):
     kind: Literal["exact_life_query"]
     record_kind: RecordKind
     query: Text1024 | None = None
 
 
-class AutonomousCodexDecision(_StrictModel):
+class AutonomousCodexDecision(AutonomousDecisionBase):
     kind: Literal["codex_delegation"]
     objective: Text2048
     model_id: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
@@ -89,7 +105,7 @@ class AutonomousCodexDecision(_StrictModel):
     web_search: bool = False
 
 
-class AutonomousWaitDecision(_StrictModel):
+class AutonomousWaitDecision(AutonomousDecisionBase):
     kind: Literal["wait"]
     progress_summary: Text2048
     next_step: Text1024
@@ -97,19 +113,19 @@ class AutonomousWaitDecision(_StrictModel):
     resumption_cue: Text2048
 
 
-class AutonomousProgressDecision(_StrictModel, InternalWorkProgressDecision):
+class AutonomousProgressDecision(AutonomousDecisionBase, InternalWorkProgressDecision):
     pass
 
 
-class AutonomousCompleteDecision(_StrictModel, InternalWorkCompleteDecision):
+class AutonomousCompleteDecision(AutonomousDecisionBase, InternalWorkCompleteDecision):
     pass
 
 
-class AutonomousAbandonDecision(_StrictModel, InternalWorkAbandonDecision):
+class AutonomousAbandonDecision(AutonomousDecisionBase, InternalWorkAbandonDecision):
     pass
 
 
-class AutonomousNoResultDecision(_StrictModel, InternalWorkNoResultDecision):
+class AutonomousNoResultDecision(AutonomousDecisionBase, InternalWorkNoResultDecision):
     review_after_seconds: int = Field(ge=60, le=21_600)
 
 

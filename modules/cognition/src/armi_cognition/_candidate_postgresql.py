@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -138,6 +139,7 @@ class CandidateEpisodeSnapshot:
     current_maintenance_phase: str | None = None
     scene_kind: str | None = None
     sender_party_kind: str | None = None
+    social_motivation: bool = False
 
 
 class PostgreSQLCandidateValidationRepository:
@@ -512,6 +514,9 @@ class PostgreSQLCandidateValidationRepository:
             None if maintenance is None else maintenance.phase.value,
             interaction.scene_kind,
             interaction.context_party_kind,
+            opportunity.autonomy_context is not None
+            and json.loads(opportunity.autonomy_context).get("social_motivation")
+            is not None,
         )
 
     async def settle(

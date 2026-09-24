@@ -115,6 +115,7 @@ from ._autonomous_activity_contract import (
     AutonomousAbandonDecision,
     AutonomousCodexDecision,
     AutonomousCompleteDecision,
+    AutonomousDecisionBase,
     AutonomousLifeQueryDecision,
     AutonomousNoResultDecision,
     AutonomousProgressDecision,
@@ -349,6 +350,7 @@ class CandidateValidationContext:
     scene_kind: str | None = None
     sender_party_kind: str | None = None
     visual_sources_active: frozenset[str] = frozenset()
+    social_motivation: bool = False
 
     def __post_init__(self) -> None:
         if any(
@@ -555,9 +557,90 @@ class DeterministicCandidateValidator:
             json.JSONDecodeError,
         ) as error:
             return contract_rejection(error)
-        return self._validate_parsed(
+        if isinstance(parsed_candidate, AutonomousDecisionBase):
+            social = parsed_candidate.social_decision
+            if self._context.social_motivation != (social is not None):
+                return _rejected("CANDIDATE-SOCIAL-DECISION-REQUIRED")
+            if parsed_candidate.expression is not None:
+                relationship = self._context.current_relationship
+                if relationship is not None and (
+                    relationship.status is RelationshipStatus.ENDED
+                    or any(
+                        boundary.kind
+                        in {
+                            RelationshipBoundaryKind.CONTACT,
+                            RelationshipBoundaryKind.EXIT,
+                        }
+                        and boundary.action
+                        in {
+                            RelationshipBoundaryAction.REFUSE,
+                            RelationshipBoundaryAction.END_CONTACT,
+                        }
+                        for boundary in relationship.boundaries
+                    )
+                ):
+                    return _rejected("CANDIDATE-RELATIONSHIP-BOUNDARY")
+                if parsed_candidate.expression_kind == "companionship":
+                    if social is None or social.outcome != "express":
+                        return _rejected("CANDIDATE-SOCIAL-OPPORTUNITY-REQUIRED")
+                elif parsed_candidate.expression_kind in {"sharing", "commitment"}:
+                    sources = [
+                        basis_by_ref.get(ref)
+                        for ref in parsed_candidate.expression_basis
+                    ]
+                    if not sources or any(
+                        source is None
+                        or source.source_ref is None
+                        or source.item_kind
+                        in {
+                            "current_life_opportunity",
+                            "mind",
+                            "current_motivation",
+                            "self",
+                            "mood",
+                            "life_mode",
+                            "focus",
+                        }
+                        for source in sources
+                    ):
+                        return _rejected("CANDIDATE-EXPRESSION-BASIS")
+                    if parsed_candidate.expression_kind == "commitment" and not any(
+                        source is not None
+                        and source.item_kind == "current_relationship_commitment"
+                        for source in sources
+                    ):
+                        return _rejected("CANDIDATE-EXPRESSION-COMMITMENT")
+                else:
+                    return _rejected("CANDIDATE-EXPRESSION-KIND")
+            if (
+                social is not None
+                and social.outcome == "express"
+                and (
+                    parsed_candidate.expression is None
+                    or parsed_candidate.expression_kind != "companionship"
+                )
+            ):
+                return _rejected("CANDIDATE-SOCIAL-EXPRESSION-REQUIRED")
+        result = self._validate_parsed(
             parsed_candidate, bases=bases, basis_by_ref=basis_by_ref
         )
+        if (
+            isinstance(parsed_candidate, AutonomousDecisionBase)
+            and parsed_candidate.social_decision is not None
+            and result.change_set is not None
+        ):
+            social = parsed_candidate.social_decision
+            payload = json.loads(result.change_set.canonical_bytes)
+            payload["social_decision"] = social.model_dump()
+            result = replace(
+                result,
+                change_set=replace(
+                    result.change_set,
+                    canonical_bytes=rfc8785.dumps(payload),
+                    social_decision=(social.outcome, social.reason),
+                ),
+            )
+        return result
 
     def _validate_parsed(
         self,

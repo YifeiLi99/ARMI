@@ -12,6 +12,8 @@ from datetime import datetime
 from enum import StrEnum
 from math import isfinite
 
+from ._dynamics import SocialEvidence
+
 
 class MindVariable(StrEnum):
     AUTONOMY_SATISFACTION = "autonomy_satisfaction"
@@ -116,6 +118,8 @@ class MindEvidence:
     association: Association
     opportunity: Opportunity
     due_review_key: str | None = None
+    social: SocialEvidence | None = None
+    active_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if (
@@ -248,7 +252,6 @@ def derive_mind(
         "autonomy_frustration": known.get("autonomy_frustration"),
         "competence_frustration": known.get("competence_frustration"),
         "relatedness_frustration": known.get("relatedness_frustration"),
-        "contact_need": known.get("contact_gap"),
     }
     available = tuple(
         (key, value) for key, value in motives.items() if value is not None
@@ -259,9 +262,7 @@ def derive_mind(
         if available and importance is not None
         else None
     )
-    return DerivedMindState(
-        exploration, fit, adjustment, known.get("contact_gap"), priority, available
-    )
+    return DerivedMindState(exploration, fit, adjustment, None, priority, available)
 
 
 def update_mind_object(
@@ -345,7 +346,6 @@ def update_mind_object(
                 derived.engagement_adjustment,
                 ("meaning", "understimulation", "overload"),
             ),
-            (derived.contact_need, ("contact_gap",)),
             *(
                 (known_motives.get(name), (name,))
                 for name in (

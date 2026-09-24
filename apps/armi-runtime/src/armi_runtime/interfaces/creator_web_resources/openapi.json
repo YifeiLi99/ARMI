@@ -377,6 +377,14 @@
             "title": "Consideration Signals",
             "type": "array"
           },
+          "continuous_dimensions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ContinuousMindDimension"
+            },
+            "title": "Continuous Dimensions",
+            "type": "array"
+          },
           "effective_consideration_at": {
             "anyOf": [
               {
@@ -555,6 +563,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/AutonomyPolicyResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "social_cycle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SocialCycleStatus"
               },
               {
                 "type": "null"
@@ -904,6 +922,72 @@
           "frozen_at"
         ],
         "title": "ConsiderationSignals",
+        "type": "object"
+      },
+      "ContinuousMindDimension": {
+        "additionalProperties": false,
+        "properties": {
+          "active_seconds": {
+            "minimum": 0.0,
+            "title": "Active Seconds",
+            "type": "number"
+          },
+          "anchor_active_seconds": {
+            "minimum": 0.0,
+            "title": "Anchor Active Seconds",
+            "type": "number"
+          },
+          "basis_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Basis Refs",
+            "type": "array"
+          },
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "equilibrium": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Equilibrium",
+            "type": "number"
+          },
+          "half_life_seconds": {
+            "exclusiveMinimum": 0.0,
+            "title": "Half Life Seconds",
+            "type": "number"
+          },
+          "target_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Ref"
+          },
+          "value": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "dimension",
+          "target_ref",
+          "value",
+          "equilibrium",
+          "active_seconds",
+          "anchor_active_seconds",
+          "half_life_seconds",
+          "basis_refs"
+        ],
+        "title": "ContinuousMindDimension",
         "type": "object"
       },
       "CreatorActivityItemResponse": {
@@ -6087,6 +6171,93 @@
           "items"
         ],
         "title": "SceneTimelinePageResponse",
+        "type": "object"
+      },
+      "SocialCycleStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Ref"
+          },
+          "input_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Ref"
+          },
+          "phase": {
+            "enum": [
+              "considering",
+              "cognition",
+              "delivery",
+              "waiting",
+              "deferred",
+              "released"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "review_at": {
+            "title": "Review At",
+            "type": "number"
+          },
+          "target_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Ref"
+          },
+          "threshold": {
+            "maximum": 60.0,
+            "minimum": 40.0,
+            "title": "Threshold",
+            "type": "number"
+          },
+          "unanswered": {
+            "title": "Unanswered",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "threshold",
+          "phase",
+          "review_at",
+          "unanswered",
+          "input_ref",
+          "target_ref",
+          "episode_ref",
+          "reason"
+        ],
+        "title": "SocialCycleStatus",
         "type": "object"
       },
       "SubjectComponentSummaryResponse": {

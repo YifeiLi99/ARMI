@@ -46,7 +46,7 @@ class PostgreSQLMindDataRightsParticipant:
         rows = await (
             await transaction.execute(
                 """SELECT mind_revision_id FROM armi.mind_revisions
-               WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload, '$.objects[*].**') value
+               WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload, '$.**') value
                    WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))
                ORDER BY mind_revision_id""",
                 (refs,),
@@ -75,6 +75,28 @@ class PostgreSQLMindDataRightsParticipant:
             *(str(item.ref) for item in request.related_refs),
         ]
         if request.order_kind == "delete_related":
+            # Retain the global value, remove personal dimensions and all erased
+            # provenance. No historical log is consulted to reconstruct it.
+            await transaction.execute(
+                """UPDATE armi.mind_revisions r SET semantic_payload=jsonb_set(semantic_payload,'{dimensions}',
+                    (SELECT jsonb_agg(CASE WHEN item->>'target_ref' IS NULL THEN
+                        jsonb_set(jsonb_set(item,'{basis_refs}',COALESCE((SELECT jsonb_agg(ref)
+                            FROM jsonb_array_elements(item->'basis_refs') ref
+                            WHERE ref #>> '{}' <> ALL(%s::text[])),'[]'::jsonb)),
+                            '{last_event_key}',CASE WHEN EXISTS (
+                                SELECT 1 FROM jsonb_path_query(item,'$.**') value
+                                WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[])
+                            ) THEN 'null'::jsonb ELSE item->'last_event_key' END)
+                        ELSE item END)
+                     FROM jsonb_array_elements(r.semantic_payload->'dimensions') item
+                     WHERE item->>'target_ref' IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM jsonb_path_query(item,'$.**') value
+                        WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[])))),
+                    data_rights_redacted_at=statement_timestamp()
+                    WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload,'$.dimensions[*].**') value
+                        WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))""",
+                (refs, refs, refs, refs),
+            )
             # Removing an evidence source withdraws every associated object and
             # its eligibility, including historical readable projections.
             await transaction.execute(

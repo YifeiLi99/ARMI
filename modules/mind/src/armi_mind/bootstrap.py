@@ -7,9 +7,11 @@ from armi_runtime_foundation import RecoveryParticipant
 
 from ._admin import PostgreSQLMindAdmin
 from ._data_rights import PostgreSQLMindDataRightsParticipant
+from ._dynamics import DEFAULT_DYNAMICS_PARAMETERS
 from ._postgresql import PostgreSQLMindOwner
 from ._recovery import MindRecoveryParticipant
 from .api import (
+    DynamicsParameters,
     MindAdminContentPort,
     MindAdminCorrectionPort,
     MindAdminReadPort,
@@ -33,8 +35,10 @@ class MindModule:
         await self._owner.close()
 
 
-def bootstrap_mind() -> MindModule:
-    owner = PostgreSQLMindOwner()
+def bootstrap_mind(
+    parameters: DynamicsParameters = DEFAULT_DYNAMICS_PARAMETERS,
+) -> MindModule:
+    owner = PostgreSQLMindOwner(parameters)
     return MindModule(owner, owner, owner, owner)
 
 

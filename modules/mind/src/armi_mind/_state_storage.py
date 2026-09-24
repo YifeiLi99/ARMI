@@ -8,6 +8,16 @@ import rfc8785
 from armi_kernel.application import ConsiderationSignal, PsychologicalContextItem
 from pydantic import BaseModel, ConfigDict
 
+from ._dynamics import (
+    DEFAULT_DYNAMICS_PARAMETERS,
+    DIMENSIONS,
+    DimensionEvent,
+    DimensionState,
+    DynamicsParameters,
+    dimensions_projection,
+    initial_dimensions,
+    update_dimensions,
+)
 from ._state_algorithm import (
     Association,
     MindEvidence,
@@ -24,16 +34,41 @@ class NumericMindState(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     schema_kind: Literal["armi.mind"]
     objects: tuple[MindObjectState, ...]
+    dimensions: tuple[DimensionState, ...]
+    parameters: DynamicsParameters
 
 
-def initial_numeric_mind_state() -> bytes:
-    return b'{"objects":[],"schema_kind":"armi.mind"}'
+def initial_numeric_mind_state(
+    parameters: DynamicsParameters = DEFAULT_DYNAMICS_PARAMETERS,
+) -> bytes:
+    return rfc8785.dumps(
+        NumericMindState(
+            schema_kind="armi.mind",
+            objects=(),
+            parameters=parameters,
+            dimensions=initial_dimensions(parameters, registry=DIMENSIONS),
+        ).model_dump(mode="json")
+    )
 
 
 def numeric_mind_state(payload: bytes) -> NumericMindState:
     state = NumericMindState.model_validate_json(payload, strict=True)
     if len({s.object for s in state.objects}) != len(state.objects):
         raise ValueError("MIND-DUPLICATE-OBJECT")
+    if len({s.identity for s in state.dimensions}) != len(state.dimensions):
+        raise ValueError("MIND-DUPLICATE-DIMENSION")
+    for item in state.dimensions:
+        definition = DIMENSIONS.get(item.dimension)
+        if definition is None or (definition.scope == "person") != (
+            item.target_ref is not None
+        ):
+            raise ValueError("MIND-DIMENSION-SCOPE")
+    if not all(
+        any(s.dimension == name for s in state.dimensions)
+        for name, d in DIMENSIONS.items()
+        if d.scope == "subject"
+    ):
+        raise ValueError("MIND-DIMENSION-MISSING")
     return state
 
 
@@ -42,22 +77,76 @@ def apply_mind_evidence(payload: bytes, evidence: tuple[MindEvidence, ...]) -> b
     if len(evidence) > 4 or len({e.object for e in evidence}) != len(evidence):
         raise ValueError("MIND-EVENT-OBJECTS")
     objects = {s.object: s for s in state.objects}
+    dimensions = state.dimensions
     for item in evidence:
+        previous = objects.get(item.object)
+        if previous is not None and previous.evidence_key == item.evidence_key:
+            continue
         objects[item.object] = update_mind_object(
-            item, previous=objects.get(item.object), due_review_key=item.due_review_key
+            item, previous=previous, due_review_key=item.due_review_key
         )
-    result = NumericMindState(schema_kind="armi.mind", objects=tuple(objects.values()))
+        dimensions = update_dimensions(
+            dimensions,
+            evidence=DimensionEvent(
+                tuple(
+                    (variable.value, choice.value) for variable, choice in item.ratings
+                ),
+                item.social,
+            ),
+            event_key=item.evidence_key,
+            basis_refs=item.basis_refs,
+            active_seconds=item.active_seconds,
+            parameters=state.parameters,
+            registry=DIMENSIONS,
+        )
+    result = NumericMindState(
+        schema_kind="armi.mind",
+        objects=tuple(objects.values()),
+        dimensions=dimensions,
+        parameters=state.parameters,
+    )
     return rfc8785.dumps(cast(Any, result.model_dump(mode="json")))
 
 
 def correct_numeric_mind(
-    previous: bytes, proposed: bytes, *, correction_id: UUID, at: datetime
+    previous: bytes,
+    proposed: bytes,
+    *,
+    correction_id: UUID,
+    at: datetime,
+    active_seconds: float = 0.0,
 ) -> bytes:
     before, after = numeric_mind_state(previous), numeric_mind_state(proposed)
     old = {item.object: item for item in before.objects}
     if set(old) != {item.object for item in after.objects}:
         raise ValueError("MIND-CORRECTION-SOURCE")
     corrected: list[MindObjectState] = []
+    old_dimensions = {s.identity: s for s in before.dimensions}
+    if set(old_dimensions) != {s.identity for s in after.dimensions}:
+        raise ValueError("MIND-CORRECTION-SOURCE")
+    dimensions: list[DimensionState] = []
+    for item in after.dimensions:
+        prior = old_dimensions[item.identity]
+        if (
+            item.basis_refs != prior.basis_refs
+            or item.last_event_key != prior.last_event_key
+            or item.active_seconds != prior.active_seconds
+        ):
+            raise ValueError("MIND-CORRECTION-PROVENANCE")
+        value = (
+            DIMENSIONS[item.dimension].evolve(prior, active_seconds)
+            if item.value == prior.value
+            else item.value
+        )
+        dimensions.append(
+            item.model_copy(
+                update={
+                    "value": value,
+                    "active_seconds": active_seconds,
+                    "half_life_seconds": after.parameters.half_life_seconds,
+                }
+            )
+        )
     for item in after.objects:
         prior = old[item.object]
         # Management corrects grounded primitive choices; condition versions and
@@ -83,7 +172,10 @@ def correct_numeric_mind(
         cast(
             Any,
             NumericMindState(
-                schema_kind="armi.mind", objects=tuple(corrected)
+                schema_kind="armi.mind",
+                objects=tuple(corrected),
+                dimensions=tuple(dimensions),
+                parameters=after.parameters,
             ).model_dump(mode="json"),
         )
     )
@@ -143,6 +235,8 @@ def numeric_mind_context_items(
     purpose: str,
     signals: tuple[ConsiderationSignal, ...] = (),
     related_object_refs: frozenset[UUID] = frozenset(),
+    active_seconds: float = 0.0,
+    person_ref: str | None = None,
 ) -> tuple[PsychologicalContextItem, ...]:
     state = numeric_mind_state(payload)
     due = {str(s.object_ref) for s in signals if s.owner == "mind"}
@@ -164,7 +258,21 @@ def numeric_mind_context_items(
         ),
     )[:4]
     summary = rfc8785.dumps(
-        {"schema_kind": "armi.mind", "assessed_objects": len(state.objects)}
+        cast(
+            Any,
+            {
+                "schema_kind": "armi.mind",
+                "assessed_objects": len(state.objects),
+                "dimensions": dimensions_projection(
+                    tuple(
+                        s
+                        for s in state.dimensions
+                        if s.target_ref in {None, person_ref}
+                    ),
+                    active_seconds=active_seconds,
+                ),
+            },
+        )
     ).decode()
     return (
         PsychologicalContextItem(

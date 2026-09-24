@@ -33,6 +33,7 @@ from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
 from armi_runtime.adapters.persistence.role_policy import physical_role_name
 
+from .active_clock import awake_microseconds
 from .audit_events import PostgreSQLAuditWriter
 
 _SEARCH_PATH = "pg_catalog, armi"
@@ -82,6 +83,8 @@ class PostgreSQLRuntimeAuthority:
     """Own a role-bound pool for explicit authority control transactions."""
 
     __slots__ = (
+        "_active_tick",
+        "_clock",
         "_environment_id",
         "_expected_role",
         "_pool",
@@ -98,12 +101,15 @@ class PostgreSQLRuntimeAuthority:
         pool_timeout_seconds: int,
         statement_timeout_seconds: int,
         process_absent: Callable[[_ProcessIdentity], bool] | None = None,
+        active_clock: Callable[[], int] = awake_microseconds,
     ) -> None:
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
         self._statement_timeout_seconds = statement_timeout_seconds
         self._process_absent = process_absent or _process_absent
+        self._clock = active_clock
+        self._active_tick: int | None = None
 
         async def configure(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -311,6 +317,7 @@ class PostgreSQLRuntimeAuthority:
                     )
                 )
                 commit_may_be_unknown = True
+            self._active_tick = self._clock()
             return _record(row)
         except RuntimeAuthorityViolation:
             raise
@@ -323,6 +330,7 @@ class PostgreSQLRuntimeAuthority:
                 raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
             recovered = await self._recover_acquire(runtime_instance_id)
             if recovered is not None:
+                self._active_tick = self._clock()
                 return recovered
             raise RuntimeAuthorityViolation("AUTH-COMMIT-UNKNOWN") from None
         except psycopg.Error:
@@ -371,6 +379,7 @@ class PostgreSQLRuntimeAuthority:
         *,
         lease_seconds: int,
     ) -> RuntimeAuthorityRecord:
+        delta = self._elapsed_active()
         try:
             async with (
                 asyncio.timeout(self._statement_timeout_seconds),
@@ -384,6 +393,7 @@ class PostgreSQLRuntimeAuthority:
                         """
                             UPDATE armi.runtime_instances AS instance
                             SET last_heartbeat_at = statement_timestamp(),
+                                active_runtime_microseconds = instance.active_runtime_microseconds + %s,
                                 lease_expires_at = statement_timestamp()
                                     + make_interval(secs => %s)
                             FROM armi.subjects AS subject
@@ -408,6 +418,7 @@ class PostgreSQLRuntimeAuthority:
                                 instance.stopped_at
                             """,
                         (
+                            delta,
                             lease_seconds,
                             fence.runtime_instance_id.value,
                             fence.fence_token,
@@ -416,15 +427,19 @@ class PostgreSQLRuntimeAuthority:
                 ).fetchone()
                 if row is None:
                     raise await self._stale_or_expired(connection, fence)
+            self._active_tick = self._clock()
             return _record(row)
         except RuntimeAuthorityViolation:
+            self._active_tick = None
             raise
         except AuditViolation:
             raise RuntimeAuthorityViolation("AUTH-AUDIT") from None
         except psycopg.Error, PoolTimeout, TimeoutError:
+            self._active_tick = None
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
 
     async def release(self, fence: RuntimeFence) -> RuntimeAuthorityRecord:
+        delta = self._elapsed_active()
         try:
             async with (
                 asyncio.timeout(self._statement_timeout_seconds),
@@ -438,6 +453,7 @@ class PostgreSQLRuntimeAuthority:
                         """
                             UPDATE armi.runtime_instances
                             SET status = 'stopped',
+                                active_runtime_microseconds = active_runtime_microseconds + %s,
                                 stopped_at = statement_timestamp()
                             WHERE runtime_instance_id = %s
                               AND fence_token = %s
@@ -455,6 +471,7 @@ class PostgreSQLRuntimeAuthority:
                                 stopped_at
                             """,
                         (
+                            delta,
                             fence.runtime_instance_id.value,
                             fence.fence_token,
                         ),
@@ -470,6 +487,7 @@ class PostgreSQLRuntimeAuthority:
                         subject_id=fence.subject_id,
                     )
                 )
+            self._active_tick = None
             return _record(row)
         except RuntimeAuthorityViolation:
             raise
@@ -477,6 +495,15 @@ class PostgreSQLRuntimeAuthority:
             raise RuntimeAuthorityViolation("AUTH-AUDIT") from None
         except psycopg.Error, PoolTimeout, TimeoutError:
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
+
+    def _elapsed_active(self) -> int:
+        tick = self._clock()
+        previous, self._active_tick = self._active_tick, None
+        if previous is None:
+            return 0
+        if tick < previous:
+            raise RuntimeAuthorityViolation("AUTH-ACTIVE-CLOCK")
+        return tick - previous
 
     async def _current_subject(
         self,

@@ -382,6 +382,7 @@ class CandidateValidationService:
                 other_party_id=snapshot.other_party_id,
                 scene_kind=snapshot.scene_kind,
                 sender_party_kind=snapshot.sender_party_kind,
+                social_motivation=snapshot.social_motivation,
                 visual_sources_active=self._visual_sources_active,
             ),
             activity_cognition=self._activity_cognition,

@@ -105,6 +105,9 @@ def test_json_schema_integer_semantics_match_the_single_parser(seconds, accepted
         "review_after_seconds": seconds,
         "concern_changes": [],
         "expression": None,
+        "expression_kind": None,
+        "expression_basis": [],
+        "social_decision": None,
     }
     assert (
         _provider(candidate_schema(version)).is_valid({"candidate": value}) is accepted

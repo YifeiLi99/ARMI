@@ -12,10 +12,12 @@ from armi_runtime_foundation import (
     AdminContentContext,
     AdminContentViolation,
     PostgreSQLAdminTransaction,
+    active_runtime_seconds_admin,
 )
 
 from ._domain import validate_state
-from ._state_storage import correct_numeric_mind
+from ._dynamics import dimensions_projection
+from ._state_storage import correct_numeric_mind, numeric_mind_state
 from .api import MindAdminState, MindCorrectionHead, MindViolation
 
 
@@ -25,6 +27,21 @@ def _kind(kind: str) -> None:
 
 
 class PostgreSQLMindAdmin:
+    def dynamics_status(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> list[dict[str, object]]:
+        row = transaction.execute(
+            "SELECT subject_id,semantic_payload FROM armi.mind_revisions WHERE is_current"
+        ).fetchone()
+        if row is None:
+            raise MindViolation("MIND-MISSING")
+        return dimensions_projection(
+            numeric_mind_state(json.dumps(row[1]).encode()).dimensions,
+            active_seconds=active_runtime_seconds_admin(
+                transaction, subject_id=cast(UUID, row[0])
+            ),
+        )
+
     def apply(
         self,
         transaction: PostgreSQLAdminTransaction,
@@ -162,6 +179,9 @@ class PostgreSQLMindAdmin:
                 json.dumps(value).encode(),
                 correction_id=UUID(revision_id),
                 at=datetime.now(UTC),
+                active_seconds=active_runtime_seconds_admin(
+                    transaction, subject_id=UUID(subject_id)
+                ),
             )
         )
         transaction.execute(
