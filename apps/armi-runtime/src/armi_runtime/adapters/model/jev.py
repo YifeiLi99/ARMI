@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal, cast
 
 import httpx
 from armi_cognition.api import (
@@ -110,9 +111,11 @@ class JevAppraiser:
         assessment: MoodAssessment,
         context: dict[str, Any],
         targets: tuple[MindEvaluationTarget, ...],
+        capture: Callable[[Literal["request", "response"], str], Awaitable[None]]
+        | None = None,
     ) -> EventAppraisalResult:
         result = await self._evaluate(
-            assessment=assessment, context=context, targets=targets
+            assessment=assessment, context=context, targets=targets, capture=capture
         )
         if not isinstance(result, EventAppraisalResult):
             raise ValueError("unexpected Jev result contract")
@@ -124,6 +127,8 @@ class JevAppraiser:
         assessment: MoodAssessment,
         context: dict[str, Any],
         targets: tuple[MindEvaluationTarget, ...] | None,
+        capture: Callable[[Literal["request", "response"], str], Awaitable[None]]
+        | None = None,
     ) -> EvaluatedAppraisal | EventAppraisalResult:
         if self._locator is None:
             raise MoodViolation("MOOD-JEV-CREDENTIAL-MISSING")
@@ -170,7 +175,7 @@ class JevAppraiser:
                 targets,
             )
         )
-        body = {
+        body: dict[str, Any] = {
             "model": JEV_MODEL,
             "state": {
                 "event": {
@@ -215,11 +220,18 @@ class JevAppraiser:
                     timeout=self._timeout, follow_redirects=False, trust_env=False
                 ) as client,
             ):
-                response = await client.post(
+                request = client.build_request(
+                    "POST",
                     "https://api.typesafe.ai/v1/systemone",
                     json=body,
                     headers={"Authorization": f"Bearer {key}"},
                 )
+                # Retain actual wire bodies, never credentials or HTTP headers.
+                if capture is not None:
+                    await capture("request", request.content.decode("utf-8"))
+                response = await client.send(request)
+                if capture is not None:
+                    await capture("response", response.text)
                 response.raise_for_status()
                 document = response.json()
                 if not isinstance(document, dict):

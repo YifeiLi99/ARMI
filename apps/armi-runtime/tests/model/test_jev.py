@@ -196,7 +196,7 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
     target = MindEvaluationTarget(
         GroundedObject("event", str(event.source_ref)), (str(event.source_ref),)
     )
-    calls, receipts = [], []
+    calls, receipts, captured = [], [], {}
     background = [
         {
             "item_kind": kind,
@@ -246,6 +246,9 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
         receipts.append(receipt)
 
     async def run():
+        async def capture(kind, content):
+            captured[kind] = content
+
         appraiser = JevAppraiser(
             credentials=cast(Any, Credentials()),
             locator=CredentialLocator("env", "JEV_TEST_KEY"),
@@ -258,12 +261,16 @@ def test_joint_event_uses_one_dispatch_and_preserves_valid_owner(
                 assessment=assessment,
                 context={"layers": [{"items": background}]},
                 targets=(target,),
+                capture=capture,
             )
 
     result = asyncio.run(run())
     assert len(calls) == 1
     assert sum(receipt.registration for receipt in receipts) == 1
     assert result.input_tokens == 111
+    assert json.loads(captured["request"]) == calls[0]
+    assert json.loads(captured["response"])["usage"]["input_tokens"] == 111
+    assert "Authorization" not in captured["request"]
     assert result.ready_for_cognition == (bad_owner is None)
     assert (result.mind is None) == (bad_owner == "mind")
     assert (result.mood is None) == (bad_owner == "mood")

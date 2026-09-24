@@ -11,13 +11,13 @@ from uuid import uuid7
 
 import psycopg
 import pytest
-from armi_cognition.api import CandidateViolation, EventAppraisalResult
+from armi_cognition.api import EventAppraisalResult
 from armi_data_rights.api import (
     DataRightsApplyRequest,
     DataRightsDiscoveryRequest,
     DataRightsRelatedRef,
 )
-from armi_kernel.application import PriceCatalog, WorkType
+from armi_kernel.application import CandidateViolation, PriceCatalog, WorkType
 from armi_kernel.contracts import Digest
 from armi_mind.api import (
     Association,
@@ -193,7 +193,15 @@ def test_joint_event_commits_valid_parts_and_only_full_success_releases_context(
         calls = []
 
         class Appraiser:
-            async def evaluate_event(self, *, assessment, context, targets):
+            async def evaluate_event(self, *, assessment, context, targets, capture):
+                await capture("request", '{"test":"request"}')
+                await capture("response", '{"test":"response"}')
+                with psycopg.connect(fixture.provisioner_dsn) as db:
+                    assert db.execute(
+                        "SELECT context_document->>'provider_request',context_document->>'provider_response' "
+                        "FROM armi.event_appraisals WHERE event_appraisal_id=%s",
+                        (assessment.assessment_id,),
+                    ).fetchone() == ('{"test":"request"}', '{"test":"response"}')
                 calls.append(assessment.assessment_id)
                 if outcome == "failure":
                     raise MoodViolation("MOOD-JEV-HTTP-FAILED")

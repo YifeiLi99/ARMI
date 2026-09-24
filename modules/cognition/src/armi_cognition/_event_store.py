@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid7
@@ -55,6 +56,15 @@ class EventAssessment:
 
 
 class EventAppraisalStorePort(Protocol):
+    async def record_transport(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        assessment_id: UUID,
+        kind: Literal["request", "response"],
+        content: str,
+    ) -> None: ...
+
     async def begin(
         self,
         transaction: PostgreSQLTransaction,
@@ -115,6 +125,24 @@ def evaluation_targets(
 
 
 class PostgreSQLEventAppraisalStore:
+    async def record_transport(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        assessment_id: UUID,
+        kind: Literal["request", "response"],
+        content: str,
+    ) -> None:
+        result = await transaction.execute(
+            """UPDATE armi.event_appraisals
+               SET context_document=jsonb_set(context_document,ARRAY[%s],%s::jsonb)
+               WHERE event_appraisal_id=%s AND status='running'
+                 AND data_rights_redacted_at IS NULL""",
+            ("provider_" + kind, json.dumps(content), assessment_id),
+        )
+        if result.rowcount != 1:
+            raise ValueError("COGNITION-APPRAISAL-STALE")
+
     def __init__(self, mood: MoodReadPort, mind: MindReadPort) -> None:
         self._mood = mood
         self._mind = mind

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import uuid7
 
 from armi_cognition.api import (
@@ -93,6 +94,16 @@ class RuntimeMoodEvaluation:
                     receipt=receipt,
                 )
 
+        async def capture(kind: Literal["request", "response"], content: str) -> None:
+            async with self._factory.unit_of_work() as unit:
+                await unit.work.validate_lease(lease)
+                await self._store.record_transport(
+                    unit.transaction,
+                    assessment_id=assessment.assessment_id,
+                    kind=kind,
+                    content=content,
+                )
+
         try:
             version = episode.base_subject_version
             if assessment.status == "new":
@@ -103,6 +114,7 @@ class RuntimeMoodEvaluation:
                         assessment=assessment.mood,
                         context=json.loads(compiled_context),
                         targets=assessment.targets,
+                        capture=capture,
                     )
                 record_diagnostic(
                     "appraisal.returned",

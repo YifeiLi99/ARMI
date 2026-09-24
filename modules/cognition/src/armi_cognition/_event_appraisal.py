@@ -7,9 +7,10 @@ other. Provider usage belongs to the single request, never to both parts.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from armi_kernel.application import record_diagnostic
 from armi_mind.api import (
@@ -67,6 +68,7 @@ class EventAppraiserPort(Protocol):
         assessment: MoodAssessment,
         context: dict[str, Any],
         targets: tuple[MindEvaluationTarget, ...],
+        capture: Callable[[Literal["request", "response"], str], Awaitable[None]],
     ) -> EventAppraisalResult: ...
 
 
