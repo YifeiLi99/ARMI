@@ -15,10 +15,11 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelUsage,
     ModelViolation,
-    provider_call,
 )
 from armi_local_control.configuration import ConfigurationViolation
 from armi_mood.api import JEV_MODEL
+
+from .jev_transport import jev_request
 
 
 class JevAutonomyCheck:
@@ -75,24 +76,18 @@ class JevAutonomyCheck:
         except ConfigurationViolation:
             raise ModelViolation("MODEL-CREDENTIAL-JEV") from None
         try:
-            async with (
-                provider_call(
-                    provider="typesafe", model=JEV_MODEL, service="generation"
-                ) as call,
-                httpx.AsyncClient(
-                    timeout=self.binding.timeout_seconds,
-                    follow_redirects=False,
-                    trust_env=False,
-                ) as client,
-            ):
-                response = await client.post(
-                    self.binding.api_base + "/systemone",
-                    content=request,
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                    },
-                )
+            wire = httpx.Request(
+                "POST",
+                self.binding.api_base + "/systemone",
+                content=request,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            async with jev_request(
+                wire, timeout_seconds=self.binding.timeout_seconds
+            ) as (response, call):
                 response.raise_for_status()
                 document = response.json()
                 if not isinstance(document, dict):
@@ -120,6 +115,10 @@ class JevAutonomyCheck:
                 if error.response.status_code in {401, 403}
                 else "MODEL-JEV-HTTP-FAILED"
             ) from None
+        except httpx.ConnectTimeout:
+            raise ModelViolation("MODEL-JEV-CONNECT-TIMEOUT") from None
+        except httpx.ConnectError:
+            raise ModelViolation("MODEL-JEV-CONNECT-FAILED") from None
         except httpx.TimeoutException:
             raise ModelViolation(
                 "MODEL-OUTCOME-UNKNOWN", outcome_unknown=True

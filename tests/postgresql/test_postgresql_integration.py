@@ -1632,6 +1632,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     provider="test-provider", model="test-model", service="tokenization"
                 ) as call:
                     await call.capture(usage={"input_tokens": 999})
+                async with provider_call(
+                    provider="test-provider", model="test-model", service="generation"
+                ) as call:
+                    await call.not_sent(error_code="USAGE-CONNECT-TIMEOUT")
 
         asyncio.run(generate())
         checks = tuple(
@@ -1653,7 +1657,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             summary = UsageSummary.model_validate(query(UsageQuery("summary", filters)))
             self.assertEqual(summary.totals.billable_calls, 3)
-            self.assertEqual(summary.totals.auxiliary_requests, 1)
+            self.assertEqual(summary.totals.auxiliary_requests, 2)
             self.assertEqual(summary.totals.known_microyuan, 280)
             self.assertEqual(summary.totals.usage_unconfirmed_calls, 1)
             self.assertEqual(summary.totals.unpriced_calls, 1)
@@ -1665,7 +1669,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             second = UsageCalls.model_validate(
                 query(UsageQuery("list", filters, limit=1, offset=1))
             )
-            self.assertEqual(first.total, 3)
+            self.assertEqual(first.total, 4)
+            self.assertEqual(first.items[0].receipt.error_code, "USAGE-CONNECT-TIMEOUT")
+            self.assertFalse(first.items[0].receipt.billable)
             self.assertNotEqual(
                 first.items[0].receipt.call_id, second.items[0].receipt.call_id
             )

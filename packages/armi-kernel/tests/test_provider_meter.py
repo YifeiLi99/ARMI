@@ -63,7 +63,7 @@ async def test_read_timeout_remains_unknown_without_http_status():
         async with provider_call(provider="p", model="m", service="generation"):
             raise httpx.ReadTimeout("isolated read timeout")
     assert rows[-1].outcome == "unknown"
-    assert rows[-1].error_code == "USAGE-CALL-TIMEOUT"
+    assert rows[-1].error_code == "USAGE-READ-TIMEOUT"
 
 
 @pytest.mark.asyncio

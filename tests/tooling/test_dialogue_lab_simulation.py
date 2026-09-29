@@ -80,3 +80,7 @@ def test_jev_cost_uses_official_input_rate_without_inventing_cache_or_fx():
     report = estimate_calls([{"receipt": receipt}])
     assert report["known_totals"] == {}
     assert report["unknown_call_ids"] == ["jev"]
+    receipt["cost"] = {"status": "not_billable"}
+    report = estimate_calls([{"receipt": receipt}])
+    assert report["unknown_call_ids"] == []
+    assert report["non_billable_call_ids"] == ["jev"]

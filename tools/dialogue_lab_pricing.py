@@ -33,10 +33,14 @@ def estimate_calls(calls: list[dict]) -> dict:
     totals: dict[str, Decimal] = {}
     estimates = []
     unknown = []
+    non_billable = []
     for call in calls:
         receipt = call["receipt"]
         call_id = receipt["call_id"]
         cost = receipt["cost"]
+        if cost["status"] == "not_billable":
+            non_billable.append(call_id)
+            continue
         if cost["status"] == "estimated":
             currency = cost["currency"]
             amount = Decimal(cost["known_microyuan"]) / 1_000_000
@@ -81,5 +85,6 @@ def estimate_calls(calls: list[dict]) -> dict:
         "label": "official_list_price_estimate_not_account_bill",
         "known_totals": {currency: str(value) for currency, value in totals.items()},
         "unknown_call_ids": unknown,
+        "non_billable_call_ids": non_billable,
         "calls": estimates,
     }

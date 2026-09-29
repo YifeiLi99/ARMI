@@ -196,7 +196,7 @@ Attention 同事务保存 `autonomy_category`；rest 只结算调度，其他方
 
 付费输入包含触发原因、有效空闲时长、最近方向与结果、当前心情、真实人格锚点、最多三个相关动机或关注摘要、活动及可用能力；不发送整段聊天历史、全量记忆或内部标识。来源版本保留在冻结 Context 中。目标约 1,000 输入 tokens，按固定优先级裁剪，触发信息优先保留；4096 字节请求增长保护不等同于 Provider token 计数，实际用量逐次记录。完整认知的 expression 是立即发送的消息，内部等待决定应省略 expression；已有活动受阻时记录 wait 和恢复条件。
 
-自主 Jev 使用现有 `mood.jev_api_key`，独立 `autonomy.check` 凭据用途及 `consider_autonomy_check` 用量范围。请求与响应保存在受治理制品，调用身份、真实 Provider 回执及用量进入 `cognitive_attempts`；typesafe 未返回请求 ID 时留空。单次调用失败、中断或响应不合法不重试、不回退本地判断或主模型。轻判与完整认知共用工作租约、取消信号和陈旧状态检查；旧结果不能创建后续机会。
+自主 Jev 使用现有 `mood.jev_api_key`，独立 `autonomy.check` 凭据用途及 `consider_autonomy_check` 用量范围。请求与响应保存在受治理制品，调用身份、真实 Provider 回执及用量进入 `cognitive_attempts`；typesafe 未返回请求 ID 时留空。Jev 的事件评价和方向选择共用连接策略：连接超时 3 秒；仅确认正文未发送的 ConnectTimeout/ConnectError，等待 0.5 秒后重试一次，复用原请求。每次连接尝试独立记账并关联，未发送记为 failed/not_billable；读写超时、HTTP 拒绝、无效回答和中断不重试，读写结果不明保留 unknown。响应等待仍使用配置的 timeout_seconds。轻判与完整认知共用工作租约、取消信号和陈旧状态检查；旧结果不能创建后续机会。
 
 自主检查与后续完整认知均不创建心理评价回执或心理状态版本；两者不是新的心理事件。检查只提交 Attention 调度；唤醒时原子创建唯一后续认知，并重新核验主体版本、冻结 Context。真实对话、外部结果等独立事件仍走一次心理评价，再读取最新状态回复；不能用唤醒结果筛掉事件评价。
 

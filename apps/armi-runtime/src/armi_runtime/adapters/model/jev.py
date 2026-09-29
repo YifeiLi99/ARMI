@@ -17,7 +17,6 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
-    provider_call,
     record_diagnostic,
 )
 from armi_local_control.configuration import ConfigurationViolation
@@ -30,6 +29,8 @@ from armi_mood.api import (
     appraisal_questions,
     parse_appraisal_response,
 )
+
+from .jev_transport import jev_request
 
 _EXCLUDED_APPRAISAL_ITEMS = frozenset(
     {
@@ -215,24 +216,19 @@ class JevAppraiser:
             previous_situation_count=len(previous),
         )
         try:
-            async with (
-                provider_call(
-                    provider="typesafe", model=JEV_MODEL, service="generation"
-                ) as call,
-                httpx.AsyncClient(
-                    timeout=self._timeout, follow_redirects=False, trust_env=False
-                ) as client,
+            request = httpx.Request(
+                "POST",
+                "https://api.typesafe.ai/v1/systemone",
+                json=body,
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            # Both transport attempts use these exact frozen bytes.
+            if capture is not None:
+                await capture("request", request.content.decode("utf-8"))
+            async with jev_request(request, timeout_seconds=self._timeout) as (
+                response,
+                call,
             ):
-                request = client.build_request(
-                    "POST",
-                    "https://api.typesafe.ai/v1/systemone",
-                    json=body,
-                    headers={"Authorization": f"Bearer {key}"},
-                )
-                # Retain actual wire bodies, never credentials or HTTP headers.
-                if capture is not None:
-                    await capture("request", request.content.decode("utf-8"))
-                response = await client.send(request)
                 if capture is not None:
                     await capture("response", response.text)
                 response.raise_for_status()
@@ -257,6 +253,10 @@ class JevAppraiser:
                     raise MoodViolation("MOOD-JEV-CONTRACT") from None
         except httpx.HTTPStatusError:
             raise MoodViolation("MOOD-JEV-HTTP-FAILED") from None
+        except httpx.ConnectTimeout:
+            raise MoodViolation("MOOD-JEV-CONNECT-TIMEOUT") from None
+        except httpx.ConnectError:
+            raise MoodViolation("MOOD-JEV-CONNECT-FAILED") from None
         except httpx.TimeoutException:
             raise MoodViolation("MOOD-JEV-OUTCOME-UNKNOWN") from None
         except httpx.RequestError, ValueError:

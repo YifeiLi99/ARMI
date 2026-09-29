@@ -117,6 +117,7 @@ def usage_statement(
                     FROM calls a WHERE a.owner = filtered.owner
                         AND a.attempt_id = filtered.attempt_id
                         AND (a.receipt->>'billable')::boolean = false
+                        AND a.receipt->>'service' <> 'generation'
                         AND (a.receipt->>'parent_call_id' IS NULL
                             OR a.receipt->>'parent_call_id' = filtered.receipt->>'call_id')
                 ), '[]'::jsonb)) FROM filtered""",
@@ -127,11 +128,11 @@ def usage_statement(
         return (
             base
             + f""", page AS (
-            SELECT * FROM filtered WHERE billable
+            SELECT * FROM filtered WHERE billable OR receipt->>'service' = 'generation'
             ORDER BY started_at DESC, receipt->>'call_id' DESC LIMIT %s OFFSET %s
         )
         SELECT jsonb_build_object(
-            'total', (SELECT count(*) FROM filtered WHERE billable),
+            'total', (SELECT count(*) FROM filtered WHERE billable OR receipt->>'service' = 'generation'),
             'items', COALESCE((SELECT jsonb_agg({_ROW} ORDER BY started_at DESC,
                 receipt->>'call_id' DESC) FROM page), '[]'::jsonb))
         """,

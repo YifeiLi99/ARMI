@@ -480,6 +480,12 @@ class DiagnosticQuery:
                                     "phase",
                                     "duration_ms",
                                     "result_code",
+                                    "http_status",
+                                    "timeout_type",
+                                    "error_type",
+                                    "request_delivery",
+                                    "transport_attempt",
+                                    "retry_scheduled",
                                 )
                             }
                         )

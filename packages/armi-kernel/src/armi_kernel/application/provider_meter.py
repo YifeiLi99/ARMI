@@ -203,6 +203,21 @@ class MeteredProviderCall:
         async with self._lock:
             await self._finish(outcome, error_code=error_code)
 
+    async def not_sent(self, *, error_code: str) -> None:
+        """Adapter-confirmed failure before any application request was sent."""
+        async with self._lock:
+            self.receipt = replace(
+                self.receipt,
+                billable=False,
+                cost=estimate_cost(
+                    quantities=(),
+                    required_units=(),
+                    snapshot=self.receipt.price,
+                    billable=False,
+                ),
+            )
+            await self._finish("failed", error_code=error_code)
+
     async def _finish(
         self, outcome: CallOutcome, *, error_code: str | None = None
     ) -> None:
@@ -223,6 +238,8 @@ async def provider_call(
     model: str,
     service: str,
     parent_call_id: str | None = None,
+    transport_attempt: int = 1,
+    transport_attempt_limit: int = 1,
 ) -> AsyncGenerator[MeteredProviderCall]:
     try:
         scope = _SCOPE.get()
@@ -261,6 +278,7 @@ async def provider_call(
         model=model,
         purpose=scope.purpose,
         service=service,
+        transport_attempt=transport_attempt,
     )
     try:
         yield call
@@ -273,6 +291,27 @@ async def provider_call(
             cls.__name__ in {"TimeoutException", "APITimeoutError"}
             for cls in type(error).__mro__
         )
+        error_type = type(error).__name__
+        phase = {
+            "ConnectTimeout": "connect",
+            "ConnectError": "connect",
+            "ReadTimeout": "read",
+            "ReadError": "read",
+            "WriteTimeout": "write",
+            "WriteError": "write",
+            "PoolTimeout": "pool",
+        }.get(error_type, "http_response" if status is not None else "unknown")
+        not_sent = call.receipt.error_code in {
+            "USAGE-CONNECT-TIMEOUT",
+            "USAGE-CONNECT-FAILED",
+        }
+        failure_code = call.receipt.error_code or (
+            f"USAGE-PROVIDER-HTTP-{status}"
+            if status is not None
+            else f"USAGE-{phase.upper()}-TIMEOUT"
+            if timed_out
+            else "USAGE-CALL-INTERRUPTED"
+        )
         record_diagnostic(
             "provider.call.failed",
             component="provider",
@@ -283,6 +322,16 @@ async def provider_call(
             purpose=scope.purpose,
             http_status=status,
             timeout_type=type(error).__name__ if timed_out else None,
+            error_type=error_type,
+            result_code=failure_code,
+            phase=phase,
+            request_delivery="not_sent"
+            if not_sent
+            else "response_received"
+            if status is not None
+            else "unknown",
+            transport_attempt=transport_attempt,
+            retry_scheduled=not_sent and transport_attempt < transport_attempt_limit,
             duration_ms=round((monotonic() - started) * 1000),
         )
         # A returned receipt remains useful even when cancellation or parsing fails.
@@ -298,9 +347,7 @@ async def provider_call(
             else:
                 await call.finish(
                     "unknown",
-                    error_code="USAGE-CALL-TIMEOUT"
-                    if timed_out
-                    else "USAGE-CALL-INTERRUPTED",
+                    error_code=failure_code,
                 )
         raise
     else:
