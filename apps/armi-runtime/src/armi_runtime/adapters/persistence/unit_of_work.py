@@ -22,6 +22,7 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeFence,
     TransactionIsolation,
+    business_clock_injected,
     record_diagnostic,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -366,6 +367,10 @@ class PostgreSQLUnitOfWork:
             self._transaction = self._connection.transaction()
             await self._transaction.__aenter__()
             await self._set_transaction_characteristics()
+            if business_clock_injected():
+                await self._connection.execute(
+                    "SELECT set_config('armi.simulation_clock', 'on', true)",
+                )
             self._audit = PostgreSQLAuditWriter(self._connection)
             self._work = PostgreSQLDurableWorkWriter(
                 self._connection,

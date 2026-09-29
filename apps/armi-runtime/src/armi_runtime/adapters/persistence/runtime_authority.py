@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -28,6 +28,7 @@ from armi_kernel.application import (
     RuntimeInstanceId,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_runtime_foundation import PostgreSQLTransaction, SimulationState
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
@@ -438,44 +439,92 @@ class PostgreSQLRuntimeAuthority:
             self._active_tick = None
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
 
-    async def advance_test_time(self, fence: RuntimeFence, *, seconds: int) -> int:
-        """Advance only Mind/Attention effective time in a registered test environment.
-
-        Wall time, leases, deadlines and external I/O timeouts remain real time.
-        This owner write is exposed through the authenticated Admin test control.
-        """
+    async def advance_simulation_time(
+        self,
+        fence: RuntimeFence,
+        *,
+        seconds: int,
+        business_state: Callable[[PostgreSQLTransaction], Awaitable[SimulationState]],
+    ) -> dict[str, Any]:
+        """Advance idle business time, serialized with every fenced owner write."""
         if type(seconds) is not int or not 1 <= seconds <= 604800:
             raise RuntimeAuthorityViolation("AUTH-TEST-TIME-RANGE")
-        async with (
-            self._pool.connection(
-                timeout=float(self._pool_timeout_seconds)
-            ) as connection,
-            connection.transaction(),
-        ):
+        async with self._pool.connection() as connection, connection.transaction():
+            await connection.execute(
+                "SELECT pg_advisory_xact_lock(pg_catalog.hashtextextended(%s, 0))",
+                (f"armi.runtime-fence:subject:{fence.subject_id}",),
+            )
             row = await (
                 await connection.execute(
-                    """UPDATE armi.runtime_instances AS instance
-                SET active_runtime_microseconds=active_runtime_microseconds+%s
-                FROM armi.subjects AS subject, armi.deployment_environments AS environment
+                    """SELECT instance.runtime_instance_id FROM armi.runtime_instances instance
+                JOIN armi.deployment_environments environment USING (environment_id)
                 WHERE instance.runtime_instance_id=%s AND instance.fence_token=%s
                   AND instance.status='active' AND instance.lease_expires_at>statement_timestamp()
-                  AND subject.singleton_key=1 AND subject.subject_id=instance.subject_id
-                  AND subject.current_bundle_activation_id=instance.bundle_activation_id
-                  AND environment.environment_id=%s
-                  AND environment.environment_kind='system_test'
-                  AND environment.test_controls_enabled=true
-                RETURNING instance.active_runtime_microseconds""",
-                    (
-                        seconds * 1_000_000,
-                        fence.runtime_instance_id.value,
-                        fence.fence_token,
-                        self._environment_id,
-                    ),
+                  AND environment.environment_kind='system_test' AND environment.test_controls_enabled
+                FOR UPDATE OF instance""",
+                    (fence.runtime_instance_id.value, fence.fence_token),
                 )
             ).fetchone()
             if row is None:
                 raise RuntimeAuthorityViolation("AUTH-TEST-TIME-NOT-AVAILABLE")
-            return int(row[0])
+            await connection.execute(
+                "SELECT set_config('armi.simulation_clock','on',true)"
+            )
+            state = await business_state(cast(PostgreSQLTransaction, connection))
+            row = await (
+                await connection.execute(
+                    """SELECT
+                  EXISTS(SELECT 1 FROM armi.durable_work WHERE status='leased' OR
+                    (status='ready' AND not_before<=armi.business_time(statement_timestamp())))
+                  OR EXISTS(SELECT 1 FROM armi.provider_usage_calls WHERE receipt->>'outcome'='pending')"""
+                )
+            ).fetchone()
+            if state.busy or (row is not None and row[0]):
+                row = await (
+                    await connection.execute(
+                        "SELECT COALESCE(sum(simulated_idle_microseconds),0), armi.business_time(statement_timestamp()) FROM armi.runtime_instances"
+                    )
+                ).fetchone()
+                assert row is not None
+                return {
+                    "advanced_seconds": 0.0,
+                    "status": "busy",
+                    "offset_microseconds": int(row[0]),
+                    "simulated_at": row[1].isoformat(),
+                }
+            # Visit every regular source poll, and any earlier durable deadline.
+            row = await (
+                await connection.execute(
+                    """SELECT EXTRACT(EPOCH FROM min(at)-armi.business_time(statement_timestamp()))
+                FROM (
+                  SELECT not_before AS at FROM armi.durable_work WHERE status='ready'
+                  UNION ALL SELECT %s::timestamptz
+                ) due WHERE at>armi.business_time(statement_timestamp())""",
+                    (state.next_at,),
+                )
+            ).fetchone()
+            delta = min(seconds * 1_000_000, 5_000_000)
+            if row is not None and row[0] is not None:
+                delta = min(delta, max(1, int(row[0] * 1_000_000)))
+            await connection.execute(
+                """UPDATE armi.runtime_instances SET
+                  active_runtime_microseconds=active_runtime_microseconds+%s,
+                  simulated_idle_microseconds=simulated_idle_microseconds+%s
+                  WHERE runtime_instance_id=%s""",
+                (delta, delta, fence.runtime_instance_id.value),
+            )
+            row = await (
+                await connection.execute(
+                    "SELECT COALESCE(sum(simulated_idle_microseconds),0), armi.business_time(statement_timestamp()) FROM armi.runtime_instances"
+                )
+            ).fetchone()
+            assert row is not None
+            return {
+                "status": "advanced",
+                "advanced_seconds": delta / 1_000_000,
+                "offset_microseconds": int(row[0]),
+                "simulated_at": row[1].isoformat(),
+            }
 
     async def release(self, fence: RuntimeFence) -> RuntimeAuthorityRecord:
         delta = self._elapsed_active()

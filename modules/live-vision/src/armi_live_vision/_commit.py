@@ -55,7 +55,9 @@ class PostgreSQLVisualObservationCommit:
         ).encode()
         digest = Digest.from_bytes(payload)
         now_row = await (
-            await unit_of_work.transaction.execute("SELECT statement_timestamp()")
+            await unit_of_work.transaction.execute(
+                "SELECT armi.business_time(statement_timestamp())"
+            )
         ).fetchone()
         if now_row is None:
             raise RuntimeError("VISION-DATABASE")

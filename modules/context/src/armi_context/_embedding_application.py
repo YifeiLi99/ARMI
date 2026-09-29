@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -33,6 +33,7 @@ from armi_kernel.application import (
     WorkResultRef,
     WorkType,
     WorkViolation,
+    business_now,
     ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant
@@ -284,7 +285,7 @@ class ContextEmbeddingPipeline:
                 if record.attempt_count < record.draft.max_attempts:
                     await self._work.release(
                         lease,
-                        not_before=Instant(datetime.now(UTC) + timedelta(seconds=5)),
+                        not_before=Instant(business_now() + timedelta(seconds=5)),
                         error_code=error.code,
                     )
                 else:
@@ -437,7 +438,7 @@ class ContextEmbeddingPipeline:
                 else "degraded"
             )
             retry_at = (
-                datetime.now(UTC) + timedelta(seconds=delay_seconds)
+                business_now() + timedelta(seconds=delay_seconds)
                 if delay_seconds is not None
                 else None
             )
@@ -478,7 +479,7 @@ class ContextEmbeddingPipeline:
                         """UPDATE armi.context_embedding_coverage
                            SET coverage_state='degraded',scanning_epoch=NULL,
                                source_kind=NULL,after_source_ref=NULL,
-                               updated_at=statement_timestamp()
+                               updated_at=armi.business_time(statement_timestamp())
                            WHERE model_binding=%s""",
                         (EMBEDDING_BINDING_ID,),
                     )

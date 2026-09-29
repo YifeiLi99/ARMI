@@ -108,7 +108,7 @@ class RuntimeSubjectSummaryAssembler:
             row = await (
                 await transaction.execute(
                     """
-                    SELECT subject_version, statement_timestamp()
+                    SELECT subject_version, armi.business_time(statement_timestamp())
                     FROM armi.subjects WHERE subject_id = %s AND status = 'active'
                     """,
                     (self._subject_id,),

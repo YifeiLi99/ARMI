@@ -548,7 +548,7 @@ class PostgreSQLCandidateValidationRepository:
                 SET status = %s,
                     final_disposition = %s,
                     failure_code = %s,
-                    validated_at = statement_timestamp(),
+                    validated_at = armi.business_time(statement_timestamp()),
                     candidate_validation_id = %s,
                     validated_model_attempt_id = %s,
                     validation_status = %s,

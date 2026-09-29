@@ -66,7 +66,7 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
             await transaction.execute(
                 """UPDATE armi.live_voice_turns
                    SET registered_response_text=NULL,
-                       data_rights_redacted_at=statement_timestamp()
+                       data_rights_redacted_at=armi.business_time(statement_timestamp())
                    WHERE session_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",
                 (list(sessions),),

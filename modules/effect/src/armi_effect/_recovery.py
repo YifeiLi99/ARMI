@@ -33,7 +33,7 @@ class EffectRecoveryParticipant:
         await transaction.execute(
             """UPDATE armi.effect_attempts AS attempt
                SET dispatch_state='settled',result_status='cancelled',
-                   settled_at=statement_timestamp()
+                   settled_at=armi.business_time(statement_timestamp())
                FROM armi.effects AS effect
                WHERE effect.subject_id=%s AND effect.effect_kind IN ('creator_response','codex_delegation')
                  AND effect.current_attempt_id=attempt.effect_attempt_id
@@ -44,7 +44,7 @@ class EffectRecoveryParticipant:
             await transaction.execute(
                 """UPDATE armi.effects AS effect
                    SET status='cancelled',verification_status='verified',
-                       cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
+                       cancelled_at=armi.business_time(statement_timestamp()),settled_at=armi.business_time(statement_timestamp())
                    WHERE subject_id=%s AND effect_kind IN ('creator_response','codex_delegation')
                      AND (status='registered' OR (status='dispatching' AND EXISTS (
                        SELECT 1 FROM armi.effect_attempts AS attempt
@@ -119,7 +119,7 @@ class EffectRecoveryParticipant:
                 UPDATE armi.effect_attempts
                 SET dispatch_state = 'settled', result_status = 'unknown',
                     error_code = 'EFFECT-RESULT-UNKNOWN',
-                    settled_at = statement_timestamp()
+                    settled_at = armi.business_time(statement_timestamp())
                 WHERE effect_attempt_id = %s AND dispatch_state = 'dispatching'
                 """,
                 (attempt_id,),
@@ -129,7 +129,7 @@ class EffectRecoveryParticipant:
                 UPDATE armi.effects
                 SET status = 'unknown', verification_status = 'inconclusive',
                     current_observation_id = %s,
-                    settled_at = statement_timestamp()
+                    settled_at = armi.business_time(statement_timestamp())
                 WHERE effect_id = %s AND current_attempt_id = %s
                   AND status = 'dispatching'
                 """,

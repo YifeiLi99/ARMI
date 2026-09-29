@@ -303,7 +303,7 @@ class PostgreSQLEventAppraisalStore:
                 """UPDATE armi.event_appraisals SET
                 status=CASE WHEN mood_status IN ('applied','unchanged') AND mind_status IN ('applied','unchanged')
                     THEN 'applied' ELSE 'failed' END,input_tokens=%s,output_tokens=%s,
-                completed_at=statement_timestamp() WHERE event_appraisal_id=%s AND status='running'
+                completed_at=armi.business_time(statement_timestamp()) WHERE event_appraisal_id=%s AND status='running'
                 RETURNING status""",
                 (input_tokens, output_tokens, assessment_id),
             )
@@ -322,6 +322,6 @@ class PostgreSQLEventAppraisalStore:
     ) -> None:
         await transaction.execute(
             """UPDATE armi.event_appraisals SET status=%s,error_code=%s,
-            completed_at=statement_timestamp() WHERE event_appraisal_id=%s AND status='running'""",
+            completed_at=armi.business_time(statement_timestamp()) WHERE event_appraisal_id=%s AND status='running'""",
             ("interrupted" if interrupted else "failed", code, assessment_id),
         )

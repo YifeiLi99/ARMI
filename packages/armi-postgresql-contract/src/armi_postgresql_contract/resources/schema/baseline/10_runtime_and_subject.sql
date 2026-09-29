@@ -1,11 +1,30 @@
 -- Current ARMI schema tables owned by this baseline module.
 
+-- Real time by default. Only an explicitly bound source test session injects time.
+CREATE FUNCTION armi.business_time(real_time timestamptz) RETURNS timestamptz
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    delta bigint;
+BEGIN
+    IF current_setting('armi.simulation_clock', true) IS DISTINCT FROM 'on' THEN RETURN real_time; END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM armi.deployment_environments
+        WHERE environment_kind='system_test' AND test_controls_enabled
+    ) THEN
+        RAISE EXCEPTION 'SIMULATION-CLOCK-ENVIRONMENT';
+    END IF;
+    SELECT COALESCE(sum(simulated_idle_microseconds), 0) INTO delta FROM armi.runtime_instances;
+    RETURN real_time + delta * interval '1 microsecond';
+END;
+$$;
+REVOKE ALL ON FUNCTION armi.business_time(timestamptz) FROM PUBLIC;
+
 CREATE TABLE armi.schema_baseline_identity (
     singleton_key boolean DEFAULT true NOT NULL,
     resource_digest text NOT NULL DEFAULT '',
     installed_catalog_digest text NOT NULL DEFAULT '',
     role_policy_digest text NOT NULL DEFAULT '',
-    installed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    installed_at timestamp(6) with time zone DEFAULT armi.business_time(statement_timestamp()) NOT NULL,
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
@@ -36,7 +55,7 @@ CREATE TABLE armi.deployment_environments (
     identity_key_bound_at timestamp(6) with time zone,
     CONSTRAINT deployment_environments_identity_key_pair CHECK ((identity_key_digest IS NULL) = (identity_key_bound_at IS NULL)),
     CONSTRAINT deployment_environments_identity_key_digest CHECK (identity_key_digest IS NULL OR identity_key_digest ~ '^sha256:[0-9a-f]{64}$'),
-    registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    registered_at timestamp(6) with time zone DEFAULT armi.business_time(statement_timestamp()) NOT NULL,
     CONSTRAINT deployment_environments_check CHECK (((environment_kind = ANY (ARRAY['development'::text, 'system_test'::text, 'acceptance'::text])) OR ((NOT resettable) AND (NOT test_controls_enabled)))),
     CONSTRAINT deployment_environments_check1 CHECK (((NOT test_controls_enabled) OR (environment_kind = ANY (ARRAY['system_test'::text, 'acceptance'::text])))),
     CONSTRAINT deployment_environments_environment_id_check CHECK ((uuid_extract_version(environment_id) = 7)),
@@ -72,7 +91,7 @@ CREATE TABLE armi.prompt_revisions (
     author_party_id uuid,
     subject_commit_id uuid,
     change_reason text NOT NULL,
-    activated_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    activated_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     admin_change_id uuid,
     CONSTRAINT prompt_revisions_change_reason_check CHECK ((change_reason = ANY (ARRAY['birth'::text, 'created'::text, 'revised'::text, 'deactivated'::text, 'subject_created'::text, 'subject_revised'::text]))),
     CONSTRAINT prompt_revisions_check CHECK ((((revision_no = 1) AND (previous_revision_id IS NULL)) OR ((revision_no > 1) AND (previous_revision_id IS NOT NULL)))),
@@ -101,9 +120,10 @@ CREATE TABLE armi.runtime_instances (
     process_command_identity text,
     environment_id uuid,
     process_incarnation bigint,
-    started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
-    last_heartbeat_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    started_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
+    last_heartbeat_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     active_runtime_microseconds bigint DEFAULT 0 NOT NULL CHECK (active_runtime_microseconds >= 0),
+    simulated_idle_microseconds bigint DEFAULT 0 NOT NULL CHECK (simulated_idle_microseconds >= 0),
     lease_expires_at timestamp(6) with time zone NOT NULL,
     stopped_at timestamp(6) with time zone,
     recovery_status text,
@@ -149,7 +169,7 @@ CREATE TABLE armi.subject_component_revisions (
     origin_ref uuid NOT NULL,
     subject_commit_id uuid,
     semantic_payload jsonb NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     proposal_ref text,
     data_rights_redacted_at timestamp(6) with time zone,
     admin_change_id uuid,
@@ -186,7 +206,7 @@ CREATE TABLE armi.subjects (
     CONSTRAINT subjects_maintenance_coverage_check CHECK (
         maintenance_processed_through_ordinal >= 0 AND
         maintenance_latest_accepted_ordinal >= maintenance_processed_through_ordinal),
-    born_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    born_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     CONSTRAINT subjects_birth_idempotency_key_check CHECK (((length(birth_idempotency_key) >= 1) AND (length(birth_idempotency_key) <= 128) AND (birth_idempotency_key ~ '^[A-Za-z0-9._:-]+$'::text))),
     CONSTRAINT subjects_birth_manifest_digest_check CHECK ((birth_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT subjects_birth_request_id_check CHECK ((uuid_extract_version(birth_request_id) = 7)),
@@ -208,7 +228,7 @@ CREATE TABLE armi.mind_revisions (
     origin_kind text NOT NULL,
     origin_ref uuid NOT NULL,
     semantic_payload jsonb NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     data_rights_redacted_at timestamp(6) with time zone,
     admin_change_id uuid,
     CONSTRAINT mind_revisions_mind_revision_id_check CHECK ((uuid_extract_version(mind_revision_id) = 7)),
@@ -230,7 +250,7 @@ CREATE TABLE armi.focus_revisions (
     origin_ref uuid NOT NULL,
     subject_commit_id uuid,
     semantic_payload jsonb NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     proposal_ref text,
     data_rights_redacted_at timestamp(6) with time zone,
     admin_change_id uuid,

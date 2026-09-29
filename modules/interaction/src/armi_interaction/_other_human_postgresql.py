@@ -305,7 +305,7 @@ class OtherHumanInputRepository:
             cursor = await connection.execute(
                 """
                 UPDATE armi.interaction_scenes
-                SET current_status = 'closed', closed_at = statement_timestamp(),
+                SET current_status = 'closed', closed_at = armi.business_time(statement_timestamp()),
                     scene_version = scene_version + 1
                 WHERE primary_party_id = %s AND scene_key = %s
                   AND scene_kind = 'other_human_dialogue'
@@ -498,7 +498,7 @@ class OtherHumanInputRepository:
             """
             INSERT INTO armi.scene_timeline_items (
                 timeline_item_id, scene_id, source_kind, source_ref,
-                source_event_no, result_status, occurred_at) VALUES (%s,%s,'other_human_input',%s,1,'accepted',statement_timestamp())
+                source_event_no, result_status, occurred_at) VALUES (%s,%s,'other_human_input',%s,1,'accepted',armi.business_time(statement_timestamp()))
             """,
             (timeline_id, context.scene_id, interaction_id),
         )

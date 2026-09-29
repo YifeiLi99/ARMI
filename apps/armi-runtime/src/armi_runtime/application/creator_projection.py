@@ -73,6 +73,7 @@ from armi_kernel.application import (
     LifeRecordRetrievalKind,
     OtherHumanRecordQueryPort,
     OtherHumanRecordViolation,
+    business_now,
 )
 from armi_kernel.contracts import (
     AcceptedOutcome,
@@ -208,7 +209,7 @@ class _OutcomeArguments(TypedDict):
 
 def _outcome_common() -> _OutcomeArguments:
     return _OutcomeArguments(
-        trace_id=TraceId(secrets.token_hex(16)), occurred_at=Instant(datetime.now(UTC))
+        trace_id=TraceId(secrets.token_hex(16)), occurred_at=Instant(business_now())
     )
 
 

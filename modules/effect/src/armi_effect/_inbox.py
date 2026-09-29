@@ -58,7 +58,7 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                     UPDATE armi.effects AS effect
                     SET local_delivery_id = %s,
                         local_receipt_digest = %s,
-                        local_delivered_at = statement_timestamp()
+                        local_delivered_at = armi.business_time(statement_timestamp())
                     WHERE effect.effect_id = %s
                       AND effect.subject_id = %s
                       AND effect.scene_id = %s

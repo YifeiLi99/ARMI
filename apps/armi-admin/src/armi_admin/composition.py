@@ -102,7 +102,22 @@ def bootstrap_admin(
         ) as handle:
             return handle.consume(lambda value: bytes(value).decode("utf-8"))
 
-    pool = AdminRoleBoundPool(conninfo, expected_role=config.expected_role)
+    from armi_local_control import SimulationClock
+
+    clock = SimulationClock(config.environment_root, config.environment_id)
+    clock_offset = None
+    if clock.path.exists():
+        if (
+            config.environment_kind.value != "system_test"
+            or not config.test_controls_enabled
+            or config.expected.source_root is None
+        ):
+            raise ValueError("SIMULATION-CLOCK-ENVIRONMENT")
+        clock.validate()
+        clock_offset = clock.read
+    pool = AdminRoleBoundPool(
+        conninfo, expected_role=config.expected_role, clock_offset=clock_offset
+    )
     pool.open()
     try:
         runtime = RuntimeFoundationAdminAdapter(

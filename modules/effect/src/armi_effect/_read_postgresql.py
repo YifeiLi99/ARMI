@@ -31,7 +31,7 @@ class PostgreSQLEffectOperationRead:
         ).fetchall()
         age = await (
             await transaction.execute(
-                """SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(registered_at)))
+                """SELECT EXTRACT(EPOCH FROM (armi.business_time(clock_timestamp()) - min(registered_at)))
                    FROM armi.effects
                    WHERE status IN ('registered','dispatching','unknown')"""
             )

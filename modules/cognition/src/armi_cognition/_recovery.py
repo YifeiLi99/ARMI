@@ -38,7 +38,7 @@ class CognitionRecoveryParticipant:
     ) -> RecoveryContribution:
         await transaction.execute(
             """UPDATE armi.event_appraisals SET status='interrupted',
-                   error_code='EVENT-RUNTIME-INTERRUPTED',completed_at=statement_timestamp()
+                   error_code='EVENT-RUNTIME-INTERRUPTED',completed_at=armi.business_time(statement_timestamp())
                WHERE subject_id=%s AND status='running'""",
             (scope.subject_id,),
         )
@@ -69,7 +69,7 @@ class CognitionRecoveryParticipant:
                SET dispatch_status='settled',
                    result_status=CASE dispatch_status WHEN 'prepared' THEN 'cancelled'
                      ELSE 'outcome_unknown' END,
-                   error_code='MODEL-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
+                   error_code='MODEL-RUNTIME-INTERRUPTED',settled_at=armi.business_time(statement_timestamp())
                WHERE cognitive_episode_id=ANY(%s::uuid[])
                  AND dispatch_status IN ('prepared','dispatched')""",
             (list(interrupted_episodes),),
@@ -86,7 +86,7 @@ class CognitionRecoveryParticipant:
                 """UPDATE armi.cognitive_episodes
                    SET life_query_status='failed',life_query_result_count=0,
                        life_query_failure_code='LIFE-QUERY-RUNTIME-INTERRUPTED',
-                       life_query_completed_at=statement_timestamp()
+                       life_query_completed_at=armi.business_time(statement_timestamp())
                    WHERE opportunity_id=ANY(%s::uuid[]) AND life_query_status='pending'
                    RETURNING life_query_work_id""",
                 (list(interrupted_opportunities),),
@@ -122,7 +122,7 @@ class CognitionRecoveryParticipant:
                         """UPDATE armi.cognitive_episodes
                            SET life_query_status='failed',life_query_result_count=0,
                                life_query_failure_code='LIFE-QUERY-WORK-EXHAUSTED',
-                               life_query_completed_at=statement_timestamp()
+                               life_query_completed_at=armi.business_time(statement_timestamp())
                            WHERE life_query_work_id=%s AND life_query_status='pending'""",
                         (item.work_id,),
                     )

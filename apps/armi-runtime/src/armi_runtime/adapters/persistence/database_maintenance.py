@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from uuid import UUID
 
 import psycopg
+from armi_kernel.application import business_now
 from armi_kernel.contracts import Instant
 from psycopg import sql
 
@@ -92,7 +92,7 @@ class PostgreSQLDatabaseMaintenance:
             ) from None
         return DatabaseMaintenanceReport(
             table_count=len(tables),
-            completed_at=Instant(datetime.now(UTC)).to_wire(),
+            completed_at=Instant(business_now()).to_wire(),
         )
 
 

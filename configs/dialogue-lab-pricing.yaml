@@ -1,0 +1,12 @@
+schema_kind: armi.dialogue-lab-pricing
+# Native USD prices, deliberately not converted to CNY or treated as an account bill.
+prices:
+  - provider: typesafe
+    model: jev-1.13.0
+    service: generation
+    currency: USD
+    verified_at: '2026-09-29'
+    source_url: https://docs.typesafe.ai/models
+    per_million:
+      input_tokens: '0.042'
+      output_tokens: '0'

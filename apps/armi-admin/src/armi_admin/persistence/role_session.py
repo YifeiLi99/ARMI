@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any, cast
 
 import psycopg
+from armi_kernel.application import bind_business_clock, reset_business_clock
 from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
 from armi_runtime_foundation import (
     PostgreSQLAdminParameter,
@@ -77,16 +78,21 @@ class _AdminUnitOfWork:
 class AdminRoleBoundPool:
     """Reset and verify an Admin database session before every reuse."""
 
-    __slots__ = ("_conninfo", "_expected_role", "_lock", "_pool")
+    __slots__ = ("_clock_offset", "_conninfo", "_expected_role", "_lock", "_pool")
 
     def __init__(
-        self, conninfo: str | Callable[[], str], *, expected_role: str
+        self,
+        conninfo: str | Callable[[], str],
+        *,
+        expected_role: str,
+        clock_offset: Callable[[], int] | None = None,
     ) -> None:
         if not expected_role.startswith("armi_") or not expected_role.endswith(
             "_admin"
         ):
             raise ValueError("expected_role must be an environment Admin login")
         self._expected_role = expected_role
+        self._clock_offset = clock_offset
         self._conninfo = conninfo
         self._pool: ConnectionPool[psycopg.Connection[Any]] | None = None
         self._lock = RLock()
@@ -133,7 +139,23 @@ class AdminRoleBoundPool:
         with self._ensure_pool().connection() as connection:
             self._verify(connection)
             connection.commit()
-            yield connection
+            token = None
+            if self._clock_offset is not None:
+                connection.execute(
+                    "SELECT set_config('armi.simulation_clock', 'on', false)",
+                )
+                row = connection.execute(
+                    "SELECT EXTRACT(EPOCH FROM (armi.business_time(statement_timestamp())-statement_timestamp()))*1000000"
+                ).fetchone()
+                assert row is not None
+                offset = int(row[0])
+                token = bind_business_clock(lambda: offset)
+                connection.commit()
+            try:
+                yield connection
+            finally:
+                if token is not None:
+                    reset_business_clock(token)
 
     @contextmanager
     def repeatable_read(self):

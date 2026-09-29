@@ -12,7 +12,7 @@ class PostgreSQLEnvironmentIdentity:
             await transaction.execute(
                 """UPDATE armi.deployment_environments
                    SET identity_key_digest=COALESCE(identity_key_digest,%s),
-                       identity_key_bound_at=COALESCE(identity_key_bound_at,statement_timestamp())
+                       identity_key_bound_at=COALESCE(identity_key_bound_at,armi.business_time(statement_timestamp()))
                    WHERE singleton_key AND (identity_key_digest IS NULL OR identity_key_digest=%s)
                    RETURNING identity_key_digest""",
                 (key_identity, key_identity),

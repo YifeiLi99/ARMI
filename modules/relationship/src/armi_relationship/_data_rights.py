@@ -74,7 +74,7 @@ class PostgreSQLRelationshipDataRightsParticipant:
             )
             await transaction.execute(
                 """UPDATE armi.relationship_revisions
-                   SET tombstoned_at = statement_timestamp(), tombstone_order_id = %s
+                   SET tombstoned_at = armi.business_time(statement_timestamp()), tombstone_order_id = %s
                    WHERE relationship_id = %s AND tombstoned_at IS NULL""",
                 (request.order_id, target.ref),
             )
@@ -84,7 +84,7 @@ class PostgreSQLRelationshipDataRightsParticipant:
                        SET facts=NULL,interpretation=NULL,boundaries=NULL,
                            commitments=NULL,open_issues=NULL,commitment_event=NULL,
                            issue_resolution=NULL,
-                           data_rights_redacted_at=statement_timestamp()
+                           data_rights_redacted_at=armi.business_time(statement_timestamp())
                        WHERE relationship_id=%s
                          AND data_rights_redacted_at IS NULL""",
                     (target.ref,),

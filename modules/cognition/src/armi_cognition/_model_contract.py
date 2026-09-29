@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
@@ -17,6 +16,7 @@ from armi_kernel.application import (
     PriceCatalog,
     UsageQuantity,
     UsageUnit,
+    business_now,
     estimate_cost,
 )
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN, Digest
@@ -910,7 +910,7 @@ def checked_model_request(
             provider=binding.provider,
             model=binding.model_id,
             service="generation",
-            at=datetime.now(UTC),
+            at=business_now(),
         ),
     )
     if input_tokens > binding.input_token_limit or (

@@ -12,13 +12,20 @@ import json
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid7
 
 import httpx
-from armi_admin.application import AdminConfigError, load_admin_config
+from armi_admin.application import (
+    AdminConfigError,
+    AdminCredentialPort,
+    load_admin_config,
+)
+from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.application.installation import SetupError
+from armi_admin.composition import bootstrap_admin
 from armi_kernel.application import BirthViolation
 from armi_local_control import (
     ConfigurationViolation,
@@ -32,6 +39,25 @@ from tools.dialogue_lab_support import ROOT, LabError, save
 
 
 class DialogueLab:
+    @contextmanager
+    def admin_session(self):
+        """Keep the formal CLI/MCP application and its bound role pool open."""
+        config = self.config
+        credentials = AdminCredentialPort(
+            locator=config.locator,
+            migrator_locator=config.migrator_locator,
+            preview_locator=config.preview_locator,
+            authorization_locator=config.authorization_signing_key_locator,
+            config_root=self.root,
+        )
+        composition = bootstrap_admin(config, credentials)
+        self._admin_service = composition.service
+        try:
+            yield
+        finally:
+            self._admin_service = None
+            composition.close()
+
     def __init__(self, root: Path) -> None:
         self.root = root.resolve(strict=True)
         self.config, _ = load_admin_config(
@@ -73,6 +99,30 @@ class DialogueLab:
             "environment_status",
         }:
             command = [name.removeprefix("environment_")]
+        if getattr(self, "_admin_service", None) is not None:
+            assert self._admin_service is not None
+            operation = next(item for item in ADMIN_OPERATIONS if item.name == name)
+            bound = dict(arguments or {})
+            bound["environment_id"] = self.config.environment_id
+            if operation.mode in {"mutate", "lifecycle"}:
+                bound["environment_incarnation"] = self.config.environment_incarnation
+                bound["purpose"] = f"admin.{name}"
+            if operation.mode == "lifecycle":
+                bound["component"] = "environment"
+            result = operation.invoke(
+                self._admin_service,
+                operation.request.model_validate_json(json.dumps(bound)),
+            ).model_dump(mode="json")
+            if receipt is not None:
+                save(
+                    receipt,
+                    {"operation": name, "arguments": arguments, "response": result},
+                )
+            if result["status"] != "succeeded":
+                raise LabError(
+                    f"LAB-ADMIN-{name}: {result.get('error_code', 'unknown')}"
+                )
+            return result["result"]
         call = subprocess.run(
             [
                 sys.executable,
@@ -388,6 +438,12 @@ def main() -> int:
         help="Capture completed dialogue/autonomy episodes, including existing ones",
     )
     watch.add_argument("--seconds", type=int, default=300)
+    simulate = commands.add_parser(
+        "simulate",
+        help="Run the real chain with idle time injection and a complete usage report",
+    )
+    simulate.add_argument("--seconds", type=int, default=600)
+    simulate.add_argument("--live", action="store_true", required=True)
     capture = commands.add_parser("capture")
     selectors = capture.add_mutually_exclusive_group(required=True)
     selectors.add_argument("--interaction-id")
@@ -402,7 +458,11 @@ def main() -> int:
             )
         else:
             lab = DialogueLab(args.root)
-            if args.command == "credential":
+            if args.command == "simulate":
+                from tools.dialogue_lab_simulation import simulate
+
+                result = simulate(lab, seconds=args.seconds)
+            elif args.command == "credential":
                 from armi_admin.application.installation import store_provider_secret
                 from armi_local_control.runtime_process import LocalProcessLock
 

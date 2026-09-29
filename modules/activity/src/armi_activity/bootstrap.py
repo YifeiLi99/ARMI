@@ -10,6 +10,7 @@ from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
+    SimulationReadPort,
 )
 
 from ._admin import PostgreSQLActivityAdmin
@@ -17,6 +18,7 @@ from ._application import ActivityApplication
 from ._commit import PostgreSQLActivityCommit
 from ._data_rights import PostgreSQLActivityDataRightsParticipant
 from ._postgresql import PostgreSQLActivityRead
+from ._simulation import SimulationRead
 from .api import (
     ActivityAdminContentPort,
     ActivityCognitionPort,
@@ -77,6 +79,10 @@ def bootstrap_activity_admin_content() -> ActivityAdminContentPort:
     return PostgreSQLActivityAdmin()
 
 
+def bootstrap_simulation_read() -> SimulationReadPort:
+    return SimulationRead()
+
+
 __all__ = (
     "ActivityModule",
     "bootstrap_activity",
@@ -84,4 +90,5 @@ __all__ = (
     "bootstrap_activity_cognition",
     "bootstrap_activity_data_rights",
     "bootstrap_activity_recovery",
+    "bootstrap_simulation_read",
 )

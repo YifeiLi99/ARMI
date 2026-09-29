@@ -27,11 +27,11 @@ class InteractionRecoveryParticipant:
     ) -> None:
         await transaction.execute(
             """UPDATE armi.interaction_scenes
-               SET last_voice_ended_at=statement_timestamp(),
+               SET last_voice_ended_at=armi.business_time(statement_timestamp()),
                    voice_provider_calls=(
                      SELECT jsonb_object_agg(key, CASE WHEN value->>'outcome'='pending'
                        THEN value || jsonb_build_object('outcome','unknown',
-                            'finished_at',statement_timestamp(),
+                            'finished_at',armi.business_time(statement_timestamp()),
                             'error_code','VOICE-RUNTIME-RESTARTED')
                        ELSE value END)
                      FROM jsonb_each(voice_provider_calls))
@@ -51,7 +51,7 @@ class InteractionRecoveryParticipant:
         input_ids: list[UUID] = [row[0] for row in rows]
         await transaction.execute(
             """UPDATE armi.external_message_parts SET processing_status=CASE WHEN recognition_request_artifact_id IS NULL THEN 'failed' ELSE 'unknown' END,
-                   failure_code='RECOGNITION-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
+                   failure_code='RECOGNITION-RUNTIME-INTERRUPTED',settled_at=armi.business_time(statement_timestamp())
                WHERE interaction_id=ANY(%s::uuid[]) AND processing_status='pending'""",
             (input_ids,),
         )

@@ -33,7 +33,7 @@ class LiveVisionRecoveryParticipant:
                    SET status=CASE WHEN status IN ('capturing','recognizing')
                          THEN 'unknown' ELSE 'failed' END,
                        error_code='VISION-RUNTIME-INTERRUPTED',
-                       settled_at=statement_timestamp()
+                       settled_at=armi.business_time(statement_timestamp())
                    WHERE origin_kind='subject' AND origin_scene_id IS NOT NULL
                      AND status IN ('capture_pending','capturing','registered','recognizing')
                    RETURNING observation_id"""
@@ -76,7 +76,7 @@ class LiveVisionRecoveryParticipant:
             await transaction.execute(
                 """UPDATE armi.live_vision_observations
                    SET status='unknown',error_code='VISION-OUTCOME-UNKNOWN',
-                       settled_at=statement_timestamp()
+                       settled_at=armi.business_time(statement_timestamp())
                    WHERE status IN ('capturing','recognizing') RETURNING observation_id"""
             )
         ).fetchall()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from armi_kernel.application import business_now
+
 from .creator_calls import CreatorCall, CreatorEventSink, CreatorUseCase, creator_result
 from .creator_inputs import (
     _creator_boundary_request,
@@ -8,7 +10,6 @@ from .creator_inputs import (
     _life_query_parameters,
 )
 from .creator_projection import (
-    UTC,
     UUID,
     ActivityReadPort,
     ActivityViolation,
@@ -74,7 +75,6 @@ from .creator_projection import (
     _relationship_revision_response,
     _unavailable,
     cast,
-    datetime,
     secrets,
     uuid7,
 )
@@ -446,7 +446,7 @@ def create_subject_life_use_cases(
                     CreatorProjectionInvalidation(
                         CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
-                        Instant(datetime.now(UTC)),
+                        Instant(business_now()),
                         "creator-operation",
                     )
                 )

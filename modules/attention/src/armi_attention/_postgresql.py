@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from uuid import UUID
 
 from armi_activity.api import (
@@ -11,6 +10,7 @@ from armi_activity.api import (
     ActivitySchedulingSnapshot,
     ActivityStatus,
 )
+from armi_kernel.application import business_now
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
 )
@@ -85,7 +85,7 @@ class PostgreSQLLifeOpportunityRepository:
                    phase=CASE WHEN phase='blocked' THEN 'waiting' ELSE phase END,
                    blocked_reason_code=NULL,failure_streak=0,
                    next_consideration_at=CASE WHEN phase='blocked'
-                     THEN statement_timestamp()+interval '60 seconds' ELSE next_consideration_at END
+                     THEN armi.business_time(statement_timestamp())+interval '60 seconds' ELSE next_consideration_at END
                WHERE subject_id=%s AND model_configuration_revision IS DISTINCT FROM %s""",
             (model_revision, fence.subject_id, model_revision),
         )
@@ -95,7 +95,7 @@ class PostgreSQLLifeOpportunityRepository:
             outlet_state, outlet_reason = "unbound", "LIFE-AUTONOMY-OUTLET-UNBOUND"
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET outlet_state=%s,outlet_reason_code=%s,
-                      outlet_observed_at=statement_timestamp() WHERE subject_id=%s""",
+                      outlet_observed_at=armi.business_time(statement_timestamp()) WHERE subject_id=%s""",
             (outlet_state, outlet_reason, fence.subject_id),
         )
         if await self._sleep.active_maintenance(
@@ -152,7 +152,7 @@ class PostgreSQLLifeOpportunityRepository:
                 head.resume_not_before
                 for head in heads
                 if head.resume_not_before is not None
-                and head.resume_not_before <= datetime.now(UTC)
+                and head.resume_not_before <= business_now()
                 and head.status in {ActivityStatus.WAITING, ActivityStatus.IN_PROGRESS}
             ),
             default=None,
@@ -161,7 +161,7 @@ class PostgreSQLLifeOpportunityRepository:
             await transaction.execute(
                 """UPDATE armi.autonomy_plans SET last_event_at=%s,idle_streak=0,
                        next_consideration_at=LEAST(next_consideration_at,
-                         statement_timestamp()+interval '60 seconds')
+                         armi.business_time(statement_timestamp())+interval '60 seconds')
                    WHERE subject_id=%s AND opportunity_id IS NULL AND phase='waiting'
                      AND (last_event_at IS NULL OR last_event_at<%s)""",
                 (due_at, fence.subject_id, due_at),
@@ -205,7 +205,7 @@ class PostgreSQLLifeOpportunityRepository:
         if selected is None:
             selection = ActivityScheduler().select(
                 ActivitySchedulingSnapshot(
-                    datetime.now(UTC),
+                    business_now(),
                     heads,
                     (),
                     False,

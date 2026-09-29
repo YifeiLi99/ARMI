@@ -7,7 +7,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import TypedDict, cast
 from uuid import UUID, uuid7
 
@@ -41,6 +41,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkType,
+    business_now,
     provider_meter_scope,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
@@ -167,7 +168,7 @@ class DurableVisualObservationCoordinator:
                 await unit.transaction.execute(
                     """UPDATE armi.live_vision_observations
                        SET status='unknown',error_code=%s,
-                           settled_at=statement_timestamp()
+                           settled_at=armi.business_time(statement_timestamp())
                        WHERE session_id=%s AND status='recognizing'
                        RETURNING observation_id""",
                     (error_code, session_id),
@@ -240,7 +241,7 @@ class DurableVisualObservationCoordinator:
             return _observation_from_row(existing)
         observation_id, work_id = uuid7(), uuid7()
         trace_id = TraceId(uuid7().hex)
-        registered_at = datetime.now(UTC)
+        registered_at = business_now()
         async with self._session_lock, self._factory.unit_of_work() as unit:
             if self._session_id != session_id:
                 raise RuntimeError("VISION-SESSION-CLOSED")
@@ -469,7 +470,7 @@ class DurableVisualObservationCoordinator:
                 """UPDATE armi.live_vision_observations SET status='completed',change_class=%s,scene_summary=%s,
                    visible_change=%s,uncertainty=%s,provider=%s,model_id=%s,input_tokens=%s,output_tokens=%s,
                    evidence_id=%s,response_artifact_id=%s,provider_request_id=%s,
-                   settled_at=statement_timestamp() WHERE observation_id=%s AND status='recognizing'""",
+                   settled_at=armi.business_time(statement_timestamp()) WHERE observation_id=%s AND status='recognizing'""",
                 (
                     result.change_class.value,
                     result.scene_summary,
@@ -553,7 +554,7 @@ class DurableVisualObservationCoordinator:
             )
             if unavailable:
                 await unit.transaction.execute(
-                    "UPDATE armi.live_vision_observations SET status='failed',error_code='VISION-SOURCE-UNAVAILABLE',settled_at=statement_timestamp() WHERE observation_id=%s",
+                    "UPDATE armi.live_vision_observations SET status='failed',error_code='VISION-SOURCE-UNAVAILABLE',settled_at=armi.business_time(statement_timestamp()) WHERE observation_id=%s",
                     (observation_id,),
                 )
                 await unit.work.complete(
@@ -593,7 +594,7 @@ class DurableVisualObservationCoordinator:
             code = getattr(error, "code", "VISION-CAPTURE-FAILED")
             async with self._factory.unit_of_work() as unit:
                 await unit.transaction.execute(
-                    "UPDATE armi.live_vision_observations SET status='failed',error_code=%s,settled_at=statement_timestamp() WHERE observation_id=%s AND status='capturing'",
+                    "UPDATE armi.live_vision_observations SET status='failed',error_code=%s,settled_at=armi.business_time(statement_timestamp()) WHERE observation_id=%s AND status='capturing'",
                     (code, observation_id),
                 )
                 await unit.work.validate_lease(lease)
@@ -667,7 +668,7 @@ class DurableVisualObservationCoordinator:
             trace_id,
         )
         work_id = uuid7()
-        now = datetime.now(UTC)
+        now = business_now()
         async with self._session_lock, self._factory.unit_of_work() as unit:
             if self._session_id != session_id:
                 raise LiveVisionViolation(
@@ -787,7 +788,7 @@ class DurableVisualObservationCoordinator:
     ) -> None:
         async with self._factory.unit_of_work() as unit:
             await unit.transaction.execute(
-                """UPDATE armi.live_vision_observations SET status=%s,error_code=%s,settled_at=statement_timestamp()
+                """UPDATE armi.live_vision_observations SET status=%s,error_code=%s,settled_at=armi.business_time(statement_timestamp())
                    WHERE observation_id=%s""",
                 (status.value, code, observation_id),
             )
@@ -873,7 +874,7 @@ class VisualCaptureRouter:
             await unit.transaction.execute(
                 "UPDATE armi.live_vision_observations "
                 "SET status='failed',error_code='VISION-SOURCE-UNAVAILABLE',"
-                "settled_at=statement_timestamp() "
+                "settled_at=armi.business_time(statement_timestamp()) "
                 "WHERE observation_id=%s AND status='capture_pending'",
                 (observation_id,),
             )
@@ -930,7 +931,7 @@ class LiveVisionRetentionCoordinator:
             if row is not None and row[0] is not None:
                 delay = max(
                     0.1,
-                    min(60.0, (row[0] - datetime.now(UTC)).total_seconds()),
+                    min(60.0, (row[0] - business_now()).total_seconds()),
                 )
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=delay)
@@ -947,12 +948,12 @@ async def _purge_frames(
     async with factory.unit_of_work() as unit:
         rows = await (
             await unit.transaction.execute(
-                """SELECT observation_id,frames,statement_timestamp()
+                """SELECT observation_id,frames,armi.business_time(statement_timestamp())
                FROM armi.live_vision_observations observation
                WHERE EXISTS (
                    SELECT 1 FROM jsonb_to_recordset(observation.frames)
                    AS frame(artifact_id uuid,purge_after timestamptz)
-                   WHERE frame.artifact_id IS NOT NULL AND frame.purge_after<=statement_timestamp())
+                   WHERE frame.artifact_id IS NOT NULL AND frame.purge_after<=armi.business_time(statement_timestamp()))
                ORDER BY observation_id FOR UPDATE SKIP LOCKED"""
             )
         ).fetchall()

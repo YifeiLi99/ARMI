@@ -68,7 +68,7 @@ class PostgreSQLCognitionExactLifeQuery:
                 SET life_query_status = %s, life_query_result_artifact_id = %s,
                     life_query_result_count = %s, life_query_failure_code = %s,
                     life_query_result_opportunity_id = %s,
-                    life_query_completed_at = statement_timestamp()
+                    life_query_completed_at = armi.business_time(statement_timestamp())
                 WHERE exact_life_query_intent_id = %s AND life_query_status = 'pending'
                 RETURNING exact_life_query_intent_id
                 """,
@@ -97,7 +97,7 @@ class PostgreSQLCognitionExactLifeQuery:
                 """
                 UPDATE armi.cognitive_episodes
                 SET life_query_status = 'failed', life_query_result_count = 0,
-                    life_query_failure_code = %s, life_query_completed_at = statement_timestamp()
+                    life_query_failure_code = %s, life_query_completed_at = armi.business_time(statement_timestamp())
                 WHERE exact_life_query_intent_id = %s AND life_query_status = 'pending'
                 RETURNING exact_life_query_intent_id
                 """,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from datetime import UTC, datetime
 from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
@@ -13,6 +12,7 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    business_now,
     record_diagnostic,
 )
 from armi_kernel.contracts import Instant
@@ -153,7 +153,7 @@ class MaintenanceCoordinator:
                 CreatorProjectionInvalidation(
                     CreatorResourceKind("maintenance"),
                     str(session_id),
-                    Instant(datetime.now(UTC)),
+                    Instant(business_now()),
                     "creator-maintenance",
                 )
             )

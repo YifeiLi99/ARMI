@@ -252,8 +252,8 @@ class PostgreSQLDurableWorkWriter:
                          AND generation=%s
                          AND current_attempt_id=%s AND lease_owner=%s
                          AND lease_token=%s
-                         AND lease_expires_at >= statement_timestamp()
-                         AND deadline_at > statement_timestamp()
+                         AND lease_expires_at >= armi.business_time(statement_timestamp())
+                         AND deadline_at > armi.business_time(statement_timestamp())
                          AND reconciliation_required=false
                        FOR UPDATE""",
                     (
@@ -287,19 +287,19 @@ class PostgreSQLDurableWorkWriter:
             """
             UPDATE armi.durable_work
             SET status = 'ready',
-                not_before = GREATEST(%s, statement_timestamp()),
+                not_before = GREATEST(%s, armi.business_time(statement_timestamp())),
                 current_attempt_id = NULL,
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_error_code = %s,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
-              AND deadline_at > statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
+              AND deadline_at > armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -329,14 +329,14 @@ class PostgreSQLDurableWorkWriter:
                 result_kind = %s,
                 result_ref = %s,
                 last_error_code = NULL,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
-              AND deadline_at > statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
+              AND deadline_at > armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -360,13 +360,13 @@ class PostgreSQLDurableWorkWriter:
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_error_code = %s,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -454,12 +454,12 @@ class PostgreSQLDurableWorkGateway:
                         WHERE status IN ('ready', 'leased')
                           AND work_kind = %s
                           AND reconciliation_required = false
-                          AND not_before <= statement_timestamp()
-                          AND deadline_at > statement_timestamp()
+                          AND not_before <= armi.business_time(statement_timestamp())
+                          AND deadline_at > armi.business_time(statement_timestamp())
                           AND attempt_count < max_attempts
                           AND (
                               status = 'ready'
-                              OR lease_expires_at < statement_timestamp()
+                              OR lease_expires_at < armi.business_time(statement_timestamp())
                           )
                         ORDER BY priority DESC, not_before, work_id
                         FOR UPDATE SKIP LOCKED
@@ -480,13 +480,13 @@ class PostgreSQLDurableWorkGateway:
                                 current_attempt_id = %s,
                                 lease_owner = %s,
                                 lease_expires_at = LEAST(
-                                    statement_timestamp()
+                                    armi.business_time(statement_timestamp())
                                         + (%s * interval '1 second'),
                                     deadline_at
                                 ),
                                 lease_token = lease_token + 1,
                                 last_error_code = NULL,
-                                updated_at = clock_timestamp()
+                                updated_at = armi.business_time(clock_timestamp())
                             WHERE work_id = %s
                             RETURNING {_WORK_COLUMNS}
                             """,
@@ -535,17 +535,17 @@ class PostgreSQLDurableWorkGateway:
             """
             UPDATE armi.durable_work
             SET lease_expires_at = LEAST(
-                    statement_timestamp() + (%s * interval '1 second'),
+                    armi.business_time(statement_timestamp()) + (%s * interval '1 second'),
                     deadline_at
                 ),
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
-              AND deadline_at > statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
+              AND deadline_at > armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -571,19 +571,19 @@ class PostgreSQLDurableWorkGateway:
             """
             UPDATE armi.durable_work
             SET status = 'ready',
-                not_before = GREATEST(%s, statement_timestamp()),
+                not_before = GREATEST(%s, armi.business_time(statement_timestamp())),
                 current_attempt_id = NULL,
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_error_code = %s,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
-              AND deadline_at > statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
+              AND deadline_at > armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -613,14 +613,14 @@ class PostgreSQLDurableWorkGateway:
                 result_kind = %s,
                 result_ref = %s,
                 last_error_code = NULL,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
-              AND deadline_at > statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
+              AND deadline_at > armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -644,13 +644,13 @@ class PostgreSQLDurableWorkGateway:
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_error_code = %s,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE work_id = %s
               AND status = 'leased'
               AND current_attempt_id = %s
               AND lease_owner = %s
               AND lease_token = %s
-              AND lease_expires_at >= statement_timestamp()
+              AND lease_expires_at >= armi.business_time(statement_timestamp())
             RETURNING
             """,
             (
@@ -672,7 +672,7 @@ class PostgreSQLDurableWorkGateway:
                         f"""
                         UPDATE armi.durable_work
                         SET status = 'cancelled',
-                            updated_at = clock_timestamp()
+                            updated_at = armi.business_time(clock_timestamp())
                         WHERE work_id = %s
                           AND status = 'ready'
                         RETURNING {_WORK_COLUMNS}
@@ -765,21 +765,21 @@ async def _mark_reconciliation_required(
             UPDATE armi.durable_work
             SET reconciliation_required = true,
                 last_error_code = CASE
-                    WHEN deadline_at <= statement_timestamp()
+                    WHEN deadline_at <= armi.business_time(statement_timestamp())
                         THEN 'WORK-DEADLINE'
                     ELSE 'WORK-ATTEMPTS-EXHAUSTED'
                 END,
-                updated_at = clock_timestamp()
+                updated_at = armi.business_time(clock_timestamp())
             WHERE status IN ('ready', 'leased')
               AND work_kind = %s
               AND reconciliation_required = false
               AND (
-                  deadline_at <= statement_timestamp()
+                  deadline_at <= armi.business_time(statement_timestamp())
                   OR (
                       attempt_count >= max_attempts
                       AND (
                           status = 'ready'
-                          OR lease_expires_at < statement_timestamp()
+                          OR lease_expires_at < armi.business_time(statement_timestamp())
                       )
                   )
               )

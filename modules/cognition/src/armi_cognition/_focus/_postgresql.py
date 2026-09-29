@@ -191,7 +191,9 @@ class PostgreSQLFocusOwner:
         for draft in drafts:
             head = await self.current_head(transaction, subject_id=subject_id)
             clock = await (
-                await transaction.execute("SELECT statement_timestamp()")
+                await transaction.execute(
+                    "SELECT armi.business_time(statement_timestamp())"
+                )
             ).fetchone()
             if clock is None:
                 raise FocusViolation("FOCUS-CLOCK")

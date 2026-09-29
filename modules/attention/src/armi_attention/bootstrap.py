@@ -8,6 +8,7 @@ from armi_kernel.application import CreatorProjectionNotifier
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
+    SimulationReadPort,
 )
 from armi_sleep.api import SleepMaintenancePort, SleepOpportunityPort, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
@@ -18,6 +19,7 @@ from ._autonomy_postgresql import PostgreSQLAutonomyOwner
 from ._data_rights import PostgreSQLOpportunityDataRightsParticipant
 from ._owner import PostgreSQLOpportunityOwner
 from ._recovery import OpportunityRecoveryParticipant
+from ._simulation import SimulationRead
 from .api import (
     AutonomyPolicy,
     AutonomyPort,
@@ -101,6 +103,10 @@ def bootstrap_opportunity_recovery() -> RecoveryParticipant:
     return OpportunityRecoveryParticipant()
 
 
+def bootstrap_simulation_read() -> SimulationReadPort:
+    return SimulationRead()
+
+
 __all__ = (
     "bootstrap_autonomy",
     "bootstrap_opportunity",
@@ -112,4 +118,5 @@ __all__ = (
     "bootstrap_opportunity_recovery",
     "bootstrap_opportunity_sleep",
     "bootstrap_opportunity_transition",
+    "bootstrap_simulation_read",
 )

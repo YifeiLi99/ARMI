@@ -120,7 +120,7 @@ class PostgreSQLEffectAdmin:
         if conclusion == "unknown":
             return changed == 1
         dispatch = transaction.execute(
-            "UPDATE armi.effects SET dispatch_status=%s,claim_owner=NULL,claim_expires_at=NULL,delivered_at=CASE WHEN %s THEN statement_timestamp() ELSE NULL END,last_error_code=%s WHERE effect_id=%s",
+            "UPDATE armi.effects SET dispatch_status=%s,claim_owner=NULL,claim_expires_at=NULL,delivered_at=CASE WHEN %s THEN armi.business_time(statement_timestamp()) ELSE NULL END,last_error_code=%s WHERE effect_id=%s",
             (
                 "delivered" if conclusion == "completed" else "dead",
                 conclusion == "completed",

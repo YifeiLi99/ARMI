@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid7
 
+from armi_kernel.application import business_now
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import SleepApplication
@@ -164,7 +165,7 @@ class PostgreSQLSleepCommit:
         ).fetchone()
         return (
             context.opportunity_expires_at is not None
-            and context.opportunity_expires_at > datetime.now(UTC)
+            and context.opportunity_expires_at > business_now()
             and existing is None
         )
 
@@ -224,7 +225,7 @@ class PostgreSQLSleepCommit:
         resulting_subject_version: int,
     ) -> None:
         review_at = (
-            datetime.now(UTC) + timedelta(hours=1)
+            business_now() + timedelta(hours=1)
             if decision.decision_kind is SleepDecisionKind.DEFER
             else None
         )
@@ -294,7 +295,7 @@ class PostgreSQLSleepCommit:
         )
         updated = await transaction.execute(
             """UPDATE armi.maintenance_sessions
-               SET phase_completed_at=statement_timestamp(), updated_at=statement_timestamp()
+               SET phase_completed_at=armi.business_time(statement_timestamp()), updated_at=armi.business_time(statement_timestamp())
                WHERE maintenance_session_id=%s AND current_revision_id=%s
                  AND head_version=%s AND phase=%s AND result_status='running'
                  AND finished_at IS NULL AND phase_completed_at IS NULL

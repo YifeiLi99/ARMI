@@ -470,7 +470,7 @@ class PostgreSQLCodexDelegationRepository:
             SET codex_verification_id=%s,effect_id=%s,effect_attempt_id=%s,
                 execution_status=%s,cleanup_status=%s,final_result_artifact_id=%s,
                 execution_error_code=%s,cleanup_error_code=%s,evidence_id=%s,
-                opportunity_id=%s,completed_at=statement_timestamp()
+                opportunity_id=%s,completed_at=armi.business_time(statement_timestamp())
             WHERE codex_task_source_id=%s AND subject_id=%s AND codex_verification_id IS NULL
             RETURNING codex_verification_id
             """,

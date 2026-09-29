@@ -71,7 +71,7 @@ class PostgreSQLContextDataRightsParticipant:
                 """UPDATE armi.context_embedding_coverage
                    SET coverage_state='dirty',epoch=epoch+1,scanning_epoch=NULL,
                        scan_found_missing=false,source_kind=NULL,
-                       after_source_ref=NULL,updated_at=statement_timestamp()"""
+                       after_source_ref=NULL,updated_at=armi.business_time(statement_timestamp())"""
             )
         return DataRightsApplyContribution(
             _OWNER,

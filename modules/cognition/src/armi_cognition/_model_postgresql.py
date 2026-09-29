@@ -197,7 +197,7 @@ class PostgreSQLCognitiveModelRepository:
                     SET dispatch_status = 'settled',
                         result_status = 'outcome_unknown',
                         error_code = 'MODEL-OUTCOME-UNKNOWN',
-                        settled_at = statement_timestamp()
+                        settled_at = armi.business_time(statement_timestamp())
                     WHERE model_attempt_id = %s
                     """,
                     (previous_id.value,),
@@ -219,7 +219,7 @@ class PostgreSQLCognitiveModelRepository:
                 UPDATE armi.cognitive_attempts
                 SET dispatch_status = 'settled', result_status = 'cancelled',
                     error_code = 'MODEL-RECOVERY-PRE-DISPATCH',
-                    settled_at = statement_timestamp()
+                    settled_at = armi.business_time(statement_timestamp())
                 WHERE model_attempt_id = %s
                 """,
                 (previous_id.value,),
@@ -357,7 +357,7 @@ class PostgreSQLCognitiveModelRepository:
                 """
                 UPDATE armi.cognitive_attempts
                 SET dispatch_status = 'dispatched',
-                    dispatched_at = statement_timestamp()
+                    dispatched_at = armi.business_time(statement_timestamp())
                 WHERE model_attempt_id = %s
                   AND cognitive_episode_id = %s
                   AND work_id = %s
@@ -511,7 +511,7 @@ class PostgreSQLCognitiveModelRepository:
         await unit_of_work.transaction.execute(
             """UPDATE armi.cognitive_episodes SET status='completed',
                    final_disposition=%s,application_resolution='no_change',
-                   validated_at=statement_timestamp(),committed_at=statement_timestamp()
+                   validated_at=armi.business_time(statement_timestamp()),committed_at=armi.business_time(statement_timestamp())
                WHERE cognitive_episode_id=%s""",
             (
                 "not_scheduled" if category is AutonomyCategory.WAIT else "scheduled",
@@ -555,7 +555,7 @@ class PostgreSQLCognitiveModelRepository:
         row = await (
             await unit_of_work.transaction.execute(
                 """UPDATE armi.cognitive_episodes
-                   SET status='finalizing',model_returned_at=statement_timestamp()
+                   SET status='finalizing',model_returned_at=armi.business_time(statement_timestamp())
                    WHERE cognitive_episode_id=%s AND status='calling_model'
                    RETURNING cognitive_episode_id""",
                 (episode_id,),
@@ -588,7 +588,7 @@ class PostgreSQLCognitiveModelRepository:
                     result_status = CASE WHEN dispatch_status='prepared'
                                          THEN 'cancelled' ELSE %s END,
                     error_code = %s,
-                    settled_at = statement_timestamp()
+                    settled_at = armi.business_time(statement_timestamp())
                 WHERE model_attempt_id = %s
                   AND work_id = %s
                   AND work_attempt_id = %s

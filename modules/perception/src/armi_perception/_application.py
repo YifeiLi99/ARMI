@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar, cast
 from uuid import UUID, uuid7
@@ -37,6 +36,7 @@ from armi_kernel.application import (
     WorkResultRef,
     WorkType,
     WorkViolation,
+    business_now,
     provider_meter_scope,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
@@ -555,7 +555,7 @@ class ExternalContentPipeline:
             try:
                 record = await self._work.release(
                     lease,
-                    not_before=Instant(datetime.now(UTC)),
+                    not_before=Instant(business_now()),
                     error_code="EXTERNAL-CONTENT-FINALIZATION",
                 )
                 if record.status.value == "ready":

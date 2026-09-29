@@ -1366,7 +1366,7 @@ async def _insert_exact_life_query_intent(
         raise SubjectCommitViolation("SUBJECT-EXACT-LIFE-QUERY-SCENE")
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     now_row = await (
-        await connection.execute("SELECT statement_timestamp()")
+        await connection.execute("SELECT armi.business_time(statement_timestamp())")
     ).fetchone()
     if now_row is None:
         raise SubjectCommitViolation("SUBJECT-DATABASE")
@@ -1432,7 +1432,7 @@ async def _assert_lease(connection: Any, lease: WorkLease, episode_id: UUID) -> 
               AND work_kind = 'cognition.execute'
               AND status = 'leased' AND current_attempt_id = %s
               AND lease_owner = %s AND lease_token = %s
-              AND lease_expires_at > statement_timestamp()
+              AND lease_expires_at > armi.business_time(statement_timestamp())
             """,
             (
                 lease.work_id.value,

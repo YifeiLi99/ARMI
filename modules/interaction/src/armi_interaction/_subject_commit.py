@@ -67,7 +67,7 @@ class PostgreSQLInteractionSubjectCommit:
                 source_event_no, result_status, occurred_at
             ) VALUES (
                 %s, %s, 'subject_commit', %s, 1, 'applied',
-                statement_timestamp()
+                armi.business_time(statement_timestamp())
             )
             """,
             (uuid7(), scene_id, subject_commit_id),

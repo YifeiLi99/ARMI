@@ -39,6 +39,7 @@ from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
+    SimulationReadPort,
 )
 from armi_sleep.api import SleepCognitionPort, SleepDecisionRecordPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
@@ -94,6 +95,7 @@ from ._model_contract import (
 )
 from ._owners import CandidateOwner
 from ._recovery import CognitionRecoveryParticipant
+from ._simulation import SimulationRead
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from ._validator import CandidateValidationContext, DeterministicCandidateValidator
 from .api import (
@@ -319,6 +321,10 @@ def bootstrap_cognition_recovery(
     return CognitionRecoveryParticipant(opportunity)
 
 
+def bootstrap_simulation_read() -> SimulationReadPort:
+    return SimulationRead()
+
+
 __all__ = (
     "AUTONOMOUS_ACTIVITY_INSTRUCTIONS",
     "CODEX_RESULT_ACT_INSTRUCTIONS",
@@ -350,6 +356,7 @@ __all__ = (
     "bootstrap_focus_cognition",
     "bootstrap_focus_data_rights",
     "bootstrap_focus_recovery",
+    "bootstrap_simulation_read",
     "bootstrap_sleep_decision_record",
     "build_candidate_schema",
     "build_model_request_bytes",

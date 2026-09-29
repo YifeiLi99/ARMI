@@ -252,21 +252,21 @@ class PostgreSQLRuntimeRecovery:
                     last_error_code = CASE
                         WHEN status='leased' AND lease_owner<>%s
                             THEN 'WORK-RUNTIME-HANDOFF'
-                        WHEN deadline_at <= statement_timestamp()
+                        WHEN deadline_at <= armi.business_time(statement_timestamp())
                             THEN 'WORK-DEADLINE'
                         ELSE 'WORK-ATTEMPTS-EXHAUSTED'
                     END,
-                    updated_at = clock_timestamp()
+                    updated_at = armi.business_time(clock_timestamp())
                 WHERE status IN ('ready','leased')
                   AND reconciliation_required = false
                   AND (
                     (status='leased' AND lease_owner<>%s)
-                    OR deadline_at <= statement_timestamp()
+                    OR deadline_at <= armi.business_time(statement_timestamp())
                     OR (
                         attempt_count >= max_attempts
                         AND (
                             status = 'ready'
-                            OR lease_expires_at <= statement_timestamp()
+                            OR lease_expires_at <= armi.business_time(statement_timestamp())
                         )
                     )
                   )
@@ -455,7 +455,7 @@ class PostgreSQLRuntimeRecovery:
             result = await transaction.execute(
                 """
                 UPDATE armi.runtime_instances
-                SET recovery_status = %s, recovery_completed_at = statement_timestamp(),
+                SET recovery_status = %s, recovery_completed_at = armi.business_time(statement_timestamp()),
                     recovery_blocker_count = %s
                 WHERE runtime_instance_id = %s AND recovery_status = 'running'
                 """,
@@ -486,7 +486,7 @@ class PostgreSQLRuntimeRecovery:
             """
             UPDATE armi.runtime_instances
             SET recovery_status = 'abandoned',
-                recovery_completed_at = statement_timestamp(),
+                recovery_completed_at = armi.business_time(statement_timestamp()),
                 recovery_blocker_count = 1
             WHERE recovery_status = 'running'
               AND runtime_instance_id <> %s AND status IN ('fenced', 'stopped')
@@ -512,7 +512,7 @@ class PostgreSQLRuntimeRecovery:
             return fence.runtime_instance_id.value
         await transaction.execute(
             """UPDATE armi.runtime_instances
-               SET recovery_status='running',recovery_started_at=statement_timestamp()
+               SET recovery_status='running',recovery_started_at=armi.business_time(statement_timestamp())
                WHERE runtime_instance_id=%s""",
             (fence.runtime_instance_id.value,),
         )

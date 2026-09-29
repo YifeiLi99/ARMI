@@ -249,7 +249,9 @@ class PostgreSQLMemoryOwner:
             subject_id = self._creator_subject()
             if snapshot_at is None:
                 snapshot_row = await (
-                    await connection.execute("SELECT statement_timestamp()")
+                    await connection.execute(
+                        "SELECT armi.business_time(statement_timestamp())"
+                    )
                 ).fetchone()
                 if snapshot_row is None:
                     raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE")
@@ -518,7 +520,7 @@ class PostgreSQLMemoryOwner:
                         source_experience_id,source_kind,source_fact_class,summary,
                         uncertainty,revision_kind,accessibility,mechanism_identity,
                         mechanism_config_identity)
-                       VALUES (%s,%s,%s,statement_timestamp(),1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
+                       VALUES (%s,%s,%s,armi.business_time(statement_timestamp()),1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
                                'formed','available',%s,
                                'formation')""",
                     (

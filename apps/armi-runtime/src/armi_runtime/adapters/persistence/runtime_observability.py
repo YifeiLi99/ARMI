@@ -25,7 +25,7 @@ _AGE_QUERIES: dict[tuple[str, str, str], LiteralString] = {
         "status IN ('ready', 'leased')",
         "created_at",
     ): (
-        "SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(created_at))) "
+        "SELECT EXTRACT(EPOCH FROM (armi.business_time(clock_timestamp()) - min(created_at))) "
         "FROM armi.durable_work WHERE status IN ('ready', 'leased')"
     ),
 }

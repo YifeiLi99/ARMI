@@ -92,7 +92,7 @@ class PostgreSQLActivityDataRightsParticipant:
                      subject_id,origin_opportunity_id,
                      origin_admin_change_id,activity_created_at
                    ) SELECT uuidv7(),activity_id,revision_no+1,activity_revision_id,
-                            NULL,'abandoned',NULL,'data_rights',statement_timestamp(),
+                            NULL,'abandoned',NULL,'data_rights',armi.business_time(statement_timestamp()),
                             subject_id,origin_opportunity_id,
                             origin_admin_change_id,activity_created_at
                      FROM retired""",
@@ -104,7 +104,7 @@ class PostgreSQLActivityDataRightsParticipant:
                        waiting_condition_kind=NULL,resumption_cue=NULL,
                        resume_not_before=NULL,next_safe_step=NULL,
                        terminal_reason=NULL,
-                       data_rights_redacted_at=statement_timestamp()
+                       data_rights_redacted_at=armi.business_time(statement_timestamp())
                    WHERE activity_id=ANY(%s::uuid[])
                      AND transition_kind<>'data_rights'""",
                 (list(activity_ids),),

@@ -71,7 +71,7 @@ class PostgreSQLOpportunityOwner:
     ) -> None:
         await transaction.execute(
             """UPDATE armi.opportunities
-               SET current_disposition='cancelled',resolved_at=statement_timestamp(),
+               SET current_disposition='cancelled',resolved_at=armi.business_time(statement_timestamp()),
                    resolution_reason_code='REC-COGNITION-INTERRUPTED'
                WHERE opportunity_id=ANY(%s::uuid[])
                  AND current_disposition IN ('open','selected')""",
@@ -90,7 +90,7 @@ class PostgreSQLOpportunityOwner:
                AND purpose IN ('consider_creator_input','consider_creator_voice_input',
                                'consider_other_human_input','consider_codex_task')
                AND current_disposition IN ('open','selected')
-               AND available_after<=statement_timestamp())""",
+               AND available_after<=armi.business_time(statement_timestamp()))""",
                 (subject_id,),
             )
         ).fetchone()
@@ -103,7 +103,7 @@ class PostgreSQLOpportunityOwner:
         # exists. A later idle period creates a fresh check, never consumes this one.
         await transaction.execute(
             """UPDATE armi.opportunities SET current_disposition='cancelled',
-                   resolved_at=statement_timestamp(),
+                   resolved_at=armi.business_time(statement_timestamp()),
                    resolution_reason_code='REC-COGNITION-INTERRUPTED'
                WHERE subject_id=%s AND source_kind='autonomy_plan'
                  AND current_disposition IN ('open','selected')""",
@@ -112,8 +112,8 @@ class PostgreSQLOpportunityOwner:
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,
                    opportunity_id=NULL,phase='waiting',idle_streak=0,failure_streak=0,
-                   next_consideration_at=statement_timestamp()+interval '60 seconds',
-                   updated_at=statement_timestamp()
+                   next_consideration_at=armi.business_time(statement_timestamp())+interval '60 seconds',
+                   updated_at=armi.business_time(statement_timestamp())
                WHERE subject_id=%s AND opportunity_id IS NOT NULL AND phase<>'blocked'""",
             (subject_id,),
         )
@@ -137,7 +137,7 @@ class PostgreSQLOpportunityOwner:
         opportunity_ids = tuple(row[0] for row in rows)
         await transaction.execute(
             """UPDATE armi.opportunities
-               SET current_disposition='cancelled',resolved_at=statement_timestamp(),
+               SET current_disposition='cancelled',resolved_at=armi.business_time(statement_timestamp()),
                    resolution_reason_code='REC-CONVERSATION-INTERRUPTED'
                WHERE opportunity_id=ANY(%s::uuid[])
                  AND current_disposition IN ('open','selected')""",
@@ -232,7 +232,7 @@ class PostgreSQLOpportunityOwner:
     ) -> None:
         await transaction.execute(
             """UPDATE armi.opportunities SET current_disposition='cancelled',
-                      resolved_at=statement_timestamp(),
+                      resolved_at=armi.business_time(statement_timestamp()),
                       resolution_reason_code='SLEEP-SOURCE-CANCELLED'
                WHERE subject_id=%s AND source_kind=%s AND source_ref=%s
                  AND current_disposition IN ('open','selected')""",
@@ -268,8 +268,8 @@ class PostgreSQLOpportunityOwner:
                 ) AS candidates
                 WHERE subject_id=%s
                   AND current_disposition='open'
-                  AND available_after <= transaction_timestamp()
-                  AND (expires_at IS NULL OR expires_at > transaction_timestamp())
+                  AND available_after <= armi.business_time(transaction_timestamp())
+                  AND (expires_at IS NULL OR expires_at > armi.business_time(transaction_timestamp()))
                   AND (%s::integer IS NULL OR
                        (selection_priority,available_after,opportunity_id) > (%s,%s,%s))
                   AND (%s::uuid IS NULL OR (
@@ -336,7 +336,7 @@ class PostgreSQLOpportunityOwner:
             return candidate
         state = await (
             await transaction.execute(
-                """SELECT statement_timestamp(),p.policy::text,p.phase,
+                """SELECT armi.business_time(statement_timestamp()),p.policy::text,p.phase,
                       p.outlet_state,p.outlet_reason_code,
                       (SELECT max(resolved_at) FROM armi.opportunities o
                        WHERE o.subject_id=p.subject_id AND o.purpose='consider_autonomous_life'),
@@ -381,7 +381,7 @@ class PostgreSQLOpportunityOwner:
         invalid = await (
             await transaction.execute(
                 """UPDATE armi.opportunities o SET current_disposition='cancelled',
-                   resolved_at=statement_timestamp(),
+                   resolved_at=armi.business_time(statement_timestamp()),
                    resolution_reason_code='LIFE-AUTONOMY-CHECK-STALE'
                WHERE o.opportunity_id=%s AND o.current_disposition='open'
                  AND o.purpose='consider_autonomous_life' AND o.source_kind='autonomy_plan'
@@ -398,9 +398,9 @@ class PostgreSQLOpportunityOwner:
         row = await (
             await transaction.execute(
                 """UPDATE armi.opportunities SET current_disposition='selected',
-                      selected_at=transaction_timestamp()
+                      selected_at=armi.business_time(transaction_timestamp())
                WHERE opportunity_id=%s AND current_disposition='open'
-                 AND (expires_at IS NULL OR expires_at>transaction_timestamp())
+                 AND (expires_at IS NULL OR expires_at>armi.business_time(transaction_timestamp()))
                RETURNING opportunity_id""",
                 (opportunity_id,),
             )
@@ -430,7 +430,7 @@ class PostgreSQLOpportunityOwner:
         opportunity_id: UUID,
     ) -> None:
         await transaction.execute(
-            """UPDATE armi.autonomy_plans p SET last_check_started_at=statement_timestamp()
+            """UPDATE armi.autonomy_plans p SET last_check_started_at=armi.business_time(statement_timestamp())
                WHERE p.opportunity_id=%s AND p.phase='check'""",
             (opportunity_id,),
         )
@@ -445,7 +445,7 @@ class PostgreSQLOpportunityOwner:
         row = await (
             await transaction.execute(
                 """UPDATE armi.opportunities SET current_disposition='resolved',
-                      resolved_at=statement_timestamp(),
+                      resolved_at=armi.business_time(statement_timestamp()),
                       resolution_reason_code='COGNITION-FAILED'
                WHERE opportunity_id=%s AND current_disposition='selected'
                RETURNING opportunity_id""",
@@ -459,10 +459,10 @@ class PostgreSQLOpportunityOwner:
                        failure_streak=LEAST(failure_streak+1,3),
                        phase=CASE WHEN %s THEN 'blocked' ELSE 'waiting' END,
                        blocked_reason_code=%s,
-                       next_consideration_at=statement_timestamp()+
+                       next_consideration_at=armi.business_time(statement_timestamp())+
                          CASE failure_streak WHEN 0 THEN interval '60 seconds'
                            WHEN 1 THEN interval '120 seconds' ELSE interval '300 seconds' END,
-                       updated_at=statement_timestamp()
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE p.opportunity_id=%s""",
                 (
                     bool(
@@ -595,7 +595,7 @@ class PostgreSQLOpportunityOwner:
             await transaction.execute(
                 """
                 UPDATE armi.opportunities
-                SET current_disposition = %s, resolved_at = statement_timestamp(),
+                SET current_disposition = %s, resolved_at = armi.business_time(statement_timestamp()),
                     resolution_reason_code = %s
                 WHERE opportunity_id = %s AND current_disposition = 'selected'
                 RETURNING opportunity_id, subject_id, source_version, source_kind,purpose
@@ -648,9 +648,9 @@ class PostgreSQLOpportunityOwner:
             await transaction.execute(
                 """UPDATE armi.autonomy_plans
                    SET next_consideration_at=LEAST(next_consideration_at,
-                       statement_timestamp() + %s * interval '1 second'),
-                       idle_streak=0,last_event_at=statement_timestamp(),
-                       updated_at=statement_timestamp()
+                       armi.business_time(statement_timestamp()) + %s * interval '1 second'),
+                       idle_streak=0,last_event_at=armi.business_time(statement_timestamp()),
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE subject_id=%s AND opportunity_id IS NULL""",
                 (self._autonomy_policy.minimum_consideration_seconds, row[1]),
             )
@@ -765,12 +765,12 @@ class PostgreSQLOpportunityOwner:
                     reconsideration_no, source_kind, source_ref, source_version,
                     activity_id)
                 SELECT %s, NULL, subject_id, NULL, NULL, purpose,
-                       'open', statement_timestamp() + make_interval(secs => 3600),
+                       'open', armi.business_time(statement_timestamp()) + make_interval(secs => 3600),
                        expires_at, root_opportunity_id, opportunity_id, 1,
                        source_kind, source_ref, source_version, NULL
                 FROM armi.opportunities
                 WHERE opportunity_id = %s
-                  AND statement_timestamp() + make_interval(secs => 3600)
+                  AND armi.business_time(statement_timestamp()) + make_interval(secs => 3600)
                       < expires_at
                 ON CONFLICT (predecessor_opportunity_id) DO NOTHING
                 RETURNING opportunity_id
@@ -797,7 +797,7 @@ class PostgreSQLOpportunityOwner:
                 VALUES (%s,%s,%s,%s,%s,%s,'external_evidence',%s,1,
                         'open',%s,0,
                         CASE WHEN %s='consider_visual_observation'
-                             THEN statement_timestamp()+interval '5 minutes' END)
+                             THEN armi.business_time(statement_timestamp())+interval '5 minutes' END)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no

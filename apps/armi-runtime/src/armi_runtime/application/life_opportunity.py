@@ -123,7 +123,9 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         ):
             return False
         row = await (
-            await transaction.execute("SELECT statement_timestamp()")
+            await transaction.execute(
+                "SELECT armi.business_time(statement_timestamp())"
+            )
         ).fetchone()
         if row is None:
             return False

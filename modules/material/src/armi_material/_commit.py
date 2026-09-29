@@ -167,8 +167,8 @@ class PostgreSQLMaterialCommit:
                     metadata,revision_kind,privacy_status,material_status,source_kind,
                     subject_id,material_kind,owner_party_id,material_created_at,deleted_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                           %s,%s,%s,COALESCE(%s,statement_timestamp()),
-                           CASE WHEN %s='deleted' THEN statement_timestamp() END)""",
+                           %s,%s,%s,COALESCE(%s,armi.business_time(statement_timestamp())),
+                           CASE WHEN %s='deleted' THEN armi.business_time(statement_timestamp()) END)""",
                 (
                     revision_id,
                     material.material_id,

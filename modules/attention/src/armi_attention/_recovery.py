@@ -53,7 +53,7 @@ class OpportunityRecoveryParticipant:
                     """
                     UPDATE armi.opportunities
                     SET current_disposition = %s,
-                        resolved_at = statement_timestamp(),
+                        resolved_at = armi.business_time(statement_timestamp()),
                         resolution_reason_code = %s
                     WHERE opportunity_id = %s
                       AND current_disposition = 'selected'
@@ -86,7 +86,7 @@ class OpportunityRecoveryParticipant:
                 """
             SELECT count(*) FROM armi.opportunities
             WHERE subject_id=%s AND current_disposition IN ('open','selected')
-              AND (expires_at IS NULL OR expires_at>statement_timestamp())
+              AND (expires_at IS NULL OR expires_at>armi.business_time(statement_timestamp()))
         """,
                 (scope.subject_id,),
             )

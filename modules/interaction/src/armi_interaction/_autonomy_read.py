@@ -36,7 +36,7 @@ async def mark_voice_activity_ended(
     transaction: PostgreSQLTransaction, *, scene_ids: tuple[UUID, ...]
 ) -> None:
     await transaction.execute(
-        "UPDATE armi.interaction_scenes SET last_voice_ended_at=statement_timestamp() "
+        "UPDATE armi.interaction_scenes SET last_voice_ended_at=armi.business_time(statement_timestamp()) "
         "WHERE scene_id=ANY(%s::uuid[])",
         (list(scene_ids),),
     )

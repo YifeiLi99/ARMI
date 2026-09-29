@@ -139,7 +139,7 @@ class PostgreSQLCognitionContextLifecycle:
             """UPDATE armi.cognitive_attempts SET dispatch_status='settled',
                    result_status=CASE dispatch_status WHEN 'prepared' THEN 'cancelled'
                      ELSE 'outcome_unknown' END,
-                   error_code='MODEL-HUMAN-INPUT-PREEMPTED',settled_at=statement_timestamp()
+                   error_code='MODEL-HUMAN-INPUT-PREEMPTED',settled_at=armi.business_time(statement_timestamp())
                WHERE cognitive_episode_id=ANY(%s::uuid[])
                  AND dispatch_status IN ('prepared','dispatched')""",
             (episodes,),
@@ -335,7 +335,7 @@ class PostgreSQLCognitionContextLifecycle:
                       context_manifest_artifact_id=%s,
                       compiled_context_artifact_id=%s,
                       compiled_context_digest=%s,
-                      context_items=%s::jsonb, prepared_at=statement_timestamp()
+                      context_items=%s::jsonb, prepared_at=armi.business_time(statement_timestamp())
                WHERE cognitive_episode_id=%s AND status='preparing'
                  AND (event_appraisal_id IS NOT NULL OR
                       purpose IN ('consider_autonomy_check','consider_autonomous_life'))

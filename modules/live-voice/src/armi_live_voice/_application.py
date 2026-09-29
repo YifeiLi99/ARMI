@@ -218,7 +218,7 @@ class PostgreSQLLiveVoiceJournal:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns
                    SET interaction_id=%s,root_opportunity_id=%s,
-                       speech_ended_at=statement_timestamp(),result_status='thinking'
+                       speech_ended_at=armi.business_time(statement_timestamp()),result_status='thinking'
                    WHERE turn_id=%s AND completed_at IS NULL
                      AND data_rights_redacted_at IS NULL""",
                 (interaction_id, opportunity_id, turn_id),
@@ -258,7 +258,7 @@ class PostgreSQLLiveVoiceJournal:
                 """UPDATE armi.live_voice_turns
                    SET result_status=%s,
                        playback_extent=%s,frames_written=%s,error_code=%s,
-                       completed_at=statement_timestamp()
+                       completed_at=armi.business_time(statement_timestamp())
                    WHERE turn_id=%s AND completed_at IS NULL
                    RETURNING first_audio_at""",
                 (status, extent, frames_written, error_code, turn_id),
@@ -393,7 +393,7 @@ class PostgreSQLLiveVoiceJournal:
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns
-                   SET first_audio_at=statement_timestamp(),frames_written=1
+                   SET first_audio_at=armi.business_time(statement_timestamp()),frames_written=1
                    WHERE turn_id=%s AND result_status='speaking'
                      AND playback_extent='unknown_completion'
                      AND first_audio_at IS NULL AND completed_at IS NULL""",

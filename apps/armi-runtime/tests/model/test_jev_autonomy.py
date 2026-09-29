@@ -119,6 +119,7 @@ async def test_jev_check_is_single_metered_request_without_main_model(
             assert json.loads(result.response_bytes) == raw
             assert result.provider_request_id is None
             assert result.usage is not None and result.usage.input_tokens == 120
+            assert receipts[-1].cost.missing_usage == ()
         else:
             with pytest.raises(ModelViolation) as caught:
                 await check.invoke(request)

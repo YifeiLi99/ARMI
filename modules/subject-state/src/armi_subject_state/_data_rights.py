@@ -135,7 +135,7 @@ class PostgreSQLSubjectStateDataRightsParticipant:
                      GROUP BY subject_id,component_kind
                    ) UPDATE armi.subject_component_revisions AS revision
                      SET semantic_payload='{}'::jsonb,
-                         data_rights_redacted_at=statement_timestamp()
+                         data_rights_redacted_at=armi.business_time(statement_timestamp())
                      FROM affected
                      WHERE revision.subject_id=affected.subject_id
                        AND revision.component_kind=affected.component_kind

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
+
+from armi_kernel.application import business_now
 
 from .api import (
     LatestFrameBuffer,
@@ -281,7 +283,7 @@ class LiveVisionService:
             if existing is not None:
                 self._last_observation = existing
                 return existing
-        now = datetime.now(UTC)
+        now = business_now()
         if not self._budget.allow(trigger, now):
             raise LiveVisionViolation(
                 "VISION-OBSERVATION-BUDGET", "observation is rate limited"
@@ -292,7 +294,7 @@ class LiveVisionService:
         result: VisualObservation | None = None
         try:
             while True:
-                self._budget.record(current_trigger, datetime.now(UTC))
+                self._budget.record(current_trigger, business_now())
                 result = await self._sink.observe(
                     trigger=current_trigger,
                     frames=(),
@@ -313,7 +315,7 @@ class LiveVisionService:
                 if frame is not None:
                     self._observation_baseline = frame
                 if current_trigger is not ObservationTrigger.MANUAL:
-                    self._last_auto_at = datetime.now(UTC)
+                    self._last_auto_at = business_now()
                 pending = self._coalescer.settle()
                 if pending is None:
                     return result
@@ -350,7 +352,7 @@ class LiveVisionService:
             source=self._identity,
             last_frame_at=None if frame is None else frame.captured_at,
             last_observation=self._last_observation,
-            observations_last_hour=self._budget.used(datetime.now(UTC)),
+            observations_last_hour=self._budget.used(business_now()),
             hourly_limit=self._hourly_limit,
             reason_code=self._reason,
         )
@@ -369,7 +371,7 @@ class LiveVisionService:
             raise LiveVisionViolation(
                 "VISION-SOURCE-NOT-RUNNING", "visual source is not running"
             )
-        requested_at = datetime.now(UTC)
+        requested_at = business_now()
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
             frame = self._buffer.latest()

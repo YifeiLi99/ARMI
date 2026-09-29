@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
 from armi_data_rights.api import (
@@ -32,6 +31,7 @@ from armi_kernel.application import (
     ExecutionCustodyScopeKind,
     ExecutionCustodyViolation,
     RuntimeFence,
+    business_now,
     diagnostic_scope,
     ordered_custody_requests,
     record_diagnostic,
@@ -651,7 +651,7 @@ class EffectPipeline:
             return
         from armi_kernel.contracts import Instant
 
-        now = Instant(datetime.now(UTC))
+        now = Instant(business_now())
         for resource_kind, resource_ref, projection_kind in invalidations:
             try:
                 await self._notifier.notify(

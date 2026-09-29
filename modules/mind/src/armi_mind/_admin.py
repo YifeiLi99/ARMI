@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid7
 
+from armi_kernel.application import business_now
 from armi_runtime_foundation import (
     AdminContentCommand,
     AdminContentContext,
@@ -178,7 +178,7 @@ class PostgreSQLMindAdmin:
                 json.dumps(previous[0]).encode(),
                 json.dumps(value).encode(),
                 correction_id=UUID(revision_id),
-                at=datetime.now(UTC),
+                at=business_now(),
                 active_seconds=active_runtime_seconds_admin(
                     transaction, subject_id=UUID(subject_id)
                 ),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
@@ -15,6 +15,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkType,
+    business_now,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -371,7 +372,7 @@ class ExternalMessageInputRepository:
         for ordinal, part in enumerate(command.parts, start=1):
             part_id = uuid7()
             status = media_status if part.requires_recognition else "not_required"
-            settled_at = datetime.now(UTC) if status == "skipped" else None
+            settled_at = business_now() if status == "skipped" else None
             await connection.execute(
                 """
                 INSERT INTO armi.external_message_parts (
@@ -452,7 +453,7 @@ class ExternalMessageInputRepository:
             media_status="pending" if recognition_status == "pending" else "skipped",
         )
         if recognition_status == "pending":
-            now = Instant(datetime.now(UTC))
+            now = Instant(business_now())
             await unit_of_work.work.enqueue(
                 WorkDraft(
                     WorkId(uuid7()),
@@ -524,7 +525,7 @@ class ExternalMessageInputRepository:
             updated = await execute(
                 """
                 UPDATE armi.external_channel_bindings SET scene_id = %s,
-                    display_label = %s, last_observed_at = statement_timestamp()
+                    display_label = %s, last_observed_at = armi.business_time(statement_timestamp())
                 WHERE external_binding_id = %s AND scene_id IS NULL
                 """,
                 (scene[0], command.sender_display_label, person[0]),
@@ -616,7 +617,7 @@ class ExternalMessageInputRepository:
                       %s, %s, 'platform_observed')
             ON CONFLICT (channel_kind, account_key, external_kind, identity_match_token)
             DO UPDATE SET display_label = EXCLUDED.display_label,
-                          last_observed_at = statement_timestamp()
+                          last_observed_at = armi.business_time(statement_timestamp())
             WHERE external_channel_bindings.status = 'active'
             """,
             (

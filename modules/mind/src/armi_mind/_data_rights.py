@@ -92,7 +92,7 @@ class PostgreSQLMindDataRightsParticipant:
                      WHERE item->>'target_ref' IS NULL OR NOT EXISTS (
                         SELECT 1 FROM jsonb_path_query(item,'$.**') value
                         WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[])))),
-                    data_rights_redacted_at=statement_timestamp()
+                    data_rights_redacted_at=armi.business_time(statement_timestamp())
                     WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload,'$.dimensions[*].**') value
                         WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))""",
                 (refs, refs, refs, refs),
@@ -105,7 +105,7 @@ class PostgreSQLMindDataRightsParticipant:
                         SELECT jsonb_agg(item) FROM jsonb_array_elements(r.semantic_payload->'objects') item
                         WHERE NOT EXISTS (SELECT 1 FROM jsonb_path_query(item,'$.**') value
                             WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))
-                    ),'[]'::jsonb)),data_rights_redacted_at=statement_timestamp()
+                    ),'[]'::jsonb)),data_rights_redacted_at=armi.business_time(statement_timestamp())
                    WHERE EXISTS (SELECT 1 FROM jsonb_path_query(semantic_payload,'$.objects[*].**') value
                        WHERE jsonb_typeof(value)='string' AND value #>> '{}' = ANY(%s::text[]))""",
                 (refs, refs),

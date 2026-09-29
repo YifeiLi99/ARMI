@@ -45,6 +45,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkType,
+    business_offset_microseconds,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -357,7 +358,9 @@ class RuntimeCognitionCycleSelector:
                 ).fetchone()
                 if now_row is None:
                     raise ContextViolation("CTX-RUNTIME-CLOCK-UNAVAILABLE")
-                now = Instant(now_row[0])
+                now = Instant(
+                    now_row[0] + timedelta(microseconds=business_offset_microseconds())
+                )
                 work_digest = Digest.from_bytes(
                     rfc8785.dumps(
                         {

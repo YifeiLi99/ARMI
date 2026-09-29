@@ -19,7 +19,7 @@ from armi_evidence.api import (
     EvidenceSourceKind,
     EvidenceWritePort,
 )
-from armi_kernel.application import WorkOwner, WorkStatus, WorkType
+from armi_kernel.application import WorkOwner, WorkStatus, WorkType, business_now
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
@@ -89,7 +89,7 @@ class CreatorInputRepository:
         command: CreatorMediaCommand,
         digest: Digest,
     ) -> UUID:
-        from datetime import UTC, datetime, timedelta
+        from datetime import timedelta
 
         from armi_kernel.application import (
             WorkDraft,
@@ -149,7 +149,7 @@ class CreatorInputRepository:
                     "creator.local_upload" if part.kind == "image" else None,
                 ),
             )
-        now = Instant(datetime.now(UTC))
+        now = Instant(business_now())
         await unit_of_work.work.enqueue(
             WorkDraft(
                 WorkId(uuid7()),
@@ -492,7 +492,7 @@ class CreatorInputRepository:
                 occurred_at)
             VALUES (
                 %s, %s, 'creator_input', %s, 1, 'accepted',
-                statement_timestamp())
+                armi.business_time(statement_timestamp()))
             """,
             (timeline_item_id, context.scene_id, interaction_id),
         )
@@ -572,7 +572,7 @@ class CreatorInputRepository:
             INSERT INTO armi.scene_timeline_items (
                 timeline_item_id,scene_id,source_kind,source_ref,
                 source_event_no,result_status,occurred_at)
-            VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp())
+            VALUES (%s,%s,'creator_input',%s,1,'accepted',armi.business_time(statement_timestamp()))
             """,
             (timeline_item_id, context.scene_id, interaction_id),
         )
@@ -715,7 +715,7 @@ class CreatorInputRepository:
             INSERT INTO armi.scene_timeline_items (
                 timeline_item_id, scene_id, source_kind, source_ref,
                 source_event_no, result_status, occurred_at)
-            VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp())
+            VALUES (%s,%s,'creator_input',%s,1,'accepted',armi.business_time(statement_timestamp()))
             """,
             (timeline_id, scene_id, interaction_id),
         )

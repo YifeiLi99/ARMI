@@ -86,7 +86,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 destination_party_id, destination_binding_id,
                 live_voice_turn_id, status, verification_status,
                 trace_id) VALUES (
-                %s, %s, CASE WHEN %s THEN NULL ELSE statement_timestamp() + interval '1 hour' END, %s,
+                %s, %s, CASE WHEN %s THEN NULL ELSE armi.business_time(statement_timestamp()) + interval '1 hour' END, %s,
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,

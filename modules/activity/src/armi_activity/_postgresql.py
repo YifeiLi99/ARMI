@@ -121,7 +121,9 @@ class PostgreSQLActivityRead:
                 connection = unit_of_work.transaction
                 if snapshot_at is None:
                     snapshot = await (
-                        await connection.execute("SELECT statement_timestamp()")
+                        await connection.execute(
+                            "SELECT armi.business_time(statement_timestamp())"
+                        )
                     ).fetchone()
                     if snapshot is None:
                         raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
@@ -233,7 +235,9 @@ class PostgreSQLActivityRead:
                 ).fetchone()
                 if ceiling is None:
                     snapshot = await (
-                        await connection.execute("SELECT statement_timestamp()")
+                        await connection.execute(
+                            "SELECT armi.business_time(statement_timestamp())"
+                        )
                     ).fetchone()
                     if snapshot is None:
                         raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
@@ -597,7 +601,7 @@ class PostgreSQLActivityRead:
                      '内部工作连续失败;等待定时复查',
                      '定时复查后重新判断是否继续',next_safe_step,
                      'paused',NULL,related_scene_id,'system_pause',
-                     'scheduled_review',statement_timestamp()+interval '60 seconds',
+                     'scheduled_review',armi.business_time(statement_timestamp())+interval '60 seconds',
                      subject_id,origin_opportunity_id,
                      origin_admin_change_id,activity_created_at
                    FROM retired RETURNING activity_revision_id""",

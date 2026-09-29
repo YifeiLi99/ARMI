@@ -130,7 +130,7 @@ class PostgreSQLContextEmbeddingRepository:
                    SET coverage_state='reconciling',scanning_epoch=epoch,
                        source_kind='life_material',after_source_ref=NULL,
                        scan_found_missing=false,pending_work_count=0,
-                       updated_at=statement_timestamp()
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE model_binding=%s AND coverage_state='dirty'""",
                 (EMBEDDING_BINDING_ID,),
             )
@@ -149,7 +149,7 @@ class PostgreSQLContextEmbeddingRepository:
                        SET after_source_ref=%s,
                            scan_found_missing=scan_found_missing OR %s,
                            pending_work_count=pending_work_count+%s,
-                           updated_at=statement_timestamp()
+                           updated_at=armi.business_time(statement_timestamp())
                        WHERE model_binding=%s AND coverage_state='reconciling'
                          AND scanning_epoch=%s""",
                     (
@@ -164,7 +164,7 @@ class PostgreSQLContextEmbeddingRepository:
             await transaction.execute(
                 """UPDATE armi.context_embedding_coverage
                    SET source_kind='subjective_memory',after_source_ref=NULL,
-                       updated_at=statement_timestamp()
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE model_binding=%s AND coverage_state='reconciling'
                      AND scanning_epoch=%s""",
                 (EMBEDDING_BINDING_ID, scanning_epoch),
@@ -184,7 +184,7 @@ class PostgreSQLContextEmbeddingRepository:
                    SET after_source_ref=%s,
                        scan_found_missing=scan_found_missing OR %s,
                        pending_work_count=pending_work_count+%s,
-                       updated_at=statement_timestamp()
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE model_binding=%s AND coverage_state='reconciling'
                      AND scanning_epoch=%s""",
                 (
@@ -212,7 +212,7 @@ class PostgreSQLContextEmbeddingRepository:
                 """UPDATE armi.context_embedding_coverage
                    SET coverage_state='complete',scanning_epoch=NULL,
                        scan_found_missing=false,source_kind=NULL,
-                       after_source_ref=NULL,updated_at=statement_timestamp()
+                       after_source_ref=NULL,updated_at=armi.business_time(statement_timestamp())
                    WHERE model_binding=%s AND coverage_state='reconciling'
                      AND epoch=%s AND scanning_epoch=%s""",
                 (EMBEDDING_BINDING_ID, scanning_epoch, scanning_epoch),
@@ -224,7 +224,7 @@ class PostgreSQLContextEmbeddingRepository:
             """UPDATE armi.context_embedding_coverage
                    SET coverage_state='dirty',scanning_epoch=NULL,
                    scan_found_missing=false,pending_work_count=0,source_kind=NULL,
-                   after_source_ref=NULL,updated_at=statement_timestamp()
+                   after_source_ref=NULL,updated_at=armi.business_time(statement_timestamp())
                WHERE model_binding=%s AND coverage_state='reconciling'
                  AND epoch=%s AND scanning_epoch=%s""",
             (EMBEDDING_BINDING_ID, scanning_epoch, scanning_epoch),
@@ -270,7 +270,9 @@ class PostgreSQLContextEmbeddingRepository:
         ).fetchall()
         missing = {(row[0], int(row[1])) for row in rows}
         timestamp = await (
-            await transaction.execute("SELECT statement_timestamp()")
+            await transaction.execute(
+                "SELECT armi.business_time(statement_timestamp())"
+            )
         ).fetchone()
         if timestamp is None:
             return bool(missing), 0
@@ -317,7 +319,7 @@ class PostgreSQLContextEmbeddingRepository:
         await unit_of_work.transaction.execute(
             """UPDATE armi.context_embedding_coverage
                SET pending_work_count=greatest(pending_work_count-1,0),
-                   updated_at=statement_timestamp()
+                   updated_at=armi.business_time(statement_timestamp())
                WHERE model_binding=%s""",
             (EMBEDDING_BINDING_ID,),
         )
@@ -447,7 +449,7 @@ class PostgreSQLContextEmbeddingRepository:
         completed = await (
             await transaction.execute(
                 """UPDATE armi.context_embedding_source_sets
-                   SET state='complete',completed_at=statement_timestamp()
+                   SET state='complete',completed_at=armi.business_time(statement_timestamp())
                    WHERE source_kind=%s AND source_ref=%s AND source_version=%s
                      AND model_binding=%s AND source_digest=%s
                      AND expected_chunk_count=%s AND state='building'
@@ -920,7 +922,7 @@ class PostgreSQLContextProjectionInvalidation:
                        scanning_epoch=NULL,scan_found_missing=false,
                        pending_work_count=0,
                        source_kind=NULL,after_source_ref=NULL,
-                       updated_at=statement_timestamp()
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE model_binding=%s""",
                 (EMBEDDING_BINDING_ID,),
             )

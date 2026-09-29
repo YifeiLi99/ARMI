@@ -94,7 +94,7 @@ class PostgreSQLMoodAdmin:
     ) -> MoodAdminComponent | None:
         statement = (
             """SELECT head.mood_version,'private'::text AS privacy_scope,head.semantic_payload,
-                 head.mood_revision_id,statement_timestamp(),head.subject_id
+                 head.mood_revision_id,armi.business_time(statement_timestamp()),head.subject_id
                FROM armi.mood_revisions AS head WHERE head.is_current"""
             if private
             else """SELECT head.mood_version,'private'::text AS privacy_scope FROM armi.mood_revisions AS head WHERE head.is_current """

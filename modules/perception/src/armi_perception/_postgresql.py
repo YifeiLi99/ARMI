@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid7
 
 from armi_attention.api import (
@@ -37,6 +37,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkResultRef,
     WorkType,
+    business_now,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -84,7 +85,7 @@ class PostgreSQLExternalContentRepository:
         connection = unit.transaction
         rows = await self._interaction.recover_terminal(connection, interaction_ids)
         for recovered in rows:
-            now = Instant(datetime.now(UTC))
+            now = Instant(business_now())
             await unit.work.enqueue(
                 WorkDraft(
                     WorkId(uuid7()),
@@ -231,7 +232,7 @@ class PostgreSQLExternalContentRepository:
             connection, snapshot.interaction_id
         ):
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-PARTS-PENDING")
-        now = Instant(datetime.now(UTC))
+        now = Instant(business_now())
         await unit.work.enqueue(
             WorkDraft(
                 WorkId(uuid7()),

@@ -38,11 +38,11 @@ def autonomy_statement(
                    WHEN phase='blocked' THEN 'blocked'
                    WHEN current_disposition='selected' THEN 'thinking'
                    WHEN busy THEN 'resource_busy'
-                   WHEN next_consideration_at>statement_timestamp() THEN 'scheduled'
+                   WHEN next_consideration_at>armi.business_time(statement_timestamp()) THEN 'scheduled'
                    ELSE 'ready' END,
           'plan_version',plan_version,'next_consideration_at',next_consideration_at,
           'source_episode_id',source_episode_id,'opportunity_id',opportunity_id,
-          'observed_at',statement_timestamp(),
+          'observed_at',armi.business_time(statement_timestamp()),
           'last_considered_at',(SELECT max(resolved_at) FROM armi.opportunities o
             WHERE o.subject_id=current.subject_id AND o.purpose='consider_autonomous_life'),
           'consumed_signal_keys',COALESCE((

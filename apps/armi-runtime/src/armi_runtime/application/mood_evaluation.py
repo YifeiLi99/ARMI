@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Literal
 from uuid import uuid7
 
@@ -23,6 +23,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkResultRef,
     WorkType,
+    business_now,
     diagnostic_scope,
     provider_meter_scope,
     record_diagnostic,
@@ -152,7 +153,7 @@ class RuntimeMoodEvaluation:
                                         unit.transaction,
                                         assessment=assessment.mood,
                                         result=result.mood,
-                                        at=datetime.now(UTC),
+                                        at=business_now(),
                                     )
                                     await self._store.record_result(
                                         unit.transaction,
@@ -286,7 +287,7 @@ class RuntimeMoodEvaluation:
                     episode.bundle_activation_id,
                 ):
                     raise MoodViolation("MOOD-EVENT-SUBJECT-STALE")
-                now = datetime.now(UTC)
+                now = business_now()
                 await self._episodes.accept_mood(
                     unit.transaction,
                     episode_id=event.episode_id,

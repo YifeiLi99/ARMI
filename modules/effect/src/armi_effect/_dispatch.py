@@ -77,8 +77,8 @@ class PostgreSQLEffectDispatchRepository:
                        effect.live_voice_turn_id
                 FROM armi.effects AS effect
                 WHERE effect.dispatch_status = 'ready'
-                  AND effect.available_at <= statement_timestamp()
-                  AND (effect.dispatch_deadline IS NULL OR statement_timestamp() < effect.dispatch_deadline)
+                  AND effect.available_at <= armi.business_time(statement_timestamp())
+                  AND (effect.dispatch_deadline IS NULL OR armi.business_time(statement_timestamp()) < effect.dispatch_deadline)
                   AND effect.attempt_count < effect.max_attempts
                   AND effect.status = 'registered'
                   AND effect.destination_kind IN (
@@ -111,7 +111,7 @@ class PostgreSQLEffectDispatchRepository:
         except OtherHumanInputViolation:
             await connection.execute(
                 """UPDATE armi.effects SET status='cancelled',verification_status='verified',
-                   cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
+                   cancelled_at=armi.business_time(statement_timestamp()),settled_at=armi.business_time(statement_timestamp())
                    WHERE effect_id=%s AND status='registered'""",
                 (row[0],),
             )
@@ -128,7 +128,7 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 UPDATE armi.effects
                 SET dispatch_status = 'claimed', claim_owner = %s,
-                    claim_expires_at = statement_timestamp() + interval '60 seconds',
+                    claim_expires_at = armi.business_time(statement_timestamp()) + interval '60 seconds',
                     claim_token = %s, attempt_count = %s
                 WHERE effect_id = %s AND dispatch_status = 'ready'
                 RETURNING effect_id
@@ -254,7 +254,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.destination_kind, effect.claim_token
                 FROM armi.effects AS effect
                 WHERE effect.dispatch_status='ready'
-                  AND effect.dispatch_deadline<=statement_timestamp()
+                  AND effect.dispatch_deadline<=armi.business_time(statement_timestamp())
                   AND effect.status='registered'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
@@ -294,7 +294,7 @@ class PostgreSQLEffectDispatchRepository:
                 INSERT INTO armi.effect_attempts (
                     effect_attempt_id,effect_id,attempt_no,adapter_binding,
                     claim_token,dispatch_state,result_status,error_code,settled_at)
-                VALUES (%s,%s,%s,%s,%s,'settled',%s,%s,statement_timestamp())
+                VALUES (%s,%s,%s,%s,%s,'settled',%s,%s,armi.business_time(statement_timestamp()))
                 RETURNING settled_at
                 """,
                 (
@@ -398,7 +398,7 @@ class PostgreSQLEffectDispatchRepository:
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 WHERE effect.dispatch_status = 'claimed'
-                  AND effect.claim_expires_at <= statement_timestamp()
+                  AND effect.claim_expires_at <= armi.business_time(statement_timestamp())
                   AND effect.status = 'dispatching'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
@@ -626,7 +626,7 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 UPDATE armi.effect_attempts AS attempt
                 SET dispatch_state = 'dispatching',
-                    dispatched_at = statement_timestamp(),
+                    dispatched_at = armi.business_time(statement_timestamp()),
                     dispatch_runtime_instance_id = %s,
                     dispatch_runtime_fence_token = %s,
                     data_rights_contact_generation = %s,
@@ -637,7 +637,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND effect.effect_id = %s
                   AND effect.dispatch_status = 'claimed' AND effect.claim_owner = %s
                   AND effect.claim_token = %s
-                  AND effect.claim_expires_at > statement_timestamp()
+                  AND effect.claim_expires_at > armi.business_time(statement_timestamp())
                 RETURNING attempt.effect_attempt_id
                 """,
                 (
@@ -666,13 +666,13 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 UPDATE armi.effects AS effect
-                SET claim_expires_at = statement_timestamp() + interval '60 seconds'
+                SET claim_expires_at = armi.business_time(statement_timestamp()) + interval '60 seconds'
                 FROM armi.effect_attempts AS attempt
                 WHERE effect.effect_id = %s
                   AND effect.dispatch_status = 'claimed'
                   AND effect.claim_owner = %s
                   AND effect.claim_token = %s
-                  AND effect.claim_expires_at > statement_timestamp()
+                  AND effect.claim_expires_at > armi.business_time(statement_timestamp())
                   AND attempt.effect_attempt_id = %s
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 RETURNING effect.effect_id
@@ -831,7 +831,7 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 SELECT effect.attempt_count, effect.max_attempts,
-                       (effect.dispatch_deadline IS NULL OR statement_timestamp() < effect.dispatch_deadline),
+                       (effect.dispatch_deadline IS NULL OR armi.business_time(statement_timestamp()) < effect.dispatch_deadline),
                        attempt.dispatch_state
                 FROM armi.effects AS effect
                 JOIN armi.effect_attempts AS attempt
@@ -974,7 +974,7 @@ class PostgreSQLEffectDispatchRepository:
                 UPDATE armi.effect_attempts
                 SET dispatch_state='settled', result_status='failed',
                     error_code='EFFECT-RECEIVER-NOT-DELIVERED',
-                    settled_at=statement_timestamp()
+                    settled_at=armi.business_time(statement_timestamp())
                 WHERE effect_attempt_id=%s AND dispatch_state='dispatching'
                 """,
                 (snapshot.request.attempt_id.value,),
@@ -984,7 +984,7 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 UPDATE armi.effect_attempts
                 SET dispatch_state='settled', result_status='cancelled',
-                    error_code=NULL, settled_at=statement_timestamp()
+                    error_code=NULL, settled_at=armi.business_time(statement_timestamp())
                 WHERE effect_attempt_id=%s AND dispatch_state='prepared'
                 """,
                 (snapshot.request.attempt_id.value,),
@@ -999,7 +999,7 @@ class PostgreSQLEffectDispatchRepository:
         )
         await connection.execute(
             """
-            UPDATE armi.effects SET dispatch_status='ready', available_at=statement_timestamp(),
+            UPDATE armi.effects SET dispatch_status='ready', available_at=armi.business_time(statement_timestamp()),
                 claim_owner=NULL, claim_expires_at=NULL,
                 last_error_code=%s
             WHERE effect_id=%s AND claim_token=%s
@@ -1058,7 +1058,7 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 UPDATE armi.effect_attempts
                 SET dispatch_state='settled', result_status=%s, error_code=%s,
-                    settled_at=statement_timestamp()
+                    settled_at=armi.business_time(statement_timestamp())
                 WHERE effect_attempt_id=%s AND dispatch_state IN ('prepared','dispatching')
                 RETURNING settled_at
                 """,
@@ -1170,7 +1170,7 @@ class PostgreSQLEffectDispatchRepository:
                 UPDATE armi.effects
                 SET status=%s, verification_status=%s,
                     current_observation_id=%s,
-                    settled_at=statement_timestamp()
+                    settled_at=armi.business_time(statement_timestamp())
                 WHERE effect_id=%s AND current_attempt_id=%s
                   AND status='unknown'
                 RETURNING settled_at

@@ -109,7 +109,7 @@ class PostgreSQLEvidenceDataRightsParticipant:
                    SET acceptance_status=CASE WHEN %s='delete_related'
                                               THEN 'redacted' ELSE acceptance_status END,
                        data_rights_order_id=%s,
-                       data_rights_hidden_at=statement_timestamp()
+                       data_rights_hidden_at=armi.business_time(statement_timestamp())
                    WHERE evidence_id=ANY(%s::uuid[])
                      AND data_rights_hidden_at IS NULL""",
                 (request.order_kind, request.order_id, list(evidence_ids)),

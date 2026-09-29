@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid7
 
@@ -24,6 +23,7 @@ from armi_kernel.application import (
     ExecutionCustodyScope,
     ExecutionCustodyScopeKind,
     TransactionIsolation,
+    business_now,
     ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose
@@ -575,7 +575,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     await unit.transaction.execute(
                         """UPDATE armi.data_rights_orders
                            SET retry_cycle=%s,retry_requests=jsonb_set(retry_requests,ARRAY[%s],
-                               jsonb_build_object('cycle',%s::int,'trace_id',%s::text,'created_at',statement_timestamp()))
+                               jsonb_build_object('cycle',%s::int,'trace_id',%s::text,'created_at',armi.business_time(statement_timestamp())))
                            WHERE deletion_order_id=%s""",
                         (
                             cycle,
@@ -593,7 +593,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     if removable_snapshot_ids:
                         await unit.transaction.execute(
                             """UPDATE armi.creator_exports
-                               SET snapshot_status='removed',snapshot_removed_at=statement_timestamp()
+                               SET snapshot_status='removed',snapshot_removed_at=armi.business_time(statement_timestamp())
                                WHERE creator_export_id=ANY(%s::uuid[])
                                  AND snapshot_status='active'""",
                             (list(removable_snapshot_ids),),
@@ -602,7 +602,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                             """UPDATE armi.data_rights_order_items
                                SET result_status='completed',
                                    operator_action_required=false,
-                                   completed_at=statement_timestamp()
+                                   completed_at=armi.business_time(statement_timestamp())
                                WHERE deletion_order_id=%s
                                  AND target_kind='managed_snapshot'
                                  AND target_ref=ANY(%s::uuid[])
@@ -695,7 +695,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                 CreatorProjectionInvalidation(
                     CreatorResourceKind("data_rights"),
                     str(order_id),
-                    Instant(datetime.now(UTC)),
+                    Instant(business_now()),
                     "data-rights-order-collection",
                 )
             )

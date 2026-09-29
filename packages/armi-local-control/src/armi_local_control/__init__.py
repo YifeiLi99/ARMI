@@ -29,6 +29,7 @@ from .process_identity import ManagedProcessIdentity, ManagedProcessState
 from .provider_check_receipts import ProviderCheckReceipts
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
+from .simulation_clock import SimulationClock
 from .usage_contracts import UsageCall, UsageCalls, UsageSummary
 
 __all__ = (
@@ -47,6 +48,7 @@ __all__ = (
     "RuntimeConfig",
     "RuntimeProcessManager",
     "RuntimeViolation",
+    "SimulationClock",
     "UsageCall",
     "UsageCalls",
     "UsageSummary",

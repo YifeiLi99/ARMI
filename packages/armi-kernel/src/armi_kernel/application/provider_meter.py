@@ -45,6 +45,13 @@ _UNITS = {
 }
 
 
+def _required_units(provider: str, service: str) -> tuple[UsageUnit, ...]:
+    # TypeSafe bills total input tokens, without a cache-hit pricing dimension.
+    if provider == "typesafe" and service == "generation":
+        return (UsageUnit.INPUT_TOKENS, UsageUnit.OUTPUT_TOKENS)
+    return _UNITS[service]
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderCallReceipt:
     call_id: str
@@ -157,7 +164,9 @@ class MeteredProviderCall:
         try:
             cost = estimate_cost(
                 quantities=observed,
-                required_units=_UNITS[self.receipt.service],
+                required_units=_required_units(
+                    self.receipt.provider, self.receipt.service
+                ),
                 snapshot=self.receipt.price,
                 billable=self.receipt.billable,
             )
@@ -167,7 +176,9 @@ class MeteredProviderCall:
             pricing_error = error
             cost = estimate_cost(
                 quantities=(),
-                required_units=_UNITS[self.receipt.service],
+                required_units=_required_units(
+                    self.receipt.provider, self.receipt.service
+                ),
                 snapshot=self.receipt.price,
                 billable=self.receipt.billable,
             )
@@ -217,7 +228,7 @@ async def provider_call(
         scope = _SCOPE.get()
     except LookupError:
         raise RuntimeError("USAGE-DURABLE-SINK-REQUIRED") from None
-    units = _UNITS[service]
+    units = _required_units(provider, service)
     now = datetime.now(UTC)
     snapshot = scope.prices.select(
         provider=provider, model=model, service=service, at=now

@@ -10,7 +10,7 @@ CREATE TABLE armi.admin_data_changes (
     execution_mode text NOT NULL,
     reason text NOT NULL,
     result jsonb NOT NULL,
-    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT armi.business_time(clock_timestamp()) NOT NULL,
     CONSTRAINT admin_data_changes_id_check CHECK (uuid_extract_version(admin_change_id) = 7),
     CONSTRAINT admin_data_changes_environment_check CHECK (uuid_extract_version(environment_id) = 7 AND environment_incarnation > 0),
     CONSTRAINT admin_data_changes_operator_check CHECK (length(operator_id) BETWEEN 1 AND 128),

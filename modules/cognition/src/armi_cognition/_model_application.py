@@ -1041,7 +1041,7 @@ class ModelPipeline:
                 if error.retryable and record.attempt_count < record.draft.max_attempts:
                     now = await (
                         await unit_of_work.transaction.execute(
-                            "SELECT statement_timestamp()"
+                            "SELECT armi.business_time(statement_timestamp())"
                         )
                     ).fetchone()
                     if now is None:

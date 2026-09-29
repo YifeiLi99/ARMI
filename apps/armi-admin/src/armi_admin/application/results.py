@@ -418,8 +418,10 @@ class ControlPayload[ResultT](Payload):
 
 
 class TestTimePayload(Payload):
-    advanced_seconds: int
-    instance_active_microseconds: int
+    status: Literal["busy", "advanced"]
+    advanced_seconds: float
+    offset_microseconds: int
+    simulated_at: str
 
 
 class FaultPayload(Payload):

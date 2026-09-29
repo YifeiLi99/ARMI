@@ -1,8 +1,9 @@
 """Context-owned reconciliation of exact-query and embedding responsibility."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import uuid7
 
+from armi_kernel.application import business_now
 from armi_runtime_foundation import (
     OwnerReconciliationContext,
     PostgreSQLTransaction,
@@ -50,7 +51,7 @@ class ContextRecoveryParticipant:
             successor_generation = item.generation + 1
             retry_seconds = {2: 60, 3: 300}.get(successor_generation)
             retry_at = (
-                datetime.now(UTC) + timedelta(seconds=retry_seconds)
+                business_now() + timedelta(seconds=retry_seconds)
                 if retry_seconds is not None
                 else None
             )
@@ -84,7 +85,7 @@ class ContextRecoveryParticipant:
                        SET coverage_state='degraded',scanning_epoch=NULL,
                            source_kind=NULL,after_source_ref=NULL,
                            pending_work_count=greatest(pending_work_count-1,0),
-                           updated_at=statement_timestamp()
+                           updated_at=armi.business_time(statement_timestamp())
                        WHERE model_binding=%s""",
                     (EMBEDDING_BINDING_ID,),
                 )

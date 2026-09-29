@@ -26,6 +26,7 @@ from armi_kernel.application import (
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
+    SimulationReadPort,
 )
 
 from ._admin import PostgreSQLEffectAdmin
@@ -42,6 +43,7 @@ from ._ledger import (
 )
 from ._read_postgresql import PostgreSQLEffectOperationRead
 from ._recovery import EffectRecoveryParticipant
+from ._simulation import SimulationRead
 from .api import (
     ActionAdapterPort,
     EffectAdminPort,
@@ -137,6 +139,10 @@ def bootstrap_effect_operation_read() -> EffectReadPort:
     return PostgreSQLEffectOperationRead()
 
 
+def bootstrap_simulation_read() -> SimulationReadPort:
+    return SimulationRead()
+
+
 __all__ = (
     "bootstrap_effect_admin",
     "bootstrap_effect_codex_lifecycle",
@@ -147,6 +153,7 @@ __all__ = (
     "bootstrap_effect_runtime",
     "bootstrap_expression_admin",
     "bootstrap_expression_effect_registration",
+    "bootstrap_simulation_read",
     "compose_effect_dispatch_repository",
     "compose_effect_ledger_repository",
     "compose_local_inbox",

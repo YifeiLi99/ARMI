@@ -53,7 +53,9 @@ class MoodReadOwner:
     ) -> MoodView:
         head = await self.current(transaction, subject_id=subject_id)
         clock = await (
-            await transaction.execute("SELECT statement_timestamp()")
+            await transaction.execute(
+                "SELECT armi.business_time(statement_timestamp())"
+            )
         ).fetchone()
         if clock is None:
             raise MoodViolation("MOOD-CLOCK")
@@ -100,7 +102,9 @@ class MoodReadOwner:
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> None:
         clock = await (
-            await transaction.execute("SELECT statement_timestamp()")
+            await transaction.execute(
+                "SELECT armi.business_time(statement_timestamp())"
+            )
         ).fetchone()
         if clock is None:
             raise MoodViolation("MOOD-CLOCK")

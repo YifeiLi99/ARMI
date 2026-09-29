@@ -119,7 +119,7 @@ class CreatorSceneRepository:
                 UPDATE armi.interaction_scenes
                 SET current_status = %s,
                     closed_at = CASE
-                        WHEN %s = 'closed' THEN statement_timestamp()
+                        WHEN %s = 'closed' THEN armi.business_time(statement_timestamp())
                         ELSE NULL
                     END,
                     scene_version = scene_version + 1

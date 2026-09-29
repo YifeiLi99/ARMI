@@ -84,7 +84,7 @@ class PostgreSQLEventDataRightsParticipant:
             await transaction.execute(
                 """UPDATE armi.event_appraisals
                    SET mood_result=NULL,mind_result=NULL,context_document=NULL,
-                       data_rights_redacted_at=statement_timestamp()
+                       data_rights_redacted_at=armi.business_time(statement_timestamp())
                    WHERE event_appraisal_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",
                 (list(event_ids),),

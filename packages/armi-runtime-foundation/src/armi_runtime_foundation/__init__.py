@@ -46,6 +46,7 @@ from .recovery import (
     RecoveryScope,
     RecoveryWorkSnapshot,
 )
+from .simulation import SimulationReadPort, SimulationState
 from .transactions import (
     PostgreSQLParameter,
     PostgreSQLParameters,
@@ -104,6 +105,8 @@ __all__ = (
     "RecoveryScope",
     "RecoveryWorkSnapshot",
     "RuntimeTransactionFailure",
+    "SimulationReadPort",
+    "SimulationState",
     "StopSignal",
     "active_runtime_seconds",
     "active_runtime_seconds_admin",

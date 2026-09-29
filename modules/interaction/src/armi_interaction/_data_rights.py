@@ -164,7 +164,7 @@ class PostgreSQLInteractionDataRightsParticipant:
             await transaction.execute(
                 """UPDATE armi.party_input_interactions
                    SET data_rights_order_id=%s,
-                       data_rights_hidden_at=statement_timestamp()
+                       data_rights_hidden_at=armi.business_time(statement_timestamp())
                    WHERE source_party_id=%s AND data_rights_hidden_at IS NULL""",
                 (request.order_id, request.party_id),
             )
@@ -172,7 +172,7 @@ class PostgreSQLInteractionDataRightsParticipant:
                 """UPDATE armi.external_message_parts AS part
                    SET processing_status='unknown',
                        failure_code='DATA-RIGHTS-RECOGNITION-HIDDEN',
-                       settled_at=COALESCE(settled_at,statement_timestamp())
+                       settled_at=COALESCE(settled_at,armi.business_time(statement_timestamp()))
                    FROM armi.party_input_interactions AS interaction
                    WHERE part.interaction_id=interaction.interaction_id
                      AND interaction.source_party_id=%s
@@ -183,7 +183,7 @@ class PostgreSQLInteractionDataRightsParticipant:
             await transaction.execute(
                 """UPDATE armi.external_channel_bindings
                    SET external_key=NULL,display_label=NULL,status='rights_only',
-                       last_observed_at=statement_timestamp()
+                       last_observed_at=armi.business_time(statement_timestamp())
                    WHERE party_id=%s AND status='active'""",
                 (request.party_id,),
             )
@@ -198,7 +198,7 @@ class PostgreSQLInteractionDataRightsParticipant:
                 """UPDATE armi.external_message_parts AS part
                    SET interpretation_text=NULL,interpretation_artifact_id=NULL,
                        processing_status='failed',failure_code='DATA-RIGHTS-REDACTED',
-                       settled_at=COALESCE(settled_at,statement_timestamp())
+                       settled_at=COALESCE(settled_at,armi.business_time(statement_timestamp()))
                    FROM armi.party_input_interactions AS interaction
                    WHERE part.interaction_id=interaction.interaction_id
                      AND interaction.source_party_id=%s""",

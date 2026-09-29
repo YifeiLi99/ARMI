@@ -432,6 +432,14 @@ async def _serve(
     instance_uuid: UUID | None = None,
 ) -> int:
     config = prepared.effective.config
+    from armi_kernel.application import bind_business_clock
+    from armi_local_control import SimulationClock
+
+    from .simulation import read_simulation_state
+
+    simulation_clock = SimulationClock(
+        prepared.root, str(config.environment.environment_id)
+    )
     try:
         with configuration_consumption.consumer("mood-display"):
             mood_display_config = load_mood_display_config(prepared.root)
@@ -637,6 +645,34 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
+            if simulation_clock.path.exists():
+                simulation_clock.validate()
+                async with runtime_unit_of_work_factory.unit_of_work(
+                    read_only=True
+                ) as unit:
+                    environment = await (
+                        await unit.transaction.execute(
+                            "SELECT environment_kind,test_controls_enabled FROM armi.deployment_environments WHERE environment_id=%s",
+                            (config.environment.environment_id,),
+                        )
+                    ).fetchone()
+                    if (
+                        environment is None
+                        or environment[0] != "system_test"
+                        or environment[1] is not True
+                    ):
+                        raise RuntimeViolation(
+                            "SIMULATION-CLOCK-ENVIRONMENT",
+                            "simulation requires an isolated source test environment",
+                        )
+                    offset = await (
+                        await unit.transaction.execute(
+                            "SELECT COALESCE(sum(simulated_idle_microseconds),0) FROM armi.runtime_instances"
+                        )
+                    ).fetchone()
+                assert offset is not None
+                simulation_clock.set_offset(int(offset[0]))
+                bind_business_clock(simulation_clock.read)
             if mood_display_config is not None and mood_display_config.enabled:
                 display_subject_id = authority.require_writable().subject_id
 
@@ -2719,15 +2755,29 @@ async def _serve(
         async def advance_test_time(seconds: int) -> dict[str, Any]:
             from .admin_control import RuntimeAdminControlError
 
-            if authority is None or authority_port is None:
+            if (
+                authority is None
+                or authority_port is None
+                or not simulation_clock.path.exists()
+            ):
                 raise RuntimeAdminControlError("ADMIN-TEST-TIME-UNAVAILABLE")
             try:
-                value = await authority_port.advance_test_time(
-                    authority.require_writable(), seconds=seconds
-                )
+                if simulation_clock.path.exists():
+                    if life_opportunity_pipeline is None:
+                        raise RuntimeAdminControlError("ADMIN-TEST-TIME-UNAVAILABLE")
+                    await life_opportunity_pipeline.maintain_sleep_once()
+                    await life_opportunity_pipeline.admit_once()
+                    result = await authority_port.advance_simulation_time(
+                        authority.require_writable(),
+                        seconds=seconds,
+                        business_state=read_simulation_state,
+                    )
+                    if result["status"] == "advanced":
+                        simulation_clock.set_offset(result["offset_microseconds"])
+                    return result
             except RuntimeAuthorityViolation as error:
                 raise RuntimeAdminControlError(error.code) from None
-            return {"advanced_seconds": seconds, "instance_active_microseconds": value}
+            raise RuntimeAdminControlError("ADMIN-TEST-TIME-UNAVAILABLE")
 
         admin_control = RuntimeAdminControlServer(
             on_advance_test_time=advance_test_time,

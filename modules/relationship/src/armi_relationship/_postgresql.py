@@ -634,7 +634,7 @@ async def _commit_one(
         ) VALUES (%s, %s, %s, %s,
                   COALESCE((SELECT relationship_created_at
                             FROM armi.relationship_revisions
-                            WHERE relationship_revision_id = %s), statement_timestamp()),
+                            WHERE relationship_revision_id = %s), armi.business_time(statement_timestamp())),
                   %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                   %s, %s, %s, %s, %s, %s)
         """,

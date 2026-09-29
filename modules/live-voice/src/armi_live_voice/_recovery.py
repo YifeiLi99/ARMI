@@ -40,7 +40,7 @@ class LiveVoiceRecoveryParticipant:
                    SET result_status=CASE
                            WHEN result_status IN ('recognizing','thinking','speaking')
                            THEN 'unknown' ELSE result_status END,
-                       completed_at=statement_timestamp(),
+                       completed_at=armi.business_time(statement_timestamp()),
                        error_code=CASE
                            WHEN result_status IN ('recognizing','thinking','speaking')
                            THEN 'VOICE-RUNTIME-RESTARTED' ELSE error_code END

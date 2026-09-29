@@ -158,7 +158,7 @@ class PostgreSQLCognitionSubjectCommit:
                        maintenance_head_version=%s, maintenance_phase=%s,
                        maintenance_outcome=%s, maintenance_result_summary=%s,
                        maintenance_creator_visible_problem=%s, maintenance_memory_id=%s,
-                       maintenance_issue_target=%s, maintenance_completed_at=statement_timestamp()
+                       maintenance_issue_target=%s, maintenance_completed_at=armi.business_time(statement_timestamp())
                    WHERE cognitive_episode_id=%s AND subject_id=%s
                      AND candidate_validation_id=%s AND candidate_application_id=%s
                      AND subject_commit_id=%s AND maintenance_session_id IS NULL
@@ -527,7 +527,7 @@ class PostgreSQLCognitionSubjectCommit:
             completed = await (
                 await transaction.execute(
                     """UPDATE armi.cognitive_episodes
-                       SET maintenance_status='completed',maintenance_finished_at=statement_timestamp()
+                       SET maintenance_status='completed',maintenance_finished_at=armi.business_time(statement_timestamp())
                        WHERE cognitive_episode_id=%s AND subject_id=%s
                          AND maintenance_status='running'
                        RETURNING maintenance_from_ordinal,maintenance_through_ordinal""",
@@ -557,7 +557,7 @@ class PostgreSQLCognitionSubjectCommit:
                        life_query_record_kind=%s, life_query_text=%s,
                        life_query_result_limit=%s, life_query_digest=%s,
                        life_query_work_id=%s, life_query_status='pending',
-                       life_query_created_at=statement_timestamp()
+                       life_query_created_at=armi.business_time(statement_timestamp())
                    WHERE opportunity_id=%s AND subject_id=%s AND scene_id=%s
                      AND trace_id=%s AND status='finalizing'
                      AND exact_life_query_intent_id IS NULL
@@ -611,7 +611,7 @@ class PostgreSQLCognitionSubjectCommit:
                     """
                     UPDATE armi.cognitive_episodes
                     SET status = %s, application_resolution = %s,
-                        committed_at = statement_timestamp()
+                        committed_at = armi.business_time(statement_timestamp())
                     WHERE cognitive_episode_id = %s
                       AND status = 'finalizing'
                     RETURNING cognitive_episode_id

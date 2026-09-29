@@ -53,7 +53,7 @@ class PostgreSQLOpportunityDataRightsParticipant:
         await transaction.execute(
             """UPDATE armi.opportunities
                SET current_disposition='cancelled',
-                   resolved_at=statement_timestamp(),
+                   resolved_at=armi.business_time(statement_timestamp()),
                    resolution_reason_code=%s
                WHERE context_party_id=%s AND current_disposition IN ('open','selected')""",
             (

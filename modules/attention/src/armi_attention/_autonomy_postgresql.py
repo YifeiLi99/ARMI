@@ -157,7 +157,7 @@ class PostgreSQLAutonomyOwner:
         if plan.opportunity_id is not None:
             previous = await (
                 await transaction.execute(
-                    "SELECT current_disposition,statement_timestamp() FROM armi.opportunities WHERE opportunity_id=%s",
+                    "SELECT current_disposition,armi.business_time(statement_timestamp()) FROM armi.opportunities WHERE opportunity_id=%s",
                     (plan.opportunity_id,),
                 )
             ).fetchone()
@@ -172,8 +172,8 @@ class PostgreSQLAutonomyOwner:
             await transaction.execute(
                 """UPDATE armi.autonomy_plans
                    SET plan_version=plan_version+1,opportunity_id=NULL,
-                       phase='waiting',next_consideration_at=statement_timestamp() + %s * interval '1 second',
-                       updated_at=statement_timestamp()
+                       phase='waiting',next_consideration_at=armi.business_time(statement_timestamp()) + %s * interval '1 second',
+                       updated_at=armi.business_time(statement_timestamp())
                    WHERE subject_id=%s""",
                 (policy.minimum_consideration_seconds, subject_id),
             )
@@ -184,9 +184,9 @@ class PostgreSQLAutonomyOwner:
             )
         ready = await (
             await transaction.execute(
-                """SELECT LEAST(next_consideration_at,%s::timestamptz) <= statement_timestamp()
+                """SELECT LEAST(next_consideration_at,%s::timestamptz) <= armi.business_time(statement_timestamp())
                      AND (last_check_started_at IS NULL OR
-                          last_check_started_at<=statement_timestamp()-interval '60 seconds')
+                          last_check_started_at<=armi.business_time(statement_timestamp())-interval '60 seconds')
                      AND phase<>'blocked'
                    FROM armi.autonomy_plans WHERE subject_id=%s""",
                 (signal_at, subject_id),
@@ -221,7 +221,7 @@ class PostgreSQLAutonomyOwner:
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET opportunity_id=%s,phase=%s,
                       idle_streak=CASE WHEN %s THEN 0 ELSE idle_streak END,
-                      last_check_started_at=statement_timestamp()
+                      last_check_started_at=armi.business_time(statement_timestamp())
                WHERE subject_id=%s""",
             (
                 opportunity_id,
@@ -252,7 +252,7 @@ class PostgreSQLAutonomyOwner:
         await transaction.execute(
             """INSERT INTO armi.autonomy_plans
                (subject_id,plan_version,next_consideration_at,policy,observed_state_epoch)
-               VALUES (%s,1,statement_timestamp() + %s * interval '1 second',%s::jsonb,COALESCE(%s,0))
+               VALUES (%s,1,armi.business_time(statement_timestamp()) + %s * interval '1 second',%s::jsonb,COALESCE(%s,0))
                ON CONFLICT (subject_id) DO UPDATE
                SET policy=excluded.policy,
                    observed_state_epoch=COALESCE(%s,autonomy_plans.observed_state_epoch),
@@ -261,7 +261,7 @@ class PostgreSQLAutonomyOwner:
                       AND (excluded.policy->>'enabled')::boolean
                      THEN excluded.next_consideration_at
                      ELSE autonomy_plans.next_consideration_at END,
-                   updated_at=statement_timestamp()
+                   updated_at=armi.business_time(statement_timestamp())
                WHERE autonomy_plans.policy IS DISTINCT FROM excluded.policy
                   OR autonomy_plans.observed_state_epoch <> %s""",
             (
@@ -339,7 +339,7 @@ class PostgreSQLAutonomyOwner:
             schedule = schedule.settled(acted=False)
         await transaction.execute(
             """UPDATE armi.opportunities SET current_disposition='resolved',
-                   resolved_at=statement_timestamp(),resolution_reason_code=%s,autonomy_category=%s
+                   resolved_at=armi.business_time(statement_timestamp()),resolution_reason_code=%s,autonomy_category=%s
                WHERE opportunity_id=%s""",
             (
                 "LIFE-AUTONOMY-SCHEDULED" if engage else "LIFE-AUTONOMY-NOT-SCHEDULED",
@@ -351,8 +351,8 @@ class PostgreSQLAutonomyOwner:
             """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,
                    source_episode_id=%s,opportunity_id=%s,last_engage=%s,
                    idle_streak=%s,failure_streak=0,phase=%s,
-                   next_consideration_at=statement_timestamp()+%s*interval '1 second',
-                   updated_at=statement_timestamp() WHERE subject_id=%s""",
+                   next_consideration_at=armi.business_time(statement_timestamp())+%s*interval '1 second',
+                   updated_at=armi.business_time(statement_timestamp()) WHERE subject_id=%s""",
             (
                 episode_id,
                 successor,
@@ -389,9 +389,9 @@ class PostgreSQLAutonomyOwner:
         result = await transaction.execute(
             """UPDATE armi.autonomy_plans
                SET plan_version=plan_version+1,source_episode_id=%s,
-                   next_consideration_at=statement_timestamp() + %s * interval '1 second',
+                   next_consideration_at=armi.business_time(statement_timestamp()) + %s * interval '1 second',
                    opportunity_id=NULL,phase='waiting',idle_streak=%s,failure_streak=0,
-                   updated_at=statement_timestamp()
+                   updated_at=armi.business_time(statement_timestamp())
                WHERE subject_id=%s AND plan_version=%s AND opportunity_id=%s""",
             (
                 episode_id,

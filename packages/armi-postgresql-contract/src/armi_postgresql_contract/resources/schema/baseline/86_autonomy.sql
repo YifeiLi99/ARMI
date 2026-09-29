@@ -11,7 +11,7 @@ CREATE TABLE armi.autonomy_plans (
     next_consideration_at timestamptz NOT NULL,
     source_episode_id uuid REFERENCES armi.cognitive_episodes(cognitive_episode_id),
     opportunity_id uuid REFERENCES armi.opportunities(opportunity_id),
-    updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT armi.business_time(statement_timestamp()),
     phase text NOT NULL DEFAULT 'waiting' CHECK (phase IN ('waiting','check','execute','blocked')),
     idle_streak integer NOT NULL DEFAULT 0 CHECK (idle_streak BETWEEN 0 AND 2),
     failure_streak integer NOT NULL DEFAULT 0 CHECK (failure_streak BETWEEN 0 AND 3),

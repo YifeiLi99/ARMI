@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -12,6 +12,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    business_now,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -79,7 +80,7 @@ class PostgreSQLMaintenanceRepository:
         anchor_at = last[1] if last is not None else runtime.born_at
         consideration_at = anchor_at + timedelta(seconds=consideration_after_seconds)
         deadline_at = anchor_at + timedelta(seconds=deadline_after_seconds)
-        now = datetime.now(UTC)
+        now = business_now()
         if now >= deadline_at:
             session_id = uuid7()
             revision_id = uuid7()
@@ -201,7 +202,7 @@ class PostgreSQLMaintenanceRepository:
                 "LIFE-MAINTENANCE-WAITING-SAFE-POINT",
             )
 
-        now = datetime.now(UTC)
+        now = business_now()
         if phase is MaintenancePhase.LIFE_QUIET and quiet_until is None:
             raise SleepViolation("SLEEP-MAINTENANCE-STATE")
         next_quiet_until = quiet_until
@@ -248,8 +249,8 @@ class PostgreSQLMaintenanceRepository:
                         UPDATE armi.maintenance_sessions
                         SET current_revision_id = %s,
                             head_version = head_version + 1,
-                            finished_at = statement_timestamp(),
-                            updated_at = statement_timestamp(), result_status = 'failed'
+                            finished_at = armi.business_time(statement_timestamp()),
+                            updated_at = armi.business_time(statement_timestamp()), result_status = 'failed'
                         WHERE maintenance_session_id = %s
                           AND current_revision_id = %s
                           AND head_version = %s
@@ -324,9 +325,9 @@ class PostgreSQLMaintenanceRepository:
                 SET current_revision_id = %s,
                     head_version = head_version + 1,
                     phase = %s, result_status = %s,
-                    phase_completed_at = NULL, updated_at = statement_timestamp(),
+                    phase_completed_at = NULL, updated_at = armi.business_time(statement_timestamp()),
                     quiet_until = %s,
-                    finished_at = CASE WHEN %s THEN statement_timestamp()
+                    finished_at = CASE WHEN %s THEN armi.business_time(statement_timestamp())
                                        ELSE NULL END
                 WHERE maintenance_session_id = %s
                   AND current_revision_id = %s
@@ -403,7 +404,7 @@ class PostgreSQLMaintenanceRepository:
                 """
                 UPDATE armi.maintenance_sessions
                 SET wake_request_id = %s,
-                    wake_requested_at = statement_timestamp(),
+                    wake_requested_at = armi.business_time(statement_timestamp()),
                     wake_source_kind = 'creator_request',
                     wake_source_ref = %s
                 WHERE maintenance_session_id = %s
@@ -440,7 +441,7 @@ class PostgreSQLMaintenanceRepository:
         row = await (
             await unit_of_work.transaction.execute(
                 """UPDATE armi.maintenance_sessions
-                   SET wake_request_id=%s,wake_requested_at=statement_timestamp(),
+                   SET wake_request_id=%s,wake_requested_at=armi.business_time(statement_timestamp()),
                        wake_source_kind='creator_input',wake_source_ref=%s
                    WHERE maintenance_session_id=(
                      SELECT maintenance_session_id
@@ -516,7 +517,7 @@ class PostgreSQLMaintenanceRepository:
                     "maintenance_phase_revision",
                     revision_id,
                     head_version,
-                    datetime.now(UTC),
+                    business_now(),
                     predecessor_id=current.opportunity_id,
                     root_id=current.root_opportunity_id,
                     reconsideration_no=1,
@@ -531,7 +532,7 @@ class PostgreSQLMaintenanceRepository:
                 "maintenance_phase_revision",
                 revision_id,
                 head_version,
-                datetime.now(UTC),
+                business_now(),
             ),
         )
         return first.opportunity_id, first.inserted

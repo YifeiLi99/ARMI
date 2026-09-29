@@ -409,3 +409,5 @@ GRANT UPDATE ON TABLE armi.mood_revisions TO armi_runtime;
 GRANT UPDATE ON TABLE armi.mind_revisions, armi.mood_revisions, armi.subject_component_revisions TO armi_admin;
 
 GRANT UPDATE (identity_key_digest, identity_key_bound_at) ON TABLE armi.deployment_environments TO armi_runtime;
+
+GRANT EXECUTE ON FUNCTION armi.business_time(timestamptz) TO armi_runtime, armi_admin;

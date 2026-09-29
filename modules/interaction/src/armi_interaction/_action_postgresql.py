@@ -114,7 +114,7 @@ class PostgreSQLInteractionActionOwner:
             await transaction.execute(
                 """
                 UPDATE armi.interaction_scenes
-                SET current_status='closed', closed_at=statement_timestamp(),
+                SET current_status='closed', closed_at=armi.business_time(statement_timestamp()),
                     scene_version=scene_version+1
                 WHERE scene_id=%s AND subject_id=%s
                   AND primary_party_id=%s

@@ -34,8 +34,8 @@ class PostgreSQLEffectCodexLifecycle:
                        effect.dispatch_deadline
                 FROM armi.effects AS effect
                 WHERE effect.dispatch_status='ready'
-                  AND effect.available_at<=statement_timestamp()
-                  AND (effect.dispatch_deadline IS NULL OR statement_timestamp()<effect.dispatch_deadline)
+                  AND effect.available_at<=armi.business_time(statement_timestamp())
+                  AND (effect.dispatch_deadline IS NULL OR armi.business_time(statement_timestamp())<effect.dispatch_deadline)
                   AND effect.attempt_count=0 AND effect.max_attempts=1
                   AND effect.status='registered'
                   AND effect.effect_kind='codex_delegation'
@@ -50,7 +50,7 @@ class PostgreSQLEffectCodexLifecycle:
         await transaction.execute(
             """
             UPDATE armi.effects SET dispatch_status='claimed', claim_owner=%s,
-                claim_expires_at=statement_timestamp()+interval '60 seconds',
+                claim_expires_at=armi.business_time(statement_timestamp())+interval '60 seconds',
                 claim_token=%s, attempt_count=1
             WHERE effect_id=%s AND dispatch_status='ready'
             """,
@@ -98,7 +98,7 @@ class PostgreSQLEffectCodexLifecycle:
             await unit_of_work.transaction.execute(
                 """
                 UPDATE armi.effect_attempts AS attempt SET dispatch_state='dispatching',
-                    dispatched_at=statement_timestamp(),
+                    dispatched_at=armi.business_time(statement_timestamp()),
                     dispatch_runtime_instance_id=%s,
                     dispatch_runtime_fence_token=%s,
                     data_rights_contact_generation=%s,
@@ -109,7 +109,7 @@ class PostgreSQLEffectCodexLifecycle:
                   AND effect.status='dispatching'
                   AND effect.effect_id=%s AND effect.dispatch_status='claimed'
                   AND effect.claim_owner=%s AND effect.claim_token=%s
-                  AND effect.claim_expires_at>statement_timestamp()
+                  AND effect.claim_expires_at>armi.business_time(statement_timestamp())
                 RETURNING attempt.effect_attempt_id
                 """,
                 (
@@ -135,7 +135,7 @@ class PostgreSQLEffectCodexLifecycle:
             await transaction.execute(
                 """
                 UPDATE armi.effects
-                SET claim_expires_at=statement_timestamp()+interval '60 seconds'
+                SET claim_expires_at=armi.business_time(statement_timestamp())+interval '60 seconds'
                 WHERE effect_id=%s AND dispatch_status='claimed'
                   AND claim_owner=%s AND claim_token=%s
                 RETURNING effect_id
@@ -166,7 +166,7 @@ class PostgreSQLEffectCodexLifecycle:
                  AND attempt.dispatch_state IN ('prepared','dispatching')
                  AND effect.effect_id=%s AND effect.dispatch_status='claimed'
                  AND effect.claim_owner=%s AND effect.claim_token=%s
-                 AND effect.claim_expires_at>statement_timestamp()
+                 AND effect.claim_expires_at>armi.business_time(statement_timestamp())
                FOR UPDATE OF effect, attempt""",
                 (
                     claim.effect_id,
@@ -256,7 +256,7 @@ class PostgreSQLEffectCodexLifecycle:
         await transaction.execute(
             """
             UPDATE armi.effect_attempts SET dispatch_state='settled',
-                result_status=%s, error_code=%s, settled_at=statement_timestamp()
+                result_status=%s, error_code=%s, settled_at=armi.business_time(statement_timestamp())
             WHERE effect_attempt_id=%s AND dispatch_state IN ('prepared','dispatching')
             """,
             (attempt_result, error_code, claim.attempt_id),
@@ -264,8 +264,8 @@ class PostgreSQLEffectCodexLifecycle:
         await transaction.execute(
             """
             UPDATE armi.effects SET status=%s, verification_status=%s,
-                current_observation_id=%s, settled_at=statement_timestamp(),
-                cancelled_at=CASE WHEN %s='cancelled' THEN statement_timestamp() ELSE NULL END
+                current_observation_id=%s, settled_at=armi.business_time(statement_timestamp()),
+                cancelled_at=CASE WHEN %s='cancelled' THEN armi.business_time(statement_timestamp()) ELSE NULL END
             WHERE effect_id=%s AND current_attempt_id=%s
             """,
             (
@@ -281,7 +281,7 @@ class PostgreSQLEffectCodexLifecycle:
             """
             UPDATE armi.effects SET dispatch_status=%s, claim_owner=NULL,
                 claim_expires_at=NULL,
-                delivered_at=CASE WHEN %s='delivered' THEN statement_timestamp() ELSE NULL END,
+                delivered_at=CASE WHEN %s='delivered' THEN armi.business_time(statement_timestamp()) ELSE NULL END,
 
                 last_error_code=%s
             WHERE effect_id=%s AND claim_owner=%s AND claim_token=%s

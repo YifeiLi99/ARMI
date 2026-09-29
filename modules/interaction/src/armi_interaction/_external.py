@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -22,6 +21,7 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    business_now,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -241,7 +241,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 CreatorProjectionInvalidation(
                     kind,
                     resource_ref,
-                    Instant(datetime.now(UTC)),
+                    Instant(business_now()),
                     projection,
                 )
             )

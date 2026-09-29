@@ -10570,6 +10570,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     @pytest.mark.test_group("runtime", "recovery")
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
         clock_tick = [0]
+        simulation_busy = [False]
+
+        async def simulation_state(transaction):
+            from armi_runtime_foundation import SimulationState
+
+            return SimulationState(simulation_busy[0])
+
         fixture = self.create_database()
         self._install_current(
             fixture.migrator_dsn,
@@ -10738,7 +10745,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 # A suspended/sleeping clock contributes no guessed wall time.
                 await authorities[2].heartbeat(default.fence, lease_seconds=30)
                 with self.assertRaises(RuntimeAuthorityViolation):
-                    await authorities[2].advance_test_time(default.fence, seconds=14400)
+                    await authorities[2].advance_simulation_time(
+                        default.fence, seconds=14400, business_state=simulation_state
+                    )
                 with psycopg.connect(fixture.provisioner_dsn) as test_environment:
                     test_environment.execute(
                         """INSERT INTO armi.deployment_environments
@@ -10746,11 +10755,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         VALUES (%s,'system_test',1,true,true)""",
                         (fixture.environment_id,),
                     )
+                simulation_busy[0] = True
+                blocked = await authorities[2].advance_simulation_time(
+                    default.fence, seconds=14400, business_state=simulation_state
+                )
+                self.assertEqual(blocked["status"], "busy")
+                self.assertEqual(blocked["offset_microseconds"], 0)
+                simulation_busy[0] = False
                 self.assertEqual(
-                    await authorities[2].advance_test_time(
-                        default.fence, seconds=14400
-                    ),
-                    14_410_000_000,
+                    (
+                        await authorities[2].advance_simulation_time(
+                            default.fence,
+                            seconds=14400,
+                            business_state=simulation_state,
+                        )
+                    )["advanced_seconds"],
+                    5.0,
                 )
                 with psycopg.connect(fixture.provisioner_dsn) as test_environment:
                     test_environment.execute(
@@ -10759,7 +10779,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (fixture.environment_id,),
                     )
                 with self.assertRaises(RuntimeAuthorityViolation):
-                    await authorities[2].advance_test_time(default.fence, seconds=14400)
+                    await authorities[2].advance_simulation_time(
+                        default.fence, seconds=14400, business_state=simulation_state
+                    )
                 clock_tick[0] += 2_000_000
                 await authorities[2].release(default.fence)
                 with psycopg.connect(fixture.runtime_dsn) as clock_connection:
@@ -10767,7 +10789,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "SELECT active_runtime_microseconds FROM armi.runtime_instances WHERE runtime_instance_id=%s",
                         (default.fence.runtime_instance_id.value,),
                     ).fetchone()
-                    self.assertEqual(elapsed, (14_412_000_000,))
+                    self.assertEqual(elapsed, (17_000_000,))
 
                 with psycopg.connect(
                     fixture.provisioner_dsn,

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid7
 
+from armi_kernel.application import business_now
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import ActivityApplication
@@ -106,7 +107,7 @@ class PostgreSQLActivityCommit:
                     activity_created_at) VALUES (
                     %s, %s, 1, NULL, %s, %s, %s, %s,
                     NULL, NULL, NULL, %s, %s, NULL, %s, 'created', NULL, NULL,
-                    %s,%s,statement_timestamp())
+                    %s,%s,armi.business_time(statement_timestamp()))
                 """,
                 (
                     revision_id,
@@ -292,7 +293,7 @@ class PostgreSQLActivityCommit:
         resume_at = (
             None
             if decision.delay_seconds is None
-            else datetime.now(UTC) + timedelta(seconds=decision.delay_seconds)
+            else business_now() + timedelta(seconds=decision.delay_seconds)
         )
         await transaction.execute(
             "UPDATE armi.activity_revisions SET is_current=false "

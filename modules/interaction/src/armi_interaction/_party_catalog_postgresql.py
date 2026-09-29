@@ -39,7 +39,7 @@ class PostgreSQLInteractionPartyCatalog:
                 """UPDATE armi.parties
                SET rights_contact_generation=rights_contact_generation+1,
                    rights_use_generation=rights_use_generation+%s,
-                   rights_updated_at=statement_timestamp()
+                   rights_updated_at=armi.business_time(statement_timestamp())
                WHERE party_id=%s RETURNING rights_contact_generation,rights_use_generation""",
                 (use_increment, party_id),
             )

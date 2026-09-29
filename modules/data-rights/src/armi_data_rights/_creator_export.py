@@ -29,6 +29,7 @@ from armi_kernel.application import (
     ExecutionCustodyScope,
     ExecutionCustodyScopeKind,
     TransactionIsolation,
+    business_now,
     ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, ErrorCategory, Instant, Purpose, TraceId
@@ -369,7 +370,9 @@ class CreatorExportService(CreatorExportPort):
             ) as unit_of_work:
                 connection = unit_of_work.transaction
                 snapshot_row = await (
-                    await connection.execute("SELECT transaction_timestamp()")
+                    await connection.execute(
+                        "SELECT armi.business_time(transaction_timestamp())"
+                    )
                 ).fetchone()
                 if snapshot_row is None:
                     raise CreatorExportViolation("CREATOR-EXPORT-SNAPSHOT")
@@ -595,7 +598,7 @@ class CreatorExportService(CreatorExportPort):
                     await unit.transaction.execute(
                         """UPDATE armi.creator_exports SET status=%s,error_code=%s,
                                   completed_at=CASE WHEN %s='failed'
-                                                    THEN clock_timestamp() END
+                                                    THEN armi.business_time(clock_timestamp()) END
                            WHERE creator_export_id=%s AND creator_party_id=%s""",
                         (
                             next_status,
@@ -634,7 +637,7 @@ class CreatorExportService(CreatorExportPort):
                     """UPDATE armi.creator_exports
                        SET status=%s,segment_count=%s,record_count=%s,artifact_count=%s,
                            missing_artifact_count=%s,error_code=NULL,
-                           completed_at=clock_timestamp()
+                           completed_at=armi.business_time(clock_timestamp())
                        WHERE creator_export_id=%s AND creator_party_id=%s
                          AND status IN ('building','published_unsettled','unknown')""",
                     (
@@ -698,7 +701,7 @@ class CreatorExportService(CreatorExportPort):
                         SET status = %s, segment_count = %s,
                             record_count = %s, artifact_count = %s,
                             missing_artifact_count = %s, error_code = %s,
-                            completed_at = clock_timestamp()
+                            completed_at = armi.business_time(clock_timestamp())
                         WHERE creator_export_id = %s AND creator_party_id = %s
                           AND status IN ('building','published_unsettled')
                         RETURNING creator_export_id, status, directory_name,
@@ -792,7 +795,7 @@ class CreatorExportService(CreatorExportPort):
             "format": _EXPORT_FORMAT,
             "export_id": str(export_id),
             "status": status.value,
-            "created_at": datetime.now(UTC)
+            "created_at": business_now()
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z"),
             "database_snapshot_at": snapshot.snapshot_at,

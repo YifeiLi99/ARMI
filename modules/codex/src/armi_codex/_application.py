@@ -7,7 +7,6 @@ import contextlib
 import json
 import threading
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -45,6 +44,7 @@ from armi_kernel.application import (
     ExecutionCustodyScopeKind,
     ExecutionCustodyViolation,
     RuntimeFence,
+    business_now,
     ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, Instant, SubjectId, TraceId
@@ -332,7 +332,7 @@ class CodexTaskSourceGateway(
         if self._notifier is None:
             self._diagnostic("codex.task.notification_unavailable")
             return
-        now = Instant(datetime.now(UTC))
+        now = Instant(business_now())
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(

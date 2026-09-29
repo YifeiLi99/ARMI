@@ -287,7 +287,7 @@ class LocalDataDeletionRepository:
                             """UPDATE armi.data_rights_order_items
                                SET result_status='completed',
                                    retention_reason='shared_reference',
-                                   completed_at=statement_timestamp()
+                                   completed_at=armi.business_time(statement_timestamp())
                                WHERE deletion_item_id=%s""",
                             (item_id,),
                         )
@@ -306,14 +306,14 @@ class LocalDataDeletionRepository:
                 else:
                     await transaction.execute(
                         """UPDATE armi.data_rights_order_items
-                           SET result_status='completed',completed_at=statement_timestamp()
+                           SET result_status='completed',completed_at=armi.business_time(statement_timestamp())
                            WHERE deletion_item_id=%s""",
                         (item_id,),
                     )
         if order_kind != "delete_related":
             await transaction.execute(
                 """UPDATE armi.data_rights_orders
-                   SET execution_status='completed',completed_at=statement_timestamp()
+                   SET execution_status='completed',completed_at=armi.business_time(statement_timestamp())
                    WHERE deletion_order_id=%s AND execution_status='executing'""",
                 (order_id,),
             )
@@ -338,7 +338,7 @@ class LocalDataDeletionRepository:
                      required_action, responsible_owner, result_status,
                      retention_reason, operator_action_required, completed_at
                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                     CASE WHEN %s <> 'pending' THEN statement_timestamp() END)
+                     CASE WHEN %s <> 'pending' THEN armi.business_time(statement_timestamp()) END)
                    ON CONFLICT (deletion_order_id,target_kind,target_ref)
                    DO UPDATE SET result_status = armi.data_rights_order_items.result_status
                    RETURNING deletion_item_id""",
@@ -385,7 +385,7 @@ class LocalDataDeletionRepository:
             await unit_of_work.transaction.execute(
                 """UPDATE armi.data_rights_order_items
                    SET result_status=%s,retention_reason=%s,
-                       completed_at=statement_timestamp()
+                       completed_at=armi.business_time(statement_timestamp())
                    WHERE deletion_order_id=%s AND result_status='pending'
                      AND artifact_object_deletion_id=%s""",
                 (
@@ -417,7 +417,7 @@ class LocalDataDeletionRepository:
         row = await (
             await transaction.execute(
                 """UPDATE armi.data_rights_orders
-                   SET execution_status = %s, completed_at = statement_timestamp()
+                   SET execution_status = %s, completed_at = armi.business_time(statement_timestamp())
                    WHERE deletion_order_id = %s AND execution_status = 'executing'
                    RETURNING requester_party_id, requester_kind, trace_id""",
                 (final_status, order_id),

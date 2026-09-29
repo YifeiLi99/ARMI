@@ -90,7 +90,7 @@ class PostgreSQLActivityAdmin:
             "INSERT INTO armi.activity_revisions (activity_revision_id,activity_id,revision_no,"
             "previous_revision_id,admin_change_id,goal,progress_summary,next_safe_step,status,terminal_reason,transition_kind,"
             "subject_id,origin_opportunity_id,origin_admin_change_id,activity_created_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,statement_timestamp()))",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,armi.business_time(statement_timestamp())))",
             (
                 revision,
                 command.object_id,

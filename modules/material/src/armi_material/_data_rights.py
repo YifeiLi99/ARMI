@@ -99,9 +99,9 @@ class PostgreSQLMaterialDataRightsParticipant:
             await transaction.execute(
                 """UPDATE armi.life_material_revisions
                    SET artifact_id=NULL,title=NULL,metadata=NULL,
-                       deleted_at=COALESCE(deleted_at,statement_timestamp()),
-                       updated_at=statement_timestamp(),
-                       data_rights_redacted_at=statement_timestamp()
+                       deleted_at=COALESCE(deleted_at,armi.business_time(statement_timestamp())),
+                       updated_at=armi.business_time(statement_timestamp()),
+                       data_rights_redacted_at=armi.business_time(statement_timestamp())
                    WHERE life_material_id=ANY(%s::uuid[])
                      AND data_rights_redacted_at IS NULL""",
                 (list(material_ids),),

@@ -29,6 +29,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkResultRef,
     WorkType,
+    business_now,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -511,9 +512,8 @@ class PostgreSQLContextRepository:
             compiled_digest=compiled_artifact.content_digest,
             context_items=context_items,
         )
-        from datetime import UTC
 
-        now = Instant(datetime.now(UTC))
+        now = Instant(business_now())
         await unit_of_work.work.enqueue(
             WorkDraft(
                 WorkId(uuid7()),

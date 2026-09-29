@@ -77,7 +77,7 @@ class PostgreSQLMemoryDataRightsParticipant:
                 """UPDATE armi.subjective_memory_revisions
                    SET summary=NULL,uncertainty=NULL,
                        tombstone_order_id=COALESCE(tombstone_order_id,%s),
-                       tombstoned_at=COALESCE(tombstoned_at,statement_timestamp())
+                       tombstoned_at=COALESCE(tombstoned_at,armi.business_time(statement_timestamp()))
                    WHERE memory_id=ANY(%s::uuid[])""",
                 (request.order_id, list(memory_ids)),
             )

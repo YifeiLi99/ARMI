@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
-from datetime import UTC, datetime
 from typing import Final
 from uuid import UUID, uuid7
 
@@ -31,6 +30,7 @@ from armi_kernel.application import (
     ExecutionCustodyRequest,
     ExecutionCustodyScope,
     ExecutionCustodyScopeKind,
+    business_now,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -603,7 +603,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
                 CreatorProjectionInvalidation(
                     resource_kind=CreatorResourceKind("scene_timeline"),
                     resource_ref=SceneKey(scene_key).value,
-                    occurred_at=Instant(datetime.now(UTC)),
+                    occurred_at=Instant(business_now()),
                     projection_kind="scene-timeline",
                 )
             )

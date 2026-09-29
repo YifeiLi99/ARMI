@@ -28,12 +28,12 @@ class PostgreSQLInteractionPerception:
     ) -> None:
         await transaction.execute(
             """UPDATE armi.interaction_scenes
-               SET last_voice_ended_at=statement_timestamp(),
+               SET last_voice_ended_at=armi.business_time(statement_timestamp()),
                    voice_provider_calls=COALESCE((
                      SELECT jsonb_object_agg(key, CASE
                        WHEN value->>'voice_session_id'=%s AND value->>'outcome'='pending'
                        THEN value || jsonb_build_object('outcome','unknown',
-                            'finished_at',statement_timestamp(),
+                            'finished_at',armi.business_time(statement_timestamp()),
                             'error_code','VOICE-SESSION-ENDED')
                        ELSE value END)
                      FROM jsonb_each(voice_provider_calls)
@@ -165,7 +165,7 @@ class PostgreSQLInteractionPerception:
         rows = await (
             await transaction.execute(
                 """UPDATE armi.external_message_parts
-               SET processing_status='unknown',failure_code=%s,settled_at=statement_timestamp()
+               SET processing_status='unknown',failure_code=%s,settled_at=armi.business_time(statement_timestamp())
                WHERE processing_status='pending' AND recognition_request_artifact_id IS NOT NULL
                  AND (%s::uuid[] IS NULL OR interaction_id=ANY(%s::uuid[]))
                RETURNING recognition_work_id""",
@@ -234,7 +234,7 @@ class PostgreSQLInteractionPerception:
                     """UPDATE armi.external_message_parts
                        SET processing_status='unknown',
                            failure_code='EXTERNAL-MESSAGE-RECOGNITION-INTERRUPTED',
-                           settled_at=statement_timestamp()
+                           settled_at=armi.business_time(statement_timestamp())
                        WHERE interaction_id=%s AND processing_status='pending'
                        RETURNING external_message_part_id""",
                     (interaction_id,),
@@ -354,7 +354,7 @@ class PostgreSQLInteractionPerception:
             """UPDATE armi.external_message_parts
                SET processing_status='succeeded',raw_artifact_id=%s,
                    interpretation_artifact_id=%s,interpretation_text=%s,
-                   settled_at=statement_timestamp()
+                   settled_at=armi.business_time(statement_timestamp())
                WHERE external_message_part_id=%s AND processing_status='pending'""",
             (raw_artifact_id, interpretation_artifact_id, interpretation_text, part_id),
         )
@@ -373,7 +373,7 @@ class PostgreSQLInteractionPerception:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION")
         result = await transaction.execute(
             """UPDATE armi.external_message_parts
-               SET processing_status=%s,failure_code=%s,settled_at=statement_timestamp()
+               SET processing_status=%s,failure_code=%s,settled_at=armi.business_time(statement_timestamp())
                WHERE external_message_part_id=%s AND processing_status='pending'""",
             (status, error_code, part_id),
         )
@@ -476,7 +476,7 @@ class PostgreSQLInteractionPerception:
             """INSERT INTO armi.scene_timeline_items
                (timeline_item_id,scene_id,source_kind,source_ref,source_event_no,
                 result_status,occurred_at)
-               VALUES (%s,%s,%s,%s,1,'accepted',statement_timestamp())""",
+               VALUES (%s,%s,%s,%s,1,'accepted',armi.business_time(statement_timestamp()))""",
             (timeline_id, snapshot.scene_id, source_kind, snapshot.interaction_id),
         )
         await transaction.execute(
