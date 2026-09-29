@@ -106,6 +106,18 @@ class DialogueLab:
             raise LabError(f"LAB-ADMIN-{name}: {result.get('error_code', 'unknown')}")
         return result["result"]
 
+    def status(self) -> dict[str, Any]:
+        runtime = self.admin("runtime_status")
+        # A stopped lab may also have a stopped database; do not query its projections.
+        if runtime["status"] != "running":
+            autonomy = {
+                "status": "unavailable",
+                "reason": "runtime_" + runtime["status"],
+            }
+        else:
+            autonomy = self.admin("autonomy_status")
+        return {"runtime": runtime, "autonomy": autonomy}
+
     def capture(
         self, *, interaction_id: str | None = None, episode_id: str | None = None
     ) -> Path:
@@ -403,10 +415,7 @@ def main() -> int:
                     "environment_" + args.command, {"idempotency_key": str(uuid7())}
                 )
             elif args.command == "status":
-                result = {
-                    "runtime": lab.admin("runtime_status"),
-                    "autonomy": lab.admin("autonomy_status"),
-                }
+                result = lab.status()
             elif args.command == "advance":
                 result = lab.admin(
                     "advance_test_time",
@@ -435,7 +444,7 @@ def main() -> int:
                         if text == "/quit":
                             break
                         if text == "/status":
-                            result = lab.admin("autonomy_status")
+                            result = lab.status()
                         elif text.startswith("/advance "):
                             result = lab.admin(
                                 "advance_test_time",

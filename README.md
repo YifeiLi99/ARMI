@@ -301,7 +301,11 @@ uv run python tools/verify_live_creator_roundtrip.py `
 
 ### 源码对话实验室
 
+长期目标是本地模拟仓，用于快速验证 ARMI 自主性及各类 prompt 的实际输入输出：复用真实运行的认知、心理状态、调度和提交链路，允许时间快速流逝，并可按实验选择跳过实质性外部效果以加快验证。跳过的效果必须明确标为模拟或未执行，不能记成真实成功；未选择跳过的环节遵守原有执行与核验合同。能力逐步补齐，当前尚未实现全链路时间加速或可选效果跳过，不能把现有 Mind/Attention 跳时视为完整模拟仓。
+
 `tools/dialogue_lab.py` 用独立 `system_test` 环境运行当前源码，支持连续对话、Mind/Attention 跳时和按轮抓取。无需打包或安装 MSIX；后端源码修改后停止再启动即可。前端资源只需首次或前端修改后构建。实验环境保留自己的身份和对话，不读取安装版配置、凭据或数据库；已有目录拒绝重新初始化，schema 不匹配时停止，需另建新实验目录。
+
+`status` 与聊天中的 `/status` 先查询 Runtime；停止时直接返回 `runtime.status=stopped` 和自主状态不可用原因，不连接已停止的数据库。运行时仍查询真实自主状态，查询失败明确报错。实验凭据可由用户明确授权从安装版选取所需 Key，保存在 Git 忽略的本地 `.env.dialogue-lab`，再通过 setup 共用私有存储用例配置到实验环境；工具不会自动读取安装版或自动加载该 env 文件，秘密不得进入 prompt、捕获文件或提交。
 
 准备自己选择的人格锚点 YAML（`schema_kind: armi.personality-anchor`、`voice_style: 约 16 岁少女口吻`、`traits` 字符串列表），然后运行：
 

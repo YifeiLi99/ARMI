@@ -17,6 +17,31 @@ def lab_at(tmp_path):
     return lab
 
 
+def test_stopped_status_does_not_query_offline_database(tmp_path):
+    lab = lab_at(tmp_path)
+    lab.admin = Mock(return_value={"status": "stopped", "pid": None})
+    assert lab.status() == {
+        "runtime": {"status": "stopped", "pid": None},
+        "autonomy": {"status": "unavailable", "reason": "runtime_stopped"},
+    }
+    lab.admin.assert_called_once_with("runtime_status")
+
+
+def test_running_status_preserves_autonomy_failure(tmp_path):
+    lab = lab_at(tmp_path)
+    lab.admin = Mock(
+        side_effect=[{"status": "running", "pid": 123}, LabError("observation failed")]
+    )
+    with pytest.raises(LabError, match="observation failed"):
+        lab.status()
+
+
+def test_running_status_returns_real_autonomy(tmp_path):
+    lab = lab_at(tmp_path)
+    lab.admin = Mock(side_effect=[{"status": "running"}, {"enabled": True}])
+    assert lab.status()["autonomy"] == {"enabled": True}
+
+
 def test_capture_preserves_all_attempts_unicode_pages_and_appraisal(
     tmp_path, monkeypatch
 ):
