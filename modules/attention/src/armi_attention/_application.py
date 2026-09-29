@@ -263,7 +263,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
                 if not exc.code.startswith("LIFE-BACKPRESSURE-"):
                     raise
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stop.wait(), timeout=5)
+                await asyncio.wait_for(self._stop.wait(), timeout=1)
 
     async def maintain_sleep_once(self) -> OpportunityAdmissionOutcome:
         try:

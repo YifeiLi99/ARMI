@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -730,7 +731,12 @@ class ModelPipeline:
                     )
                     return
                 if is_check:
-                    category = parse_autonomy_check(cast(bytes, result.response_bytes))
+                    requested = json.loads(request_bytes)["questions"]["category"][
+                        "criteria"
+                    ]
+                    category = parse_autonomy_check(
+                        cast(bytes, result.response_bytes), list(requested)
+                    )
                     async with self._factory.unit_of_work() as unit_of_work:
                         await self._repository.finalize_autonomy_check(
                             unit_of_work,

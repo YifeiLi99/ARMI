@@ -1027,7 +1027,8 @@ export interface components {
     /** AutonomyHistoryItem */
     AutonomyHistoryItem: {
       /** Autonomy Category */
-      autonomy_category: ("wake" | "wait") | null;
+      autonomy_category:
+        ("rest" | "reflect" | "continue" | "explore" | "connect") | null;
       /** Available After */
       available_after: string;
       /** Cognition Status */
@@ -1062,13 +1063,25 @@ export interface components {
     };
     /** AutonomyPolicyResponse */
     AutonomyPolicyResponse: {
+      /** Activation Base Rate */
+      activation_base_rate: number;
+      /** Activation Growth Factor */
+      activation_growth_factor: number;
+      /** Activation Weight */
+      activation_weight: number;
       /** Enabled */
       enabled: boolean;
+      /** Idle Maturation Seconds */
+      idle_maturation_seconds: number;
+      /** Maximum Idle Seconds */
+      maximum_idle_seconds: number;
       /**
        * Outlet
        * @enum {string}
        */
       outlet: "qq" | "creator_web";
+      /** Quiet Seconds */
+      quiet_seconds: number;
     };
     /** AutonomyStageUsage */
     AutonomyStageUsage: {
@@ -1085,6 +1098,10 @@ export interface components {
     };
     /** AutonomyStatus */
     AutonomyStatus: {
+      /** Activation Cycle */
+      activation_cycle?: number | null;
+      /** Activation Progress */
+      activation_progress?: number | null;
       /** Blocked Reason Code */
       blocked_reason_code?: string | null;
       /**
@@ -1106,14 +1123,21 @@ export interface components {
       effective_consideration_at?: string | null;
       /** Failure Streak */
       failure_streak?: number | null;
+      /** Idle Seconds */
+      idle_seconds?: number | null;
       /** Idle Streak */
       idle_streak?: number | null;
       /** Last Check Started At */
       last_check_started_at?: string | null;
       /** Last Considered At */
       last_considered_at?: string | null;
+      /** Last Direction */
+      last_direction?:
+        ("rest" | "reflect" | "continue" | "explore" | "connect") | null;
       /** Last Engage */
       last_engage?: boolean | null;
+      /** Last Selection Result */
+      last_selection_result?: string | null;
       /**
        * Motivations
        * @default []
@@ -1166,6 +1190,11 @@ export interface components {
        * @constant
        */
       timezone: "Asia/Shanghai";
+      /**
+       * Trigger Reasons
+       * @default []
+       */
+      trigger_reasons: string[];
     };
     /** BrowserSessionCurrentResponse */
     BrowserSessionCurrentResponse: {

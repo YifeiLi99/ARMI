@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -109,14 +109,23 @@ class PostgreSQLOpportunityOwner:
                  AND current_disposition IN ('open','selected')""",
             (subject_id,),
         )
-        await transaction.execute(
-            """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,
+        interrupted = await (
+            await transaction.execute(
+                """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,
                    opportunity_id=NULL,phase='waiting',idle_streak=0,failure_streak=0,
                    next_consideration_at=armi.business_time(statement_timestamp())+interval '60 seconds',
                    updated_at=armi.business_time(statement_timestamp())
-               WHERE subject_id=%s AND opportunity_id IS NOT NULL AND phase<>'blocked'""",
-            (subject_id,),
-        )
+                WHERE subject_id=%s AND opportunity_id IS NOT NULL AND phase<>'blocked'
+                RETURNING policy""",
+                (subject_id,),
+            )
+        ).fetchone()
+        if interrupted is not None:
+            await PostgreSQLAutonomyOwner().reset_activation(
+                transaction,
+                subject_id=subject_id,
+                policy=AutonomyPolicy(**cast(dict[str, Any], interrupted[0])),
+            )
 
     async def interrupt_conversations(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -340,13 +349,29 @@ class PostgreSQLOpportunityOwner:
                       p.outlet_state,p.outlet_reason_code,
                       (SELECT max(resolved_at) FROM armi.opportunities o
                        WHERE o.subject_id=p.subject_id AND o.purpose='consider_autonomous_life'),
-                      p.idle_streak,p.last_engage,p.last_check_started_at,p.social_cycle
+                      p.idle_streak,p.last_engage,p.last_check_started_at,p.social_cycle,
+                      p.activation,p.trigger_reasons,p.last_direction,p.last_selection_result
                FROM armi.autonomy_plans p WHERE p.subject_id=%s""",
                 (candidate.subject_id,),
             )
         ).fetchone()
         if state is None:
             raise LifeViolation("LIFE-AUTONOMY-PLAN-MISSING")
+        from armi_runtime_foundation import active_runtime_seconds
+
+        from ._activation import Activation
+
+        activation = None if state[10] is None else Activation.model_validate(state[10])
+        idle_seconds = (
+            0
+            if activation is None
+            else activation.project(
+                await active_runtime_seconds(
+                    transaction, subject_id=candidate.subject_id
+                ),
+                AutonomyPolicy(**json.loads(state[1])),
+            )[1]
+        )
         return replace(
             candidate,
             autonomy_context=rfc8785.dumps(
@@ -358,6 +383,15 @@ class PostgreSQLOpportunityOwner:
                     "idle_streak": int(state[6]),
                     "last_engage": state[7],
                     "category": row[13],
+                    "trigger_reasons": state[11],
+                    "idle_seconds": round(idle_seconds),
+                    "last_direction": state[12],
+                    "last_selection_result": state[13],
+                    "connect_available": candidate.scene_id is not None
+                    and state[3] == "ready"
+                    and state[9] is not None
+                    and state[9]["phase"] == "considering",
+                    "continue_available": candidate.activity_id is not None,
                     "social_motivation": state[9]
                     if state[9] is not None
                     and state[9].get("phase") == "cognition"
@@ -453,8 +487,9 @@ class PostgreSQLOpportunityOwner:
             )
         ).fetchone()
         if row is not None:
-            await transaction.execute(
-                """UPDATE armi.autonomy_plans p SET
+            failed_plan = await (
+                await transaction.execute(
+                    """UPDATE armi.autonomy_plans p SET
                        plan_version=plan_version+1,opportunity_id=NULL,
                        failure_streak=LEAST(failure_streak+1,3),
                        phase=CASE WHEN %s THEN 'blocked' ELSE 'waiting' END,
@@ -463,23 +498,35 @@ class PostgreSQLOpportunityOwner:
                          CASE failure_streak WHEN 0 THEN interval '60 seconds'
                            WHEN 1 THEN interval '120 seconds' ELSE interval '300 seconds' END,
                        updated_at=armi.business_time(statement_timestamp())
-                   WHERE p.opportunity_id=%s""",
-                (
-                    bool(
+                   WHERE p.opportunity_id=%s RETURNING subject_id,policy,failure_streak""",
+                    (
+                        bool(
+                            failure_code
+                            and failure_code.startswith(
+                                ("MODEL-CREDENTIAL", "MODEL-BINDING", "MODEL-AUTH")
+                            )
+                        ),
                         failure_code
+                        if failure_code
                         and failure_code.startswith(
                             ("MODEL-CREDENTIAL", "MODEL-BINDING", "MODEL-AUTH")
                         )
+                        else None,
+                        opportunity_id,
                     ),
-                    failure_code
-                    if failure_code
-                    and failure_code.startswith(
-                        ("MODEL-CREDENTIAL", "MODEL-BINDING", "MODEL-AUTH")
-                    )
-                    else None,
-                    opportunity_id,
-                ),
-            )
+                )
+            ).fetchone()
+            if failed_plan is not None:
+                await PostgreSQLAutonomyOwner().reset_activation(
+                    transaction,
+                    subject_id=failed_plan[0],
+                    policy=AutonomyPolicy(**cast(dict[str, Any], failed_plan[1])),
+                    delay_seconds=(60, 120, 300)[min(int(failed_plan[2]) - 1, 2)],
+                )
+                await transaction.execute(
+                    "UPDATE armi.autonomy_plans SET last_selection_result=%s WHERE subject_id=%s",
+                    (failure_code or "failed", failed_plan[0]),
+                )
         return row is not None
 
     async def operation_snapshot(

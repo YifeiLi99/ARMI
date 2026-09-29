@@ -7,21 +7,31 @@ from typing import Any
 from armi_kernel.application import AutonomyCategory, ModelViolation, record_diagnostic
 
 
-def autonomy_check_questions() -> dict[str, Any]:
+def autonomy_check_questions(available: list[str] | None = None) -> dict[str, Any]:
+    criteria = {
+        "rest": "Continue resting; no thought or action is currently wanted.",
+        "reflect": "Think privately about oneself, an experience or an open question.",
+        "continue": "Continue an existing actionable activity.",
+        "explore": "Explore an interest or develop a new idea using available capabilities.",
+        "connect": "Consider communicating with an available person.",
+        "unknown": "Insufficient or conflicting state to choose a direction.",
+    }
     return {
         "category": {
             "type": "choice",
-            "instructions": "Does this existing state warrant waking cognition now? Do not reassess psychology or choose an action. Waiting, elapsed time or a registered activity alone is not a reason. Unknown values are not zero.",
+            "instructions": "An internal opportunity to choose has arrived. Select the preferred direction now, not a concrete action. Reflection or exploration can begin without an existing motive. Rest is valid; do not force productivity or conversation. Do not reassess psychology. Unknown values are not zero.",
             "criteria": {
-                "wake": "A current motive or need warrants consideration.",
-                "wait": "Keep resting or waiting.",
-                "unknown": "Insufficient or conflicting state.",
+                key: value
+                for key, value in criteria.items()
+                if available is None or key in available or key == "unknown"
             },
         }
     }
 
 
-def parse_autonomy_check(response: bytes) -> AutonomyCategory:
+def parse_autonomy_check(
+    response: bytes, available: list[str] | None = None
+) -> AutonomyCategory:
     try:
         raw = json.loads(response)
         answers = raw["answers"]
@@ -32,7 +42,7 @@ def parse_autonomy_check(response: bytes) -> AutonomyCategory:
             raise ValueError
         probabilities = answer["probabilities"]
         if answer["type"] != "choice" or set(probabilities) != set(
-            autonomy_check_questions()["category"]["criteria"]
+            autonomy_check_questions(available)["category"]["criteria"]
         ):
             raise ValueError
         values = (*probabilities.values(), answer["confidence"])
@@ -54,7 +64,7 @@ def parse_autonomy_check(response: bytes) -> AutonomyCategory:
         "autonomy.check.evaluated",
         component="cognition",
         outcome="eligible"
-        if choice not in {"wait", "unknown"}
+        if choice not in {"rest", "unknown"}
         else "undetermined"
         if choice == "unknown"
         else "not_scheduled",

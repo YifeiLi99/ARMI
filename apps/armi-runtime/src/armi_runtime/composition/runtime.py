@@ -673,6 +673,10 @@ async def _serve(
                 assert offset is not None
                 simulation_clock.set_offset(int(offset[0]))
                 bind_business_clock(simulation_clock.read)
+                if simulation_clock.seed is not None:
+                    from armi_attention.bootstrap import bind_simulation_seed
+
+                    bind_simulation_seed(simulation_clock.seed)
             if mood_display_config is not None and mood_display_config.enabled:
                 display_subject_id = authority.require_writable().subject_id
 

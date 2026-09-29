@@ -110,6 +110,12 @@ def check_context_items(
                     "outlet_reason_code",
                     "last_engage",
                     "category",
+                    "trigger_reasons",
+                    "idle_seconds",
+                    "last_direction",
+                    "last_selection_result",
+                    "connect_available",
+                    "continue_available",
                 )
                 if key in autonomy
             }
@@ -195,6 +201,11 @@ def check_context_items(
         value = _without_identifiers(value)
         # Crop values, never serialized JSON: malformed fragments hide the very
         # status/count fields that distinguish waiting from missing information.
+        trigger_reasons = (
+            value.get("trigger_reasons")
+            if item.item_kind == "current_life_opportunity"
+            else None
+        )
         value = _bounded(
             value,
             text_limit=2048
@@ -205,6 +216,8 @@ def check_context_items(
             if item.item_kind in {"current_concern", "current_motivation"}
             else 48,
         )
+        if trigger_reasons is not None:
+            value["trigger_reasons"] = trigger_reasons
         result.append(
             replace(
                 item,

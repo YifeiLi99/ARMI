@@ -39,13 +39,15 @@ def collect_usage(lab: DialogueLab, *, start: str, end: str) -> dict[str, Any]:
     }
 
 
-def simulate(lab: DialogueLab, *, seconds: int) -> dict[str, object]:
+def simulate(
+    lab: DialogueLab, *, seconds: int, seed: int | None = None
+) -> dict[str, object]:
     if type(seconds) is not int or not 1 <= seconds <= 3600:
         raise LabError("LAB-SIMULATION-DURATION")
     if lab.admin("runtime_status")["status"] != "stopped":
         raise LabError("LAB-SIMULATION-REQUIRES-STOPPED-RUNTIME")
     clock = SimulationClock(lab.root, lab.config.environment_id)
-    clock.initialize()
+    clock.initialize(seed)
     directory = lab.root / "simulations" / str(uuid7())
     private_directory(directory)
     started = datetime.now(UTC).isoformat()
@@ -56,6 +58,7 @@ def simulate(lab: DialogueLab, *, seconds: int) -> dict[str, object]:
         "root": str(lab.root),
         "scenario": "continue_existing_subject_without_new_input",
         "time_mode": "real_execution_with_idle_time_injection",
+        "random_seed": clock.seed,
     }
     save(directory / "report.json", report)
     with lab.admin_session():

@@ -4,5 +4,8 @@ from enum import StrEnum
 
 
 class AutonomyCategory(StrEnum):
-    WAKE = "wake"
-    WAIT = "wait"
+    REST = "rest"
+    REFLECT = "reflect"
+    CONTINUE = "continue"
+    EXPLORE = "explore"
+    CONNECT = "connect"

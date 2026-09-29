@@ -13,14 +13,14 @@ from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFact
     "input_pending,voice_active,reply_pending,opportunity_pending,quiet_seconds,expected",
     [
         (False, False, False, False, 60, True),
-        (False, False, False, False, 59, False),
+        (False, False, False, False, 59, True),
         (True, False, False, False, 300, False),
         (False, True, False, False, 300, False),
         (False, False, True, False, 300, False),
         (False, False, False, True, 300, False),
     ],
 )
-async def test_only_quiet_completed_human_exchange_is_idle(
+async def test_no_external_work_is_idle_and_attention_owns_quiet_period(
     monkeypatch,
     input_pending,
     voice_active,
@@ -52,7 +52,7 @@ async def test_only_quiet_completed_human_exchange_is_idle(
     )
     transaction = SimpleNamespace(
         execute=AsyncMock(
-            return_value=SimpleNamespace(fetchone=AsyncMock(return_value=(now,)))
+            return_value=SimpleNamespace(fetchone=AsyncMock(return_value=(False,)))
         )
     )
     facts = RuntimeLifeOpportunityFacts(

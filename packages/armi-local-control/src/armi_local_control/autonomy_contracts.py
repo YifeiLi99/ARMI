@@ -12,6 +12,12 @@ class AutonomyResponse(BaseModel):
 class AutonomyPolicyResponse(AutonomyResponse):
     enabled: bool
     outlet: Literal["qq", "creator_web"]
+    activation_weight: float
+    activation_base_rate: float
+    activation_growth_factor: float
+    idle_maturation_seconds: int
+    maximum_idle_seconds: int
+    quiet_seconds: int
 
 
 class ConcernAttentionStatus(AutonomyResponse):
@@ -124,6 +130,14 @@ class SocialCycleStatus(AutonomyResponse):
 
 
 class AutonomyStatus(AutonomyResponse):
+    activation_progress: float | None = Field(default=None, ge=0, le=1)
+    idle_seconds: float | None = Field(default=None, ge=0)
+    activation_cycle: int | None = None
+    trigger_reasons: list[str] = []
+    last_direction: (
+        Literal["rest", "reflect", "continue", "explore", "connect"] | None
+    ) = None
+    last_selection_result: str | None = None
     continuous_dimensions: list[ContinuousMindDimension] = []
     social_cycle: SocialCycleStatus | None = None
     phase: Literal["waiting", "check", "execute", "blocked"] | None = None
@@ -162,7 +176,9 @@ class AutonomyStatus(AutonomyResponse):
 
 
 class AutonomyHistoryItem(AutonomyResponse):
-    autonomy_category: Literal["wake", "wait"] | None
+    autonomy_category: (
+        Literal["rest", "reflect", "continue", "explore", "connect"] | None
+    )
     stage: Literal["check", "execute"]
     root_opportunity_id: str
     predecessor_opportunity_id: str | None

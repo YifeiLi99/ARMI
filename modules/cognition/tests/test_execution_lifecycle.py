@@ -346,7 +346,7 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
 ):
     from dataclasses import replace
 
-    engage = choice not in {"wait", "unknown", "invalid"}
+    engage = choice not in {"rest", "unknown", "invalid"}
     pipeline, record, _frozen, _response = _format_retry_execution(monkeypatch)
     pipeline.episode = replace(pipeline.episode, purpose="consider_autonomy_check")
     pipeline._read_context = AsyncMock(
@@ -376,8 +376,11 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
                     "choice": choice,
                     "confidence": 1,
                     "probabilities": {
-                        "wake": 0,
-                        "wait": 1,
+                        "reflect": 0,
+                        "rest": 1,
+                        "continue": 0,
+                        "explore": 0,
+                        "connect": 0,
                         "unknown": 0,
                     },
                 }
@@ -386,7 +389,17 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
     ).encode()
     check = SimpleNamespace(
         binding=SimpleNamespace(provider="typesafe"),
-        request_evidence=lambda context: context,
+        request_evidence=lambda context: json.dumps(
+            {
+                "questions": {
+                    "category": {
+                        "criteria": {
+                            str(key): "" for key in [*AutonomyCategory, "unknown"]
+                        }
+                    }
+                }
+            }
+        ).encode(),
         invoke=AsyncMock(
             return_value=replace(
                 pipeline.adapter.invoke.return_value, response_bytes=raw

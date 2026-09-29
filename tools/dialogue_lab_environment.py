@@ -31,8 +31,15 @@ from tools.dialogue_lab import DialogueLab
 from tools.dialogue_lab_support import ROOT, LabError
 
 
-def initialize(root: Path, *, anchor: Path, creator_resources: Path) -> dict[str, Any]:
+def initialize(
+    root: Path, *, anchor: Path, creator_resources: Path, activation_weight: int = 50
+) -> dict[str, Any]:
     from armi_admin.application.setup_operations import SetupAnchor
+    from armi_local_control.configuration.models import AutonomyConfig
+
+    autonomy = AutonomyConfig(
+        enabled=True, outlet="creator_web", activation_weight=activation_weight
+    )
 
     personality = SetupAnchor.model_validate(
         load_yaml_file(anchor.resolve(strict=True))
@@ -131,7 +138,7 @@ def initialize(root: Path, *, anchor: Path, creator_resources: Path) -> dict[str
                 "data_root": str(root / "data"),
             },
             "creator": {"port": creator_port},
-            "autonomy": {"enabled": True, "outlet": "creator_web"},
+            "autonomy": autonomy.model_dump(),
             "secret_locators": {
                 "database.runtime": locators["runtime"],
                 "database.migrator": locators["migrator"],

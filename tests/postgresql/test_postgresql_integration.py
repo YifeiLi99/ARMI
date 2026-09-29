@@ -1974,7 +1974,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 async def finish_check(
                     opportunity_id: UUID,
                     engage: bool,
-                    category: AutonomyCategory = AutonomyCategory.WAKE,
+                    category: AutonomyCategory = AutonomyCategory.REFLECT,
                 ) -> UUID:
                     episode = uuid7()
                     async with factory.unit_of_work() as unit:
@@ -1993,7 +1993,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit.transaction,
                             opportunity_id=opportunity_id,
                             episode_id=episode,
-                            category=category if engage else AutonomyCategory.WAIT,
+                            category=category if engage else AutonomyCategory.REST,
                         )
                         await unit.transaction.execute(
                             """UPDATE armi.cognitive_episodes SET status='completed',
@@ -2015,6 +2015,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchone()
                     raw = autonomy_result(row)
                     raw.pop("consumed_signal_keys")
+                    from armi_attention.api import project_signal_status
+
+                    project_signal_status(raw, (), frozenset())
                     status = AutonomyStatus.model_validate(raw)
                     self.assertEqual(status.phase, "waiting")
                     self.assertEqual(status.idle_streak, 1)
@@ -2037,7 +2040,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(history.total, 1)
                     self.assertEqual(history.items[0].stage, "check")
-                    self.assertEqual(history.items[0].autonomy_category, "wait")
+                    self.assertEqual(history.items[0].autonomy_category, "rest")
 
                 # Virtual time: no quota after repeated checks and no catch-up burst.
                 last_check_id = admitted.opportunity_id
@@ -2112,7 +2115,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit.transaction,
                             opportunity_id=last_check_id,
                             episode_id=uuid7(),
-                            category=AutonomyCategory.WAKE,
+                            category=AutonomyCategory.REFLECT,
                         )
                 # Preemption also discards an execution opportunity before it has
                 # an episode. The next idle period must start a fresh light check.
@@ -2131,7 +2134,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 # Every action category survives owner settlement and the frozen
                 # Context projection; classification never dispatches an Effect.
                 for category in AutonomyCategory:
-                    if category is AutonomyCategory.WAIT:
+                    if category is AutonomyCategory.REST:
                         continue
                     async with factory.unit_of_work() as unit:
                         await unit.transaction.execute(
@@ -4673,7 +4676,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(initial.reason_code, "LIFE-AUTONOMY-NOT-DUE")
                 async with factories[0].unit_of_work() as uow:
                     await uow.transaction.execute(
-                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second'"
+                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second', activation=jsonb_set(jsonb_set(activation,'{accumulated}','100'),'{idle_seconds}','120')"
                     )
                 first, second = await asyncio.gather(
                     pipelines[0].admit_once(),
@@ -4702,7 +4705,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     async with factories[0].unit_of_work() as uow:
                         await uow.transaction.execute(
-                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second', last_check_started_at=statement_timestamp()-interval '61 seconds'"
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second', last_check_started_at=statement_timestamp()-interval '61 seconds', activation=jsonb_set(jsonb_set(jsonb_set(activation,'{accumulated}','100'),'{idle_seconds}','120'),'{idling}','true')"
                         )
                     fresh, concurrent = await asyncio.gather(
                         pipelines[0].admit_once(),

@@ -340,6 +340,22 @@ class CodexConfig(_FrozenModel):
 class AutonomyConfig(_FrozenModel):
     enabled: bool = True
     outlet: Literal["qq", "creator_web"] = "qq"
+    activation_weight: float = Field(default=50, ge=0, le=100, allow_inf_nan=False)
+    activation_base_rate: float = Field(default=0.5, gt=0, allow_inf_nan=False)
+    activation_growth_factor: float = Field(default=16, ge=1, allow_inf_nan=False)
+    idle_maturation_seconds: int = Field(default=1800, ge=60)
+    maximum_idle_seconds: int = Field(default=7200, ge=60)
+    quiet_seconds: int = Field(default=60, ge=1)
+
+    @model_validator(mode="after")
+    def activation_intervals(self) -> Self:
+        if (
+            not self.quiet_seconds
+            <= self.idle_maturation_seconds
+            <= self.maximum_idle_seconds
+        ):
+            raise ValueError("autonomy activation intervals must be ordered")
+        return self
 
 
 class RuntimeConfig(_FrozenModel):

@@ -38,8 +38,9 @@ def test_wake_request_excludes_history_and_keeps_existing_state():
     ]
     context = json.dumps({"layers": [{"items": items}]}).encode()
     request = check.request_evidence(context)
-    assert len(request) <= 1024
-    assert b"private" not in request
+    assert len(request) <= 4096
+    assert b"private dialogue" not in request
+    assert b"private identity" not in request
     assert json.loads(request)["state"]["mood"] == {"valence": 0.25, "arousal": 0.5}
     assert json.loads(request)["state"]["drives"]["explore"] is None
 
@@ -47,7 +48,7 @@ def test_wake_request_excludes_history_and_keeps_existing_state():
 def test_wake_request_growth_fails_before_provider(monkeypatch):
     monkeypatch.setattr(
         "armi_runtime.adapters.model.jev_autonomy.autonomy_check_questions",
-        lambda: {"accidental_growth": "x" * 1024},
+        lambda available: {"accidental_growth": "x" * 4096},
     )
     check = JevAutonomyCheck(
         credentials=cast(Any, Credentials()), locator=None, timeout_seconds=20
@@ -70,10 +71,10 @@ async def test_jev_check_is_single_metered_request_without_main_model(
         "answers": {
             "category": {
                 "type": "choice",
-                "choice": "wait",
+                "choice": "rest",
                 "confidence": 1,
                 "probabilities": {
-                    key: int(key == "wait")
+                    key: int(key == "rest")
                     for key in autonomy_check_questions()["category"]["criteria"]
                 },
             }
@@ -131,8 +132,9 @@ async def test_jev_check_is_single_metered_request_without_main_model(
     assert len(calls) == 1
     assert "context" not in calls[0]["state"]
     assert set(calls[0]["questions"]["category"]["criteria"]) == {
-        "wake",
-        "wait",
+        "rest",
+        "reflect",
+        "explore",
         "unknown",
     }
     assert set(calls[0]["questions"]) == {"category"}

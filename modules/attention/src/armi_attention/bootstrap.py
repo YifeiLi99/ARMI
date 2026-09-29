@@ -13,6 +13,7 @@ from armi_runtime_foundation import (
 from armi_sleep.api import SleepMaintenancePort, SleepOpportunityPort, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
+from ._activation import bind_simulation_seed
 from ._admin import PostgreSQLOpportunityAdmin
 from ._application import compose_opportunity_pipeline
 from ._autonomy_postgresql import PostgreSQLAutonomyOwner
@@ -108,6 +109,7 @@ def bootstrap_simulation_read() -> SimulationReadPort:
 
 
 __all__ = (
+    "bind_simulation_seed",
     "bootstrap_autonomy",
     "bootstrap_opportunity",
     "bootstrap_opportunity_admin",

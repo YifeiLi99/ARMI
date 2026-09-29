@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
+from datetime import timedelta
 from random import random
 from uuid import UUID, uuid7
 
-from armi_kernel.application import AutonomyCategory, ConsiderationSignal
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_kernel.application import AutonomyCategory, ConsiderationSignal, business_now
+from armi_runtime_foundation import PostgreSQLTransaction, active_runtime_seconds
 
+from ._activation import Activation
 from ._autonomy_schedule import AutonomySchedule
 from ._signals import signal_metadata, unconsumed_signals
 from ._social_cycle import SocialCycle
@@ -24,6 +26,69 @@ from .api import (
 
 
 class PostgreSQLAutonomyOwner:
+    async def activation_state(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        policy: AutonomyPolicy,
+        idling: bool,
+        need: float,
+        runtime_ref: str,
+    ) -> Activation:
+        row = await (
+            await transaction.execute(
+                "SELECT activation FROM armi.autonomy_plans WHERE subject_id=%s FOR UPDATE",
+                (subject_id,),
+            )
+        ).fetchone()
+        assert row is not None
+        active = await active_runtime_seconds(transaction, subject_id=subject_id)
+        previous = None if row[0] is None else Activation.model_validate(row[0])
+        state = previous or Activation.begin(cycle=0, active=active, policy=policy)
+        state = state.changed(active=active, idling=idling, need=need, policy=policy)
+        state = state.model_copy(update={"runtime_ref": runtime_ref})
+        if state != previous:
+            await transaction.execute(
+                """UPDATE armi.autonomy_plans SET activation=%s::jsonb,
+                   next_consideration_at=%s WHERE subject_id=%s""",
+                (
+                    state.model_dump_json(),
+                    business_now() + timedelta(seconds=state.remaining(active, policy)),
+                    subject_id,
+                ),
+            )
+        return state
+
+    async def reset_activation(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        policy: AutonomyPolicy,
+        delay_seconds: int = 0,
+    ) -> None:
+        row = await (
+            await transaction.execute(
+                "SELECT activation FROM armi.autonomy_plans WHERE subject_id=%s FOR UPDATE",
+                (subject_id,),
+            )
+        ).fetchone()
+        assert row is not None
+        cycle = 0 if row[0] is None else int(row[0]["cycle"]) + 1
+        state = Activation.begin(
+            cycle=cycle,
+            active=await active_runtime_seconds(transaction, subject_id=subject_id),
+            policy=policy,
+        )
+        state = state.model_copy(
+            update={"retry_after": state.anchor_seconds + delay_seconds}
+        )
+        await transaction.execute(
+            "UPDATE armi.autonomy_plans SET activation=%s::jsonb WHERE subject_id=%s",
+            (state.model_dump_json(), subject_id),
+        )
+
     async def commit_social_decision(
         self,
         transaction: PostgreSQLTransaction,
@@ -144,6 +209,7 @@ class PostgreSQLAutonomyOwner:
         activity_id: UUID | None = None,
         signals: tuple[ConsiderationSignal, ...] = (),
         social_ready: bool = False,
+        due_activity: bool = False,
     ) -> OpportunityAdmissionOutcome:
         if not policy.enabled:
             return OpportunityAdmissionOutcome(
@@ -167,6 +233,9 @@ class PostgreSQLAutonomyOwner:
                 return OpportunityAdmissionOutcome(
                     OpportunityAdmissionStatus.DUPLICATE, plan.opportunity_id
                 )
+            await self.reset_activation(
+                transaction, subject_id=subject_id, policy=policy
+            )
             # A failed/interrupted round cannot supply a subjective plan. Schedule
             # a fresh opportunity, preserving its terminal fact and original plan.
             await transaction.execute(
@@ -189,7 +258,10 @@ class PostgreSQLAutonomyOwner:
                           last_check_started_at<=armi.business_time(statement_timestamp())-interval '60 seconds')
                      AND phase<>'blocked'
                    FROM armi.autonomy_plans WHERE subject_id=%s""",
-                (signal_at, subject_id),
+                (
+                    business_now() if social_ready or due_activity else signal_at,
+                    subject_id,
+                ),
             )
         ).fetchone()
         if ready is None or not ready[0]:
@@ -206,9 +278,7 @@ class PostgreSQLAutonomyOwner:
             (
                 opportunity_id,
                 subject_id,
-                "consider_autonomous_life"
-                if social_ready
-                else "consider_autonomy_check",
+                "consider_autonomy_check",
                 opportunity_id,
                 subject_id,
                 plan.version,
@@ -225,18 +295,22 @@ class PostgreSQLAutonomyOwner:
                WHERE subject_id=%s""",
             (
                 opportunity_id,
-                "execute" if social_ready else "check",
+                "check",
                 bool(signals),
                 subject_id,
             ),
         )
+        reasons = [
+            signal.reason for signal in signals if signal.eligible_at <= business_now()
+        ]
         if social_ready:
-            await transaction.execute(
-                """UPDATE armi.autonomy_plans
-                SET social_cycle=jsonb_set(jsonb_set(jsonb_set(social_cycle,'{phase}','"cognition"'),'{reason}','"companionship_threshold"'),'{episode_ref}',to_jsonb(%s::text))
-                WHERE subject_id=%s""",
-                (str(opportunity_id), subject_id),
-            )
+            reasons.append("social_need")
+        if due_activity:
+            reasons.append("activity_due")
+        await transaction.execute(
+            "UPDATE armi.autonomy_plans SET trigger_reasons=%s::jsonb WHERE subject_id=%s",
+            (json.dumps(sorted(set(reasons)) or ["spontaneous"]), subject_id),
+        )
         return OpportunityAdmissionOutcome(
             OpportunityAdmissionStatus.ADMITTED, opportunity_id
         )
@@ -310,7 +384,7 @@ class PostgreSQLAutonomyOwner:
         ).fetchone()
         if row is None:
             raise LifeViolation("LIFE-AUTONOMY-PLAN-STALE")
-        engage = category is not AutonomyCategory.WAIT
+        engage = category is not AutonomyCategory.REST
         successor = uuid7() if engage else None
         if successor is not None:
             await transaction.execute(
@@ -334,6 +408,39 @@ class PostgreSQLAutonomyOwner:
                     category.value,
                 ),
             )
+        social = await (
+            await transaction.execute(
+                "SELECT social_cycle, trigger_reasons FROM armi.autonomy_plans WHERE subject_id=%s",
+                (row[0],),
+            )
+        ).fetchone()
+        if social is not None and social[0] is not None:
+            cycle = SocialCycle.model_validate(social[0])
+            active_seconds = await active_runtime_seconds(
+                transaction, subject_id=row[0]
+            )
+            if category is AutonomyCategory.CONNECT:
+                if cycle.phase != "considering" or active_seconds < cycle.review_at:
+                    raise LifeViolation("LIFE-SOCIAL-NOT-AVAILABLE")
+                cycle = cycle.model_copy(
+                    update={
+                        "phase": "cognition",
+                        "episode_ref": str(successor),
+                        "reason": "selected_connect",
+                    }
+                )
+            elif "social_need" in social[1]:
+                cycle = cycle.model_copy(
+                    update={
+                        "phase": "deferred",
+                        "review_at": active_seconds + 3600,
+                        "reason": "selected_" + category.value,
+                    }
+                )
+            await transaction.execute(
+                "UPDATE armi.autonomy_plans SET social_cycle=%s::jsonb WHERE subject_id=%s",
+                (cycle.model_dump_json(), row[0]),
+            )
         schedule = AutonomySchedule(int(row[2]))
         if not engage:
             schedule = schedule.settled(acted=False)
@@ -350,7 +457,7 @@ class PostgreSQLAutonomyOwner:
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET plan_version=plan_version+1,
                    source_episode_id=%s,opportunity_id=%s,last_engage=%s,
-                   idle_streak=%s,failure_streak=0,phase=%s,
+                   idle_streak=%s,failure_streak=0,phase=%s,last_direction=%s,last_selection_result=%s,
                    next_consideration_at=armi.business_time(statement_timestamp())+%s*interval '1 second',
                    updated_at=armi.business_time(statement_timestamp()) WHERE subject_id=%s""",
             (
@@ -359,10 +466,15 @@ class PostgreSQLAutonomyOwner:
                 engage,
                 schedule.idle_streak,
                 "execute" if engage else "waiting",
+                category.value,
+                "scheduled" if engage else "rest",
                 schedule.interval_seconds,
                 row[0],
             ),
         )
+
+        if not engage:
+            await self.reset_activation(transaction, subject_id=row[0], policy=policy)
 
     async def commit_plan(
         self,
@@ -404,3 +516,8 @@ class PostgreSQLAutonomyOwner:
         )
         if result.rowcount != 1:
             raise LifeViolation("LIFE-AUTONOMY-PLAN-STALE")
+        await transaction.execute(
+            "UPDATE armi.autonomy_plans SET last_selection_result=%s WHERE subject_id=%s",
+            ("acted" if acted else "no_action", subject_id),
+        )
+        await self.reset_activation(transaction, subject_id=subject_id, policy=policy)

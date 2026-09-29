@@ -42,15 +42,16 @@ def autonomous_instructions_for_context(compiled_context: bytes) -> str:
             if item["item_kind"] == "current_life_opportunity"
         )
         raw = json.loads(opportunity["content"])["autonomy"]["category"]
-        # Waking grants a thinking opportunity, never an action direction.
-        if raw is not None and AutonomyCategory(raw) is not AutonomyCategory.WAKE:
-            raise ValueError("full cognition requires wake")
+        if raw is not None and AutonomyCategory(raw) is AutonomyCategory.REST:
+            raise ValueError("rest has no follow-up cognition")
     except ValueError, KeyError, TypeError, StopIteration:
         raise ModelViolation("MODEL-AUTONOMY-CATEGORY") from None
     return AUTONOMOUS_ACTIVITY_INSTRUCTIONS + (
+        f"\n本轮轻量选择的方向是 {raw}。结合完整处境决定具体内容；可以修正方向或放弃，不强迫行动。"
+        "reflect 表示私下思考，使用现有内部活动保存真实思考进展，不为表示活跃而发消息。"
         "\n主动表达必须填写 expression_kind：companionship（寻求陪伴）、sharing（具体分享）或 commitment（履行约定）。"
         "分享和履约必须通过 expression_basis 引用真实依据的 ctx 序号。"
-        "存在 social_motivation 时，这是已经达到阈值的寻求陪伴动机，默认形成聊天表达；"
+        "存在 social_motivation 时，本轮选择了交流方向，结合真实动机决定是否表达；"
         "必须填写 social_decision 的 outcome（express、defer、release）及具体 reason。"
         "明确禁止联系、当前拒绝和联系时间约定优先；因此等待时选择 defer 或 release，不得借分享标签绕过。"
         "推迟或放弃应基于当前处境说明原因。没有该动机时不得生成 companionship 表达或 social_decision。"

@@ -17,8 +17,13 @@ CREATE TABLE armi.autonomy_plans (
     failure_streak integer NOT NULL DEFAULT 0 CHECK (failure_streak BETWEEN 0 AND 3),
     last_check_started_at timestamptz,
     last_event_at timestamptz,
+    consumed_activity_conditions jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(consumed_activity_conditions)='array'),
     last_engage boolean,
     blocked_reason_code text,
     model_configuration_revision text,
+    activation jsonb CHECK (activation IS NULL OR jsonb_typeof(activation)='object'),
+    trigger_reasons jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(trigger_reasons)='array'),
+    last_direction text CHECK (last_direction IN ('rest','reflect','continue','explore','connect')),
+    last_selection_result text,
     social_cycle jsonb CHECK (social_cycle IS NULL OR jsonb_typeof(social_cycle)='object')
 );

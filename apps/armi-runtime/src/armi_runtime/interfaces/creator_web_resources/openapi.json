@@ -136,8 +136,11 @@
             "anyOf": [
               {
                 "enum": [
-                  "wake",
-                  "wait"
+                  "rest",
+                  "reflect",
+                  "continue",
+                  "explore",
+                  "connect"
                 ],
                 "type": "string"
               },
@@ -293,9 +296,29 @@
       "AutonomyPolicyResponse": {
         "additionalProperties": false,
         "properties": {
+          "activation_base_rate": {
+            "title": "Activation Base Rate",
+            "type": "number"
+          },
+          "activation_growth_factor": {
+            "title": "Activation Growth Factor",
+            "type": "number"
+          },
+          "activation_weight": {
+            "title": "Activation Weight",
+            "type": "number"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "idle_maturation_seconds": {
+            "title": "Idle Maturation Seconds",
+            "type": "integer"
+          },
+          "maximum_idle_seconds": {
+            "title": "Maximum Idle Seconds",
+            "type": "integer"
           },
           "outlet": {
             "enum": [
@@ -304,11 +327,21 @@
             ],
             "title": "Outlet",
             "type": "string"
+          },
+          "quiet_seconds": {
+            "title": "Quiet Seconds",
+            "type": "integer"
           }
         },
         "required": [
           "enabled",
-          "outlet"
+          "outlet",
+          "activation_weight",
+          "activation_base_rate",
+          "activation_growth_factor",
+          "idle_maturation_seconds",
+          "maximum_idle_seconds",
+          "quiet_seconds"
         ],
         "title": "AutonomyPolicyResponse",
         "type": "object"
@@ -350,6 +383,30 @@
       "AutonomyStatus": {
         "additionalProperties": false,
         "properties": {
+          "activation_cycle": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Cycle"
+          },
+          "activation_progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Progress"
+          },
           "blocked_reason_code": {
             "anyOf": [
               {
@@ -407,6 +464,18 @@
             ],
             "title": "Failure Streak"
           },
+          "idle_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Seconds"
+          },
           "idle_streak": {
             "anyOf": [
               {
@@ -440,6 +509,24 @@
             ],
             "title": "Last Considered At"
           },
+          "last_direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "rest",
+                  "reflect",
+                  "continue",
+                  "explore",
+                  "connect"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Direction"
+          },
           "last_engage": {
             "anyOf": [
               {
@@ -450,6 +537,17 @@
               }
             ],
             "title": "Last Engage"
+          },
+          "last_selection_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Selection Result"
           },
           "motivations": {
             "default": [],
@@ -624,6 +722,14 @@
             "default": "Asia/Shanghai",
             "title": "Timezone",
             "type": "string"
+          },
+          "trigger_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Trigger Reasons",
+            "type": "array"
           }
         },
         "required": [

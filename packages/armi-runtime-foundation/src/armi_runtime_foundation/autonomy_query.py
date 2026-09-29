@@ -49,9 +49,14 @@ def autonomy_statement(
              SELECT jsonb_agg(jsonb_build_array(entry->>'owner',entry->>'object_ref',entry->>'condition_version'))
              FROM armi.opportunities o,LATERAL jsonb_array_elements(o.consideration_signals->'signals') entry
              WHERE o.subject_id=current.subject_id AND o.consideration_signals->>'frozen_at' IS NOT NULL
-               AND o.purpose<>'consider_autonomy_check'
+               AND (o.purpose<>'consider_autonomy_check' OR
+                    (o.current_disposition='resolved' AND o.autonomy_category='rest'))
           ),'[]'::jsonb),
           'policy',policy,'phase',phase,'idle_streak',idle_streak,'failure_streak',failure_streak,
+          'activation_state',activation,
+          'activation_active_seconds',(SELECT COALESCE(sum(active_runtime_microseconds),0)::double precision/1000000
+                                      FROM armi.runtime_instances WHERE subject_id=current.subject_id),
+          'trigger_reasons',trigger_reasons,'last_direction',last_direction,'last_selection_result',last_selection_result,
           'last_engage',last_engage,'last_check_started_at',last_check_started_at,
           'blocked_reason_code',blocked_reason_code,
           'stage_usage',(SELECT jsonb_object_agg(stage,usage) FROM (

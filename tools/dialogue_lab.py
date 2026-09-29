@@ -411,6 +411,9 @@ def main() -> int:
     )
     initialize.add_argument("--anchor", type=Path, required=True)
     initialize.add_argument("--creator-resources", type=Path, required=True)
+    initialize.add_argument(
+        "--activation-weight", type=int, choices=range(101), default=50
+    )
     for name in ("status", "stop"):
         commands.add_parser(name)
     credential = commands.add_parser("credential")
@@ -443,6 +446,7 @@ def main() -> int:
         help="Run the real chain with idle time injection and a complete usage report",
     )
     simulate.add_argument("--seconds", type=int, default=600)
+    simulate.add_argument("--seed", type=int)
     simulate.add_argument("--live", action="store_true", required=True)
     capture = commands.add_parser("capture")
     selectors = capture.add_mutually_exclusive_group(required=True)
@@ -454,14 +458,17 @@ def main() -> int:
             from tools.dialogue_lab_environment import initialize
 
             result = initialize(
-                args.root, anchor=args.anchor, creator_resources=args.creator_resources
+                args.root,
+                anchor=args.anchor,
+                creator_resources=args.creator_resources,
+                activation_weight=args.activation_weight,
             )
         else:
             lab = DialogueLab(args.root)
             if args.command == "simulate":
                 from tools.dialogue_lab_simulation import simulate
 
-                result = simulate(lab, seconds=args.seconds)
+                result = simulate(lab, seconds=args.seconds, seed=args.seed)
             elif args.command == "credential":
                 from armi_admin.application.installation import store_provider_secret
                 from armi_local_control.runtime_process import LocalProcessLock

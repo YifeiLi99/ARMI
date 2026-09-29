@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 from armi_activity.api import (
@@ -13,11 +14,13 @@ from armi_activity.api import (
 from armi_kernel.application import business_now
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
+    active_runtime_seconds,
 )
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._autonomy_postgresql import PostgreSQLAutonomyOwner
+from ._signals import unconsumed_signals
 from .api import (
     AutonomyPolicy,
     LifeOpportunityFactsPort,
@@ -72,6 +75,22 @@ class PostgreSQLLifeOpportunityRepository:
                 transaction, subject_id=fence.subject_id
             ),
         )
+
+        async def pause_activation() -> None:
+            await owner.activation_state(
+                transaction,
+                subject_id=fence.subject_id,
+                policy=policy,
+                idling=False,
+                need=0,
+                runtime_ref=str(fence.runtime_instance_id.value),
+            )
+
+        if not policy.enabled:
+            await pause_activation()
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED, None, "LIFE-AUTONOMY-DISABLED"
+            )
         if observations is not None:
             observations.update(
                 next_check_at=plan.next_consideration_at.isoformat(),
@@ -95,12 +114,20 @@ class PostgreSQLLifeOpportunityRepository:
             outlet_state, outlet_reason = "unbound", "LIFE-AUTONOMY-OUTLET-UNBOUND"
         await transaction.execute(
             """UPDATE armi.autonomy_plans SET outlet_state=%s,outlet_reason_code=%s,
-                      outlet_observed_at=armi.business_time(statement_timestamp()) WHERE subject_id=%s""",
-            (outlet_state, outlet_reason, fence.subject_id),
+                      outlet_observed_at=armi.business_time(statement_timestamp()) WHERE subject_id=%s
+                      AND (outlet_state IS DISTINCT FROM %s OR outlet_reason_code IS DISTINCT FROM %s)""",
+            (
+                outlet_state,
+                outlet_reason,
+                fence.subject_id,
+                outlet_state,
+                outlet_reason,
+            ),
         )
         if await self._sleep.active_maintenance(
             transaction, subject_id=fence.subject_id
         ):
+            await pause_activation()
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -112,6 +139,7 @@ class PostgreSQLLifeOpportunityRepository:
         if observations is not None:
             observations["active_cognition_count"] = active
         if active > 0:
+            await pause_activation()
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -120,6 +148,7 @@ class PostgreSQLLifeOpportunityRepository:
         if not await self._facts.autonomy_idle(
             transaction, subject_id=fence.subject_id
         ):
+            await pause_activation()
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -129,6 +158,9 @@ class PostgreSQLLifeOpportunityRepository:
             transaction,
             subject_id=fence.subject_id,
             minimum_delay_seconds=policy.minimum_consideration_seconds,
+        )
+        signals = await unconsumed_signals(
+            transaction, subject_id=fence.subject_id, signals=signals
         )
         heads = await self._activities.scheduling_heads(
             transaction, subject_id=fence.subject_id
@@ -144,27 +176,25 @@ class PostgreSQLLifeOpportunityRepository:
                 ),
                 signal_reasons=sorted({signal.reason for signal in signals}),
             )
-        # An activity's deadline is a stable event, unlike periodic scheduler
-        # refreshes. Consume its timestamp once so a waiting task cannot keep
-        # resetting the backoff every tick.
-        due_at = max(
-            (
-                head.resume_not_before
-                for head in heads
-                if head.resume_not_before is not None
-                and head.resume_not_before <= business_now()
-                and head.status in {ActivityStatus.WAITING, ActivityStatus.IN_PROGRESS}
-            ),
-            default=None,
+        # Revisions identify owner conditions; unrelated input timestamps cannot
+        # consume an activity deadline. Keep only currently live due conditions.
+        due_conditions = sorted(
+            str(head.revision_id)
+            for head in heads
+            if head.resume_not_before is not None
+            and head.resume_not_before <= business_now()
+            and head.status in {ActivityStatus.WAITING, ActivityStatus.IN_PROGRESS}
         )
-        if due_at is not None:
-            await transaction.execute(
-                """UPDATE armi.autonomy_plans SET last_event_at=%s,idle_streak=0,
-                       next_consideration_at=LEAST(next_consideration_at,
-                         armi.business_time(statement_timestamp())+interval '60 seconds')
-                   WHERE subject_id=%s AND opportunity_id IS NULL AND phase='waiting'
-                     AND (last_event_at IS NULL OR last_event_at<%s)""",
-                (due_at, fence.subject_id, due_at),
+        due_activity = False
+        if due_conditions:
+            previous_due = await (
+                await transaction.execute(
+                    "SELECT consumed_activity_conditions FROM armi.autonomy_plans WHERE subject_id=%s",
+                    (fence.subject_id,),
+                )
+            ).fetchone()
+            due_activity = previous_due is not None and bool(
+                set(due_conditions) - set(previous_due[0])
             )
         focus = await self._subject_state.life_mode(
             transaction, subject_id=fence.subject_id
@@ -221,7 +251,38 @@ class PostgreSQLLifeOpportunityRepository:
                 ),
                 None,
             )
-        return await owner.admit_due(
+        # The same owner state feeds live polling and the simulation deadline.
+        state = await owner.activation_state(
+            transaction,
+            subject_id=fence.subject_id,
+            policy=policy,
+            idling=True,
+            need=max(
+                (
+                    signal.priority
+                    for signal in signals
+                    if signal.eligible_at <= business_now()
+                ),
+                default=0,
+            ),
+            runtime_ref=str(fence.runtime_instance_id.value),
+        )
+        active_seconds = await active_runtime_seconds(
+            transaction, subject_id=fence.subject_id
+        )
+        remaining = state.remaining(active_seconds, policy)
+        quiet = (
+            state.project(active_seconds, policy)[1] < policy.quiet_seconds
+            or active_seconds < state.retry_after
+        )
+        if plan.opportunity_id is None and (
+            quiet
+            or (remaining > 0 and not signals and not social_ready and not due_activity)
+        ):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED, None, "LIFE-AUTONOMY-NOT-DUE"
+            )
+        outcome = await owner.admit_due(
             transaction,
             subject_id=fence.subject_id,
             policy=policy,
@@ -230,7 +291,14 @@ class PostgreSQLLifeOpportunityRepository:
             activity_id=None if selected is None else selected.activity_id.value,
             signals=signals,
             social_ready=social_ready,
+            due_activity=due_activity,
         )
+        if due_activity and outcome.status is OpportunityAdmissionStatus.ADMITTED:
+            await transaction.execute(
+                "UPDATE armi.autonomy_plans SET consumed_activity_conditions=%s::jsonb WHERE subject_id=%s",
+                (json.dumps(due_conditions), fence.subject_id),
+            )
+        return outcome
 
 
 __all__ = ("PostgreSQLLifeOpportunityRepository",)

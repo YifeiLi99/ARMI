@@ -103,13 +103,11 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         from armi_interaction.api import human_input_activity
         from armi_live_voice.api import voice_activity
 
-        input_busy, input_at = await human_input_activity(
-            transaction, subject_id=subject_id
-        )
-        voice_busy, voice_at = await voice_activity(
+        input_busy, _ = await human_input_activity(transaction, subject_id=subject_id)
+        voice_busy, _ = await voice_activity(
             transaction, subject_id=subject_id, activity=self._voice_activity
         )
-        reply_busy, reply_at = await response_delivery_activity(
+        reply_busy, _ = await response_delivery_activity(
             transaction,
             action_intent_ids=await response_intent_ids(
                 transaction, subject_id=subject_id
@@ -124,13 +122,12 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
             return False
         row = await (
             await transaction.execute(
-                "SELECT armi.business_time(statement_timestamp())"
+                "SELECT EXISTS(SELECT 1 FROM armi.durable_work WHERE status='leased')"
             )
         ).fetchone()
         if row is None:
             return False
-        times = [value for value in (input_at, voice_at, reply_at) if value is not None]
-        return not times or (row[0] - max(times)).total_seconds() >= 60
+        return not bool(row[0])
 
     async def outreach(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, *, outlet: str | None = None

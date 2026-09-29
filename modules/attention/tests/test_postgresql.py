@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid7
 
 import pytest
@@ -163,7 +163,10 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
         facts,
     )
     unit = SimpleNamespace(
-        transaction=AsyncMock(), runtime_fence=SimpleNamespace(subject_id=subject)
+        transaction=AsyncMock(),
+        runtime_fence=SimpleNamespace(
+            subject_id=subject, runtime_instance_id=SimpleNamespace(value=uuid7())
+        ),
     )
     with patch("armi_attention._postgresql.PostgreSQLAutonomyOwner") as constructor:
         owner = AsyncMock()
@@ -174,6 +177,12 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
         from armi_attention.api import SocialCycle
 
         owner.social_cycle.return_value = SocialCycle.begin(lambda: 0.5)
+        owner.ensure_plan.return_value.opportunity_id = None
+        owner.activation_state.return_value = SimpleNamespace(
+            remaining=Mock(return_value=0),
+            project=Mock(return_value=(1, 120)),
+            retry_after=0,
+        )
         result = await repository.admit_autonomy(
             cast(Any, unit),
             policy=AutonomyPolicy(),
@@ -191,6 +200,7 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
             activity_id=None,
             signals=(),
             social_ready=False,
+            due_activity=False,
         )
         facts.consideration_signals.assert_awaited_once_with(
             unit.transaction, subject_id=subject, minimum_delay_seconds=60
@@ -220,7 +230,10 @@ async def test_runtime_blockers_do_not_become_subjective_silence(
         facts,
     )
     unit = SimpleNamespace(
-        transaction=AsyncMock(), runtime_fence=SimpleNamespace(subject_id=uuid7())
+        transaction=AsyncMock(),
+        runtime_fence=SimpleNamespace(
+            subject_id=uuid7(), runtime_instance_id=SimpleNamespace(value=uuid7())
+        ),
     )
     with patch("armi_attention._postgresql.PostgreSQLAutonomyOwner") as constructor:
         owner = AsyncMock()

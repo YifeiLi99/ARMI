@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from typing import Any, cast
 from uuid import UUID
 
 from armi_kernel.application import ConsiderationSignal
@@ -48,7 +49,8 @@ async def unconsumed_signals(
              LATERAL jsonb_array_elements(o.consideration_signals->'signals') entry
            WHERE o.subject_id=%s
              AND o.consideration_signals->>'frozen_at' IS NOT NULL
-             AND o.purpose<>'consider_autonomy_check'
+             AND (o.purpose<>'consider_autonomy_check' OR
+                  (o.current_disposition='resolved' AND o.autonomy_category='rest'))
              AND entry->>'object_ref'=ANY(%s::text[])""",
             (subject_id, list({str(signal.object_ref) for signal in signals})),
         )
@@ -83,6 +85,18 @@ def project_signal_status(
     signals: tuple[ConsiderationSignal, ...],
     consumed: frozenset[tuple[str, str, str]],
 ) -> None:
+    from ._activation import Activation
+    from ._autonomy_policy import AutonomyPolicy
+
+    raw = result.pop("activation_state", None)
+    active = float(cast(float, result.pop("activation_active_seconds", 0)))
+    if raw is not None:
+        activation = Activation.model_validate(raw)
+        policy = AutonomyPolicy(**cast(dict[str, Any], result["policy"]))
+        amount, idle = activation.project(active, policy)
+        result["activation_progress"] = min(1.0, amount / activation.threshold)
+        result["idle_seconds"] = idle
+        result["activation_cycle"] = activation.cycle
     pending = tuple(signal for signal in signals if signal.identity not in consumed)
     result["consideration_signals"] = json.loads(
         signal_metadata(pending, frozen_at=None)

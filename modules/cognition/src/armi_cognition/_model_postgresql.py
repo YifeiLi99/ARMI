@@ -514,7 +514,7 @@ class PostgreSQLCognitiveModelRepository:
                    validated_at=armi.business_time(statement_timestamp()),committed_at=armi.business_time(statement_timestamp())
                WHERE cognitive_episode_id=%s""",
             (
-                "not_scheduled" if category is AutonomyCategory.WAIT else "scheduled",
+                "not_scheduled" if category is AutonomyCategory.REST else "scheduled",
                 snapshot.episode_id,
             ),
         )

@@ -114,11 +114,10 @@ def test_activity_work_needs_an_actual_activity_but_concerns_do_not():
 
 
 def test_wake_does_not_choose_an_action_or_grant_permissions():
-    context = compiled([], category="wake", outlet=False)
+    context = compiled([], category="reflect", outlet=False)
     instructions = autonomous_instructions_for_context(context)
-    assert instructions == autonomous_instructions_for_context(
-        compiled([], category=None)
-    )
+    assert "reflect" in instructions
+    assert "可以修正方向或放弃" in instructions
     schema = autonomous_schema_for_context(context)
     assert "codex_delegation" not in schema["discriminator"]["mapping"]
     for branch in schema["oneOf"]:
@@ -127,7 +126,7 @@ def test_wake_does_not_choose_an_action_or_grant_permissions():
         ] == {"type": "null", "default": None}
 
 
-@pytest.mark.parametrize("category", ["wait", "unknown", "explore", "invented"])
+@pytest.mark.parametrize("category", ["rest", "unknown", "wake", "invented"])
 def test_non_action_or_invalid_category_cannot_enter_full_cognition(category):
     with pytest.raises(ModelViolation, match="MODEL-AUTONOMY-CATEGORY"):
         autonomous_instructions_for_context(compiled([], category=category))

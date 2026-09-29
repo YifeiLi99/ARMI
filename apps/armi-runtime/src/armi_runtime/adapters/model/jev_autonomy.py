@@ -40,24 +40,27 @@ class JevAutonomyCheck:
             profile="autonomy_check",
             response_contract_kind="armi.autonomy-check",
             credential_identity="mood.jev_api_key",
-            input_token_limit=500,
+            input_token_limit=1000,
             output_token_limit=128,
             timeout_seconds=timeout_seconds,
             attempt_cost_limit_microyuan=1_000_000,
         )
 
     def request_evidence(self, context: bytes) -> bytes:
+        state = autonomy_wake_state(context)
         request = json.dumps(
             {
                 "model": JEV_MODEL,
-                "state": autonomy_wake_state(context),
-                "questions": autonomy_check_questions(),
+                "state": state,
+                "questions": autonomy_check_questions(
+                    cast(list[str], state["available_directions"])
+                ),
             },
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
         # Bound prompt growth before a billable call; bytes are not provider tokens.
-        if len(request) > 1024:
+        if len(request) > 4096:
             raise ModelViolation("MODEL-JEV-CHECK-SIZE")
         return request
 
