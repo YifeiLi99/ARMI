@@ -301,30 +301,7 @@ uv run python tools/verify_live_creator_roundtrip.py `
 
 ### 源码对话实验室
 
-长期目标是本地模拟仓，用于快速验证 ARMI 自主性及各类 prompt 的实际输入输出：复用真实运行的认知、心理状态、调度和提交链路，允许时间快速流逝，并可按实验选择跳过实质性外部效果以加快验证。跳过的效果必须明确标为模拟或未执行，不能记成真实成功；未选择跳过的环节遵守原有执行与核验合同。能力逐步补齐，当前尚未实现全链路时间加速或可选效果跳过，不能把现有 Mind/Attention 跳时视为完整模拟仓。
-
-`tools/dialogue_lab.py` 用独立 `system_test` 环境运行当前源码，支持连续对话、Mind/Attention 跳时和按轮抓取。无需打包或安装 MSIX；后端源码修改后停止再启动即可。前端资源只需首次或前端修改后构建。实验环境保留自己的身份和对话，不读取安装版配置、凭据或数据库；已有目录拒绝重新初始化，schema 不匹配时停止，需另建新实验目录。
-
-`status` 与聊天中的 `/status` 先查询 Runtime；停止时直接返回 `runtime.status=stopped` 和自主状态不可用原因，不连接已停止的数据库。运行时仍查询真实自主状态，查询失败明确报错。实验凭据可由用户明确授权从安装版选取所需 Key，保存在 Git 忽略的本地 `.env.dialogue-lab`，再通过 setup 共用私有存储用例配置到实验环境；工具不会自动读取安装版或自动加载该 env 文件，秘密不得进入 prompt、捕获文件或提交。
-
-准备自己选择的人格锚点 YAML（`schema_kind: armi.personality-anchor`、`voice_style: 约 16 岁少女口吻`、`traits` 字符串列表），然后运行：
-
-```powershell
-.venv/Scripts/python.exe -m tools.build_creator_web --output-root .tmp/dialogue-lab-resources
-.venv/Scripts/python.exe -m tools.dialogue_lab --root .tmp/dialogue-lab/mind-01 init --anchor C:/path/to/anchor.yaml --creator-resources .tmp/dialogue-lab-resources
-# 凭据通过 setup 共用的私有存储用例写入，交互输入不回显；不表示已验证供应商可用。
-.venv/Scripts/python.exe -m tools.dialogue_lab --root .tmp/dialogue-lab/mind-01 credential --name mood.jev_api_key
-.venv/Scripts/python.exe -m tools.dialogue_lab --root .tmp/dialogue-lab/mind-01 credential --name model.qwen_api_key
-# --live 明确允许该实验环境使用已配置的真实供应商；主模型沿用当前 model-bindings。
-.venv/Scripts/python.exe -m tools.dialogue_lab --root .tmp/dialogue-lab/mind-01 start --live
-.venv/Scripts/python.exe -m tools.dialogue_lab --root .tmp/dialogue-lab/mind-01 chat
-```
-
-交互命令：`/status` 查看需要与等待状态，`/advance 14400` 跳过四小时有效时间，`/watch 300` 观察五分钟并抓取已结束的主动轮次，`/quit` 停止实验环境并退出。跳时不改变系统时间、租约、Mood 时间、网络超时或一分钟调度节奏，不回放跳过期间本应发生的事件。跳时仅允许数据库登记且启用测试控制的 `system_test` 环境，经正式 Admin `advance-test-time` / MCP `admin_advance_test_time` 调用 Runtime owner；正式环境及安装验收环境拒绝此操作。
-
-机器调用可用 `send --message '你好'`、`advance --seconds 14400`、`watch --seconds 300`、`status`、`stop`。`chat` 退出时停机；独立命令保留已启动环境，测试结束显式执行 `stop`。`captures/<ID>/` 保存主模型所有保留 attempt 的实际请求、返回、编译 Context、Jev `event_appraisals` 请求/返回与评价，以及分页读取的关联诊断；未执行的模型调用不会伪造 prompt。`turns/` 保存输入幂等键、接纳和结果，`invocations/` 保存管理操作引用。`capture --interaction-id <ID>` 或 `capture --episode-id <ID>` 可继续读取原轮次；断线、unknown 或超时不自动重发，管理不确定结果用正式 `invocation reconcile` 查询。抓取失败保留部分文件及未完成标记，图展开截断标记为 partial，不充当完整成功。
-
-这些文件包含实验对话及私有 Context，只写在该实验目录内，不作为恢复包。离线算法模拟仍使用 `tools/test_mind.py --continuous`；真实模型效果必须另外完成获授权的对话，启动 ready 和抓取成功均不代表模型对话成功。
+提供独立的本地实验工具，用于测试对话、自主行为及模型输入输出，无需反复安装应用。入口：`tools/dialogue_lab.py`。
 
 ## 文档
 
