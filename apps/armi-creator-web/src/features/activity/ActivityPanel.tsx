@@ -40,6 +40,7 @@ const AUTONOMY_CATEGORIES = {
   continue: "延续已有事情",
   explore: "探索",
   connect: "交流",
+  undetermined: "方向未确定，进入完整思考",
 };
 
 const AUTONOMY_LABELS: Record<string, string> = {
@@ -308,7 +309,9 @@ export function ActivityPanel({
                                       : "正在处理"}
                     </p>
                     {item.autonomy_category ? (
-                      <p>选择方向：{AUTONOMY_CATEGORIES[item.autonomy_category]}</p>
+                      <p>
+                        选择方向：{AUTONOMY_CATEGORIES[item.autonomy_category]}
+                      </p>
                     ) : null}
                     {item.consideration_signals === null ? (
                       <p>本轮未记录考虑信号明细</p>

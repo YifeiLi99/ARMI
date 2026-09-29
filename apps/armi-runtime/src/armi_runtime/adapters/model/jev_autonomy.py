@@ -29,19 +29,23 @@ class JevAutonomyCheck:
         credentials: CredentialPort,
         locator: CredentialLocator | None,
         timeout_seconds: int,
+        decision_check: bool = False,
     ) -> None:
         self._credentials = credentials
         self._locator = locator
+        self._purpose = "cognition.decision" if decision_check else "autonomy.check"
         self.binding = ModelBinding(
             provider="typesafe",
             api_base="https://api.typesafe.ai/v1",
             model_id=JEV_MODEL,
             version_policy="fixed_provider_model",
             response_model_identity_required=True,
-            profile="autonomy_check",
-            response_contract_kind="armi.autonomy-check",
+            profile="bounded_decision" if decision_check else "autonomy_check",
+            response_contract_kind="armi.bounded-decision"
+            if decision_check
+            else "armi.autonomy-check",
             credential_identity="mood.jev_api_key",
-            input_token_limit=1000,
+            input_token_limit=32000 if decision_check else 1000,
             output_token_limit=128,
             timeout_seconds=timeout_seconds,
             attempt_cost_limit_microyuan=1_000_000,
@@ -70,7 +74,7 @@ class JevAutonomyCheck:
             raise ModelViolation("MODEL-CREDENTIAL-JEV")
         try:
             with self._credentials.resolve(
-                self._locator, CredentialPurpose("autonomy.check")
+                self._locator, CredentialPurpose(self._purpose)
             ) as handle:
                 key = handle.consume(lambda value: bytes(value).decode("utf-8"))
         except ConfigurationViolation:

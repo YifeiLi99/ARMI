@@ -224,13 +224,15 @@ CREATE TABLE armi.cognitive_episodes (
     maintenance_phase text,
     maintenance_outcome text,
     maintenance_result_summary text,
+    maintenance_decision_basis jsonb,
     maintenance_creator_visible_problem text,
     maintenance_memory_id uuid,
     maintenance_issue_target text,
     maintenance_completed_at timestamp(6) with time zone,
     CONSTRAINT cognitive_episodes_maintenance_result_shape CHECK (
-        (maintenance_session_id IS NULL AND maintenance_phase_id IS NULL AND maintenance_head_version IS NULL AND maintenance_phase IS NULL AND maintenance_outcome IS NULL AND maintenance_result_summary IS NULL AND maintenance_creator_visible_problem IS NULL AND maintenance_memory_id IS NULL AND maintenance_issue_target IS NULL AND maintenance_completed_at IS NULL)
-        OR (maintenance_session_id IS NOT NULL AND maintenance_phase_id IS NOT NULL AND maintenance_head_version IS NOT NULL AND maintenance_head_version > 0 AND maintenance_phase IS NOT NULL AND maintenance_outcome IS NOT NULL AND maintenance_result_summary IS NOT NULL AND maintenance_completed_at IS NOT NULL AND candidate_application_id IS NOT NULL AND subject_commit_id IS NOT NULL)),
+        (maintenance_session_id IS NULL AND maintenance_phase_id IS NULL AND maintenance_head_version IS NULL AND maintenance_phase IS NULL AND maintenance_outcome IS NULL AND maintenance_result_summary IS NULL AND maintenance_decision_basis IS NULL AND maintenance_creator_visible_problem IS NULL AND maintenance_memory_id IS NULL AND maintenance_issue_target IS NULL AND maintenance_completed_at IS NULL)
+        OR (maintenance_session_id IS NOT NULL AND maintenance_phase_id IS NOT NULL AND maintenance_head_version IS NOT NULL AND maintenance_head_version > 0 AND maintenance_phase IS NOT NULL AND maintenance_outcome IS NOT NULL AND (maintenance_result_summary IS NOT NULL OR maintenance_decision_basis IS NOT NULL) AND maintenance_completed_at IS NOT NULL AND candidate_application_id IS NOT NULL AND subject_commit_id IS NOT NULL)),
+    CONSTRAINT cognitive_episodes_maintenance_basis_shape CHECK (maintenance_decision_basis IS NULL OR (jsonb_typeof(maintenance_decision_basis)='object' AND maintenance_decision_basis ?& ARRAY['reason_code','basis_refs'] AND jsonb_typeof(maintenance_decision_basis->'reason_code')='string' AND jsonb_typeof(maintenance_decision_basis->'basis_refs')='array' AND jsonb_array_length(maintenance_decision_basis->'basis_refs') BETWEEN 1 AND 8)),
     CONSTRAINT cognitive_episodes_maintenance_result CHECK (maintenance_outcome IS NULL OR (
         ((maintenance_phase='memory_maintenance' AND maintenance_outcome IN ('memory_changed','memory_unchanged'))
         OR (maintenance_phase='self_check' AND maintenance_outcome IN ('issue_found','no_issue'))
@@ -489,7 +491,7 @@ CREATE TABLE armi.opportunities (
         autonomy_category IS NULL OR (
             source_kind='autonomy_plan'
             AND purpose IN ('consider_autonomy_check','consider_autonomous_life')
-            AND autonomy_category IN ('rest','reflect','continue','explore','connect')
+            AND autonomy_category IN ('rest','reflect','continue','explore','connect','undetermined')
             AND (autonomy_category<>'wait' OR purpose='consider_autonomy_check')
         )
     ),

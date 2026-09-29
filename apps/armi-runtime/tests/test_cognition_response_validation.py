@@ -136,6 +136,14 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
             "reason_summary": "无需变化",
         }
     schema = _schema(version, purpose)
+    if purpose in {
+        "consider_sleep",
+        "consider_visual_observation",
+        "maintain_subjective_memory",
+        "perform_subject_self_check",
+        "consider_codex_task",
+    } or purpose.startswith("reflect_"):
+        value["decision_basis"] = None
     if "concern_changes" in schema["properties"]["candidate"].get(
         "properties", {}
     ) or version in {
@@ -191,6 +199,7 @@ def test_reflection_schema_excludes_other_owner_targets(purpose):
     target = purpose.removeprefix("reflect_")
     value = {
         "kind": "no_change",
+        "decision_basis": None,
         "target": "mind" if target != "mind" else "self",
         "summary": "unchanged",
         "basis_refs": [],
@@ -350,6 +359,7 @@ def test_other_human_commitment_dependencies_are_visible_in_schema(action, valid
 @pytest.mark.parametrize("kind", ["no_change", "update"])
 def test_reflection_keeps_evidence_without_requiring_a_change(kind):
     value = {
+        "decision_basis": None,
         "kind": kind,
         "target": "prompt",
         "summary": "No adjustment needed.",
@@ -404,6 +414,7 @@ def test_maintenance_summary_matches_operation(kind):
         "relation": None,
     }
     schema = _schema("armi.maintenance-work-candidate")
+    value["decision_basis"] = None
     jsonschema.validate({"candidate": value}, schema)
     value["summary"] = None if kind == "reinterpret" else "Unexpected replacement"
     with pytest.raises(jsonschema.ValidationError):

@@ -113,6 +113,14 @@ def context_messages(document: dict[str, Any]) -> list[dict[str, str]]:
             if sections[name]
         ),
     ]
+    if "bounded_judgment" in document:
+        background.append(
+            "## 本轮有限判断 (未提交)\n\n这是同一冻结处境的初步判断,不是新的经历或权限。"
+            "请检查其不确定性,形成所需真实内容;可以修正分类和处理目标。\n\n"
+            + _fenced(
+                json.dumps(document["bounded_judgment"], ensure_ascii=False), "json"
+            )
+        )
     if submission:
         background.append(
             "## 本合同所需的提交字段\n\n仅按输出合同引用,不要向用户复述。\n\n"

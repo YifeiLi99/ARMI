@@ -166,6 +166,7 @@ class RuntimeCliTests(unittest.TestCase):
             "data_rights.identity_token": "data_rights.identity_token_key",
             "mood.appraisal": "mood.jev_api_key",
             "autonomy.check": "mood.jev_api_key",
+            "cognition.decision": "mood.jev_api_key",
             "model.request": "model.ark_api_key",
             "model.request.qwen": "model.qwen_api_key",
             "model.request.deepseek": "model.deepseek_api_key",

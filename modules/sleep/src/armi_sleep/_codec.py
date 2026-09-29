@@ -44,6 +44,7 @@ def encode(
             creator_visible_problem=value.creator_visible_problem,
             memory_proposal_ref=value.memory_proposal_ref,
             issue_target=value.issue_target,
+            decision_basis=value.decision_basis,
         )
     return rfc8785.dumps(cast(Any, common))
 
@@ -83,7 +84,7 @@ def _decode_mapping(
         cast(int, item["expected_head_version"]),
         MaintenancePhase(str(item["phase"])),
         MaintenanceWorkOutcome(str(item["outcome"])),
-        str(item["result_summary"]),
+        None if item["result_summary"] is None else str(item["result_summary"]),
         (
             None
             if item["creator_visible_problem"] is None
@@ -95,6 +96,7 @@ def _decode_mapping(
             else str(item["memory_proposal_ref"])
         ),
         None if item.get("issue_target") is None else str(item["issue_target"]),
+        cast(dict[str, object] | None, item["decision_basis"]),
     )
 
 

@@ -1649,6 +1649,15 @@ def compose_model_pipeline(
         )
 
     return bootstrap_cognition_model(
+        decision_check=JevAutonomyCheck(
+            credentials=prepared.credential_port,
+            locator=config.secret_locators.get("mood.jev_api_key"),
+            timeout_seconds=config.mood.timeout_seconds,
+            decision_check=True,
+        ),
+        decision_confidence=config.model.decision_confidence,
+        forget_confidence=config.model.forget_confidence,
+        decision_max_bytes=config.model.decision_max_bytes,
         autonomy_check=JevAutonomyCheck(
             credentials=prepared.credential_port,
             locator=config.secret_locators.get("mood.jev_api_key"),

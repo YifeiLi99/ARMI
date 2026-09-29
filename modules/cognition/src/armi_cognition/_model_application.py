@@ -67,6 +67,12 @@ from ._autonomous_activity_contract import (
     autonomous_schema_for_context,
 )
 from ._autonomy_decision import parse_autonomy_check
+from ._bounded_decision import (
+    PURPOSES,
+    prepare_decision,
+    reflection_is_requested,
+    settle_decision,
+)
 from ._candidate_application import model_response_candidate
 from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
@@ -208,10 +214,14 @@ class ModelPipeline:
         "_autonomy_check",
         "_catalog",
         "_custody",
+        "_decision_check",
+        "_decision_confidence",
+        "_decision_max_bytes",
         "_diagnostic",
         "_factory",
         "_failure_notification",
         "_finalization",
+        "_forget_confidence",
         "_lease_owner",
         "_prices",
         "_repository",
@@ -234,6 +244,10 @@ class ModelPipeline:
         finalization: CognitionFinalizationPort,
         adapter_factory: CognitionModelAdapterFactory,
         autonomy_check: AutonomyCheckPort,
+        decision_check: AutonomyCheckPort,
+        decision_confidence: float = 0.95,
+        forget_confidence: float = 0.99,
+        decision_max_bytes: int = 32768,
         binding_path: Path,
         prices: PriceCatalog,
         wakeups: CognitionWakeupPort | None = None,
@@ -242,6 +256,10 @@ class ModelPipeline:
     ) -> None:
         self._prices = prices
         self._autonomy_check = autonomy_check
+        self._decision_check = decision_check
+        self._decision_confidence = decision_confidence
+        self._forget_confidence = forget_confidence
+        self._decision_max_bytes = decision_max_bytes
         load_active_binding(
             binding_path,
         )
@@ -543,6 +561,19 @@ class ModelPipeline:
                     included_context_refs=snapshot.included_context_refs,
                 )
             )
+            judgment: dict[str, object] = {}
+            if (
+                not is_check
+                and snapshot.purpose in PURPOSES
+                and await self._try_bounded_decision(
+                    record, snapshot, request_bytes, judgment
+                )
+            ):
+                return
+            if judgment:
+                document = json.loads(request_bytes)
+                document["bounded_judgment"] = judgment
+                request_bytes = json.dumps(document, ensure_ascii=False).encode()
             async with self._factory.unit_of_work() as unit_of_work:
                 attempt_id = await self._repository.prepare_attempt(
                     unit_of_work,
@@ -816,6 +847,182 @@ class ModelPipeline:
         finally:
             if custody_context is not None and custody_held:
                 await custody_context.__aexit__(None, None, None)
+
+    async def _try_bounded_decision(
+        self,
+        record: WorkRecord,
+        snapshot: ModelEpisodeSnapshot,
+        original: bytes,
+        judgment: dict[str, object],
+    ) -> bool:
+        if reflection_is_requested(json.loads(original)):
+            record_diagnostic(
+                "cognition.decision.escalated",
+                component="cognition",
+                reason="self_check_requested",
+            )
+            return False
+        request = prepare_decision(
+            original,
+            model=self._decision_check.binding.model_id,
+            max_bytes=self._decision_max_bytes,
+        )
+        if request is None:
+            record_diagnostic(
+                "cognition.decision.escalated",
+                component="cognition",
+                reason="context_limit",
+            )
+            return False
+        lease = cast(WorkLease, record.lease)
+        binding = replace(
+            self._decision_check.binding,
+            response_contract_kind=json.loads(original)["output_contract"][
+                "schema_kind"
+            ],
+        )
+        async with self._factory.unit_of_work() as unit:
+            attempt_id = await self._repository.prepare_attempt(
+                unit,
+                lease=lease,
+                snapshot=snapshot,
+                binding=binding,
+                request_artifact=None,
+            )
+        if attempt_id is None:
+            return True
+        response_saved = False
+
+        async def save_usage(receipt: ProviderCallReceipt) -> None:
+            async with self._factory.provider_usage_unit_of_work(
+                receipt=receipt
+            ) as unit:
+                await self._repository.record_provider_call(
+                    unit, attempt_id=attempt_id, receipt=receipt
+                )
+
+        async def register(value: bytes, kind: str) -> ArtifactRef:
+            published = await self._publish(value, logical_kind=kind, snapshot=snapshot)
+            async with self._factory.unit_of_work() as unit:
+                registration = await self._catalog.register(
+                    unit, ArtifactId(uuid7()), published
+                )
+                if registration.inserted:
+                    await unit.audit.append(
+                        _artifact_audit(unit, registration.ref, snapshot)
+                    )
+            return registration.ref
+
+        try:
+            request_ref = await register(request.wire, "model.request")
+            async with self._factory.unit_of_work() as unit:
+                await self._repository.attach_request(
+                    unit,
+                    lease=lease,
+                    episode_id=snapshot.episode_id,
+                    attempt_id=attempt_id,
+                    request_artifact=request_ref,
+                )
+                await self._repository.mark_dispatched(
+                    unit,
+                    lease=lease,
+                    attempt_id=attempt_id,
+                    episode_id=snapshot.episode_id,
+                )
+            with (
+                provider_meter_scope(
+                    ProviderMeterScope(save_usage, self._prices, snapshot.purpose)
+                ),
+                diagnostic_scope(attempt_id=attempt_id),
+            ):
+                result = await self._decision_check.invoke(request.wire)
+            if result.status is not ModelResultStatus.SUCCEEDED:
+                await self._settle_failure(
+                    lease=lease, snapshot=snapshot, attempt_id=attempt_id, result=result
+                )
+                return True
+            raw = cast(bytes, result.response_bytes)
+            try:
+                candidate, reason = settle_decision(
+                    request,
+                    raw,
+                    confidence=self._decision_confidence,
+                    forget_confidence=self._forget_confidence,
+                )
+            except ModelViolation as error:
+                candidate, reason = None, error.code
+                result = replace(result, response_error_code=error.code)
+            response = json.dumps(
+                {
+                    "schema_kind": "armi.model-response-artifact",
+                    "raw_response": raw.decode("utf-8"),
+                    "output_text": json.dumps(
+                        {"candidate": candidate}, ensure_ascii=False
+                    ),
+                    "decision_route": reason,
+                },
+                ensure_ascii=False,
+            ).encode()
+            response_ref = await register(response, "model.response")
+            async with self._factory.unit_of_work() as unit:
+                await self._repository.settle_success(
+                    unit,
+                    lease=lease,
+                    snapshot=snapshot,
+                    attempt_id=attempt_id,
+                    response_artifact=response_ref,
+                    result=result,
+                )
+                if candidate is not None:
+                    await self._repository.finalize_primary_success(
+                        unit,
+                        lease=lease,
+                        snapshot=snapshot,
+                        attempt_id=attempt_id,
+                        response_artifact=response_ref,
+                    )
+            response_saved = True
+            record_diagnostic(
+                "cognition.decision.settled",
+                component="cognition",
+                reason=reason,
+                outcome="failed"
+                if result.response_error_code
+                else "bounded_complete"
+                if candidate is not None
+                else "generation_required",
+            )
+            if result.response_error_code:
+                await self._fail_finalization(
+                    lease, snapshot, result.response_error_code
+                )
+                return True
+            if self._stop.is_set():
+                return True
+            if candidate is None:
+                judgment.update(route=reason, answers=json.loads(raw)["answers"])
+                return False
+            await self._finalization.finalize(record, attempt_id, response)
+            return True
+        except (CandidateViolation, SubjectCommitViolation) as error:
+            await self._fail_finalization(lease, snapshot, error.code)
+            return True
+        except (ModelViolation, ArtifactViolation) as error:
+            failure = (
+                error
+                if isinstance(error, ModelViolation)
+                else ModelViolation("MODEL-ARTIFACT")
+            )
+            if response_saved:
+                await self._fail_finalization(lease, snapshot, failure.code)
+            else:
+                await self._settle_failure(
+                    lease=lease,
+                    snapshot=snapshot,
+                    attempt_id=attempt_id,
+                    result=_error_result(failure),
+                )
+            return True
 
     async def run_worker(self) -> None:
         observed = self._wakeups.version(COGNITION_EXECUTE)

@@ -127,6 +127,7 @@ class ContextEpisodeSnapshot:
     subject_prompt: ContextArtifactSource | None = None
     recent_scene_sources: tuple[ContextDialogueItem, ...] = ()
     autonomy_context: bytes | None = None
+    reflection_request: tuple[str, str] | None = None
     focus_items: tuple[PsychologicalContextItem, ...] = ()
     active_seconds: float = 0.0
 
@@ -400,7 +401,22 @@ class PostgreSQLContextRepository:
                 limit=8,
             )
 
+        reflection_request = None
+        if episode.purpose.startswith("reflect_"):
+            maintenance = await self._sleep.candidate_maintenance(
+                tx,
+                source_revision_id=opportunity.source_ref,
+                expected_head_version=opportunity.source_version,
+            )
+            if maintenance is None:
+                raise ContextViolation("CTX-WORK-STALE")
+            reflection_request = await self._episodes.reflection_request(
+                tx,
+                subject_id=episode.subject_id,
+                session_id=maintenance.session_id,
+            )
         return ContextEpisodeSnapshot(
+            reflection_request=reflection_request,
             autonomy_context=opportunity.autonomy_context,
             episode_id=episode.episode_id,
             opportunity_id=episode.opportunity_id,

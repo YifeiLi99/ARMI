@@ -48,6 +48,7 @@ def autonomous_instructions_for_context(compiled_context: bytes) -> str:
         raise ModelViolation("MODEL-AUTONOMY-CATEGORY") from None
     return AUTONOMOUS_ACTIVITY_INSTRUCTIONS + (
         f"\n本轮轻量选择的方向是 {raw}。结合完整处境决定具体内容；可以修正方向或放弃，不强迫行动。"
+        "undetermined 表示轻量选择拿不准，由你结合完整资料决定；它不表示休息或技术失败。"
         "reflect 表示私下思考，使用现有内部活动保存真实思考进展，不为表示活跃而发消息。"
         "\n主动表达必须填写 expression_kind：companionship（寻求陪伴）、sharing（具体分享）或 commitment（履行约定）。"
         "分享和履约必须通过 expression_basis 引用真实依据的 ctx 序号。"

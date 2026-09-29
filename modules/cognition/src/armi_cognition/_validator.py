@@ -557,6 +557,21 @@ class DeterministicCandidateValidator:
             json.JSONDecodeError,
         ) as error:
             return contract_rejection(error)
+        decision_basis = getattr(parsed_candidate, "decision_basis", None)
+        if decision_basis is not None and not set(decision_basis.basis_refs).issubset(
+            basis_by_ref
+        ):
+            return _rejected("CANDIDATE-DECISION-BASIS")
+        if decision_basis is None and any(
+            getattr(parsed_candidate, name) is None
+            for name in ("reason", "summary", "understanding", "reason_summary")
+            if hasattr(parsed_candidate, name)
+            and not (
+                name == "summary"
+                and isinstance(parsed_candidate, MemoryMaintenanceChange)
+            )
+        ):
+            return _rejected("CANDIDATE-DECISION-BASIS")
         if isinstance(parsed_candidate, AutonomousDecisionBase):
             social = parsed_candidate.social_decision
             if self._context.social_motivation != (social is not None):
@@ -820,7 +835,21 @@ class DeterministicCandidateValidator:
             candidate = cast(CognitionCandidate, parsed_candidate)
         if not self._base_matches(candidate):
             return _rejected("CANDIDATE-BASE-MISMATCH")
-        if not _fact_supported(
+        if candidate.understanding is None and (
+            self._context.purpose != "consider_codex_task"
+            or candidate.decision_basis is None
+            or candidate.decision_basis.reason_code != "existing_task"
+            or candidate.experiences
+            or candidate.component_changes
+            or candidate.memory_changes
+            or candidate.relationship_changes
+            or candidate.activity_changes
+            or candidate.concern_changes
+            or candidate.visual_observation_requests
+            or candidate.uncertainties
+        ):
+            return _rejected("CANDIDATE-DECISION-BASIS")
+        if candidate.understanding is not None and not _fact_supported(
             candidate.understanding.fact_class,
             tuple(basis_by_ref[ref] for ref in candidate.understanding.basis_refs),
         ):
@@ -2173,6 +2202,11 @@ class DeterministicCandidateValidator:
             phase,
             outcome,
             candidate.summary,
+            decision_basis=(
+                None
+                if candidate.decision_basis is None
+                else candidate.decision_basis.model_dump(mode="json")
+            ),
         )
         sleep_draft = self._sleep_cognition.bind_maintenance(decision)
         all_owner_drafts = (*owner_drafts, sleep_draft)
@@ -2317,6 +2351,11 @@ class DeterministicCandidateValidator:
                 MaintenanceIssueTarget(candidate.issue_target).value
                 if isinstance(candidate, SelfCheckIssueFound)
                 else None
+            ),
+            decision_basis=(
+                None
+                if candidate.decision_basis is None
+                else candidate.decision_basis.model_dump(mode="json")
             ),
         )
         memory_owner_drafts = (

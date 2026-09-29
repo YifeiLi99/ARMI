@@ -77,6 +77,7 @@ def _snapshot(
             opportunity_source_kind=opportunity_source_kind,
             opportunity_available_after=datetime(2026, 1, 1, tzinfo=UTC),
             opportunity_expires_at=None,
+            reflection_request=None,
             evidence=None,
             fixed_prompt=SimpleNamespace(source_id=uuid7(), source_version=1),
             creator_prompt=creator_prompt,

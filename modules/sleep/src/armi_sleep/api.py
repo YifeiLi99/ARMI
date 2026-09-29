@@ -144,10 +144,11 @@ class CandidateMaintenanceDecisionDraft:
     expected_head_version: int
     phase: MaintenancePhase
     outcome: MaintenanceWorkOutcome
-    result_summary: str
+    result_summary: str | None
     creator_visible_problem: str | None = None
     memory_proposal_ref: str | None = None
     issue_target: str | None = None
+    decision_basis: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         _proposal(self.proposal_ref, self.atomic_group_ref, self.basis_ordinals)
@@ -167,8 +168,14 @@ class CandidateMaintenanceDecisionDraft:
                 MaintenancePhase.REFLECT_PROMPT,
             }
             or type(self.outcome) is not MaintenanceWorkOutcome
-            or type(self.result_summary) is not str
-            or not 1 <= len(self.result_summary) <= 512
+            or (self.result_summary is None and self.decision_basis is None)
+            or (
+                self.result_summary is not None
+                and (
+                    type(self.result_summary) is not str
+                    or not 1 <= len(self.result_summary) <= 512
+                )
+            )
             or (
                 self.creator_visible_problem is not None
                 and (

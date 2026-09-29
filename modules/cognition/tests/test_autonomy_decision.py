@@ -26,7 +26,9 @@ def response(choice):
     }
 
 
-@pytest.mark.parametrize("choice", list(AutonomyCategory))
+@pytest.mark.parametrize(
+    "choice", [c for c in AutonomyCategory if c is not AutonomyCategory.UNDETERMINED]
+)
 def test_consumes_jev_choice_without_probability_veto(caplog, choice):
     with caplog.at_level(logging.INFO):
         assert parse_autonomy_check(json.dumps(response(choice)).encode()) is choice
@@ -40,8 +42,10 @@ def test_consumes_jev_choice_without_probability_veto(caplog, choice):
 
 
 def test_unknown_is_not_a_decision_to_wait():
-    with pytest.raises(ModelViolation, match="MODEL-JEV-CHECK-UNDETERMINED"):
+    assert (
         parse_autonomy_check(json.dumps(response("unknown")).encode())
+        is AutonomyCategory.UNDETERMINED
+    )
 
 
 @pytest.mark.parametrize(

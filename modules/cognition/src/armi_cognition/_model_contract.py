@@ -56,6 +56,7 @@ from ._creator_cognitive_act_contract import (
     parse_creator_cognitive_act,
     parse_creator_voice_act,
 )
+from ._decision_basis import DecisionBasis
 from ._focus.api import (
     ConcernChange,
 )
@@ -377,6 +378,7 @@ class CandidateUncertainty(_StrictModel, frozen=True):
 
 
 class CognitionCandidate(_StrictModel, frozen=True):
+    decision_basis: DecisionBasis | None = None
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     schema_kind: Literal["armi.cognition-candidate"]
     base: CandidateBase
@@ -388,7 +390,7 @@ class CognitionCandidate(_StrictModel, frozen=True):
         "no_action",
         "need_information",
     ]
-    understanding: CandidateUnderstanding
+    understanding: CandidateUnderstanding | None
     experiences: tuple[ExperienceProposal, ...] = Field(max_length=4)
     component_changes: tuple[ComponentChangeProposal, ...] = Field(max_length=4)
     memory_changes: tuple[MemoryChangeProposal, ...] = Field(max_length=4)
@@ -399,7 +401,7 @@ class CognitionCandidate(_StrictModel, frozen=True):
         default=(), max_length=1
     )
     uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
-    reason_summary: Summary
+    reason_summary: Summary | None
 
 
 _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)
@@ -641,7 +643,9 @@ def parse_candidate(
                 raise ModelViolation("MODEL-RESPONSE-LIMIT")
     if any(count > 8 for count in group_counts.values()):
         raise ModelViolation("MODEL-RESPONSE-LIMIT")
-    if not set(candidate.understanding.basis_refs).issubset(allowed_context_refs):
+    if candidate.understanding is not None and not set(
+        candidate.understanding.basis_refs
+    ).issubset(allowed_context_refs):
         raise ModelViolation("MODEL-RESPONSE-REFERENCE")
     for uncertainty in candidate.uncertainties:
         if not set(uncertainty.basis_refs).issubset(allowed_context_refs):

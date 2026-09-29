@@ -74,5 +74,5 @@ def parse_autonomy_check(
         probabilities=probabilities,
     )
     if choice == "unknown":
-        raise ModelViolation("MODEL-JEV-CHECK-UNDETERMINED")
+        return AutonomyCategory.UNDETERMINED
     return AutonomyCategory(choice)

@@ -114,6 +114,7 @@ class PostgreSQLUnitOfWorkFactory:
         "_environment_id",
         "_expected_role",
         "_pool",
+        "_provider_guard",
         "_require_runtime_fence",
         "_statement_timeout_milliseconds",
     )
@@ -138,6 +139,7 @@ class PostgreSQLUnitOfWorkFactory:
         self._statement_timeout_milliseconds = statement_timeout_seconds * 1000
         self._authority_admission = authority_admission
         self._require_runtime_fence = require_runtime_fence
+        self._provider_guard: Callable[[ProviderCallReceipt], None] | None = None
 
         async def check(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -205,9 +207,16 @@ class PostgreSQLUnitOfWorkFactory:
             before_commit=before_commit,
         )
 
+    def bind_simulation_budget(
+        self, guard: Callable[[ProviderCallReceipt], None] | None
+    ) -> None:
+        self._provider_guard = guard
+
     def provider_usage_unit_of_work(
         self, *, receipt: ProviderCallReceipt
     ) -> PostgreSQLUnitOfWork:
+        if self._provider_guard is not None:
+            self._provider_guard(receipt)
         if receipt.registration:
             return self.unit_of_work()
         # Observed consumption can arrive after authority loss. Owners update

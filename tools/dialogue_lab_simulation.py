@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -42,7 +43,7 @@ def collect_usage(lab: DialogueLab, *, start: str, end: str) -> dict[str, Any]:
 def simulate(
     lab: DialogueLab, *, seconds: int, seed: int | None = None
 ) -> dict[str, object]:
-    if type(seconds) is not int or not 1 <= seconds <= 3600:
+    if type(seconds) is not int or not 1 <= seconds <= 86400:
         raise LabError("LAB-SIMULATION-DURATION")
     if lab.admin("runtime_status")["status"] != "stopped":
         raise LabError("LAB-SIMULATION-REQUIRES-STOPPED-RUNTIME")
@@ -73,6 +74,12 @@ def simulate(
             steps = 0
             last_progress = 0.0
             while time.monotonic() - window_started + advanced < seconds:
+                budget_path = lab.root / "provider-budget.json"
+                if budget_path.exists():
+                    budget = json.loads(budget_path.read_text(encoding="utf-8"))
+                    if budget.get("stopped"):
+                        report["budget_stop"] = budget["stopped"]
+                        break
                 remaining = seconds - (time.monotonic() - window_started + advanced)
                 if remaining < 1:
                     time.sleep(remaining)
@@ -128,7 +135,9 @@ def simulate(
             save(directory / "captures.json", captures)
             report.update(
                 {
-                    "status": "completed",
+                    "status": "budget_stopped"
+                    if report.get("budget_stop")
+                    else "completed",
                     "ended_at": ended,
                     "usage": usage["summary"],
                     "call_count": len(usage["calls"]),

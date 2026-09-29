@@ -23,7 +23,7 @@ CREATE TABLE armi.autonomy_plans (
     model_configuration_revision text,
     activation jsonb CHECK (activation IS NULL OR jsonb_typeof(activation)='object'),
     trigger_reasons jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(trigger_reasons)='array'),
-    last_direction text CHECK (last_direction IN ('rest','reflect','continue','explore','connect')),
+    last_direction text CHECK (last_direction IN ('rest','reflect','continue','explore','connect','undetermined')),
     last_selection_result text,
     social_cycle jsonb CHECK (social_cycle IS NULL OR jsonb_typeof(social_cycle)='object')
 );

@@ -138,6 +138,15 @@ class RuntimeLeaseConfig(LeaseConfig):
 class ModelConfig(_FrozenModel):
     concurrency: PositiveInt = 2
     semantic_recall_enabled: bool = False
+    decision_confidence: Annotated[float, Field(gt=0, le=1)] = 0.95
+    forget_confidence: Annotated[float, Field(gt=0, le=1)] = 0.99
+    decision_max_bytes: Annotated[int, Field(ge=1024, le=32768)] = 32768
+
+    @model_validator(mode="after")
+    def validate_decision_thresholds(self) -> Self:
+        if self.forget_confidence < self.decision_confidence:
+            raise ValueError("forget confidence must not be below decision confidence")
+        return self
 
 
 class MoodConfig(_FrozenModel):

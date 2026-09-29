@@ -562,6 +562,9 @@ class ContextEpisodeState:
 
 @runtime_checkable
 class ContextEpisodePort(Protocol):
+    async def reflection_request(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, session_id: UUID
+    ) -> tuple[str, str] | None: ...
     async def focus_context(
         self,
         transaction: PostgreSQLTransaction,

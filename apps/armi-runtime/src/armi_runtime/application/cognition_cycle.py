@@ -103,6 +103,13 @@ class RuntimeContextEpisodeAdapter:
     def __init__(self, owner: CognitionContextLifecyclePort) -> None:
         self._owner = owner
 
+    async def reflection_request(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, session_id: UUID
+    ) -> tuple[str, str] | None:
+        return await self._owner.reflection_request(
+            transaction, subject_id=subject_id, session_id=session_id
+        )
+
     async def focus_context(
         self,
         transaction: PostgreSQLTransaction,

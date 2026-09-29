@@ -1313,6 +1313,25 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     assert _sleep(unchanged.change_set)[0].result_summary == "界" * 512
 
 
+@pytest.mark.parametrize("kind", ["consolidate", "fade", "forget", "memory_unchanged"])
+def test_bounded_maintenance_preserves_real_memory_and_structured_basis(kind) -> None:
+    context, bases, memory = _maintenance_fixture(MaintenancePhase.MEMORY_MAINTENANCE)
+    basis = {"reason_code": "memory_retention", "basis_refs": ["ctx:4", "ctx:5"]}
+    value = {"kind": kind, "summary": None, "decision_basis": basis}
+    if kind != "memory_unchanged":
+        value.update(memory_ref="ctx:5", reason=None)
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(value), bases=bases
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    decision = _sleep(result.change_set)[0]
+    assert decision.result_summary is None
+    assert decision.decision_basis == basis
+    if kind != "memory_unchanged":
+        assert _memories(result.change_set)[0].summary == memory.summary
+
+
 def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> None:
     context, bases, _ = _maintenance_fixture(MaintenancePhase.SELF_CHECK)
     result = DeterministicCandidateValidator(context).validate(
@@ -2770,8 +2789,11 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
     assert rejected.error_code == "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
 
 
-def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
+@pytest.mark.parametrize("bounded", [False, True])
+def test_codex_delegation_requires_available_executor_and_exact_task(bounded) -> None:
     context, bases = _fixture()
+    if bounded:
+        context = replace(context, purpose="consider_codex_task")
     task_source_id = uuid7()
     task_digest = Digest.from_bytes(b"codex task manifest")
     task_basis = CandidateBasis(
@@ -2822,6 +2844,15 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
             },
         }
     ]
+    if bounded:
+        candidate.update(
+            understanding=None,
+            reason_summary=None,
+            decision_basis={
+                "reason_code": "existing_task",
+                "basis_refs": ["ctx:4", "ctx:5"],
+            },
+        )
     inactive = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
     )

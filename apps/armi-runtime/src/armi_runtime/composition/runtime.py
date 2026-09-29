@@ -671,6 +671,13 @@ async def _serve(
                         )
                     ).fetchone()
                 assert offset is not None
+                from armi_runtime.adapters.model.experiment_budget import (
+                    ExperimentBudget,
+                )
+
+                runtime_unit_of_work_factory.bind_simulation_budget(
+                    ExperimentBudget.load(simulation_clock.path.parent)
+                )
                 simulation_clock.set_offset(int(offset[0]))
                 bind_business_clock(simulation_clock.read)
                 if simulation_clock.seed is not None:
@@ -2769,16 +2776,23 @@ async def _serve(
                 if simulation_clock.path.exists():
                     if life_opportunity_pipeline is None:
                         raise RuntimeAdminControlError("ADMIN-TEST-TIME-UNAVAILABLE")
-                    await life_opportunity_pipeline.maintain_sleep_once()
-                    await life_opportunity_pipeline.admit_once()
-                    result = await authority_port.advance_simulation_time(
-                        authority.require_writable(),
-                        seconds=seconds,
-                        business_state=read_simulation_state,
+                    from .simulation import advance_idle_batch
+
+                    async def advance_one(remaining: int) -> dict[str, Any]:
+                        assert authority_port is not None and authority is not None
+                        return await authority_port.advance_simulation_time(
+                            authority.require_writable(),
+                            seconds=remaining,
+                            business_state=read_simulation_state,
+                        )
+
+                    return await advance_idle_batch(
+                        seconds,
+                        maintain=life_opportunity_pipeline.maintain_sleep_once,
+                        admit=life_opportunity_pipeline.admit_once,
+                        advance=advance_one,
+                        set_offset=simulation_clock.set_offset,
                     )
-                    if result["status"] == "advanced":
-                        simulation_clock.set_offset(result["offset_microseconds"])
-                    return result
             except RuntimeAuthorityViolation as error:
                 raise RuntimeAdminControlError(error.code) from None
             raise RuntimeAdminControlError("ADMIN-TEST-TIME-UNAVAILABLE")

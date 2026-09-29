@@ -9,3 +9,4 @@ class AutonomyCategory(StrEnum):
     CONTINUE = "continue"
     EXPLORE = "explore"
     CONNECT = "connect"
+    UNDETERMINED = "undetermined"

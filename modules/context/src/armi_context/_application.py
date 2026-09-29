@@ -1258,6 +1258,15 @@ def _context_request(
                         "source_ref": str(snapshot.opportunity_source_ref),
                         "source_version": snapshot.opportunity_source_version,
                         "available_after": snapshot.opportunity_available_after.isoformat(),
+                        "available_now": snapshot.opportunity_available_after
+                        <= snapshot.observed_at,
+                        "remaining_seconds": (
+                            None
+                            if snapshot.opportunity_expires_at is None
+                            else (
+                                snapshot.opportunity_expires_at - snapshot.observed_at
+                            ).total_seconds()
+                        ),
                         "expires_at": (
                             None
                             if snapshot.opportunity_expires_at is None
@@ -1284,6 +1293,7 @@ def _context_request(
                         "source_ref": str(snapshot.opportunity_source_ref),
                         "source_version": snapshot.opportunity_source_version,
                         "purpose": snapshot.purpose,
+                        "reflection_request": snapshot.reflection_request,
                     }
                 ),
                 ContextTrustClass.RUNTIME_AUTHORITY,

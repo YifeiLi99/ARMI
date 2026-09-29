@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
+from ._decision_basis import DecisionBasis
 from ._focus.api import (
     ConcernChange,
 )
@@ -41,6 +42,7 @@ class VisualExperience(_StrictModel):
 
 
 class IgnoreVisualObservation(_StrictModel):
+    decision_basis: DecisionBasis | None = None
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["ignore"]
 

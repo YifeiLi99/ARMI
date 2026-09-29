@@ -340,7 +340,145 @@ def _format_retry_execution(monkeypatch, *, provider="deepseek", other=False):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("choice", [*AutonomyCategory, "unknown", "invalid"])
+@pytest.mark.parametrize(
+    "outcome", ["direct", "generate", "low", "malformed", "network", "stop"]
+)
+async def test_bounded_decision_owns_attempts_and_only_generates_when_needed(
+    monkeypatch, outcome
+):
+    from dataclasses import replace
+
+    from armi_kernel.application import ModelBinding
+
+    pipeline, record, _, response = _format_retry_execution(monkeypatch)
+    pipeline.episode = replace(pipeline.episode, purpose="consider_sleep")
+    pipeline.adapter.binding.response_contract_kind = "armi.sleep-decision-candidate"
+    pipeline.adapter.invoke.return_value = response(
+        '{"candidate":{"kind":"stay_awake","decision_basis":null}}'
+    )
+    original = json.dumps(
+        {
+            "compiled_context": {
+                "purpose": "consider_sleep",
+                "layers": [
+                    {
+                        "items": [
+                            {
+                                "item_kind": "current_maintenance_window",
+                                "trust": "runtime_authority",
+                                "content": "available",
+                                "source": {"reference": str(uuid7()), "version": 1},
+                            }
+                        ]
+                    }
+                ],
+            },
+            "included_context_refs": [
+                {"ref": "ctx:1", "item_kind": "current_maintenance_window"}
+            ],
+            "output_contract": {"schema_kind": "armi.sleep-decision-candidate"},
+        }
+    ).encode()
+    monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: original)
+    pipeline._decision_confidence = 0.95
+    pipeline._forget_confidence = 0.99
+    pipeline._decision_max_bytes = 32768
+
+    async def invoke(wire):
+        if outcome == "network":
+            raise ModelViolation("MODEL-OUTCOME-UNKNOWN", outcome_unknown=True)
+        questions = json.loads(wire)["questions"]
+        choices = {
+            "decision": "generate" if outcome == "generate" else "stay_awake",
+            "sufficiency": "bounded",
+            "basis": "ctx:1",
+        }
+        raw = json.dumps(
+            {
+                "answers": {
+                    key: {
+                        "type": "choice",
+                        "choice": choices[key],
+                        "confidence": 0.9 if outcome == "low" else 1,
+                        "probabilities": {
+                            option: float(option == choices[key])
+                            for option in question["criteria"]
+                        },
+                    }
+                    for key, question in questions.items()
+                }
+            }
+        ).encode()
+        if outcome == "stop":
+            pipeline._stop.set()
+        return ModelInvocationResult(
+            ModelResultStatus.SUCCEEDED,
+            "jev-request",
+            "jev-1.13.0",
+            b"{}" if outcome == "malformed" else raw,
+            ModelUsage(10, 0, 0),
+        )
+
+    pipeline._decision_check = cast(
+        Any,
+        SimpleNamespace(
+            binding=ModelBinding(
+                "typesafe",
+                "https://api.typesafe.ai/v1",
+                "jev-1.13.0",
+                "fixed_provider_model",
+                True,
+                "bounded_decision",
+                "armi.bounded-decision",
+                "mood.jev_api_key",
+                32000,
+                128,
+                20,
+                1_000_000,
+            ),
+            invoke=AsyncMock(side_effect=invoke),
+        ),
+    )
+    await pipeline._execute(cast(Any, record))
+    pipeline._decision_check.invoke.assert_awaited_once()
+    generating = outcome in {"generate", "low"}
+    assert pipeline.adapter.invoke.await_count == int(generating)
+    assert pipeline._repository.prepare_attempt.await_count == 1 + int(generating)
+    assert pipeline._finalization.finalize.await_count == int(
+        outcome in {"direct", "generate", "low"}
+    )
+    assert pipeline._repository.finalize_primary_success.await_count <= 1
+    assert pipeline._repository.settle_failure.await_count == int(outcome == "network")
+    assert pipeline._repository.fail_episode.await_count == int(
+        outcome in {"malformed", "network"}
+    )
+    if outcome != "network":
+        saved = json.loads(
+            next(
+                value for kind, value in pipeline.published if kind == "model.response"
+            )
+        )
+        assert "raw_response" in saved
+        assert "decision_route" in saved
+        if outcome == "direct":
+            assert (
+                model_response_candidate(
+                    json.dumps(saved).encode(),
+                    expected_version="armi.sleep-decision-candidate",
+                )["kind"]
+                == "stay_awake"
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "choice",
+    [
+        *[c for c in AutonomyCategory if c is not AutonomyCategory.UNDETERMINED],
+        "unknown",
+        "invalid",
+    ],
+)
 async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
     monkeypatch, choice
 ):
@@ -394,7 +532,15 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
                 "questions": {
                     "category": {
                         "criteria": {
-                            str(key): "" for key in [*AutonomyCategory, "unknown"]
+                            str(key): ""
+                            for key in [
+                                *[
+                                    c
+                                    for c in AutonomyCategory
+                                    if c is not AutonomyCategory.UNDETERMINED
+                                ],
+                                "unknown",
+                            ]
                         }
                     }
                 }
@@ -414,20 +560,20 @@ async def test_jev_check_resolves_attention_without_main_model_or_format_retry(
     pipeline._repository.settle_success.assert_awaited_once()
     assert ("model.response", raw) in pipeline.published
     pipeline._finalization.finalize.assert_not_awaited()
-    if choice in {"unknown", "invalid"}:
+    if choice == "invalid":
         pipeline._repository.finalize_autonomy_check.assert_not_awaited()
         pipeline._repository.fail_episode.assert_awaited_once()
         assert pipeline._repository.fail_episode.call_args.kwargs["code"] == (
-            "MODEL-JEV-CHECK-UNDETERMINED"
-            if choice == "unknown"
-            else "MODEL-JEV-CHECK-CONTRACT"
+            "MODEL-JEV-CHECK-CONTRACT"
         )
         return
     pipeline._repository.finalize_autonomy_check.assert_awaited_once_with(
         ANY,
         lease=record.lease,
         snapshot=pipeline.episode,
-        category=AutonomyCategory(choice),
+        category=AutonomyCategory.UNDETERMINED
+        if choice == "unknown"
+        else AutonomyCategory(choice),
     )
     pipeline._failure_notification.assert_not_awaited()
 

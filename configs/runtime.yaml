@@ -17,6 +17,9 @@ runtime:
 model:
   concurrency: 2
   semantic_recall_enabled: false
+  decision_confidence: 0.95
+  forget_confidence: 0.99
+  decision_max_bytes: 32768
 
 mood:
   model: jev-1.13.0

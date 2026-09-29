@@ -14,6 +14,7 @@ from pydantic import (
     TypeAdapter,
 )
 
+from ._decision_basis import DecisionBasis
 from ._dialogue_contract import ContextRef, DialogueSubjectPromptChange
 from ._focus.api import FOCUS_COGNITIVE_INSTRUCTIONS, ConcernChange
 from ._model_contract import SelfState
@@ -41,12 +42,18 @@ class _StrictModel(BaseModel, frozen=True):
 
 
 class OwnerReflectionCandidate(_StrictModel, frozen=True):
+    decision_basis: DecisionBasis | None = None
     kind: Literal["no_change", "update"]
     target: Literal["self", "focus", "prompt"]
-    summary: Annotated[
-        str,
-        StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN),
-    ]
+    summary: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    )
     basis_refs: tuple[ContextRef, ...] = Field(max_length=8)
     expected_version: int | None
     next_state: SelfState | DialogueSubjectPromptChange | None

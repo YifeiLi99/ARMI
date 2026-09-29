@@ -34,6 +34,20 @@ from .api import (
 class PostgreSQLCognitionContextLifecycle:
     __slots__ = ("_experiences", "_focus", "_maintenance")
 
+    async def reflection_request(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, session_id: UUID
+    ) -> tuple[str, str] | None:
+        row = await (
+            await transaction.execute(
+                """SELECT maintenance_issue_target,maintenance_result_summary
+               FROM armi.cognitive_episodes WHERE subject_id=%s AND maintenance_session_id=%s
+               AND maintenance_phase='self_check' AND maintenance_outcome='issue_found'
+               AND subject_commit_id IS NOT NULL ORDER BY maintenance_head_version DESC LIMIT 1""",
+                (subject_id, session_id),
+            )
+        ).fetchone()
+        return None if row is None else (str(row[0]), str(row[1]))
+
     async def focus_context(
         self,
         transaction: PostgreSQLTransaction,

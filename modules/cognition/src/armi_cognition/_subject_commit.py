@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from uuid import UUID
 
@@ -158,7 +159,8 @@ class PostgreSQLCognitionSubjectCommit:
                        maintenance_head_version=%s, maintenance_phase=%s,
                        maintenance_outcome=%s, maintenance_result_summary=%s,
                        maintenance_creator_visible_problem=%s, maintenance_memory_id=%s,
-                       maintenance_issue_target=%s, maintenance_completed_at=armi.business_time(statement_timestamp())
+                       maintenance_issue_target=%s, maintenance_decision_basis=%s::jsonb,
+                       maintenance_completed_at=armi.business_time(statement_timestamp())
                    WHERE cognitive_episode_id=%s AND subject_id=%s
                      AND candidate_validation_id=%s AND candidate_application_id=%s
                      AND subject_commit_id=%s AND maintenance_session_id IS NULL
@@ -173,6 +175,9 @@ class PostgreSQLCognitionSubjectCommit:
                     decision.creator_visible_problem,
                     memory_id,
                     decision.issue_target,
+                    None
+                    if decision.decision_basis is None
+                    else json.dumps(decision.decision_basis),
                     context.episode_id,
                     context.subject_id,
                     context.validation_id,

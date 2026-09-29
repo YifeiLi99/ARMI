@@ -6,7 +6,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from ._decision_basis import DecisionBasis
 from ._dialogue_contract import ContextRef
+from ._strict_model_json import strict_model_value
 from ._text_contract import Text512
 
 MAINTENANCE_WORK_CANDIDATE_VERSION = "armi.maintenance-work-candidate"
@@ -14,6 +16,7 @@ MAINTENANCE_WORK_CANDIDATE_VERSION = "armi.maintenance-work-candidate"
 
 class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    decision_basis: DecisionBasis | None = None
 
     @property
     def schema_kind(self) -> str:
@@ -22,7 +25,7 @@ class _StrictModel(BaseModel, frozen=True):
 
 class MemoryMaintenanceNoChange(_StrictModel, frozen=True):
     kind: Literal["memory_unchanged"]
-    summary: Text512 = Field(...)
+    summary: Text512 | None = Field(...)
 
 
 class MemoryRelation(_StrictModel, frozen=True):
@@ -33,7 +36,7 @@ class MemoryRelation(_StrictModel, frozen=True):
 class MemoryMaintenanceChange(_StrictModel, frozen=True):
     kind: Literal["consolidate", "fade", "forget", "reinterpret"]
     memory_ref: ContextRef
-    reason: Text512
+    reason: Text512 | None
     summary: Text512 | None
     uncertainty: Text512 | None = None
     relation: MemoryRelation | None = None
@@ -61,7 +64,7 @@ class MemoryReinterpretation(MemoryMaintenanceChange, frozen=True):
 
 class SelfCheckNoIssue(_StrictModel, frozen=True):
     kind: Literal["no_issue"]
-    summary: Text512
+    summary: Text512 | None
 
 
 class SelfCheckIssueFound(_StrictModel, frozen=True):
@@ -109,7 +112,7 @@ def parse_maintenance_work_candidate(
     value: object, *, purpose: str | None = None
 ) -> MaintenanceWorkCandidate:
     adapter = _ADAPTER if purpose is None else _PURPOSE_ADAPTERS[purpose]
-    return adapter.validate_python(value, strict=True)
+    return adapter.validate_python(strict_model_value(value), strict=True)
 
 
 __all__ = (
