@@ -1,4 +1,4 @@
-"""Persistent dimensions and pure dynamics. See DESIGN, Mind continuous needs."""
+"""Persistent dimensions; see docs/07-内部算法/01-Mind心理需要与持续动机.md."""
 
 from __future__ import annotations
 

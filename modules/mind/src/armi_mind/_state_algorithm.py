@@ -1,5 +1,6 @@
 """Object-scoped psychological state; engineering hypotheses, not a human scale.
 
+Input effects and formulas: docs/07-内部算法/01-Mind心理需要与持续动机.md.
 The event coordinator supplies grounded objects and evidence. This module never
 creates goals, relationships, experiences or effects. Reading a projection cannot
 change either a need or the eligibility of a consideration.

@@ -1,5 +1,6 @@
-"""Deterministic appraisal dynamics; research and parameters: docs/02-系统设计/05.
+"""Deterministic appraisal dynamics; formulas: docs/07-内部算法/02-Mood情绪与心情.md.
 
+Research and event contracts: docs/02-系统设计/05-情绪、心情与私有心情窗.md.
 The appraisal structure is research inspired. Anchors, gains and time constants
 are engineering parameters, not measured universal human coefficients.
 """

@@ -1,6 +1,6 @@
 """Integrated idle intensity; polling never draws random numbers or advances state.
 
-See docs/02-系统设计/02-认知、Context与主体提交.md. This is scheduling,
+See docs/07-内部算法/03-Attention自主唤醒.md. This is scheduling,
 not a psychological fact: unknown needs contribute no extra intensity.
 """
 
