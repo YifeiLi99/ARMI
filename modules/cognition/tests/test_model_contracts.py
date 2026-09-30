@@ -504,7 +504,8 @@ def _request(binding: ModelBinding):
 def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
     first = load_active_binding()
     second = load_active_binding()
-    assert first.model_id == ACTIVE_MODEL_ID == "qwen3.8-flash"
+    assert first.model_id == ACTIVE_MODEL_ID == "deepseek-flash"
+    assert first.provider == "deepseek"
     assert first.version_policy == ACTIVE_VERSION_POLICY
     assert first.response_model_identity_required
     assert first == second

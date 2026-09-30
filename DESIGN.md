@@ -395,7 +395,7 @@ Runtime 持有并复用客户端，按服务地址、超时与凭据身份隔离
 
 生成提示按后端原 Schema 的 required 区分必填与可省略；无变化省略可选字段，有实际意义的评价和状态变化仍须完整填写，不为减少输出隐藏变化。后端原本允许的 null 或空数组仍合法，适配器不在返回后补字段。生成 Schema 保留非空关系理解等必要的较窄约束，不称为与后端完全相同。普通他人边界中 contact/exit 会阻止回复；address 仅为称呼限制，privacy/disclosure 分别为隐私与披露限制。“别拿这件事开玩笑”“先别给建议”等仍允许聊天的偏好保存为对方表达事实及关系理解，不扩大为停止联系，不自动生成承诺。提示与字段描述解释已有行为，后端合同版本及领域校验保持不变。DeepSeek 显式使用官方 `tool_choice:none`，只生成候选消息；这不保证消除非法 JSON 或 DSML 标签，仍严格拒绝异常返回，不做截取或修复。
 
-实验选型约定（2026-09-20）：后续主聊天实验优先使用 DeepSeek `deepseek-flash`；Qwen `qwen3.8-flash` 保留可选，结构化输出稳定性与响应耗时仍有待调整、验证的问题，仅在明确进行 Qwen 专项或供应商对照时测试。该约定指定实验优先级，不表示 DeepSeek 已长期稳定，也不等于已切换安装环境或修改产品默认模型；两家的后端严格 Schema 校验要求一致。
+模型分工约定（2026-09-30）：正式链路与本地模拟仓统一选择模型，DeepSeek `deepseek-flash` 为主文字模型，Qwen `qwen3.8-flash` 为可显式切换的备用文字模型，Jev `jev-1.13.0` 为判断模型，语音认知、识别/合成与视觉继续使用豆包。源码默认及新安装包采用同一 `configs/model-bindings.yaml`；模拟仓不维护另一套实验默认，只有明确的供应商专项或对照实验才改变该轮选择。已有安装环境的显式绑定通过正式配置入口单独核对和修改，修改源码不代表已更新本机安装版。文字失败不自动切换供应商；两家的后端严格 Schema 校验要求一致，主备定位不表示模型已长期稳定。
 
 接入依据（2026-09-20 核对）：[Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)、[DeepSeek Responses](https://api-docs.deepseek.com/zh-cn/api/create-response/)、[DeepSeek JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)。JSON 模式只约束 JSON 格式，不保证符合业务 Schema；完整 Schema 提示及合法示例帮助生成，后端校验才决定候选能否继续。官方工具调用的 strict 说明不能直接当作 Responses 严格 Schema 能力的证明。单次回放通过不代表全部 purpose 或长期稳定性通过，新供应商仍需正式对话验收。
 

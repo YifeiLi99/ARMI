@@ -1,17 +1,18 @@
 schema_kind: armi.model-bindings
-active_binding: armi.model-adapter.qwen-responses
+# Production and dialogue lab share this selection; see DESIGN.md.
+active_binding: armi.model-adapter.deepseek-responses
 
 bindings:
-  - provider: qwen
-    api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
-    model_id: qwen3.8-flash
+  - provider: deepseek
+    api_base: https://api.deepseek.com
+    model_id: deepseek-flash
     version_policy: provider_evolving_alias
     profile: creator_input_cognition
     response_contract_kind: armi.cognition-candidate
     response_model_identity_required: true
-    credential_identity: armi.model.qwen-api-key.v1
-    credential_locator: model.qwen_api_key
-    credential_purpose: model.request.qwen
+    credential_identity: armi.model.deepseek-api-key.v1
+    credential_locator: model.deepseek_api_key
+    credential_purpose: model.request.deepseek
     input_token_limit: 65536
     output_token_limit: 4096
     timeout_seconds: 180

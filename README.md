@@ -214,7 +214,7 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存。千问文本模型使用 `model.qwen_api_key`，DeepSeek 文本模型使用 `model.deepseek_api_key`；方舟 Key 仅用于独立豆包语音认知、视觉识别。豆包语音识别/合成使用新版语音控制台 Key；Codex 导入登录文件；QQ 通信凭据自动生成。已有 locator 的 Key 更换在后续请求生效，当前任务不切换；旧环境首次添加千问或 DeepSeek locator 后需要重启 Runtime。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，依靠文件权限保护，不回显已保存内容。普通升级和默认卸载保留这些文件。保存只证明本地文件已更新，不代表服务商认证、模型或真实对话已通过。
 
-主文本模型在“功能与模型”页选择 `qwen` 或 `deepseek`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持千问 `qwen3.8-flash`（默认）、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`，以及 DeepSeek `deepseek-flash`、`deepseek-v4-pro`；两家统一使用官方 Responses 接口并关闭思考。Qwen 通过提示词提供完整 Schema 和格式要求，DeepSeek 另启用 JSON Object 模式；后端始终使用同一套严格候选校验。新增型号必须先确认其 Responses 与非思考能力，不能仅换名字猜测兼容。
+DeepSeek `deepseek-flash` 是默认主文字模型，千问 `qwen3.8-flash` 是可显式切换的备用文字模型；Jev 负责判断，语音认知、识别/合成与视觉继续使用豆包。正式链路与本地模拟仓采用相同模型选择。主文本模型在“功能与模型”页选择 `deepseek` 或 `qwen`，填写型号并点击“保存文本模型”，随后重启 Runtime。主链路不再接受方舟，也不在失败时自动回退。当前支持 DeepSeek `deepseek-flash`、`deepseek-v4-pro`，以及千问 `qwen3.8-flash`、`qwen3.8-max`、`qwen3.7-flash`、`qwen3.7-plus`、`qwen3.7-max`；两家统一使用官方 Responses 接口并关闭思考。Qwen 通过提示词提供完整 Schema 和格式要求，DeepSeek 另启用 JSON Object 模式；后端始终使用同一套严格候选校验。新增型号必须先确认其 Responses 与非思考能力，不能仅换名字猜测兼容。
 
 机器沿用 Admin `configuration` 的 `model-bindings` target，读取当前版本后以同一个 apply 补丁更新 `active_binding` 和唯一 `bindings` 项（保留所有 purpose、预算和独立 voice binding）。千问 adapter 为 `armi.model-adapter.qwen-responses`，北京地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`；也允许官方北京 Workspace 域名。DeepSeek adapter 为 `armi.model-adapter.deepseek-responses`，地址 `https://api.deepseek.com`。各自使用 `armi.model.qwen-api-key.v1` / `armi.model.deepseek-api-key.v1` 的 credential identity、上述 locator 和 `model.request.qwen` / `model.request.deepseek` purpose。设置页保存模型也调用同一用例。协议和官方来源见 [模型设计](DESIGN.md)；缺少价格继续按现有规则显示待计价，不继承方舟单价。
 
@@ -302,6 +302,8 @@ uv run python tools/verify_live_creator_roundtrip.py `
 ### 源码对话实验室
 
 提供独立的本地实验工具，用于测试对话、自主行为及模型输入输出，无需反复安装应用。入口：`tools/dialogue_lab.py`。
+
+模拟仓与正式链路采用相同模型分工，默认直接读取共享配置：DeepSeek 主文字、Qwen 备用文字、Jev 判断、豆包语音与视觉。仅明确的供应商专项或对照实验另选模型；凭据仍隔离保存在实验环境，不自动复制安装版凭据。
 
 ## 文档
 

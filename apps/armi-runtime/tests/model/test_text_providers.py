@@ -39,16 +39,14 @@ pytestmark = pytest.mark.test_group("model", "cognition")
 
 def binding(provider):
     current = load_active_model_binding()
-    return (
-        current
+    return replace(
+        current,
+        provider=provider,
+        model_id="qwen3.8-flash" if provider == "qwen" else "deepseek-flash",
+        api_base="https://dashscope.aliyuncs.com/compatible-mode/v1"
         if provider == "qwen"
-        else replace(
-            current,
-            provider="deepseek",
-            model_id="deepseek-flash",
-            api_base="https://api.deepseek.com",
-            credential_identity="armi.model.deepseek-api-key.v1",
-        )
+        else "https://api.deepseek.com",
+        credential_identity=f"armi.model.{provider}-api-key.v1",
     )
 
 

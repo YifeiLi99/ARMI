@@ -107,14 +107,15 @@ async def test_saved_key_verification_reaches_own_official_api(
     monkeypatch, tmp_path, active, provider, outcome
 ):
     binding = probe.load_active_model_binding()
-    if active == "deepseek":
-        binding = replace(
-            binding,
-            provider="deepseek",
-            model_id="deepseek-v4-pro",
-            api_base="https://api.deepseek.com",
-            credential_identity="armi.model.deepseek-api-key.v1",
-        )
+    binding = replace(
+        binding,
+        provider=active,
+        model_id="qwen3.8-flash" if active == "qwen" else "deepseek-v4-pro",
+        api_base="https://dashscope.aliyuncs.com/compatible-mode/v1"
+        if active == "qwen"
+        else "https://api.deepseek.com",
+        credential_identity=f"armi.model.{active}-api-key.v1",
+    )
     monkeypatch.setattr(probe, "load_active_model_binding", lambda path: binding)
     requests = []
 

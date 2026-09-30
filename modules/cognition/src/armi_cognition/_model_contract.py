@@ -106,8 +106,8 @@ from ._visual_observation_contract import (
 MODEL_BINDING_VERSION = "armi.model-bindings"
 MODEL_REQUEST_VERSION = "armi.model-request"
 CANDIDATE_VERSION = "armi.cognition-candidate"
-ACTIVE_MODEL_ID = "qwen3.8-flash"
-ACTIVE_MODEL_ADAPTER = "armi.model-adapter.qwen-responses"
+ACTIVE_MODEL_ID = "deepseek-flash"
+ACTIVE_MODEL_ADAPTER = "armi.model-adapter.deepseek-responses"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
 
 ProposalRef = Annotated[
