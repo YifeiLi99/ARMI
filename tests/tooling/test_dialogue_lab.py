@@ -27,6 +27,48 @@ def test_stopped_status_does_not_query_offline_database(tmp_path):
     lab.admin.assert_called_once_with("runtime_status")
 
 
+def test_migration_requires_explicit_bound_scope_without_starting_database(tmp_path):
+    lab = lab_at(tmp_path)
+    lab.config.authorized_operations = ("maintenance", "environment_start")
+    lab.admin = Mock()
+    with pytest.raises(LabError, match="MIGRATION-SCOPE-REQUIRED"):
+        lab.migrate()
+    lab.admin.assert_not_called()
+
+
+def test_migration_failure_stops_database_and_preserves_failure(tmp_path):
+    lab = lab_at(tmp_path)
+    lab.config.authorized_operations = ("maintenance.database_migrate",)
+    lab.admin = Mock(
+        side_effect=[
+            {"status": "stopped"},
+            {},
+            LabError("DB-SCHEMA-MIGRATION-SOURCE"),
+            {},
+        ]
+    )
+    with pytest.raises(LabError, match="DB-SCHEMA-MIGRATION-SOURCE"):
+        lab.migrate()
+    names = [call.args[0] for call in lab.admin.call_args_list]
+    assert names == [
+        "runtime_status",
+        "environment_start",
+        "maintenance",
+        "environment_stop",
+    ]
+    assert lab.admin.call_args_list[1].args[1]["component"] == "postgresql"
+    assert lab.admin.call_args_list[-1].args[1]["component"] == "postgresql"
+
+
+def test_migration_refuses_running_runtime_without_database_operations(tmp_path):
+    lab = lab_at(tmp_path)
+    lab.config.authorized_operations = ("maintenance.database_migrate",)
+    lab.admin = Mock(return_value={"status": "running"})
+    with pytest.raises(LabError, match="MIGRATION-REQUIRES-STOPPED"):
+        lab.migrate()
+    lab.admin.assert_called_once_with("runtime_status")
+
+
 def test_running_status_preserves_autonomy_failure(tmp_path):
     lab = lab_at(tmp_path)
     lab.admin = Mock(

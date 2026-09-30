@@ -42,6 +42,7 @@ from armi_local_control.maintenance import (
     MaintenanceParameters,
 )
 from armi_local_control.runtime_errors import RuntimeViolation
+from armi_postgresql_contract import EXPECTED_REVISION
 from psycopg import Error as PostgreSQLError
 from pydantic import BaseModel, JsonValue
 
@@ -2023,7 +2024,7 @@ class AdminToolService:
             snapshot.server_version_num != 180004
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
-            or snapshot.revision != "0000"
+            or snapshot.revision != EXPECTED_REVISION
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 

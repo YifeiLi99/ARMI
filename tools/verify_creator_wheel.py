@@ -24,6 +24,10 @@ REQUIRED = {
 CONTRACT_REQUIRED = {
     f"{CONTRACT_PREFIX}alembic/env.py",
     f"{CONTRACT_PREFIX}alembic/versions/0000_baseline.py",
+    f"{CONTRACT_PREFIX}alembic/versions/0001_restore_forward_migrations.py",
+    f"{CONTRACT_PREFIX}migrations/0001_restore_forward_migrations.sql",
+    f"{CONTRACT_PREFIX}alembic/versions/0002_allow_bounded_decision_profile.py",
+    f"{CONTRACT_PREFIX}migrations/0002_allow_bounded_decision_profile.sql",
     *{
         f"{CONTRACT_PREFIX}baseline/{name}"
         for name in (

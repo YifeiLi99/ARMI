@@ -32,10 +32,10 @@ def respond(request: httpx.Request) -> httpx.Response:
                 "usage": {"input_tokens": 100, "output_tokens": 20},
             },
         )
-    if (
-        str(request.url)
-        == "https://dashscope.aliyuncs.com/compatible-mode/v1/responses"
-    ):
+    if str(request.url) in {
+        "https://api.deepseek.com/responses",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/responses",
+    }:
         return httpx.Response(
             200,
             json={

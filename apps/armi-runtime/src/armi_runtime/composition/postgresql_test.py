@@ -104,6 +104,7 @@ from armi_subject_state.bootstrap import (
     bootstrap_subject_state_cognition,
 )
 
+from armi_runtime.adapters.model.jev_autonomy import JevAutonomyCheck
 from armi_runtime.composition.database import (
     compose_data_rights_core as bootstrap_data_rights_core,
 )
@@ -146,6 +147,7 @@ __all__ = (
     "ExternalContentPipeline",
     "ExternalMessageInputRepository",
     "ExternalMessageInputService",
+    "JevAutonomyCheck",
     "OtherHumanInputRepository",
     "PostgreSQLCodexDelegationRepository",
     "PostgreSQLDataRightsParticipant",

@@ -269,7 +269,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "runtime_instances",
             "subjects",
         ),
-        revision="0000",
+        revision="0002",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,

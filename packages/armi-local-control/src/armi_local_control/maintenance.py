@@ -11,6 +11,7 @@ from .configuration.models import AbsolutePath, Uuid7
 type MaintenanceAction = Literal[
     "credential_check",
     "database_install",
+    "database_migrate",
     "database_check",
     "database_maintain",
     "birth",

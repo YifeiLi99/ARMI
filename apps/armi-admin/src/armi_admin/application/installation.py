@@ -204,6 +204,7 @@ _DAILY_SCOPES = (
     "maintenance.napcat_open",
     "maintenance.mood_display_probe",
     "maintenance.database_install",
+    "maintenance.database_migrate",
     "environment_initialize",
 )
 

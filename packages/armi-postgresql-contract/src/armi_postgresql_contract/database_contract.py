@@ -59,6 +59,7 @@ def verify_contract_identity(
     *,
     expected_resource: str,
     expected_role_policy: str,
+    expected_revision: str = EXPECTED_REVISION,
 ) -> PostgreSQLContractEvidence:
     try:
         version_row = connection.execute("SHOW server_version_num").fetchone()
@@ -111,7 +112,7 @@ def verify_contract_identity(
         raise PostgreSQLContractError("DB-DATABASE-IDENTITY")
     if extensions != _EXPECTED_EXTENSIONS:
         raise PostgreSQLContractError("DB-EXTENSION-IDENTITY")
-    if revision_rows != [(EXPECTED_REVISION,)]:
+    if revision_rows != [(expected_revision,)]:
         raise PostgreSQLContractError("DB-SCHEMA-REVISION")
     if identity_rows != [
         (
@@ -129,7 +130,7 @@ def verify_contract_identity(
         locale_provider=locale_provider,
         locale=locale,
         extensions=extensions,
-        revision=EXPECTED_REVISION,
+        revision=expected_revision,
         resource_digest=expected_resource,
         catalog_digest=current_catalog,
         role_policy_digest=expected_role_policy,

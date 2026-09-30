@@ -438,6 +438,11 @@ def _with_connection(
                         conninfo,
                         environment_id=prepared.effective.config.environment.environment_id,
                     )
+                if operation == "migrate":
+                    return gateway.migrate(
+                        conninfo,
+                        environment_id=prepared.effective.config.environment.environment_id,
+                    )
                 return gateway.status(
                     conninfo,
                     environment_id=prepared.effective.config.environment.environment_id,
@@ -510,6 +515,15 @@ def install_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
         locator_name=MIGRATOR_LOCATOR_NAME,
         purpose="database.migrator",
         operation="install",
+    )
+
+
+def migrate_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
+    return _with_connection(
+        prepared,
+        locator_name=MIGRATOR_LOCATOR_NAME,
+        purpose="database.migrator",
+        operation="migrate",
     )
 
 
@@ -2041,6 +2055,7 @@ __all__ = (
     "inspect_runtime_schema",
     "inspect_semantic_recall_storage",
     "install_operator_schema",
+    "migrate_operator_schema",
     "reset_operator_schema",
     "runtime_database_reason",
 )

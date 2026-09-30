@@ -21,6 +21,7 @@ from .database import (
     inspect_operator_schema,
     inspect_semantic_recall_storage,
     install_operator_schema,
+    migrate_operator_schema,
 )
 from .device_binding_checks import inspect_device_bindings
 from .environment import prepare_environment
@@ -41,6 +42,7 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
     scopes = {
         "credential_check": runtime_credential_scope(),
         "database_install": {"database.migrator": "database.migrator"},
+        "database_migrate": {"database.migrator": "database.migrator"},
         "database_check": {"database.status": "database.runtime"},
         "semantic_status": {"database.status": "database.runtime"},
         "napcat_status": {
@@ -121,6 +123,14 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
             }
         case "database_install":
             return install_operator_schema(prepared).safe_view()
+        case "database_migrate":
+            manager = RuntimeProcessManager(prepared.root, str(request.environment_id))
+            if manager.status()["status"] != "stopped":
+                raise RuntimeViolation(
+                    "ADMIN-MIGRATION-RUNTIME-ACTIVE",
+                    "database migration requires a normally stopped Runtime",
+                )
+            return migrate_operator_schema(prepared).safe_view()
         case "database_check":
             return inspect_operator_schema(prepared).safe_view()
         case "database_maintain":

@@ -8,6 +8,7 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from armi_kernel.application import WorkType
+from armi_postgresql_contract import schema_resource_digest
 from armi_runtime.adapters.database_errors import DatabaseViolation
 from armi_runtime.adapters.persistence.schema_gateway import (
     PostgreSQLSchemaGateway,
@@ -42,15 +43,35 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert sorted(path.name for path in (RESOURCE / "baseline").glob("*.sql")) == (
         BASELINE_DOCUMENTS
     )
-    assert not (RESOURCE / "migrations").exists()
+    assert sorted(path.name for path in (RESOURCE / "migrations").glob("*.sql")) == [
+        "0001_restore_forward_migrations.sql",
+        "0002_allow_bounded_decision_profile.sql",
+    ]
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0000"]
+    assert script.get_heads() == ["0002"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
-    assert [revision.revision for revision in reversed(revisions)] == ["0000"]
+    assert [revision.revision for revision in reversed(revisions)] == [
+        "0000",
+        "0001",
+        "0002",
+    ]
     assert sorted(
         path.name for path in (RESOURCE / "alembic" / "versions").glob("*.py")
-    ) == ["0000_baseline.py"]
+    ) == [
+        "0000_baseline.py",
+        "0001_restore_forward_migrations.py",
+        "0002_allow_bounded_decision_profile.py",
+    ]
+
+
+def test_frozen_baseline_retains_its_existing_resource_identity() -> None:
+    assert schema_resource_digest(RESOURCE, revision="0000") == (
+        "sha256:c2180c1b600b07dd2560f62c70949c65b6bf697ff7778e8cc9d423174198d9cd"
+    )
+    assert schema_resource_digest(RESOURCE) != schema_resource_digest(
+        RESOURCE, revision="0000"
+    )
 
 
 def test_baseline_contains_authoritative_schema() -> None:
@@ -125,10 +146,10 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "derived_appraisal_payload" not in baseline
 
 
-def test_gateway_exposes_install_and_status_only() -> None:
+def test_gateway_exposes_controlled_install_migrate_and_status() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
-    assert not hasattr(PostgreSQLSchemaGateway, "migrate")
+    assert callable(PostgreSQLSchemaGateway.migrate)
     assert "INSERT INTO armi.schema_baseline_identity DEFAULT VALUES" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
@@ -143,6 +164,22 @@ def test_gateway_rejects_multiple_alembic_heads(tmp_path: Path) -> None:
         "branch_labels = None\n"
         "depends_on = None\n"
         "def upgrade(): pass\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    with pytest.raises(DatabaseViolation) as raised:
+        PostgreSQLSchemaGateway(resource_root=schema)
+    assert raised.value.code == "DB-SCHEMA-RESOURCE"
+
+
+def test_gateway_rejects_a_broken_linear_migration_parent(tmp_path: Path) -> None:
+    schema = tmp_path / "schema"
+    shutil.copytree(RESOURCE, schema)
+    revision = schema / "alembic/versions/0001_restore_forward_migrations.py"
+    revision.write_text(
+        revision.read_text(encoding="utf-8").replace(
+            'down_revision = "0000"', 'down_revision = "missing"'
+        ),
         encoding="utf-8",
         newline="\n",
     )

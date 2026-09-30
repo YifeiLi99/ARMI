@@ -1,4 +1,4 @@
-"""Install and inspect the authoritative PostgreSQL schema."""
+"""Install, inspect and migrate the authoritative PostgreSQL schema."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from armi_postgresql_contract import (
     verify_postgresql_contract,
     verify_revision_source,
 )
+from armi_postgresql_contract.migration_sources import verify_migration_source
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
@@ -62,7 +63,7 @@ class SchemaStatus:
 
 
 class PostgreSQLSchemaGateway:
-    """Govern one authoritative schema through its sole Alembic baseline."""
+    """Govern one authoritative schema through its forward-only Alembic history."""
 
     __slots__ = ("_config", "_head")
 
@@ -129,13 +130,14 @@ class PostgreSQLSchemaGateway:
                 with connection.transaction():
                     connection.execute("SET LOCAL ROLE armi_owner")
                     connection.execute("CREATE SCHEMA armi")
-                self._upgrade(conninfo)
+                self._upgrade(conninfo, environment_id=environment_id)
             except (
                 psycopg.Error,
                 CommandError,
                 OSError,
                 SQLAlchemyError,
                 UnicodeError,
+                PostgreSQLContractError,
             ) as error:
                 raise DatabaseViolation(
                     "DB-SCHEMA-INSTALL-FAILED",
@@ -149,6 +151,48 @@ class PostgreSQLSchemaGateway:
                 require_head_dml=True,
             )
             return state
+
+    def migrate(self, conninfo: str, *, environment_id: UUID) -> SchemaStatus:
+        """Upgrade a verified source without replacing subject or business data."""
+
+        with self._connect(conninfo, autocommit=True) as connection:
+            self._verify_database_identity(connection)
+            role_gateway = PostgreSQLRolePolicyGateway()
+            role_gateway.verify(
+                connection,
+                environment_id=environment_id,
+                role_class="migrator",
+                require_head_dml=True,
+            )
+            self._acquire_lock(connection)
+            try:
+                source = verify_migration_source(
+                    connection, resource_root=self._config.attributes["schema_root"]
+                )
+            except PostgreSQLContractError as error:
+                raise DatabaseViolation(
+                    str(error), "the schema migration source is not verified"
+                ) from None
+            if source.revision == self._head:
+                return self._inspect_schema(connection)
+            with connection.transaction():
+                connection.execute("SET LOCAL ROLE armi_owner")
+                self._require_runtime_stopped(connection)
+            try:
+                self._upgrade(conninfo, environment_id=environment_id, migrating=True)
+            except (
+                psycopg.Error,
+                CommandError,
+                OSError,
+                SQLAlchemyError,
+                UnicodeError,
+                PostgreSQLContractError,
+            ) as error:
+                raise DatabaseViolation(
+                    "DB-SCHEMA-MIGRATION-FAILED",
+                    "the schema migration rolled back",
+                ) from error
+            return self._inspect_schema(connection)
 
     def reset(self, conninfo: str, *, environment_id: UUID) -> None:
         """Remove the sole ARMI schema after verifying the migrator boundary."""
@@ -172,7 +216,9 @@ class PostgreSQLSchemaGateway:
                     "the authoritative schema reset failed",
                 ) from None
 
-    def _upgrade(self, conninfo: str) -> None:
+    def _upgrade(
+        self, conninfo: str, *, environment_id: UUID, migrating: bool = False
+    ) -> None:
         engine = create_engine(
             "postgresql+psycopg://",
             creator=lambda: psycopg.connect(conninfo),
@@ -183,7 +229,37 @@ class PostgreSQLSchemaGateway:
                 self._set_owner_role(connection)
                 self._config.attributes["connection"] = connection
                 try:
-                    command.upgrade(self._config, "head")
+                    # One external transaction covers every revision, the stamp,
+                    # identity and post-migration ACL proof (including new installs).
+                    with connection.begin():
+                        driver = cast(
+                            psycopg.Connection[tuple[Any, ...]],
+                            connection.connection.driver_connection,
+                        )
+                        if migrating:
+                            self._require_runtime_stopped(driver)
+                            try:
+                                verify_migration_source(
+                                    driver,
+                                    resource_root=self._config.attributes[
+                                        "schema_root"
+                                    ],
+                                )
+                            except PostgreSQLContractError as error:
+                                raise DatabaseViolation(
+                                    str(error), "the schema migration source changed"
+                                ) from None
+                        command.upgrade(self._config, "head")
+                        connection.exec_driver_sql("RESET ROLE")
+                        verify_postgresql_contract(
+                            driver, resource_root=self._config.attributes["schema_root"]
+                        )
+                        PostgreSQLRolePolicyGateway().verify(
+                            driver,
+                            environment_id=environment_id,
+                            role_class="migrator",
+                            require_head_dml=True,
+                        )
                 finally:
                     self._config.attributes.pop("connection", None)
                     if connection.in_transaction():
@@ -312,7 +388,7 @@ class PostgreSQLSchemaGateway:
         if current != self._head:
             raise DatabaseViolation(
                 "DB-SCHEMA-CONTRACT",
-                "the database revision does not match the sole baseline",
+                "the database revision does not match the migration head",
             )
         try:
             evidence = verify_postgresql_contract(
@@ -385,6 +461,17 @@ class PostgreSQLSchemaGateway:
                 "the schema catalog could not be inspected",
             ) from None
         return frozenset(str(row[0]) for row in rows)
+
+    @staticmethod
+    def _require_runtime_stopped(connection: Any) -> None:
+        row = connection.execute(
+            "SELECT count(*) FROM armi.runtime_instances WHERE status = 'active'"
+        ).fetchone()
+        if row is None or row[0] != 0:
+            raise DatabaseViolation(
+                "DB-SCHEMA-RUNTIME-ACTIVE",
+                "database migration requires a normally stopped Runtime",
+            )
 
     @staticmethod
     def _acquire_lock(connection: psycopg.Connection[tuple[Any, ...]]) -> None:

@@ -160,6 +160,7 @@ from armi_perception.api import (
     ExternalContentRecognitionStatus,
     ExternalMediaContent,
 )
+from armi_postgresql_contract import database_catalog_digest, schema_resource_digest
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
 from armi_runtime.adapters.persistence.birth import (
     BirthRepository,
@@ -786,6 +787,122 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     ) -> Any:
         gateway = PostgreSQLSchemaGateway()
         return gateway.install(conninfo, environment_id=environment_id)
+
+    def _prepare_migration_source(
+        self,
+        fixture: DatabaseFixture,
+        *,
+        legacy: bool = False,
+        resource_digest: str | None = None,
+        revision: Literal["0000", "0001"] = "0000",
+    ) -> None:
+        """Construct a known pre-migration catalog only inside an isolated fixture."""
+
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                """
+                ALTER TABLE armi.cognitive_attempts
+                    DROP CONSTRAINT cognitive_attempts_profile_check,
+                    ADD CONSTRAINT cognitive_attempts_profile_check CHECK (
+                        profile = ANY (ARRAY[
+                            'autonomy_check'::text,'creator_input_cognition'::text,
+                            'creator_cognitive_act'::text,'creator_voice_act'::text,
+                            'creator_outreach'::text,'other_human_dialogue'::text,
+                            'autonomous_activity'::text,'activity_attention'::text,
+                            'activity_internal_work'::text,'sleep_decision'::text,
+                            'memory_maintenance'::text,'subject_self_check'::text,
+                            'reflect_self'::text,'reflect_focus'::text,'reflect_prompt'::text,
+                            'codex_task'::text,'codex_result'::text,'visual_observation'::text
+                        ])
+                    )
+                """
+            )
+            if legacy:
+                connection.execute(
+                    """
+                    ALTER TABLE armi.autonomy_plans
+                        DROP COLUMN consumed_activity_conditions,
+                        DROP CONSTRAINT autonomy_plans_last_direction_check,
+                        ADD CONSTRAINT autonomy_plans_last_direction_check CHECK (
+                            last_direction IN ('rest','reflect','continue','explore','connect')
+                        );
+                    ALTER TABLE armi.cognitive_episodes
+                        DROP CONSTRAINT cognitive_episodes_maintenance_result_shape,
+                        DROP CONSTRAINT cognitive_episodes_maintenance_basis_shape,
+                        DROP COLUMN maintenance_decision_basis,
+                        ADD CONSTRAINT cognitive_episodes_maintenance_result_shape CHECK (
+                            (maintenance_session_id IS NULL AND maintenance_phase_id IS NULL
+                             AND maintenance_head_version IS NULL AND maintenance_phase IS NULL
+                             AND maintenance_outcome IS NULL AND maintenance_result_summary IS NULL
+                             AND maintenance_creator_visible_problem IS NULL
+                             AND maintenance_memory_id IS NULL AND maintenance_issue_target IS NULL
+                             AND maintenance_completed_at IS NULL)
+                            OR (maintenance_session_id IS NOT NULL AND maintenance_phase_id IS NOT NULL
+                                AND maintenance_head_version IS NOT NULL AND maintenance_head_version > 0
+                                AND maintenance_phase IS NOT NULL AND maintenance_outcome IS NOT NULL
+                                AND maintenance_result_summary IS NOT NULL
+                                AND maintenance_completed_at IS NOT NULL
+                                AND candidate_application_id IS NOT NULL AND subject_commit_id IS NOT NULL)
+                        );
+                    ALTER TABLE armi.opportunities
+                        DROP CONSTRAINT opportunities_check,
+                        ADD CONSTRAINT opportunities_check CHECK (
+                            autonomy_category IS NULL OR (
+                                source_kind='autonomy_plan'
+                                AND purpose IN ('consider_autonomy_check','consider_autonomous_life')
+                                AND autonomy_category IN ('rest','reflect','continue','explore','connect')
+                                AND (autonomy_category<>'wait' OR purpose='consider_autonomy_check')
+                            )
+                        );
+                    """
+                )
+            digest = resource_digest or (
+                "sha256:17633393372ba2edbad67e1c1497c654737ccabfa30a854eff31849785a42ba7"
+                if legacy
+                else schema_resource_digest(revision=revision)
+            )
+            connection.execute(
+                "UPDATE armi.alembic_version SET version_num=%s", (revision,)
+            )
+            connection.execute(
+                "UPDATE armi.schema_baseline_identity "
+                "SET resource_digest=%s,installed_catalog_digest=%s",
+                (digest, database_catalog_digest(connection)),
+            )
+
+    def _migration_identity(self, fixture: DatabaseFixture) -> tuple[Any, ...]:
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            identity = connection.execute(
+                "SELECT to_jsonb(identity),identity.xmin::text,"
+                "revision.version_num,revision.xmin::text "
+                "FROM armi.schema_baseline_identity AS identity "
+                "CROSS JOIN armi.alembic_version AS revision"
+            ).fetchone()
+            assert identity is not None
+            return (*identity, database_catalog_digest(connection))
+
+    def _birth_history_rows(self, fixture: DatabaseFixture) -> dict[str, Any]:
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            return {
+                table: connection.execute(
+                    sql.SQL(
+                        "SELECT to_jsonb(record) FROM armi.{} AS record "
+                        "ORDER BY to_jsonb(record)::text"
+                    ).format(sql.Identifier(table))
+                ).fetchall()
+                for table in (
+                    "subjects",
+                    "runtime_instances",
+                    "parties",
+                    "subject_component_revisions",
+                    "mind_revisions",
+                    "mood_revisions",
+                    "prompt_revisions",
+                    "interaction_scenes",
+                    "artifacts",
+                    "audit_events",
+                )
+            }
 
     @pytest.mark.test_group("live-voice")
     def test_voice_playback_result_survives_restart_without_attempt_table(self) -> None:
@@ -3030,8 +3147,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(installed.status, "current")
         self.assertGreater(installed.table_count, 0)
-        self.assertEqual(installed.current_revision, "0000")
-        self.assertEqual(installed.head_revision, "0000")
+        self.assertEqual(installed.current_revision, "0002")
+        self.assertEqual(installed.head_revision, "0002")
         for digest in (
             installed.resource_digest,
             installed.catalog_digest,
@@ -3121,6 +3238,300 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    @pytest.mark.test_group("schema", "admin", "birth")
+    def test_supported_legacy_migration_preserves_subject_and_history(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        manifest = BirthManifest(
+            schema_kind="armi.birth-manifest",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="schema-migration-birth",
+            personality_anchor=PersonalityAnchor(
+                schema_kind="armi.personality-anchor",
+                voice_style="约 16 岁少女口吻",
+                traits=("好奇",),
+            ),
+            birth_contract_digest=packaged_birth_digests()["birth_contract_digest"],
+            request_digest=Digest.from_bytes(b"schema-migration-birth"),
+        )
+
+        async def birth(root: Path) -> BirthResult:
+            factory = await self._new_uow_factory(fixture)
+            try:
+                return await BirthTransaction(
+                    _publishing_artifact_store(root, factory),
+                    ArtifactCatalogRepository(),
+                    _birth_repository(),
+                    factory,
+                ).birth(manifest)
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            born = asyncio.run(
+                birth(Path(temporary).resolve()),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                """INSERT INTO armi.autonomy_plans (
+                    subject_id,plan_version,policy,observed_state_epoch,
+                    next_consideration_at,last_direction
+                ) VALUES (%s,7,'{"enabled":true}'::jsonb,0,statement_timestamp(),'reflect')""",
+                (born.subject_id,),
+            )
+        self._prepare_migration_source(fixture, legacy=True)
+        before = self._birth_history_rows(fixture)
+        self.assertEqual(len(before["subjects"]), 1)
+        self.assertGreater(len(before["subject_component_revisions"]), 0)
+        self.assertGreater(len(before["mind_revisions"]), 0)
+        self.assertGreater(len(before["audit_events"]), 0)
+        gateway = PostgreSQLSchemaGateway()
+        with self.assertRaises(DatabaseViolation) as stopped:
+            gateway.status(fixture.runtime_dsn, environment_id=fixture.environment_id)
+        self.assertEqual(stopped.exception.code, "DB-SCHEMA-CONTRACT")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                """INSERT INTO armi.runtime_instances (
+                    runtime_instance_id,subject_id,bundle_activation_id,fence_token,
+                    status,process_pid,process_created_at_microseconds,
+                    process_executable_identity,process_command_identity,
+                    environment_id,process_incarnation,lease_expires_at
+                ) VALUES (%s,%s,%s,1,'active',%s,1,'isolated-schema-test',%s,%s,1,
+                          statement_timestamp()+interval '1 hour')""",
+                (
+                    _uuid7(),
+                    born.subject_id,
+                    born.bundle_activation_id,
+                    os.getpid(),
+                    "sha256:" + "1" * 64,
+                    fixture.environment_id,
+                ),
+            )
+        active_identity = self._migration_identity(fixture)
+        with self.assertRaises(DatabaseViolation) as active:
+            gateway.migrate(fixture.migrator_dsn, environment_id=fixture.environment_id)
+        self.assertEqual(active.exception.code, "DB-SCHEMA-RUNTIME-ACTIVE")
+        self.assertEqual(self._migration_identity(fixture), active_identity)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "UPDATE armi.runtime_instances SET status='stopped',"
+                "stopped_at=statement_timestamp()"
+            )
+        before = self._birth_history_rows(fixture)
+        migrated = gateway.migrate(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self.assertEqual(migrated.status, "current")
+        self.assertEqual(migrated.current_revision, "0002")
+        self.assertEqual(self._birth_history_rows(fixture), before)
+        self.assertEqual(
+            gateway.status(fixture.runtime_dsn, environment_id=fixture.environment_id),
+            migrated,
+        )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            plan = connection.execute(
+                "SELECT subject_id,plan_version,policy,last_direction,"
+                "consumed_activity_conditions FROM armi.autonomy_plans"
+            ).fetchone()
+            basis_column = connection.execute(
+                "SELECT data_type,is_nullable FROM information_schema.columns "
+                "WHERE table_schema='armi' AND table_name='cognitive_episodes' "
+                "AND column_name='maintenance_decision_basis'"
+            ).fetchone()
+            connection.execute(
+                "UPDATE armi.autonomy_plans SET last_direction='undetermined'"
+            )
+        self.assertEqual(plan, (born.subject_id, 7, {"enabled": True}, "reflect", []))
+        self.assertEqual(basis_column, ("jsonb", "YES"))
+
+    @pytest.mark.test_group("schema", "admin")
+    def test_current_baseline_migrates_and_repeated_migration_does_not_write(
+        self,
+    ) -> None:
+        fixture = self.create_database()
+        gateway = PostgreSQLSchemaGateway()
+        gateway.install(fixture.migrator_dsn, environment_id=fixture.environment_id)
+        self._prepare_migration_source(fixture)
+        before = self._migration_identity(fixture)
+        self.assertEqual(before[2], "0000")
+        migrated = gateway.migrate(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self.assertEqual(
+            (migrated.status, migrated.current_revision), ("current", "0002")
+        )
+        after = self._migration_identity(fixture)
+        self.assertNotEqual(after[0]["resource_digest"], before[0]["resource_digest"])
+        self.assertEqual(after[0]["installed_at"], before[0]["installed_at"])
+        self.assertEqual(
+            gateway.migrate(
+                fixture.migrator_dsn, environment_id=fixture.environment_id
+            ),
+            migrated,
+        )
+        self.assertEqual(self._migration_identity(fixture), after)
+
+    @pytest.mark.test_group("schema", "admin", "cognition")
+    def test_revision_one_migrates_to_the_bounded_decision_contract(self) -> None:
+        fixture = self.create_database()
+        gateway = PostgreSQLSchemaGateway()
+        gateway.install(fixture.migrator_dsn, environment_id=fixture.environment_id)
+        self._prepare_migration_source(fixture, revision="0001")
+        before = self._migration_identity(fixture)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            old_constraint = connection.execute(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid='armi.cognitive_attempts'::regclass "
+                "AND conname='cognitive_attempts_profile_check'"
+            ).fetchone()
+        assert old_constraint is not None
+        self.assertNotIn("bounded_decision", old_constraint[0])
+        migrated = gateway.migrate(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self.assertEqual(migrated.current_revision, "0002")
+        self.assertEqual(migrated.head_revision, "0002")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            current_constraint = connection.execute(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid='armi.cognitive_attempts'::regclass "
+                "AND conname='cognitive_attempts_profile_check'"
+            ).fetchone()
+        assert current_constraint is not None
+        self.assertIn("bounded_decision", current_constraint[0])
+        self.assertEqual(
+            self._migration_identity(fixture)[0]["installed_at"],
+            before[0]["installed_at"],
+        )
+        self.assertEqual(
+            gateway.status(fixture.runtime_dsn, environment_id=fixture.environment_id),
+            migrated,
+        )
+
+    @pytest.mark.test_group("schema", "admin")
+    def test_failed_migration_rolls_back_columns_revision_and_identity(self) -> None:
+        source = Path(
+            "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
+        )
+        for injected_sql, expected_code in (
+            (b"SELECT armi.migration_failure_probe();", "DB-SCHEMA-MIGRATION-FAILED"),
+            (
+                b"REVOKE INSERT ON TABLE armi.cognitive_attempts FROM armi_runtime;",
+                "DB-ROLE-GRANT",
+            ),
+        ):
+            with self.subTest(expected_code=expected_code):
+                fixture = self.create_database()
+                self._install_current(
+                    fixture.migrator_dsn, environment_id=fixture.environment_id
+                )
+                self._prepare_migration_source(fixture, legacy=True)
+                before = self._migration_identity(fixture)
+                with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+                    schema = Path(temporary) / "schema"
+                    shutil.copytree(source, schema)
+                    migration = (
+                        schema / "migrations/0001_restore_forward_migrations.sql"
+                    )
+                    migration.write_bytes(
+                        migration.read_bytes() + b"\n" + injected_sql + b"\n"
+                    )
+                    with self.assertRaises(DatabaseViolation) as failed:
+                        PostgreSQLSchemaGateway(resource_root=schema).migrate(
+                            fixture.migrator_dsn, environment_id=fixture.environment_id
+                        )
+                self.assertEqual(failed.exception.code, expected_code)
+                self.assertEqual(self._migration_identity(fixture), before)
+                with psycopg.connect(fixture.provisioner_dsn) as connection:
+                    added_columns = connection.execute(
+                        "SELECT table_name,column_name FROM information_schema.columns "
+                        "WHERE table_schema='armi' AND "
+                        "((table_name='autonomy_plans' AND column_name='consumed_activity_conditions') "
+                        "OR (table_name='cognitive_episodes' AND column_name='maintenance_decision_basis'))"
+                    ).fetchall()
+                self.assertEqual(added_columns, [])
+
+    @pytest.mark.test_group("schema", "admin")
+    def test_migration_rejects_unknown_resource_identity_without_writes(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self._prepare_migration_source(fixture, resource_digest="sha256:" + "0" * 64)
+        before = self._migration_identity(fixture)
+        with self.assertRaises(DatabaseViolation) as rejected:
+            PostgreSQLSchemaGateway().migrate(
+                fixture.migrator_dsn, environment_id=fixture.environment_id
+            )
+        self.assertEqual(rejected.exception.code, "DB-SCHEMA-MIGRATION-SOURCE")
+        self.assertEqual(self._migration_identity(fixture), before)
+
+    @pytest.mark.test_group("schema", "admin")
+    def test_migration_rejects_catalog_drift_without_resealing_it(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self._prepare_migration_source(fixture, legacy=True)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "ALTER TABLE armi.subjects DROP CONSTRAINT subjects_subject_id_check"
+            )
+        before = self._migration_identity(fixture)
+        with self.assertRaises(DatabaseViolation) as rejected:
+            PostgreSQLSchemaGateway().migrate(
+                fixture.migrator_dsn, environment_id=fixture.environment_id
+            )
+        self.assertEqual(rejected.exception.code, "DB-SCHEMA-CATALOG-DRIFT")
+        self.assertEqual(self._migration_identity(fixture), before)
+
+    @pytest.mark.test_group("schema", "admin")
+    def test_legacy_migration_rejects_resealed_unrecognized_structure(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self._prepare_migration_source(fixture, legacy=True)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute("ALTER TABLE armi.subjects ADD COLUMN unrecognized text")
+            connection.execute(
+                "UPDATE armi.schema_baseline_identity SET installed_catalog_digest=%s",
+                (database_catalog_digest(connection),),
+            )
+        before = self._migration_identity(fixture)
+        with self.assertRaises(DatabaseViolation) as rejected:
+            PostgreSQLSchemaGateway().migrate(
+                fixture.migrator_dsn, environment_id=fixture.environment_id
+            )
+        self.assertEqual(rejected.exception.code, "DB-SCHEMA-MIGRATION-SOURCE")
+        self.assertEqual(self._migration_identity(fixture), before)
+
+    @pytest.mark.test_group("schema", "admin")
+    def test_migration_rejects_acl_drift_without_repairing_it(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        self._prepare_migration_source(fixture)
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "REVOKE INSERT ON TABLE armi.cognitive_attempts FROM armi_runtime"
+            )
+        before = self._migration_identity(fixture)
+        with self.assertRaises(DatabaseViolation) as rejected:
+            PostgreSQLSchemaGateway().migrate(
+                fixture.migrator_dsn, environment_id=fixture.environment_id
+            )
+        self.assertEqual(rejected.exception.code, "DB-ROLE-GRANT")
+        self.assertEqual(self._migration_identity(fixture), before)
 
     @pytest.mark.test_group("live-vision")
     def test_visual_observation_owns_receipts_and_does_not_repeat_interrupted_call(
@@ -4520,7 +4931,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertGreater(float(cast(tuple[Any, ...], lexical_result)[1]), 0.3)
 
     @pytest.mark.test_group("schema", "admin")
-    def test_noncurrent_revision_requires_database_reinstall(self) -> None:
+    def test_unsupported_revision_is_rejected_before_runtime(self) -> None:
         fixture = self.create_database()
         PostgreSQLSchemaGateway().install(
             fixture.migrator_dsn,
@@ -11131,7 +11542,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "model.deepseek_api_key",
                         "mood.jev_api_key",
                     ):
-                        if missing_model and name == "model.qwen_api_key":
+                        if missing_model and name == "model.deepseek_api_key":
                             continue
                         configuration.write(
                             f"\n  {name}: file:{model_secret.as_posix()}"

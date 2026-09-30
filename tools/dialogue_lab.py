@@ -108,7 +108,7 @@ class DialogueLab:
                 bound["environment_incarnation"] = self.config.environment_incarnation
                 bound["purpose"] = f"admin.{name}"
             if operation.mode == "lifecycle":
-                bound["component"] = "environment"
+                bound.setdefault("component", "environment")
             result = operation.invoke(
                 self._admin_service,
                 operation.request.model_validate_json(json.dumps(bound)),
@@ -155,6 +155,27 @@ class DialogueLab:
         if call.returncode or result.get("status") != "succeeded":
             raise LabError(f"LAB-ADMIN-{name}: {result.get('error_code', 'unknown')}")
         return result["result"]
+
+    def migrate(self) -> dict[str, Any]:
+        """Bring a stopped source lab to head via the authorized Admin use case."""
+        if "maintenance.database_migrate" not in self.config.authorized_operations:
+            raise LabError("LAB-MIGRATION-SCOPE-REQUIRED")
+        if self.admin("runtime_status")["status"] != "stopped":
+            raise LabError("LAB-MIGRATION-REQUIRES-STOPPED-RUNTIME")
+        self.admin(
+            "environment_start",
+            {"component": "postgresql", "idempotency_key": str(uuid7())},
+        )
+        try:
+            return self.admin(
+                "maintenance",
+                {"action": "database_migrate", "idempotency_key": str(uuid7())},
+            )
+        finally:
+            self.admin(
+                "environment_stop",
+                {"component": "postgresql", "idempotency_key": str(uuid7())},
+            )
 
     def status(self) -> dict[str, Any]:
         runtime = self.admin("runtime_status")
@@ -414,7 +435,7 @@ def main() -> int:
     initialize.add_argument(
         "--activation-weight", type=int, choices=range(101), default=50
     )
-    for name in ("status", "stop"):
+    for name in ("status", "stop", "migrate"):
         commands.add_parser(name)
     credential = commands.add_parser("credential")
     credential.add_argument(
@@ -468,7 +489,10 @@ def main() -> int:
             if args.command == "simulate":
                 from tools.dialogue_lab_simulation import simulate
 
+                lab.migrate()
                 result = simulate(lab, seconds=args.seconds, seed=args.seed)
+            elif args.command == "migrate":
+                result = lab.migrate()
             elif args.command == "credential":
                 from armi_admin.application.installation import store_provider_secret
                 from armi_local_control.runtime_process import LocalProcessLock
@@ -478,6 +502,11 @@ def main() -> int:
                     store_provider_secret(lab.root, args.name, value)
                 result = {"status": "saved", "name": args.name, "verified": False}
             elif args.command in {"start", "stop"}:
+                if (
+                    args.command == "start"
+                    and lab.admin("runtime_status")["status"] == "stopped"
+                ):
+                    lab.migrate()
                 result = lab.admin(
                     "environment_" + args.command, {"idempotency_key": str(uuid7())}
                 )

@@ -12,7 +12,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 ## 产品不变量
 
-心情链路为事件 → Jev 事实评价 → 本地心理算法 → Mood 独立提交 → 主认知。Jev 使用独立 `mood.jev_api_key` 凭据槽，固定 `jev-1.13.0`；缺失或失败时停止该事件依赖的认知，无替代模型。具体规则见 [Mood 设计](DESIGN.md#8-mood)。本轮数据库 baseline 不兼容旧库，普通启动不迁移已有主体。
+心情链路为事件 → Jev 事实评价 → 本地心理算法 → Mood 独立提交 → 主认知。Jev 使用独立 `mood.jev_api_key` 凭据槽，固定 `jev-1.13.0`；缺失或失败时停止该事件依赖的认知，无替代模型。具体规则见 [Mood 设计](DESIGN.md#8-mood)。普通启动只校验数据库；受支持旧库通过正式 Admin 迁移保留主体与生活数据。
 
 - 正常运行中只有一个 ARMI、一条权威生命线、一个当前 generation 和一个被承认的活动 Runtime；模型、进程、场合、设备与 Codex 都不是另一个主体。
 - PostgreSQL 是权威关系数据库；Artifact Store 保存受治理的大对象；缓存、摘要、向量、索引、前端投影和日志不能反向覆盖主体事实。
@@ -33,7 +33,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；按 SQL 资源摘要验证当前合同，只维护最新数据库 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；冻结 `0000` baseline 与线性前向 Alembic revision；按资源、目录与 ACL 核验当前 head |
 | 物理 schema | 当前 baseline 44 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
 | Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -88,7 +88,7 @@ tests/                          架构、合同、Runtime、PostgreSQL 与系统
 docs/                           私有设计和外部研究，Git 忽略
 ```
 
-Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；只维护最新数据库，不提供旧库升级。已有库合同不匹配时明确拒绝；清空重建须另获针对目标数据的明确授权。
+Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。`0000` baseline 与已发布迁移冻结，结构变化新增线性、只向前的 Alembic revision；新库安装到当前 head。已有库通过 `maintenance.database_migrate` 在停止的环境中迁移，核验明确受支持的来源、身份、数据与 ACL，失败全部回滚。未知来源或目录漂移明确拒绝；不自动降级，清空重建须另获针对目标数据的明确授权。
 
 ## 日常启动
 
@@ -106,7 +106,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 桌面后台启动后检查 GitHub `YifeiLi99/ARMI` Releases，常驻时每 24 小时检查；设置中可关闭自动更新或手动检查。普通 CLI/MCP 调用不额外联网检查。下载后核验可信签名、相同包身份、架构、递增版本和签名覆盖的数据库合同，再由 Windows 登记延后更新；下次系统激活生效。“重启并更新”先完成所属环境停机，停机失败不强制继续。部署状态以 Windows 实际版本为准，不凭下载完成宣称成功。
 
-自动更新只准备数据库合同一致的版本，不迁移或重装数据库。用户直接安装不兼容 MSIX 后，Windows 可能完成程序部署，但 ARMI 会拒绝进入生活并保留数据；业务检查失败不会自动降级。默认卸载保留数据与凭据，重新安装兼容包后核验并接续原环境，不重复出生。正式签名和 GitHub 发布尚需配置，本地签名测试通过不等于公众安装或在线发布已经通过。
+自动更新只准备数据库合同一致的版本，不迁移或重装数据库。受控数据库迁移与包部署是独立操作；需要跨合同更新时须先通过提供目标迁移链的正式 Admin 入口完成迁移，再核验部署条件，当前部署入口不会自动执行这一步。用户直接安装不兼容 MSIX 后，Windows 可能完成程序部署，但 ARMI 会拒绝进入生活并保留数据；业务检查失败不会自动降级。默认卸载保留数据与凭据，重新安装兼容包后核验并接续原环境，不重复出生。正式签名和 GitHub 发布尚需配置，本地签名测试通过不等于公众安装或在线发布已经通过。
 
 **卸载与清理：** 在 ARMI 设置的“卸载”页点击“卸载 ARMI…”。确认窗口中的“同时永久删除全部数据”每次默认不勾选；勾选后会清理当前安装版的数据目录，包括数据库、主体身份、生活记录、配置、凭据和缓存。所有环境先经 Admin 正常停止，停机失败不清理、不卸载。数据清理不可恢复，清理与 Windows 包卸载不是原子操作，失败时可能已清理部分或全部数据。直接从 Windows 设置卸载仍始终保留数据。
 
@@ -133,7 +133,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 已获明确删库授权且需要保留配置和凭据时，可先用 `-BuildOnly` 生成签名包，经旧版 Admin 正常停机，再由 Windows 原位安装该包；新版 setup 的 `rebuild_database` 仅接受同包身份、已登记、数据库合同不匹配的本机环境和已停止的 Runtime，按当前合同重建数据库及生成数据，保留 `configs/`、`channels/`、`secrets/`，并通过 Admin 重置发布新 incarnation。随后用原人格锚点执行正式 birth。此路径不用于普通更新，执行失败时不得以清空整个环境代替。
 
-默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同相同才允许原位更新；合同不同时在部署前拒绝，不自动清库或重复出生。若决定丢弃旧数据，须另行明确授权清空并重建目标数据库。源码变更不会自动更新安装版。
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。当前部署入口仅在数据库合同相同时允许原位更新；跨合同须先正式迁移至目标合同再核验部署，不自动清库或重复出生，迁移不可用或失败时停止并报告。若决定丢弃旧数据，须另行明确授权清空并重建目标数据库。源码变更不会自动更新安装版。
 
 版本格式为 `年.月.日.当日序号`，例如 `2026.9.15.1`，日期取构建电脑的本地日期。同日序号高于发布配置、已安装版本及本地构建记录，换日从 1 开始。日期早于已知最高版本或同日序号达到 65535 时明确失败；旧 `0.1.0.x` 可直接升级到日期版本。本地生成的 release tag 同步为 `v<完整版本>`，不上传 GitHub。发布配置中的 `.0` 是未发布基准，正式发布需填写实际日期及序号并同步 tag。
 
@@ -250,7 +250,7 @@ interaction_config: C:/path/to/client.yaml
 - `admin_database_batch` 接受 `idempotency_key`、`reason` 和 `changes`。每项选择 `insert/update/delete`；更新和删除必须给出完整 `key` 及查询返回的 `expected_version`。所有项同事务提交，失败全部回滚。执行前正常停止业务进程，保留 PostgreSQL 并持有环境控制锁；完成后保持停止。
 - 身份、权限、审计、管理回执及其他受保护记录不能通过表管理修改。事务内的 `admin_data_changes` 回执不伪装成认知；中断后通过 `admin_invocation_reconcile` 核对，不盲目重放。
 
-只提供当前数据库的空库安装与校验，不提供数据库升级 CLI/MCP。程序更新不自动删除数据；旧库不兼容时停止并报告。
+数据库提供空库安装、校验和受控迁移 CLI/MCP。`admin_maintenance` 使用 `{"action":"database_migrate"}`，CLI 使用 `maintenance --idempotency-key <稳定调用键> --json '{"action":"database_migrate"}'`；先停止业务进程，保留 PostgreSQL，迁移成功后再显式启动。该操作不清库、不重复出生、不改变主体或环境身份；未知来源与漂移拒绝，失败回滚。程序更新不自动执行数据库迁移或删除数据。
 
 日常内容使用 `admin_content_write`：指定 `change.owner`（`memory/relationship/material/subject_state/mood/prompt/activity`）、`action`、`object_id`、`expected_version`、内容及 `expected_subject_id`。从 `admin_database_catalog` 的 `online_management` 和 `admin_database_query` 读取对象及当前版本；对象版本与表维护返回的行版本标记不是同一字段。新增实体版本为 0；主体组件和心情只允许修改，`object_id` 使用主体 ID；人格锚点不可修改。活动可调整为 ready 或 paused，不能伪造已完成的现实效果。
 

@@ -8,7 +8,7 @@
 
 候选校验与提交在同一次执行中直接传递已接受的修改及 Context 引用，不建立逐项校验表或候选引用中间表。拒绝仅更新 episode 失败状态，详细原因写日志；接受后的校验摘要、change set 和实际 application 保留，作为已提交业务事实的来源与幂等依据。Context 准备、模型排队/调用/格式拒绝、候选校验、Web 接纳/结算等技术过程写日志，不追加 audit_events；权限与管理变更继续保留正式审计。
 
-本文描述仓库当前代码姿态，不是路线图。精确字段、状态、枚举、DDL、依赖和默认值以当前代码、`armi-postgresql-contract` 打包 schema、唯一 Alembic `0000`、`configs/`、锁文件和测试为准。
+本文描述仓库当前代码姿态，不是路线图。精确字段、状态、枚举、DDL、依赖和默认值以当前代码、`armi-postgresql-contract` 打包 baseline 与前向 Alembic 迁移链、`configs/`、锁文件和测试为准。
 
 产品约束以本节及 [AGENTS.md](AGENTS.md) 为准。普通 Creator 回复与 Codex 委托均在配置范围内直接执行，中断即结束；管理端授权保持独立合同。
 
@@ -99,7 +99,7 @@ Windows 安装版按当前用户部署，不注册系统服务。私有 Python�
 
 安装版环境宿主通过系统激活同一主入口的私有模式启动，持有禁止脱离、关闭即终止后代的 Windows Job。原生创建接口使用 `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` 绑定宿主父进程，并通过 `PROC_THREAD_ATTRIBUTE_JOB_LIST` 在创建时纳入宿主 Job；标准流只继承显式复制的句柄。这样长期进程不继承 MCP 客户端用于取消整棵调用树的 Job，CLI/MCP 调用结束不关闭宿主。正常停止仍经 Admin 授权，按 Runtime、附属进程、PostgreSQL 顺序完成。宿主不持有业务权限或成为新的事实 owner。系统会话结束、宿主崩溃或卸载导致的强制终止按崩溃处理；数据库允许正常恢复，未完成认知与回复仍中断即结束。
 
-更新从 GitHub `YifeiLi99/ARMI` Releases 的 `armi-update.json` 发现候选，下载到数据目录的 `tmp/update/`。接受候选需核验可信 MSIX 签名、包身份、架构、递增版本及签名覆盖的包内数据库合同；只自动准备数据库合同一致的版本。Windows PackageManager 以延后注册选项管理替换；重启更新先停所属环境，停机失败不强行部署。控制目录保存更新状态，重启后以 Windows 实际版本判断部署结果，不把下载完成视为升级成功，不维护程序文件回滚。用户直接安装不兼容包可能完成 Windows 部署，但 ARMI 启动检查拒绝进入生活且保留数据，不承诺业务检查失败会自动降级。
+更新从 GitHub `YifeiLi99/ARMI` Releases 的 `armi-update.json` 发现候选，下载到数据目录的 `tmp/update/`。接受候选需核验可信 MSIX 签名、包身份、架构、递增版本及签名覆盖的包内数据库合同；只自动准备数据库合同一致的版本。数据库受控迁移独立于包部署，当前部署入口不自动迁移；跨合同须先正式迁移至目标合同，再核验部署条件。Windows PackageManager 以延后注册选项管理替换；重启更新先停所属环境，停机失败不强行部署。控制目录保存更新状态，重启后以 Windows 实际版本判断部署结果，不把下载完成视为升级成功，不维护程序文件回滚。用户直接安装不兼容包可能完成 Windows 部署，但 ARMI 启动检查拒绝进入生活且保留数据，不承诺业务检查失败会自动降级。
 
 原生 PG 管理器使用 `initdb` 初始化、`pg_ctl` 正常停止及数据库检查。安装版直接创建 `postgres.exe`，在运行前加入环境宿主 Job，避免 `pg_ctl` 的受限令牌启动链经系统激活后脱离宿主；源码环境仍用 `pg_ctl` 启动。包内 PostgreSQL 注册为同一应用的内部 FullTrustProcess，支持 `initdb` 的子进程激活，不增加公开入口。进程身份绑定可执行文件、命令行、创建时间、数据目录、持久端口及集群 system identifier。仅监听回环地址，使用 UTF-8、UTC、builtin `C.UTF-8`、校验和与 SCRAM；端口冲突失败，不连接占用该端口的其他数据库。系统测试通过同一管理器创建独立临时集群。
 
@@ -202,7 +202,7 @@ Attention 同事务保存 `autonomy_category`；rest 只结算调度，其他方
 
 人类输入取消尚未提交的两段自主认知和排队机会；已提交效果遵守原执行合同。后台工具未返回不阻止其它活动，但不能重启同一任务。每轮选择完成、失败或中断后开始新周期，失败额外保留 60→120→300 秒最短间隔，配置/鉴权失败等待修正；最多五次格式重试只作用于主模型的同一冻结请求，传输 unknown、业务拒绝与状态冲突不重试，失败在聊天渠道静默。重启取消旧判断和候选，不恢复旧轮次。
 
-`autonomy_plans` 保存阶段、激活周期、调度、退避、已消费活动条件及最近方向；不逐秒写库或新增日志表。两段用量从 `provider_usage_calls` 汇总。模拟仓读取相同到期点，只压缩空闲时间；实验固定随机种子，真实模型和后续调用均计量。只维护当前数据库及配置合同，不提供旧库与旧配置转换。
+`autonomy_plans` 保存阶段、激活周期、调度、退避、已消费活动条件及最近方向；不逐秒写库或新增日志表。两段用量从 `provider_usage_calls` 汇总。模拟仓读取相同到期点，只压缩空闲时间；实验固定随机种子，真实模型和后续调用均计量。运行只接受当前数据库与配置合同；受支持旧库经正式迁移转换，旧配置不静默兼容。
 
 2026-09-21 的主模型轻判实验属于已删除链路，历史延迟与输入用量不能用于当前 Jev 检查。离线测试检查单次 Jev 请求、不调用主模型、未调度与无法判断的区分、失败结算和完整认知中的条件消费；真实自主 Jev 判断的语义、延迟和费用仍需单独校准。
 
@@ -442,7 +442,7 @@ Codex 结果事件的 Jev 输入只描述已核验的委托结果状态；完整
 
 主模型不能写 Mind 数值、自由心理文本或 `mind_appraisals`；文本、语音、视觉、自主与维护入口遵守同一边界。Self 拥有长期自我内容，Memory 拥有主观记忆，Relationship 拥有关系事实与解释，Focus 不复制全量内心独白。
 
-Mind、Mood、Focus、Self/生活模式各有唯一 owner 与当前 revision。管理校正通过合法底层状态及 owner 校验，Mind 派生值与触发条件由算法重算；Focus 校正保留已有关注身份、来源提交、依据与认知时间，不伪造关注经历。数据删除撤销关联对象及信号。共享评价和 Focus 由 Cognition 负责恢复与数据权利；Mood/Mind 各自负责本域状态。唯一 baseline 不提供迁移，已有数据库合同不匹配即停止，不清空、不重建。
+Mind、Mood、Focus、Self/生活模式各有唯一 owner 与当前 revision。管理校正通过合法底层状态及 owner 校验，Mind 派生值与触发条件由算法重算；Focus 校正保留已有关注身份、来源提交、依据与认知时间，不伪造关注经历。数据删除撤销关联对象及信号。共享评价和 Focus 由 Cognition 负责恢复与数据权利；Mood/Mind 各自负责本域状态。旧库由正式受控迁移转换到当前合同，保留主体、既有心理状态与生活事实，不清空、不重建。
 
 Jev 依据权限允许的事件上下文回答评价题，本地形成 valence/arousal（[-1,1]）和高兴、悲伤、希望、恐惧、愤怒、内疚、自豪、羞耻、感激、惊讶、释然、失望的混合成分。掌控能力是评价条件，不是第三轴；概率不是情绪强度。
 
@@ -599,9 +599,11 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-内部合同只保留当前结构，不维护人工递增版本、历史候选白名单或兼容选择。多种数据的判别使用稳定的 `schema_kind`、`candidate_contract_kind`、`response_contract_kind` 和 `projection_kind`；算法来源使用稳定的 method/identity，不附带递增后缀。请求和响应不携带通用 `contract_version`，导出参与者不维护独立格式版本。数据库通过 SQL 资源摘要、实际目录摘要和精确 ACL 核验，移除重复的 baseline 名称版本；旧结构仍会被拒绝，不自动迁移。主体/记录的并发版本、租约 fence、权限 generation、依赖与第三方协议版本、安装包升级版本和密码学格式标识保留。
+内部运行合同只保留当前结构，不维护人工递增版本、历史候选白名单或兼容选择。多种数据的判别使用稳定的 `schema_kind`、`candidate_contract_kind`、`response_contract_kind` 和 `projection_kind`；算法来源使用稳定的 method/identity，不附带递增后缀。请求和响应不携带通用 `contract_version`，导出参与者不维护独立格式版本。数据库通过 SQL 资源摘要、实际目录摘要和精确 ACL 核验，Alembic revision 只记录受控前向迁移位置，不恢复旧版本运行模式；普通 Runtime 拒绝旧结构。主体/记录的并发版本、租约 fence、权限 generation、依赖与第三方协议版本、安装包升级版本和密码学格式标识保留。
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、当前 SQL 资源摘要 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。只接受当前合同，不保留旧格式转换、历史摘要白名单或升级路径；合同不匹配时停止。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、当前唯一 Alembic head、当前 SQL 资源摘要和精确 role policy。Schema 是 package resource，冻结的 `0000` baseline、线性前向迁移、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以安装到当前 head 的资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，其余表、约束、ACL、revision、identity 与 digests 在一个事务组内安装到 head；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 和 `database_check` 只验证，不安装或升级。
+
+`maintenance.database_migrate` 是独立的正式 Admin 写操作：先停止业务，持有环境控制锁与数据库 advisory lock，核验服务端身份、迁移角色、唯一 revision、来源资源/目录/权限和环境身份，再执行随包交付的线性前向迁移。DDL、必要数据转换、revision、identity 和摘要同事务结算，失败回滚；成功核验当前合同并保留环境、主体、生活事实与凭据，完成后保持停止。旧 mutable-`0000` 仅有明确核实并随包登记的来源桥接，未知来源、目录或 ACL 漂移拒绝，不能仅改摘要或凭相同 revision 放行。源码模拟仓提供 `migrate`，`start/simulate` 在停止时可调用同一正式入口，受限绑定缺少权限则失败，不自动扩权。不支持 downgrade 或旧版本运行兼容。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。配置按当前唯一类型严格校验，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
@@ -673,7 +675,7 @@ Mind 沿用 Mood 已验证的中文“评价主体／评价对象／问题”结
 - 新能力先判断事实 owner；没有独立生命周期、关系、权限/保留或查询模式，不新增模块/表。
 - 慢 I/O 保持事务外；先登记稳定 identity，回库重新验证 current state。
 - 公共合同变化原子同步生产者、消费者、baseline/constraint、配置、OpenAPI/生成代码和 tests，并删除旧版本/别名/双读。
-- Schema 直接更新唯一 baseline，资源摘要随内容变化；不增加历史 revision、downgrade 或迁移兼容。
+- Schema 的 `0000` baseline 与已发布迁移冻结；变化新增线性前向 revision，同步资源核验和消费者，并验证空库安装与受支持来源迁移。不提供 downgrade 或旧版本运行兼容。
 - 新适配器只在 composition root 选择；没有第二个真实实现时不建通用框架。
 - 设计正文只描述当前有效结论。外部研究先作为证据，未吸收前不进入产品合同。
 
@@ -687,7 +689,7 @@ Codex 结果表直接保存证据和后续思考机会关联，不再单独建�
 
 Effect 仅持久化效果类型和具体目的地；能力名、操作类别、用途由 Effect owner 派生，不另存受众、数据范围或授权标签。数据库保留类型与目的地组合约束，发送边界仍核验当前路由和数据权利。调用费用统一读取 Provider 回执；Context manifest 摘要读取 Artifact；语音转写只保存在正式输入，轮次通过 interaction_id 关联。向量来源集合使用来源种类、引用、版本和模型绑定的联合主键，保留完整性状态及分块计数。
 
-数据库只维护最新数据库的空库安装与精确校验。动作意图及其内容、待执行状态、领取租约和结果统一存于 effects，以 effect_id 领取和结算；登记不代表执行成功。旧库合同不匹配时停止，不提供升级路径，不自动删除或重建数据；清空重建须取得针对目标数据库的明确授权。
+数据库运行只接受当前合同，提供空库安装、精确校验与受控前向迁移。动作意图及其内容、待执行状态、领取租约和结果统一存于 effects，以 effect_id 领取和结算；登记不代表执行成功。旧库通过正式迁移转换，未知来源或漂移停止；不自动删除或重建数据，清空重建须取得针对目标数据库的明确授权。
 
 出生合同摘要只按当前 packaged 合同核验；不匹配时拒绝启动，不容纳旧合同摘要。
 

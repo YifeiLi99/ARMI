@@ -111,7 +111,8 @@ def initialize(
         {
             "schema_kind": "armi.admin-config",
             "operator_id": "source-dialogue-lab",
-            "authorized_operations": [operation.name for operation in ADMIN_OPERATIONS],
+            "authorized_operations": [operation.name for operation in ADMIN_OPERATIONS]
+            + ["maintenance.database_migrate"],
             "environment_kind": "system_test",
             "environment_id": str(environment_id),
             "environment_incarnation": 1,

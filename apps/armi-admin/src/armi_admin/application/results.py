@@ -965,6 +965,7 @@ class MaintenancePayload(
 MAINTENANCE_PAYLOADS: dict[str, type[BaseModel]] = {
     "credential_check": CredentialChecksPayload,
     "database_install": OperatorSchemaPayload,
+    "database_migrate": OperatorSchemaPayload,
     "database_check": OperatorSchemaPayload,
     "database_maintain": DatabaseMaintenancePayload,
     "birth": BirthPayload,

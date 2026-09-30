@@ -1,4 +1,4 @@
-"""Immutable resources and identities for the sole PostgreSQL baseline."""
+"""Immutable resources and identities for the PostgreSQL migration history."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
-EXPECTED_REVISION: Final = "0000"
+EXPECTED_REVISION: Final = "0002"
 BASELINE_DOCUMENTS: Final = (
     "10_runtime_and_subject.sql",
     "20_artifacts_parties_interactions.sql",
@@ -29,6 +29,21 @@ _RESOURCE_FILES: Final = (
     "alembic/versions/0000_baseline.py",
     *(f"baseline/{name}" for name in BASELINE_DOCUMENTS),
 )
+REVISION_RESOURCES: Final = {
+    "0000": _RESOURCE_FILES,
+    "0001": (
+        *_RESOURCE_FILES,
+        "alembic/versions/0001_restore_forward_migrations.py",
+        "migrations/0001_restore_forward_migrations.sql",
+    ),
+    "0002": (
+        *_RESOURCE_FILES,
+        "alembic/versions/0001_restore_forward_migrations.py",
+        "migrations/0001_restore_forward_migrations.sql",
+        "alembic/versions/0002_allow_bounded_decision_profile.py",
+        "migrations/0002_allow_bounded_decision_profile.sql",
+    ),
+}
 
 
 def schema_resource_root() -> Path:
@@ -53,10 +68,14 @@ def _digest_entries(entries: tuple[tuple[str, bytes], ...]) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def schema_resource_digest(root: Path | None = None) -> str:
+def schema_resource_digest(
+    root: Path | None = None, *, revision: str = EXPECTED_REVISION
+) -> str:
     resource_root = root or schema_resource_root()
     entries: list[tuple[str, bytes]] = []
-    for relative in _RESOURCE_FILES:
+    if revision not in REVISION_RESOURCES:
+        raise RuntimeError("DB-SCHEMA-RESOURCE")
+    for relative in REVISION_RESOURCES[revision]:
         path = resource_root.joinpath(*relative.split("/"))
         if not path.is_file():
             raise RuntimeError("DB-SCHEMA-RESOURCE")
@@ -90,18 +109,50 @@ def verify_revision_source(root: Path | None = None) -> None:
             }:
                 assignments[target.id] = ast.literal_eval(node.value)
     if assignments != {
-        "revision": EXPECTED_REVISION,
+        "revision": "0000",
         "down_revision": None,
         "branch_labels": None,
         "depends_on": None,
         "_DOCUMENTS": BASELINE_DOCUMENTS,
     }:
         raise RuntimeError("DB-SCHEMA-RESOURCE")
+    revisions = {
+        "0000_baseline.py": ("0000", None),
+        "0001_restore_forward_migrations.py": ("0001", "0000"),
+        "0002_allow_bounded_decision_profile.py": ("0002", "0001"),
+    }
+    if {path.name for path in (resource_root / "alembic/versions").glob("*.py")} != set(
+        revisions
+    ):
+        raise RuntimeError("DB-SCHEMA-RESOURCE")
+    for name, (revision, parent) in revisions.items():
+        path = resource_root / "alembic/versions" / name
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            metadata = {
+                node.targets[0].id: ast.literal_eval(node.value)
+                for node in tree.body
+                if isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id
+                in {"revision", "down_revision", "branch_labels", "depends_on"}
+            }
+        except OSError, UnicodeError, SyntaxError, ValueError:
+            raise RuntimeError("DB-SCHEMA-RESOURCE") from None
+        if metadata != {
+            "revision": revision,
+            "down_revision": parent,
+            "branch_labels": None,
+            "depends_on": None,
+        }:
+            raise RuntimeError("DB-SCHEMA-RESOURCE")
 
 
 __all__ = (
     "BASELINE_DOCUMENTS",
     "EXPECTED_REVISION",
+    "REVISION_RESOURCES",
     "role_policy_digest",
     "schema_resource_digest",
     "schema_resource_root",

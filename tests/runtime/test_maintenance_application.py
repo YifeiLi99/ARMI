@@ -76,6 +76,11 @@ def test_calibration_refuses_live_runtime_before_starting_model(tmp_path: Path) 
             {"database.migrator": "database.migrator"},
         ),
         (
+            "database_migrate",
+            "migrate_operator_schema",
+            {"database.migrator": "database.migrator"},
+        ),
+        (
             "database_check",
             "inspect_operator_schema",
             {"database.status": "database.runtime"},
@@ -103,6 +108,10 @@ def test_maintenance_uses_exact_scope_and_preserves_result(
             "armi_runtime.composition.maintenance." + handler,
             return_value=SimpleNamespace(safe_view=lambda: result),
         ) as operation,
+        patch(
+            "armi_runtime.composition.maintenance.RuntimeProcessManager.status",
+            return_value={"status": "stopped"},
+        ),
     ):
         assert execute_maintenance(invocation) == result
     assert prepare.call_args.kwargs["credential_scope"] == scope
@@ -120,6 +129,24 @@ def test_database_maintenance_requires_explicit_apply(tmp_path):
         execute_maintenance(invocation)
     assert error.value.code == "ADMIN-MAINTENANCE-APPLY-REQUIRED"
     operation.assert_not_called()
+
+
+@pytest.mark.parametrize("state", ["running", "starting", "unknown"])
+def test_migration_refuses_unconfirmed_shutdown_before_database_access(tmp_path, state):
+    invocation = request(tmp_path, "database_migrate")
+    with (
+        patch(
+            "armi_runtime.composition.maintenance.RuntimeProcessManager.status",
+            return_value={"status": state},
+        ),
+        patch(
+            "armi_runtime.composition.maintenance.migrate_operator_schema"
+        ) as migrate,
+        pytest.raises(RuntimeViolation) as error,
+    ):
+        execute_maintenance(invocation)
+    assert error.value.code == "ADMIN-MIGRATION-RUNTIME-ACTIVE"
+    migrate.assert_not_called()
 
 
 def test_artifact_cleanup_defaults_to_read_only(tmp_path):

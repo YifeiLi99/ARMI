@@ -424,6 +424,7 @@ class AdminControlPlane:
         environment = self._runtime_environment()
         if isinstance(request, MaintenanceInvocation) and request.action in {
             "database_install",
+            "database_migrate",
             "database_maintain",
             "reset",
         }:
