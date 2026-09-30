@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import cast
 from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
@@ -166,6 +167,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         "_autonomy_policy",
         "_factory",
         "_facts",
+        "_last_activation",
         "_maintenance",
         "_model_concurrency",
         "_repository",
@@ -192,6 +194,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         self._autonomy_policy = autonomy_policy or AutonomyPolicy()
         self._factory = factory
         self._facts = facts
+        self._last_activation: tuple[object, ...] | None = None
         self._repository = PostgreSQLLifeOpportunityRepository(
             sleep_read,
             activity_read,
@@ -239,6 +242,27 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
             raise
         except RuntimeTransactionFailure:
             raise LifeViolation("LIFE-DATABASE") from None
+        activation = cast(dict[str, object] | None, observations.get("activation"))
+        if activation is not None:
+            # Time projections change on every poll; only anchors, limits and
+            # scheduling outcomes define a new diagnostic segment.
+            key = (
+                activation["state"],
+                activation["limits"],
+                result.status.value,
+                result.reason_code,
+            )
+            if key != self._last_activation:
+                record_diagnostic(
+                    "autonomy.activation.observed",
+                    component="autonomy",
+                    trigger="scheduler",
+                    opportunity_id=result.opportunity_id,
+                    outcome=result.status.value,
+                    reason=result.reason_code,
+                    activation=activation,
+                )
+                self._last_activation = key
         if result.status is OpportunityAdmissionStatus.ADMITTED:
             self._wakeups.notify(OPPORTUNITY_AVAILABLE)
             record_diagnostic(

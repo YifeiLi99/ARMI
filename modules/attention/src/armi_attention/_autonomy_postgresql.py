@@ -35,6 +35,7 @@ class PostgreSQLAutonomyOwner:
         idling: bool,
         need: float,
         runtime_ref: str,
+        observations: dict[str, object] | None = None,
     ) -> Activation:
         row = await (
             await transaction.execute(
@@ -48,16 +49,40 @@ class PostgreSQLAutonomyOwner:
         state = previous or Activation.begin(cycle=0, active=active, policy=policy)
         state = state.changed(active=active, idling=idling, need=need, policy=policy)
         state = state.model_copy(update={"runtime_ref": runtime_ref})
+        remaining = state.remaining(active, policy)
         if state != previous:
             await transaction.execute(
                 """UPDATE armi.autonomy_plans SET activation=%s::jsonb,
                    next_consideration_at=%s WHERE subject_id=%s""",
                 (
                     state.model_dump_json(),
-                    business_now() + timedelta(seconds=state.remaining(active, policy)),
+                    business_now() + timedelta(seconds=remaining),
                     subject_id,
                 ),
             )
+        if observations is not None:
+            amount, idle = state.project(active, policy)
+            observed_at = business_now()
+            # Keep the integral anchors; projections alone cannot explain later cycles.
+            # Emit outside the transaction (DESIGN: 轻量自主判断与完整认知).
+            observations["activation"] = {
+                "subject_id": str(subject_id),
+                "observed_at": observed_at.isoformat(),
+                "active_seconds": active,
+                "state": state.model_dump(mode="json"),
+                "limits": {
+                    "enabled": policy.enabled,
+                    "quiet_seconds": policy.quiet_seconds,
+                    "maximum_idle_seconds": policy.maximum_idle_seconds,
+                },
+                "projected_accumulated": amount,
+                "projected_idle_seconds": idle,
+                "progress": min(1.0, amount / state.threshold),
+                "remaining_seconds": remaining,
+                "projected_due_at": (
+                    observed_at + timedelta(seconds=remaining)
+                ).isoformat(),
+            }
         return state
 
     async def reset_activation(

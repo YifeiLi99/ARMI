@@ -42,6 +42,7 @@ def test_selection_settlement_does_not_replay_an_exhausted_cycle(result):
             async with factory.unit_of_work() as unit:
                 tx = unit.transaction
                 await owner.ensure_plan(tx, subject_id=born.subject_id, policy=policy)
+                observations: dict[str, Any] = {}
                 initial = await owner.activation_state(
                     tx,
                     subject_id=born.subject_id,
@@ -49,6 +50,18 @@ def test_selection_settlement_does_not_replay_an_exhausted_cycle(result):
                     idling=True,
                     need=0,
                     runtime_ref=str(fence.runtime_instance_id.value),
+                    observations=observations,
+                )
+                sample = observations["activation"]
+                assert sample["state"]["threshold"] == initial.threshold
+                assert sample["state"]["runtime_ref"] == str(
+                    fence.runtime_instance_id.value
+                )
+                assert sample["projected_idle_seconds"] == 0
+                assert sample["progress"] == 0
+                assert sample["limits"]["quiet_seconds"] == policy.quiet_seconds
+                assert sample["remaining_seconds"] == pytest.approx(
+                    initial.remaining(sample["active_seconds"], policy)
                 )
                 await tx.execute(
                     "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp(), activation=jsonb_set(activation,'{accumulated}','100') WHERE subject_id=%s",

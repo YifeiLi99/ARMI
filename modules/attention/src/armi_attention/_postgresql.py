@@ -84,6 +84,7 @@ class PostgreSQLLifeOpportunityRepository:
                 idling=False,
                 need=0,
                 runtime_ref=str(fence.runtime_instance_id.value),
+                observations=observations,
             )
 
         if not policy.enabled:
@@ -266,6 +267,7 @@ class PostgreSQLLifeOpportunityRepository:
                 default=0,
             ),
             runtime_ref=str(fence.runtime_instance_id.value),
+            observations=observations,
         )
         active_seconds = await active_runtime_seconds(
             transaction, subject_id=fence.subject_id
