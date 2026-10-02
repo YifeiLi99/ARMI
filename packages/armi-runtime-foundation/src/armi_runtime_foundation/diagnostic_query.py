@@ -543,35 +543,21 @@ class DiagnosticQuery:
         path = self._files().get(key)
         if path is None:
             return {"status": "unavailable", "reason": "segment_not_retained"}
-        with path.open("rb") as stream:
+        try:
+            opened = path.open("rb")
+        except FileNotFoundError:
+            return {"status": "unavailable", "reason": "segment_not_retained"}
+        neighbors: list[dict[str, object]] = []
+        # Read the record and context under one handle; retention can remove a
+        # closed segment between separate opens.
+        with opened as stream:
             stream.seek(offset)
             line = stream.readline(65537)
-        record = _object(json.loads(line))
-        if not self._belongs(record, key) or record.get("event_id") != ref.get("id"):
-            raise ValueError("DIAGNOSTICS-REFERENCE-MISMATCH")
-        links: list[dict[str, object]] = []
-        ids = {
-            **_object(record.get("details", {})),
-            **_object(record.get("correlation", {})),
-        }
-        for identity in (
-            "episode_id",
-            "operation_id",
-            "effect_id",
-            "work_id",
-            "opportunity_id",
-            "trace_id",
-        ):
-            if ids.get(identity):
-                links.append(
-                    {"tool": "admin_trace_flow", "arguments": {identity: ids[identity]}}
-                )
-        if ids.get("call_id"):
-            links.append(
-                {"tool": "admin_usage_read", "arguments": {"call_id": ids["call_id"]}}
-            )
-        neighbors: list[dict[str, object]] = []
-        with path.open("rb") as stream:
+            record = _object(json.loads(line))
+            if not self._belongs(record, key) or record.get("event_id") != ref.get(
+                "id"
+            ):
+                raise ValueError("DIAGNOSTICS-REFERENCE-MISMATCH")
             lower = max(0, offset - 32768)
             stream.seek(lower)
             if lower:
@@ -606,6 +592,27 @@ class DiagnosticQuery:
                             break
                 except ValueError:
                     continue
+        links: list[dict[str, object]] = []
+        ids = {
+            **_object(record.get("details", {})),
+            **_object(record.get("correlation", {})),
+        }
+        for identity in (
+            "episode_id",
+            "operation_id",
+            "effect_id",
+            "work_id",
+            "opportunity_id",
+            "trace_id",
+        ):
+            if ids.get(identity):
+                links.append(
+                    {"tool": "admin_trace_flow", "arguments": {identity: ids[identity]}}
+                )
+        if ids.get("call_id"):
+            links.append(
+                {"tool": "admin_usage_read", "arguments": {"call_id": ids["call_id"]}}
+            )
         return {
             "status": "available",
             "record": record,

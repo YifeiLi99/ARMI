@@ -7,6 +7,7 @@ import logging
 import subprocess
 import threading
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -270,6 +271,47 @@ def test_retention_during_query_reports_gap_and_advances(
     assert page["items"] == []
     assert page["coverage"]["missing_segments"]
     assert not page["coverage"]["evidence_complete"]
+
+
+@pytest.mark.parametrize("removed_before_read", [True, False])
+def test_retention_during_detail_read_preserves_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, removed_before_read: bool
+) -> None:
+    sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")
+    sink.write("previous.event")
+    sink.write("selected.event")
+    sink.write("next.event")
+    sink.close()
+    reader = DiagnosticQuery((tmp_path / "logs",), environment_id="env")
+    reference = str(reader.query()["items"][1]["log_ref"])
+    segment = sink.path
+    assert segment is not None
+    original = Path.open
+
+    def removed_around_read(path: Path, *args, **kwargs):
+        if path == segment and removed_before_read:
+            path.unlink(missing_ok=True)
+        opened = original(path, *args, **kwargs)
+
+        @contextmanager
+        def close_then_remove():
+            with opened as stream:
+                yield stream
+            if path == segment and not removed_before_read:
+                path.unlink(missing_ok=True)
+
+        return close_then_remove()
+
+    monkeypatch.setattr(Path, "open", removed_around_read)
+    result = reader.read(reference)
+    if removed_before_read:
+        assert result == {"status": "unavailable", "reason": "segment_not_retained"}
+    else:
+        assert result["status"] == "available"
+        record = cast(dict[str, Any], result["record"])
+        assert record["event"] == "selected.event"
+        context = cast(list[dict[str, Any]], result["context"])
+        assert [item["event"] for item in context] == ["previous.event", "next.event"]
 
 
 def test_query_does_not_read_other_environment(tmp_path: Path) -> None:
