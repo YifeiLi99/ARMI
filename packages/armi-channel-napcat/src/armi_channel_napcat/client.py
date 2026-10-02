@@ -334,8 +334,10 @@ class NapCatHttpClient(NapCatGateway):
                 maximum_bytes=maximum_bytes,
                 timeout_seconds=timeout_seconds,
             )
-        except httpx.TimeoutException, httpx.NetworkError, TimeoutError:
+        except httpx.TransportError, TimeoutError:
             raise NapCatViolation("NAPCAT-ACTION-UNAVAILABLE") from None
+        except httpx.DecodingError:
+            raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
         except NapCatViolation:
             raise
         if status_code < 200 or status_code >= 300:
@@ -359,9 +361,9 @@ class NapCatHttpClient(NapCatGateway):
             status_code, body = await self._post_bounded(
                 path, {}, maximum_bytes=64 * 1024, timeout_seconds=5
             )
-        except httpx.TimeoutException, httpx.NetworkError, TimeoutError:
+        except httpx.TransportError, TimeoutError:
             raise NapCatViolation("NAPCAT-HEALTH-UNAVAILABLE") from None
-        except NapCatViolation:
+        except httpx.DecodingError, NapCatViolation:
             raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID") from None
         if status_code in {401, 403}:
             raise NapCatViolation("NAPCAT-HEALTH-AUTH-REJECTED")
@@ -391,8 +393,8 @@ class NapCatHttpClient(NapCatGateway):
                 path, payload, maximum_bytes=64 * 1024, timeout_seconds=30
             )
         except (
-            httpx.TimeoutException,
-            httpx.NetworkError,
+            httpx.TransportError,
+            httpx.DecodingError,
             TimeoutError,
             NapCatViolation,
         ):

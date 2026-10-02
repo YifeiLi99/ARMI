@@ -374,6 +374,58 @@ class NapCatContractTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_protocol_and_decoding_failures_use_existing_failure_contracts(
+        self,
+    ) -> None:
+        async def exercise(
+            error_type: type[httpx.RequestError],
+            health_state: str,
+            health_code: str,
+            action_code: str,
+        ) -> None:
+            def handler(_request: httpx.Request) -> httpx.Response:
+                raise error_type("local response failure")
+
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-" + "token",
+                    client=client,
+                )
+                health = await gateway.inspect_health(expected_account_id=10001)
+                self.assertEqual(health.state, health_state)
+                self.assertEqual(health.reason_codes, (health_code,))
+                with self.assertRaisesRegex(NapCatViolation, action_code):
+                    await gateway.list_groups()
+                with self.assertRaisesRegex(
+                    NapCatAmbiguousDelivery, "NAPCAT-DELIVERY-AMBIGUOUS"
+                ):
+                    await gateway.send_private_text(
+                        user_id=30003, text="local test", echo="effect:attempt"
+                    )
+
+        for error_type, health_state, health_code, action_code in (
+            (
+                httpx.RemoteProtocolError,
+                "unavailable",
+                "NAPCAT-HEALTH-UNAVAILABLE",
+                "NAPCAT-ACTION-UNAVAILABLE",
+            ),
+            (
+                httpx.DecodingError,
+                "misconfigured",
+                "NAPCAT-HEALTH-RESPONSE-INVALID",
+                "NAPCAT-ACTION-RESPONSE-INVALID",
+            ),
+        ):
+            with self.subTest(error_type=error_type):
+                asyncio.run(
+                    exercise(error_type, health_state, health_code, action_code)
+                )
+
     def test_http_private_send_uses_onebot_private_payload(self) -> None:
         observed: list[tuple[str, dict[str, object]]] = []
 
