@@ -8,7 +8,7 @@ import subprocess
 import threading
 import warnings
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -110,6 +110,70 @@ def test_http_evidence_preserves_endpoint_without_url_secrets(
         secret in serialized
         for secret in ("fixture-user", "fixture-password", "fixture-token", "#private")
     )
+
+
+@pytest.mark.parametrize("surrogate", ["\ud800", "\udfff"])
+def test_diagnostics_replace_unencodable_unicode(
+    tmp_path: Path, surrogate: str
+) -> None:
+    sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")
+    try:
+        sink.write(
+            "provider.failed",
+            level=logging.ERROR,
+            message=f"upstream {surrogate}",
+            error=RuntimeError(f"failure {surrogate}"),
+            details={f"field{surrogate}": f"value{surrogate}"},
+        )
+    finally:
+        sink.close()
+
+    reader = DiagnosticQuery((tmp_path / "logs",), environment_id="env")
+    page = reader.query()
+    assert len(page["items"]) == 1
+    record = cast(
+        dict[str, Any], reader.read(str(page["items"][0]["log_ref"]))["record"]
+    )
+    assert record["message"] == "upstream ?"
+    assert record["details"] == {"field?": "value?"}
+    assert record["exception"]["chain"][0]["message"] == "failure ?"
+
+
+def test_http_error_with_escaped_surrogates_remains_queryable(tmp_path: Path) -> None:
+    response = httpx.Response(
+        503,
+        request=httpx.Request("POST", "https://example.invalid/api"),
+        headers={"x-request-id": "provider-request"},
+        content=json.dumps(
+            {
+                "error": {"message": "invalid \ud800", "\udfff": "detail"},
+                "messages": ["private-input"],
+            }
+        ).encode("ascii"),
+    )
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        response.raise_for_status()
+
+    sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")
+    try:
+        sink.write("provider.failed", level=logging.ERROR, error=caught.value)
+    finally:
+        sink.close()
+
+    reader = DiagnosticQuery((tmp_path / "logs",), environment_id="env")
+    page = reader.query(filters={"http_status": 503})
+    assert len(page["items"]) == 1
+    record = cast(
+        dict[str, Any], reader.read(str(page["items"][0]["log_ref"]))["record"]
+    )
+    evidence = record["exception"]["chain"][0]
+    assert evidence["type"] == "HTTPStatusError"
+    assert evidence["provider_request_id"] == "provider-request"
+    assert json.loads(evidence["error_body"]) == {
+        "error": {"message": "invalid ?", "?": "detail"},
+        "messages": "[REDACTED]",
+    }
+    assert "private-input" not in json.dumps(record)
 
 
 def test_snapshot_survives_append_and_rotation(tmp_path: Path) -> None:

@@ -46,7 +46,7 @@ def safe_text(value: str, limit: int = 16384) -> str:
     encoded = value.encode("utf-8", errors="replace")
     if len(encoded) > limit:
         return encoded[:limit].decode("utf-8", errors="ignore") + " [TRUNCATED]"
-    return value
+    return encoded.decode("utf-8")
 
 
 def redact(value: object, *, depth: int = 0) -> object:
@@ -58,7 +58,7 @@ def redact(value: object, *, depth: int = 0) -> object:
         return redact(value.value, depth=depth + 1)
     if isinstance(value, Mapping):
         return {
-            str(key): "[REDACTED]"
+            safe_text(str(key)): "[REDACTED]"
             if _PRIVATE.search(str(key))
             else redact(item, depth=depth + 1)
             for key, item in cast(Mapping[object, object], value).items()
