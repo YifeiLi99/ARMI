@@ -880,6 +880,29 @@ def test_cli_rejects_non_object_json_arguments(
     assert not list(tmp_path.glob("*.part"))
 
 
+@pytest.mark.parametrize(
+    "command",
+    [["health", "live", "--json"], ["message", "send", "--attachments"]],
+)
+def test_cli_rejects_excessive_json_nesting_without_crashing(
+    monkeypatch, capsys, command
+):
+    def reject_binding(*_arguments):
+        pytest.fail("JSON parsing must finish before reading the client binding")
+
+    monkeypatch.setattr(cli, "load_client_binding", reject_binding)
+    content = '{"private_marker":' + "[" * 12000 + "0" + "]" * 12000 + "}"
+    with pytest.raises(SystemExit) as failure:
+        cli.main([*command, content])
+
+    assert failure.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "JSON nesting exceeds supported depth" in captured.err
+    assert "private_marker" not in captured.err
+    assert "Traceback" not in captured.err
+
+
 @pytest.mark.asyncio
 async def test_machine_health_and_mcp_share_client_without_browser_session(
     tmp_path: Path,

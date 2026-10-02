@@ -24,6 +24,15 @@ from .interaction_client import (
 )
 
 
+def _json_argument(value: str) -> Any:
+    try:
+        return json.loads(value)
+    except RecursionError:
+        raise argparse.ArgumentTypeError(
+            "JSON nesting exceeds supported depth"
+        ) from None
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="ARMI cli interaction",
@@ -53,7 +62,7 @@ def parser() -> argparse.ArgumentParser:
         command.set_defaults(operation=op.name)
         command.add_argument(
             "--json",
-            type=json.loads,
+            type=_json_argument,
             default=argparse.SUPPRESS,
             help="Complete structured arguments; do not combine with individual arguments.",
         )
@@ -71,7 +80,7 @@ def parser() -> argparse.ArgumentParser:
                 if kind == "integer"
                 else float
                 if kind == "number"
-                else json.loads
+                else _json_argument
                 if kind in {"object", "array", "boolean"} or "anyOf" in spec
                 else str
             )

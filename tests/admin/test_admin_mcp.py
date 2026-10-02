@@ -339,6 +339,28 @@ def test_admin_cli_rejects_non_object_json_before_binding(tmp_path, capsys, raw_
 
 
 @pytest.mark.parametrize(
+    "command", [["health", "--json"], ["configuration", "--patch"]]
+)
+def test_admin_cli_rejects_excessive_json_nesting_without_crashing(capsys, command):
+    content = '{"private_marker":' + "[" * 12000 + "0" + "]" * 12000 + "}"
+    with (
+        patch(
+            "armi_admin.cli.load_admin_config",
+            side_effect=AssertionError("JSON parsing must finish before binding"),
+        ),
+        pytest.raises(SystemExit) as failure,
+    ):
+        admin_cli_main([*command, content])
+
+    assert failure.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "JSON nesting exceeds supported depth" in captured.err
+    assert "private_marker" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
     ("arguments", "component"),
     [
         ([], "environment"),

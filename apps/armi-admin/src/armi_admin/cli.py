@@ -22,6 +22,15 @@ from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.composition import bootstrap_admin
 
 
+def _json_argument(value: str) -> Any:
+    try:
+        return json.loads(value)
+    except RecursionError:
+        raise argparse.ArgumentTypeError(
+            "JSON nesting exceeds supported depth"
+        ) from None
+
+
 def _run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ARMI cli admin")
     parser.add_argument(
@@ -51,7 +60,7 @@ def _run(argv: list[str] | None = None) -> int:
             name, help=operation.description, description=operation.description
         )
         command.set_defaults(operation_name=operation.name)
-        command.add_argument("--json", type=json.loads, default={})
+        command.add_argument("--json", type=_json_argument, default={})
         command.add_argument("--idempotency-key")
         request_schema = operation.request.model_json_schema()
         fields = request_schema.get("properties", {})
@@ -81,7 +90,7 @@ def _run(argv: list[str] | None = None) -> int:
                 if kind == "number"
                 else str
                 if kind == "string"
-                else json.loads
+                else _json_argument
             )
             command.add_argument(
                 "--" + field.replace("_", "-"),
