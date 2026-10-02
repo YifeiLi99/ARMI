@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -88,5 +89,81 @@ describe("Creator effect detail", () => {
       screen.queryByRole("button", { name: /重试/ }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("已核验回应")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [200, "switch"],
+    [401, "switch"],
+    [503, "switch"],
+    [503, "retry"],
+    [401, "unmount"],
+  ] as const)("ignores a late artifact %s after %s", async (status, change) => {
+    const nextEffect = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9";
+    let settle!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      settle = resolve;
+    });
+    let artifactRequests = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const path = String(input);
+        if (path.endsWith("/artifacts/final_result")) {
+          artifactRequests += 1;
+          return artifactRequests === 1
+            ? pending
+            : new Response("当前效果的结果");
+        }
+        return Response.json({
+          projection_kind: "creator-effect",
+          effect_id: path.includes(EFFECT_ID) ? EFFECT_ID : nextEffect,
+          action_intent_ref: OPERATION_ID,
+          capability_kind: "codex.task",
+          effect_kind: "codex_delegation",
+          status: "completed",
+          verification_status: "verified",
+          attempt_count: 1,
+        });
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const unauthorized = vi.fn();
+    const panel = (effectRef: string) => (
+      <QueryClientProvider client={client}>
+        <EffectDetail
+          token={`browser-v1.${"a".repeat(43)}`}
+          effectRef={effectRef}
+          onClose={() => undefined}
+          onUnauthorized={unauthorized}
+        />
+      </QueryClientProvider>
+    );
+    const view = render(panel(EFFECT_ID));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "查看结果" }));
+    if (change === "switch") {
+      view.rerender(panel(nextEffect));
+    }
+    if (change !== "unmount") {
+      await user.click(await screen.findByRole("button", { name: "查看结果" }));
+      expect(await screen.findByText("当前效果的结果")).toBeInTheDocument();
+    } else {
+      view.unmount();
+    }
+    await act(async () => {
+      settle(
+        status === 200
+          ? new Response("之前效果的结果")
+          : Response.json({ error: { code: "TEST-FAILURE" } }, { status }),
+      );
+    });
+    expect(unauthorized).not.toHaveBeenCalled();
+    expect(screen.queryByText("之前效果的结果")).not.toBeInTheDocument();
+    expect(screen.queryByText("当前无法核验该产物。")).not.toBeInTheDocument();
+    if (change !== "unmount") {
+      expect(screen.getByText("当前效果的结果")).toBeInTheDocument();
+    }
   });
 });

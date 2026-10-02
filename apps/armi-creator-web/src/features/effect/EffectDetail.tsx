@@ -22,6 +22,7 @@ export function EffectDetail({
   onUnauthorized,
 }: EffectDetailProps) {
   const closeButton = useRef<HTMLButtonElement>(null);
+  const artifactRequest = useRef<AbortController | null>(null);
   const [artifact, setArtifact] = useState<{
     kind: CodexEffectArtifactKind;
     content: string;
@@ -39,7 +40,8 @@ export function EffectDetail({
     }
     setArtifact(null);
     setArtifactFailure(false);
-  }, [effectRef]);
+    return () => artifactRequest.current?.abort();
+  }, [effectRef, token]);
   useEffect(() => {
     if (effect.error instanceof ApiFailure && effect.error.status === 401) {
       onUnauthorized();
@@ -165,16 +167,23 @@ export function EffectDetail({
                   type="button"
                   className="secondary"
                   onClick={() => {
+                    artifactRequest.current?.abort();
+                    const controller = new AbortController();
+                    artifactRequest.current = controller;
                     setArtifactFailure(false);
                     void getEffectArtifact(
                       token,
                       effect.data.effect_id,
                       "final_result",
+                      controller.signal,
                     )
-                      .then((content) =>
-                        setArtifact({ kind: "final_result", content }),
-                      )
+                      .then((content) => {
+                        if (!controller.signal.aborted) {
+                          setArtifact({ kind: "final_result", content });
+                        }
+                      })
                       .catch((error: unknown) => {
+                        if (controller.signal.aborted) return;
                         if (
                           error instanceof ApiFailure &&
                           error.status === 401
