@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
+import type { UsageCall } from "../../api/client";
 import { UsagePanel, money, usageRange } from "./UsagePanel";
 
 const totals = {
@@ -19,7 +20,7 @@ function response(value: object, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
-function show() {
+function show(onUnauthorized = vi.fn()) {
   render(
     <QueryClientProvider
       client={
@@ -28,7 +29,7 @@ function show() {
     >
       <UsagePanel
         token="test-session"
-        onUnauthorized={vi.fn()}
+        onUnauthorized={onUnauthorized}
         onOperation={vi.fn()}
       />
     </QueryClientProvider>,
@@ -142,3 +143,82 @@ it("distinguishes denied access from an empty result", async () => {
     screen.queryByText("所选范围暂无收费调用记录。"),
   ).not.toBeInTheDocument();
 });
+
+it.each([401, 403, 503])(
+  "handles a %s response when opening call details after the list loads",
+  async (status) => {
+    const call: UsageCall = {
+      attempt_id: "attempt-1",
+      business_result: null,
+      operation_id: null,
+      owner: "cognition",
+      reference_kind: "inference",
+      reference_id: "inference-1",
+      receipt: {
+        schema_kind: "armi.provider-call",
+        call_id: "call-1",
+        billable: true,
+        provider: "deepseek",
+        service: "text_generation",
+        model: "deepseek-flash",
+        purpose: "conversation",
+        started_at: "2026-10-03T01:00:00Z",
+        finished_at: "2026-10-03T01:00:01Z",
+        outcome: "failed",
+        error_code: "PROVIDER-UNAVAILABLE",
+        provider_request_id: null,
+        response_model: null,
+        quantities: [],
+        raw_usage: null,
+        price: null,
+        cost: {
+          status: "usage_unknown",
+          known_microyuan: null,
+          currency: "CNY",
+          rounding: "ceil_microyuan_per_component",
+          snapshot_id: null,
+          components: [],
+          missing_usage: ["input_tokens", "output_tokens"],
+          missing_prices: [],
+        },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname === "/v1/usage/summary")
+          return response({
+            currency: "CNY",
+            price_label: "official_list_price_estimate",
+            timezone: "Asia/Shanghai",
+            coverage: "test",
+            totals: {
+              ...totals,
+              billable_calls: 1,
+              incomplete_calls: 1,
+              usage_unconfirmed_calls: 1,
+            },
+            units: {},
+            daily: [],
+            groups: [],
+          });
+        if (url.pathname === "/v1/usage/calls")
+          return response({ total: 1, items: [call] });
+        if (url.pathname === "/v1/usage/calls/call-1")
+          return response({ detail: "unavailable" }, status);
+        throw new Error(`Unexpected request: ${url.pathname}`);
+      }),
+    );
+    const onUnauthorized = vi.fn();
+    show(onUnauthorized);
+    const user = userEvent.setup();
+    const detail = await screen.findByRole("button", { name: "调用详情" });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    await user.click(detail);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      status === 503 ? "用量查询失败" : "没有权限读取用量记录",
+    );
+    expect(onUnauthorized).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+  },
+);

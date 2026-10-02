@@ -94,16 +94,22 @@ function Quantities({ values }: { values: Record<string, number> }) {
 function CallDetail({
   token,
   callId,
+  onUnauthorized,
   onOperation,
 }: {
   token: string;
   callId: string;
+  onUnauthorized: () => void;
   onOperation: (id: string) => void;
 }) {
   const query = useQuery({
     queryKey: ["usage-call", callId],
     queryFn: ({ signal }) => readUsageCall(token, callId, signal),
   });
+  useEffect(() => {
+    if (query.error instanceof ApiFailure && query.error.status === 401)
+      onUnauthorized();
+  }, [query.error, onUnauthorized]);
   if (query.isPending) return <p role="status">正在读取调用详情…</p>;
   if (query.isError) return <UsageError error={query.error} />;
   const call = query.data;
@@ -281,6 +287,7 @@ export function UsagePanel({
           <CallDetail
             token={token}
             callId={selected}
+            onUnauthorized={onUnauthorized}
             onOperation={onOperation}
           />
         )}
