@@ -206,6 +206,7 @@ async def _invoke_sdk(
         client_title="ARMI Codex Runner",
         client_version="2",
     )
+    turn_task = None
     try:
         async with AsyncCodex(config) as codex:
             server = codex.metadata.serverInfo
@@ -235,16 +236,10 @@ async def _invoke_sdk(
             while not turn_task.done():
                 if cancellation is not None and cancellation.is_set():
                     await turn.interrupt()
-                    turn_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await turn_task
                     raise CodexRunnerViolation("CODEX-CANCELLED")
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     await turn.interrupt()
-                    turn_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await turn_task
                     raise CodexRunnerViolation("CODEX-TIMEOUT")
                 await asyncio.wait(
                     {turn_task},
@@ -268,6 +263,10 @@ async def _invoke_sdk(
         raise CodexRunnerViolation("CODEX-SDK") from None
     except Exception:
         raise CodexRunnerViolation("CODEX-SDK") from None
+    finally:
+        if turn_task is not None:
+            # SDK notification reads run in threads; closing the transport wakes them.
+            await asyncio.gather(turn_task, return_exceptions=True)
 
 
 _BASE_CONFIG = (

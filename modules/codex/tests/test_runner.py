@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import json
 import subprocess
@@ -9,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid7
 
 import pytest
@@ -235,6 +237,97 @@ async def test_revoked_sdk_refresh_token_has_actionable_safe_code(
     assert captured.value.code == "CODEX-AUTH-REVOKED"
     assert not captured.value.outcome_unknown
     assert "token" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["cancelled", "interrupt_failed", "interrupt_ok"])
+async def test_sdk_receiver_is_joined_after_transport_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    task, _ = _prepare(tmp_path)
+    started = asyncio.Event()
+    closed = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    cleanup_release = asyncio.Event()
+    receivers = []
+    settled_at_close = []
+
+    class ControlledCodex:
+        metadata = SimpleNamespace(serverInfo=SimpleNamespace(version="0.144.4"))
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            settled_at_close.append(receivers[0].done())
+            closed.set()
+
+        async def thread_start(self, **_options):
+            return self
+
+        async def turn(self, *_args, **_options):
+            return self
+
+        async def run(self):
+            receiver = asyncio.current_task()
+            assert receiver is not None
+            receivers.append(receiver)
+            started.set()
+            try:
+                await closed.wait()
+                raise RuntimeError("stream disconnected before completion")
+            finally:
+                cleanup_started.set()
+                await cleanup_release.wait()
+
+        async def interrupt(self) -> None:
+            if failure == "interrupt_failed":
+                raise RuntimeError("stream disconnected before completion")
+
+    monkeypatch.setattr(runner_module, "AsyncCodex", ControlledCodex)
+    cancellation = threading.Event()
+    invocation = asyncio.create_task(
+        runner_module._invoke_sdk(
+            workspace=tmp_path,
+            platform_home=tmp_path,
+            temp=tmp_path,
+            task=task,
+            cancellation=cancellation,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        if failure == "cancelled":
+            invocation.cancel()
+        else:
+            cancellation.set()
+        await asyncio.wait_for(cleanup_started.wait(), timeout=2)
+        assert closed.is_set()
+        assert not invocation.done()
+        cleanup_release.set()
+        if failure == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await invocation
+        else:
+            with pytest.raises(CodexRunnerViolation) as captured:
+                await invocation
+            assert captured.value.code == (
+                "CODEX-STREAM-DISCONNECTED"
+                if failure == "interrupt_failed"
+                else "CODEX-CANCELLED"
+            )
+            assert captured.value.outcome_unknown == (failure == "interrupt_failed")
+        assert settled_at_close == [False]
+        assert all(receiver.done() for receiver in receivers)
+    finally:
+        cleanup_release.set()
+        invocation.cancel()
+        for receiver in receivers:
+            receiver.cancel()
+        await asyncio.gather(invocation, *receivers, return_exceptions=True)
 
 
 def test_task_codec_rejects_duplicate_keys() -> None:
