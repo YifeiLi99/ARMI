@@ -76,6 +76,7 @@ function VisionSourcePanel({
 }) {
   const queryClient = useQueryClient();
   const [observationId, setObservationId] = useState<string | null>(null);
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>();
   const control = useMutation({
     mutationFn: (action: "start" | "stop") =>
@@ -100,18 +101,17 @@ function VisionSourcePanel({
   });
   const preview = useMutation({
     mutationFn: () => getLiveVisionPreview(token, source),
-    onSuccess: (blob) =>
-      setPreviewUrl((current) => {
-        if (current !== undefined) URL.revokeObjectURL(current);
-        return blob === null ? undefined : URL.createObjectURL(blob);
-      }),
+    onSuccess: (blob) => setPreviewBlob(blob),
   });
-  useEffect(
-    () => () => {
-      if (previewUrl !== undefined) URL.revokeObjectURL(previewUrl);
-    },
-    [previewUrl],
-  );
+  useEffect(() => {
+    // Create URLs only for committed previews; StrictMode may replay state updaters.
+    const url =
+      previewBlob === null ? undefined : URL.createObjectURL(previewBlob);
+    setPreviewUrl(url);
+    return () => {
+      if (url !== undefined) URL.revokeObjectURL(url);
+    };
+  }, [previewBlob]);
   useEffect(() => {
     if (
       [control.error, manual.error, observation.error, preview.error].some(

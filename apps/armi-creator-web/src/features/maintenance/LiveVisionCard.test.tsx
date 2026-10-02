@@ -1,7 +1,8 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LiveVisionCard } from "./LiveVisionCard";
@@ -53,15 +54,16 @@ function observationResponse(): Response {
   );
 }
 
-function renderCard(): void {
+function renderCard(strict = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  const content = (
     <QueryClientProvider client={client}>
       <LiveVisionCard token="browser-token" onUnauthorized={() => undefined} />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  return render(strict ? <StrictMode>{content}</StrictMode> : content);
 }
 
 afterEach(() => {
@@ -120,5 +122,71 @@ describe("live vision card", () => {
     renderCard();
 
     expect(await screen.findByRole("button", { name: "预览" })).toBeDisabled();
+  });
+
+  it("retains only the displayed preview URL in StrictMode and releases it on unmount", async () => {
+    const active = new Set<string>();
+    let sequence = 0;
+    class PreviewURL extends URL {
+      static override createObjectURL = vi.fn(() => {
+        const url = `blob:preview-${++sequence}`;
+        active.add(url);
+        return url;
+      });
+      static override revokeObjectURL = vi.fn((url: string) => {
+        active.delete(url);
+      });
+    }
+    vi.stubGlobal("URL", PreviewURL);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/preview")
+          ? new Response("preview", {
+              headers: { "Content-Type": "image/png" },
+            })
+          : response("observing"),
+      ),
+    );
+    const view = renderCard(true);
+    const button = await screen.findByRole("button", { name: "预览" });
+    await userEvent.click(button);
+    const first = await screen.findByRole("img", { name: "摄像头当前帧预览" });
+    const firstUrl = first.getAttribute("src");
+    await userEvent.click(button);
+    await screen.findByRole("img", { name: "摄像头当前帧预览" });
+    const currentUrl = screen.getByRole("img").getAttribute("src");
+    expect(currentUrl).not.toBe(firstUrl);
+    expect(active).toEqual(new Set([currentUrl]));
+    view.unmount();
+    expect(active.size).toBe(0);
+  });
+
+  it("does not create a preview URL for a response received after unmount", async () => {
+    const create = vi.fn(() => "blob:preview");
+    class PreviewURL extends URL {
+      static override createObjectURL = create;
+      static override revokeObjectURL = vi.fn();
+    }
+    vi.stubGlobal("URL", PreviewURL);
+    let resolvePreview!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      resolvePreview = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/preview") ? pending : response("observing"),
+      ),
+    );
+    const view = renderCard(true);
+    await userEvent.click(await screen.findByRole("button", { name: "预览" }));
+    view.unmount();
+    await act(async () => {
+      resolvePreview(
+        new Response("preview", { headers: { "Content-Type": "image/png" } }),
+      );
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 });
