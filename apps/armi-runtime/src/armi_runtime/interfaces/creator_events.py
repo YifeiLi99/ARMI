@@ -80,6 +80,10 @@ class CreatorEventSubscription:
         self._queue = queue
         self.replay = replay
 
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
     async def receive(self) -> PublishedCreatorEvent | None:
         item = await self._queue.get()
         return None if item is _CLOSED else item  # type: ignore[return-value]
@@ -93,6 +97,7 @@ class CreatorEventSubscription:
         return True
 
     def terminate(self) -> None:
+        self._closed = True
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
@@ -301,6 +306,8 @@ async def stream_creator_events(
     try:
         lease = sessions.lease(token)
         for replayed in subscription.replay:
+            if subscription.closed:
+                return
             try:
                 sessions.validate_lease(lease)
             except BrowserSessionViolation:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from uuid import uuid7
 
@@ -177,6 +178,48 @@ class CreatorEventBrokerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(
                     await asyncio.wait_for(subscription.receive(), timeout=0.1)
                 )
+
+    async def test_terminated_subscription_stops_replay(self) -> None:
+        for action in ("replace", "close"):
+            with self.subTest(action=action):
+                sessions = BrowserSessionStore(
+                    environment_id=uuid7(),
+                    creator_party_id=uuid7(),
+                    session_ttl_seconds=60,
+                )
+                token = sessions.establish().token
+                broker = CreatorEventBroker(epoch=b"\x08" * 16)
+                for _index in range(3):
+                    await broker.notify(invalidation())
+                subscription = await broker.subscribe(f"sse-v1.{broker.epoch}.1")
+                stream = stream_creator_events(
+                    subscription,
+                    sessions=sessions,
+                    token=token,
+                    diagnostic=lambda _event: None,
+                )
+                replacement = None
+                assert isinstance(stream, AsyncGenerator)
+                try:
+                    self.assertEqual(await anext(stream), subscription.replay[0].frame)
+                    if action == "replace":
+                        replacement = await broker.subscribe(f"sse-v1.{broker.epoch}.2")
+                    else:
+                        await broker.close_active()
+                    with self.assertRaises(StopAsyncIteration):
+                        await anext(stream)
+
+                    if replacement is not None:
+                        await broker.notify(invalidation())
+                        current = await asyncio.wait_for(
+                            replacement.receive(), timeout=0.1
+                        )
+                        assert current is not None
+                        self.assertEqual(current.sequence, 4)
+                finally:
+                    await stream.aclose()
+                    if replacement is not None:
+                        await replacement.close()
 
 
 if __name__ == "__main__":
