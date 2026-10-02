@@ -439,7 +439,11 @@ class NativePostgreSQL:
                     "-t",
                     "45",
                 )
-                if identity.inspect() == ManagedProcessState.MATCHES:
+                # Failed inspection cannot confirm that the checked process exited.
+                if identity.inspect() not in {
+                    ManagedProcessState.ABSENT,
+                    ManagedProcessState.MISMATCH,
+                }:
                     raise RuntimeViolation(
                         "LOCAL-POSTGRESQL-UNKNOWN",
                         "database stop could not be verified",

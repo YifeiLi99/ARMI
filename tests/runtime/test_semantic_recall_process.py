@@ -13,7 +13,10 @@ import armi_local_control.semantic_recall_process as semantic_recall_process
 import psutil
 import pytest
 from armi_context.api import EMBEDDING_QUERY_INSTRUCTION
-from armi_local_control.process_identity import ManagedProcessIdentity
+from armi_local_control.process_identity import (
+    ManagedProcessIdentity,
+    ManagedProcessState,
+)
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_local_control.semantic_recall_process import (
     SemanticRecallEndpoint,
@@ -264,6 +267,64 @@ def test_start_already_running_crash_restart_and_stop(
     assert restarted["pid"] != started["pid"]
     assert manager.stop()["status"] == "stopped"
     assert manager.status()["status"] == "missing"
+
+
+@pytest.mark.parametrize("observed", list(ManagedProcessState))
+def test_stop_retains_control_files_without_confirmed_process_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, observed: ManagedProcessState
+) -> None:
+    manager = SemanticRecallProcessManager(_environment_root(tmp_path))
+    manager._run_root.mkdir(parents=True)
+    identity = ManagedProcessIdentity(
+        41000,
+        1,
+        "llama-server.exe",
+        "sha256:" + "a" * 64,
+        manager._environment_identity(),
+        1,
+    )
+    state_path = manager._run_root / "service.json"
+    token_path = manager._run_root / "api-key"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_kind": semantic_recall_process._SCHEMA,
+                "pid": identity.pid,
+                "process_identity": identity.to_wire(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    token_path.write_text("temporary-test-token", encoding="ascii")
+    stopped = False
+    clock = 0.0
+
+    def stop_process(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
+        nonlocal stopped
+        stopped = True
+        return subprocess.CompletedProcess([], 0)
+
+    def inspect(_self: ManagedProcessIdentity) -> ManagedProcessState:
+        return observed if stopped else ManagedProcessState.MATCHES
+
+    def sleep(_seconds: float) -> None:
+        nonlocal clock
+        clock += 11
+
+    monkeypatch.setattr(semantic_recall_process.subprocess, "run", stop_process)
+    monkeypatch.setattr(ManagedProcessIdentity, "inspect", inspect)
+    monkeypatch.setattr(semantic_recall_process.time, "monotonic", lambda: clock)
+    monkeypatch.setattr(semantic_recall_process.time, "sleep", sleep)
+    if observed in {ManagedProcessState.ABSENT, ManagedProcessState.MISMATCH}:
+        assert manager.stop()["status"] == "stopped"
+        assert not state_path.exists()
+        assert not token_path.exists()
+    else:
+        with pytest.raises(RuntimeViolation) as error:
+            manager.stop()
+        assert error.value.code == "SEMANTIC-RECALL-STOP"
+        assert state_path.is_file()
+        assert token_path.read_text(encoding="ascii") == "temporary-test-token"
 
 
 def test_old_or_cpu_profile_requires_calibration(

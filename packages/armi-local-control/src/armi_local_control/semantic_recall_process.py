@@ -624,7 +624,11 @@ class SemanticRecallProcessManager:
                 and identity.inspect() is ManagedProcessState.MATCHES
             ):
                 time.sleep(0.05)
-            if identity.inspect() is ManagedProcessState.MATCHES:
+            # Keep control files if exit could not be verified after taskkill.
+            if identity.inspect() not in {
+                ManagedProcessState.ABSENT,
+                ManagedProcessState.MISMATCH,
+            }:
                 raise RuntimeViolation(
                     "SEMANTIC-RECALL-STOP",
                     "local embedding service did not stop cleanly",

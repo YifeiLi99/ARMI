@@ -12,6 +12,7 @@ from armi_local_control import (
     NativePostgreSQL,
     PostgreSQLControlBinding,
 )
+from armi_local_control.process_identity import ManagedProcessState
 from armi_local_control.runtime_errors import RuntimeViolation
 
 
@@ -111,6 +112,30 @@ def test_foreign_system_identifier_prevents_stop(tmp_path: Path) -> None:
     ):
         manager.execute("stop")
     process.assert_not_called()
+
+
+@pytest.mark.parametrize("observed", list(ManagedProcessState))
+def test_stop_requires_confirmed_process_exit(
+    tmp_path: Path, observed: ManagedProcessState
+) -> None:
+    manager = cluster(tmp_path)
+    manager.control.mkdir(parents=True)
+    manager.identity_path.write_text("{}", encoding="utf-8")
+    identity = Mock()
+    identity.inspect.side_effect = (ManagedProcessState.MATCHES, observed)
+    with (
+        patch.object(manager, "_identity"),
+        patch.object(manager, "_process", return_value=identity),
+        patch.object(manager, "_run", return_value=b"") as run,
+    ):
+        if observed in {ManagedProcessState.ABSENT, ManagedProcessState.MISMATCH}:
+            assert manager.execute("stop")["status"] == "stopped"
+        else:
+            with pytest.raises(RuntimeViolation) as error:
+                manager.execute("stop")
+            assert error.value.code == "LOCAL-POSTGRESQL-UNKNOWN"
+    assert run.call_count == 1
+    assert run.call_args.args[:2] == ("pg_ctl", "stop")
 
 
 def test_packaged_server_waits_for_its_own_ready_pid(tmp_path: Path) -> None:
