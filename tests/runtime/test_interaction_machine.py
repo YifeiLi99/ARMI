@@ -537,6 +537,30 @@ async def test_machine_scope_rejects_mutation_before_owner(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_machine_rejects_deeply_nested_json(tmp_path: Path) -> None:
+    app, binding, secret = machine(tmp_path)
+    headers = {
+        "authorization": "Bearer "
+        + base64.b64encode(secret.read_bytes()).decode("ascii"),
+        "x-armi-delegate": str(binding.delegate_id),
+        "content-type": "application/json",
+    }
+    body = b'{"unexpected":' + b"[" * 50000 + b"0" + b"]" * 50000 + b"}"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url=binding.endpoint,
+    ) as client:
+        response = await client.post(
+            "/machine/v1/invoke", headers=headers, content=body
+        )
+    assert response.status_code == 400
+    assert response.json() == {
+        "status": "rejected",
+        "error_code": "INTERACTION-REQUEST",
+    }
+
+
+@pytest.mark.asyncio
 async def test_machine_does_not_accept_browser_or_body_identity(tmp_path: Path) -> None:
     app, binding, secret = machine(tmp_path)
     headers = {

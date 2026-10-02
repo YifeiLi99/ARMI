@@ -178,7 +178,7 @@ def register_machine_api(
             call = MachineRequest.model_validate(
                 json.loads(raw, object_pairs_hook=_strict_object_pairs)
             )
-        except ValueError, ValidationError:
+        except ValueError, ValidationError, RecursionError:
             return JSONResponse(
                 {"status": "rejected", "error_code": "INTERACTION-REQUEST"},
                 status_code=400,

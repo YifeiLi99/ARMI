@@ -368,7 +368,7 @@ def register_system_routes(
             return denied
         try:
             body = LiveVisionObservationRequest.model_validate(await request.json())
-        except ValueError:
+        except ValueError, RecursionError:
             return JSONResponse(
                 status_code=400, content=_rejected("INPUT_VISION_REQUEST")
             )

@@ -1117,7 +1117,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.qq_enabled = action == "start"
         return await self._qq_health()
 
-    def _app(self, *, sessions: bool = True):
+    def _app(self, *, sessions: bool = True, request_body_max_bytes: int = 1024):
         async def started() -> None:
             self.lifecycle.start()
             self.lifecycle.complete_startup(("TEST_BLOCKER",))
@@ -1134,7 +1134,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             assets=self.assets,
             browser_sessions=self.sessions if sessions else None,
             expected_authority=AUTHORITY,
-            request_body_max_bytes=1024,
+            request_body_max_bytes=request_body_max_bytes,
             on_started=started,
             on_stopping=stopping,
             creator_scenes=self.creator_scenes,
@@ -1973,6 +1973,36 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(wrong_content_type.status_code, 400)
         self.assertEqual(invalid_utf8.status_code, 400)
         self.assertEqual(query.status_code, 400)
+
+    def test_deeply_nested_json_is_rejected_before_owner_invocation(self) -> None:
+        body = b'{"unexpected":' + b"[" * 50000 + b"0" + b"]" * 50000 + b"}"
+        with TestClient(
+            self._app(request_body_max_bytes=262144),
+            base_url=f"http://{AUTHORITY}",
+            raise_server_exceptions=False,
+        ) as client:
+            token = self._connect_browser(client)
+            for method, path in (
+                ("POST", "/v1/scenes/default/messages"),
+                ("PUT", "/v1/prompts/creator-guidance"),
+                ("POST", "/v1/vision/observe"),
+            ):
+                with self.subTest(path=path):
+                    response = client.request(
+                        method,
+                        path,
+                        headers={
+                            **self._browser_headers(token),
+                            "Content-Type": "application/json",
+                            "Idempotency-Key": "nested-json",
+                        },
+                        content=body,
+                    )
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(response.json()["status"], "rejected")
+
+        self.assertEqual(self.creator_input.commands, [])
+        self.assertEqual(self.creator_codex_task.commands, [])
 
     def test_creator_codex_task_is_explicit_authenticated_intake(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

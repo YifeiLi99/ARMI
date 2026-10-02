@@ -116,7 +116,7 @@ async def invoke_creator_http(
             )
             if not isinstance(body, dict):
                 raise ValueError
-        except ValueError:
+        except ValueError, RecursionError:
             return JSONResponse(status_code=400, content=_rejected("INPUT_BODY"))
     keys = request.headers.getlist("idempotency-key")
     if len(keys) > 1:

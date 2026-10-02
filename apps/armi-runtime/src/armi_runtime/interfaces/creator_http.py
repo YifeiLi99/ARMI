@@ -320,7 +320,7 @@ async def _creator_input_request(
             ),
         )
         return CreatorInputRequest.model_validate(value)
-    except UnicodeDecodeError, ValueError, ValidationError:
+    except UnicodeDecodeError, ValueError, ValidationError, RecursionError:
         raise CreatorInputViolation("INPUT-BODY") from None
 
 
