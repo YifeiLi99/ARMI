@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -561,6 +561,125 @@ describe("Creator local connection shell", () => {
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(16);
+  });
+
+  it("keeps receiving updates when the current scene is closed and reopened", async () => {
+    let status: "open" | "closed" = "open";
+    let activityReads = 0;
+    const signals = new Map<string, AbortSignal>();
+    const controllers = new Map<
+      string,
+      ReadableStreamDefaultController<Uint8Array>
+    >();
+    const scene = (key: string) => ({
+      projection_kind: "creator-scenes",
+      scene_id: key === "default" ? ENVIRONMENT_ID : CREATOR_ID,
+      scene_key: key,
+      status: key === "default" ? "open" : status,
+      opened_at: "2026-07-30T09:00:00.000000Z",
+      is_default: key === "default",
+    });
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/scenes") {
+        return jsonResponse({
+          projection_kind: "creator-scenes",
+          scenes: [scene("default"), scene("night-talk")],
+        });
+      }
+      if (
+        url === "/v1/scenes/night-talk/close" ||
+        url === "/v1/scenes/night-talk/reopen"
+      ) {
+        status = url.endsWith("/close") ? "closed" : "open";
+        return jsonResponse(scene("night-talk"));
+      }
+      const optionalProjection = optionalLifeProjectionResponse(url);
+      if (optionalProjection !== undefined) {
+        return optionalProjection;
+      }
+      if (url === "/v1/browser-sessions" && init?.method === "POST") {
+        return jsonResponse(sessionResponse(true));
+      }
+      if (url === "/v1/browser-sessions/current") {
+        return jsonResponse(sessionResponse(false));
+      }
+      if (url === "/v1/runtime/status") {
+        return jsonResponse(runtimeStatusResponse());
+      }
+      if (url === "/v1/subject/summary") {
+        return jsonResponse(subjectSummaryResponse());
+      }
+      if (url === "/v1/maintenance/status") {
+        return jsonResponse(maintenanceStatusResponse());
+      }
+      if (url.startsWith("/v1/activities?")) {
+        activityReads += 1;
+        return jsonResponse(
+          activityPageResponse(
+            activityReads === 1 ? undefined : "继续收到更新",
+          ),
+        );
+      }
+      if (url.includes("/timeline?")) {
+        return jsonResponse({
+          projection_kind: "scene-timeline",
+          scene_key: url.split("/")[3],
+          items: [],
+        });
+      }
+      if (url.endsWith("/events") && init?.signal) {
+        signals.set(url, init.signal);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controllers.set(url, controller);
+            },
+          }),
+          { headers: { "Content-Type": "text/event-stream; charset=utf-8" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<CreatorShell />);
+
+    await screen.findByText("实时");
+    await user.click(screen.getByRole("button", { name: "管理场合" }));
+    await user.selectOptions(await screen.findByRole("combobox"), "night-talk");
+    await waitFor(() =>
+      expect(signals.get("/v1/scenes/night-talk/events")?.aborted).toBe(false),
+    );
+    expect(signals.get("/v1/scenes/default/events")?.aborted).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "关闭场合" }));
+    await screen.findByText("场合已关闭。");
+    expect(signals.get("/v1/scenes/night-talk/events")?.aborted).toBe(false);
+    await user.click(screen.getByRole("button", { name: "重新打开" }));
+    await screen.findByText("场合已重新打开。");
+    expect(signals.get("/v1/scenes/night-talk/events")?.aborted).toBe(false);
+
+    const eventId = `sse-v1.${"f".repeat(22)}.1`;
+    const event = JSON.stringify({
+      event_id: eventId,
+      event_kind: "activity.invalidated",
+      resource_kind: "activity",
+      resource_ref: ENVIRONMENT_ID,
+      projection_kind: "creator-activity",
+      occurred_at: "2026-07-30T10:02:00.000000Z",
+    });
+    await act(async () => {
+      controllers
+        .get("/v1/scenes/night-talk/events")!
+        .enqueue(
+          new TextEncoder().encode(
+            `id: ${eventId}\nevent: activity.invalidated\ndata: ${event}\n\n`,
+          ),
+        );
+    });
+    expect(await screen.findByText("继续收到更新")).toBeInTheDocument();
+    expect(activityReads).toBe(2);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {

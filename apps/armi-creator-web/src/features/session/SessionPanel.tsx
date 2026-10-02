@@ -253,7 +253,6 @@ export function SessionPanel() {
                 creatorPartyId={view.session.creator_party_id}
                 selectedSceneKey={activeScene.key}
                 onSelected={(key, status) => {
-                  abortStream();
                   setSelectedOperation(null);
                   setSelectedEffect(null);
                   setSelectedScene({ key, status });
