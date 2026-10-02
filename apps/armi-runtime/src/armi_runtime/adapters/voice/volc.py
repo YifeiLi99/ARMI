@@ -320,6 +320,7 @@ class VolcStreamingAsr:
                 # directions of the same WebSocket stream. Serial round trips here
                 # turn a 20 ms audio cadence into provider-network latency per frame.
                 sender = asyncio.create_task(send_audio())
+                receiver: asyncio.Task[Any] | None = None
                 try:
                     while True:
                         receiver = asyncio.create_task(socket.recv())
@@ -372,7 +373,10 @@ class VolcStreamingAsr:
                             if event.utterance_ended:
                                 return
                 finally:
-                    sender.cancel()
+                    pending = (sender,) if receiver is None else (sender, receiver)
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
                     with contextlib.suppress(asyncio.CancelledError):
                         await sender
         except LiveVoiceViolation:
@@ -473,6 +477,7 @@ class VolcStreamingTts:
                     )
 
                 feeder = asyncio.create_task(feed_text())
+                receiver: asyncio.Task[Any] | None = None
                 total_audio_bytes = 0
                 try:
                     while True:
@@ -530,9 +535,16 @@ class VolcStreamingTts:
                                 "VOICE-TTS-FAILED", "TTS session failed"
                             )
                 finally:
-                    feeder.cancel()
+                    pending = (feeder,) if receiver is None else (feeder, receiver)
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
                     with contextlib.suppress(asyncio.CancelledError):
                         await feeder
+        except asyncio.CancelledError, GeneratorExit:
+            # Unread frames from an interrupted session cannot be reused safely.
+            await self._invalidate_connection()
+            raise
         except LiveVoiceViolation:
             await self._invalidate_connection()
             raise

@@ -4,7 +4,9 @@ import asyncio
 import gzip
 import json
 import struct
+from collections.abc import AsyncGenerator
 from types import SimpleNamespace
+from typing import cast
 
 import armi_runtime.adapters.voice.volc as volc_module
 import pytest
@@ -244,6 +246,108 @@ class FakeTtsSocket:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("adapter", ("asr", "tts"))
+async def test_cancelled_stream_releases_pending_receiver(
+    adapter: str,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_provider_receipts,
+) -> None:
+    class WaitingSocket:
+        def __init__(self) -> None:
+            self.responses: asyncio.Queue[bytes] = asyncio.Queue()
+            self.waiting = asyncio.Event()
+            self.finished = asyncio.Event()
+            self.receiver = None
+            self.closed = False
+            self.sent = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            await self.close()
+
+        async def send(self, wire: bytes) -> None:
+            self.sent += 1
+            if adapter == "asr":
+                if self.sent == 1:
+                    self.responses.put_nowait(_server_response({}))
+            else:
+                event = struct.unpack(">i", wire[4:8])[0]
+                if event in {1, 100}:
+                    self.responses.put_nowait(_server_event(50 if event == 1 else 150))
+
+        async def recv(self) -> bytes:
+            pending = self.responses.empty()
+            if pending:
+                self.receiver = asyncio.current_task()
+                self.waiting.set()
+            try:
+                return await self.responses.get()
+            finally:
+                if pending:
+                    self.finished.set()
+
+        async def close(self) -> None:
+            self.closed = True
+
+    socket = WaitingSocket()
+
+    def connect_asr(*_: object, **__: object):
+        return socket
+
+    async def connect_tts(*_: object, **__: object):
+        return socket
+
+    monkeypatch.setattr(
+        volc_module.importlib,
+        "import_module",
+        lambda _: SimpleNamespace(
+            connect=connect_asr if adapter == "asr" else connect_tts
+        ),
+    )
+    source_closed = asyncio.Event()
+
+    async def source[T](value: T) -> AsyncGenerator[T]:
+        try:
+            yield value
+            await asyncio.Event().wait()
+        finally:
+            source_closed.set()
+
+    tts = VolcStreamingTts(VolcCredentials("test-speech-key"))
+
+    async def consume() -> None:
+        stream = (
+            VolcStreamingAsr(VolcCredentials("test-speech-key")).recognize(
+                source(b"audio")
+            )
+            if adapter == "asr"
+            else tts.synthesize(source("local text"))
+        )
+        async for _ in stream:
+            pass
+
+    consuming = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(socket.waiting.wait(), timeout=1)
+        consuming.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await consuming
+        assert source_closed.is_set()
+        assert socket.finished.is_set()
+        assert socket.closed is True
+        assert fake_provider_receipts[-1].outcome == "unknown"
+    finally:
+        consuming.cancel()
+        await asyncio.gather(consuming, return_exceptions=True)
+        if socket.receiver is not None:
+            socket.receiver.cancel()
+            await asyncio.gather(socket.receiver, return_exceptions=True)
+        await tts.close()
+
+
+@pytest.mark.asyncio
 async def test_tts_reuses_prepared_connection_for_multiple_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -281,6 +385,37 @@ async def test_tts_reuses_prepared_connection_for_multiple_sessions(
     assert socket.events.count(102) == 2
     assert socket.events.count(2) == 1
     assert socket.closed is True
+
+
+@pytest.mark.asyncio
+async def test_closing_tts_stream_after_audio_invalidates_connection(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_provider_receipts,
+) -> None:
+    socket = FakeTtsSocket()
+
+    async def connect(*_: object, **__: object):
+        return socket
+
+    monkeypatch.setattr(
+        volc_module.importlib,
+        "import_module",
+        lambda _: SimpleNamespace(connect=connect),
+    )
+    tts = VolcStreamingTts(VolcCredentials("test-speech-key"))
+
+    async def fragment():
+        yield "local text"
+
+    stream = cast(AsyncGenerator[bytes], tts.synthesize(fragment()))
+    try:
+        assert await anext(stream) == b"pcm"
+        await stream.aclose()
+        assert socket.closed is True
+        assert fake_provider_receipts[-1].outcome == "unknown"
+    finally:
+        await stream.aclose()
+        await tts.close()
 
 
 @pytest.mark.asyncio
