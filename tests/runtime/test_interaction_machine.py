@@ -180,8 +180,9 @@ async def test_vision_observation_arguments_reach_shared_application(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("long_output", [False, True])
 async def test_artifact_chunks_and_cli_output_preserve_governed_content(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, long_output: bool
 ) -> None:
     from armi_effect.api import EffectArtifactContent, EffectArtifactKind
 
@@ -222,6 +223,11 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
     config.write_text(binding.model_dump_json(), encoding="utf-8")
     monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
     output = tmp_path / "artifact.patch"
+    if long_output:
+        output = tmp_path / ("a" * (240 - len(str(tmp_path)) - 7) + ".patch")
+        # The final path is usable without extending Windows' path limit.
+        output.touch()
+        output.unlink()
     args = cli.parser().parse_args(
         [
             "--config",
@@ -403,9 +409,11 @@ async def test_cli_preview_rejects_malformed_response_without_publishing(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fail_write", [False, True])
+@pytest.mark.parametrize(
+    ("fail_write", "long_output"), [(False, False), (True, False), (False, True)]
+)
 async def test_cli_preview_output_is_complete_or_absent(
-    tmp_path: Path, monkeypatch, capsys, fail_write: bool
+    tmp_path: Path, monkeypatch, capsys, fail_write: bool, long_output: bool
 ) -> None:
     _, binding, _ = machine(tmp_path)
     config = tmp_path / "client.yaml"
@@ -452,6 +460,10 @@ async def test_cli_preview_output_is_complete_or_absent(
 
     monkeypatch.setattr(Path, "open", open_output)
     output = tmp_path / "preview.jpg"
+    if long_output:
+        output = tmp_path / ("p" * (240 - len(str(tmp_path)) - 5) + ".jpg")
+        output.touch()
+        output.unlink()
     arguments = [
         "--config",
         str(config),

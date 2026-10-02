@@ -156,7 +156,7 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         content, media_type = decode_response_artifact(outcome["artifact"])
         if output.exists():
             raise FileExistsError(output)
-        temporary = output.with_name(f".{output.name}.{uuid7()}.part")
+        temporary = output.with_name(f".armi-{uuid7()}.part")
         try:
             with temporary.open("xb") as stream:
                 stream.write(content)

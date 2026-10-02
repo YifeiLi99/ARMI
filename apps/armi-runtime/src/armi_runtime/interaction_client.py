@@ -226,7 +226,7 @@ class InteractionClient:
             raise ValueError("INTERACTION-ARTIFACT-OUTPUT-RANGE")
         if output.exists():
             raise FileExistsError(output)
-        temporary = output.with_name("." + output.name + "." + str(uuid7()) + ".part")
+        temporary = output.with_name(f".armi-{uuid7()}.part")
         offset = 0
         expected: tuple[int, str, str] | None = None
         digest = hashlib.sha256()
