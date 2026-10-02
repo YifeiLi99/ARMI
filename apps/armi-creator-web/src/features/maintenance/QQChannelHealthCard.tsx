@@ -138,9 +138,8 @@ export function QQChannelHealthCard({
         </>
       )}
       <p className="boundary-note">
-        “打开 NapCat”只跳转本机管理页。首次认证可运行{" "}
-        <code>armi channel qq open</code>，命令会复制登录凭据并打开页面；Creator
-        不控制宿主进程。
+        “打开 NapCat”只跳转本机管理页。首次接入或恢复登录，请在 ARMI 设置的“QQ
+        接入”页操作；通信凭据由 ARMI 自动管理，扫码和 QQ 安全验证需本人完成。
       </p>
     </section>
   );
