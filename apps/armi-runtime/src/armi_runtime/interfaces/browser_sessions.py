@@ -133,27 +133,28 @@ class BrowserSessionStore:
 
     def verify(self, token: str) -> SessionMetadata:
         with self._lock:
-            stored = self._session
-            valid = (
-                stored is not None
-                and self._monotonic() < stored.expires_monotonic
-                and _SESSION_BEARER.fullmatch(token) is not None
-                and secrets.compare_digest(
-                    _digest(b"armi.browser-session", token), stored.digest
-                )
+            return self._verified_session(token).metadata
+
+    def _verified_session(self, token: str) -> _StoredSession:
+        # DESIGN.md §12: verify and capture the same generation while holding the lock.
+        stored = self._session
+        valid = (
+            stored is not None
+            and self._monotonic() < stored.expires_monotonic
+            and _SESSION_BEARER.fullmatch(token) is not None
+            and secrets.compare_digest(
+                _digest(b"armi.browser-session", token), stored.digest
             )
-            if not valid:
-                if stored is not None and self._monotonic() >= stored.expires_monotonic:
-                    self._session = None
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            return cast(_StoredSession, stored).metadata
+        )
+        if not valid:
+            if stored is not None and self._monotonic() >= stored.expires_monotonic:
+                self._session = None
+            raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+        return cast(_StoredSession, stored)
 
     def lease(self, token: str) -> BrowserSessionLease:
-        self.verify(token)
         with self._lock:
-            stored = self._session
-            if stored is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            stored = self._verified_session(token)
             return BrowserSessionLease(
                 stored.digest,
                 stored.generation,

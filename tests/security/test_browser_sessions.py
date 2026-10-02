@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 from uuid import UUID
 
 from armi_runtime.interfaces.browser_sessions import (
@@ -90,6 +91,34 @@ class BrowserSessionStoreTests(unittest.TestCase):
         self.clock.value += 28_800
         with self.assertRaises(BrowserSessionViolation):
             self.store.validate_lease(replacement_lease)
+
+    def test_lease_cannot_borrow_replacement_session_after_token_verification(self):
+        first = self.store.establish()
+        original_lock = self.store._lock
+        replacement_tokens = []
+        store = self.store
+
+        class RotateOnFirstUnlock:
+            armed = True
+
+            def __enter__(self):
+                original_lock.acquire()
+
+            def __exit__(self, *_args):
+                original_lock.release()
+                if self.armed:
+                    self.armed = False
+                    store.revoke_all()
+                    replacement_tokens.append(store.establish().token)
+
+        # Simulate another caller rotating the session at the first unlocked boundary.
+        with patch.object(self.store, "_lock", RotateOnFirstUnlock()):
+            lease = self.store.lease(first.token)
+            self.assertEqual(len(replacement_tokens), 1)
+            self.assertNotEqual(first.token, replacement_tokens[0])
+            with self.assertRaises(BrowserSessionViolation):
+                self.store.validate_lease(lease)
+            self.store.verify(replacement_tokens[0])
 
 
 if __name__ == "__main__":
