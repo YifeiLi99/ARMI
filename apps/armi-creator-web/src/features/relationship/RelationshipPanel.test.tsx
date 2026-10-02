@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -73,11 +73,11 @@ function currentRelationship() {
 function renderPanel(
   onUnauthorized = () => undefined,
   onOperationAccepted = () => undefined,
-) {
-  const client = new QueryClient({
+  client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  render(
+  }),
+) {
+  const panel = render(
     <QueryClientProvider client={client}>
       <RelationshipPanel
         token={`browser-v1.${"a".repeat(43)}`}
@@ -88,6 +88,7 @@ function renderPanel(
       />
     </QueryClientProvider>,
   );
+  return { ...panel, client };
 }
 
 afterEach(() => {
@@ -97,6 +98,83 @@ afterEach(() => {
 });
 
 describe("Creator relationship panel", () => {
+  it.each([202, 409])(
+    "preserves a newer frozen expression after an old response returns %s",
+    async (status) => {
+      let settleOld!: (value: Response) => void;
+      let settleNew!: (value: Response) => void;
+      const oldResponse = new Promise<Response>((resolve) => {
+        settleOld = resolve;
+      });
+      const newResponse = new Promise<Response>((resolve) => {
+        settleNew = resolve;
+      });
+      let submissions = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (_input, init) => {
+          if (init?.method === "POST") {
+            submissions += 1;
+            return submissions === 1 ? oldResponse : newResponse;
+          }
+          return jsonResponse(currentRelationship());
+        }),
+      );
+      const accepted = {
+        status: "accepted",
+        trace_id: "0123456789abcdef0123456789abcdef",
+        occurred_at: "2026-08-05T10:00:00.000000Z",
+        message: "accepted",
+        result_ref: OPERATION_ID,
+        custodian: "runtime",
+        details: {},
+      };
+      const oldAccepted = vi.fn();
+      const user = userEvent.setup();
+      const oldPanel = renderPanel(() => undefined, oldAccepted);
+      await screen.findByText("我会尊重这项边界");
+      await user.type(screen.getByLabelText("具体说明"), "旧表达");
+      await user.click(screen.getByRole("button", { name: "提交边界表达" }));
+      const mutation = oldPanel.client.getMutationCache().getAll()[0];
+      expect(mutation?.state.status).toBe("pending");
+      oldPanel.unmount();
+      oldPanel.client.clear();
+      const newAccepted = vi.fn();
+      renderPanel(() => undefined, newAccepted, oldPanel.client);
+      await user.click(
+        await screen.findByRole("button", { name: "放弃这次表达" }),
+      );
+      await user.type(screen.getByLabelText("具体说明"), "新的表达");
+      await user.click(screen.getByRole("button", { name: "提交边界表达" }));
+      const storageKey = `armi:${RELATIONSHIP_ID}:relationship-boundary:${REVISION_ID}`;
+      const frozen = sessionStorage.getItem(storageKey);
+      expect(frozen).toContain("新的表达");
+      await act(async () => {
+        settleOld(
+          status === 202
+            ? jsonResponse(accepted, 202)
+            : new Response(null, { status }),
+        );
+      });
+      await waitFor(() =>
+        expect(mutation?.state.status).toBe(
+          status === 202 ? "success" : "error",
+        ),
+      );
+      expect(sessionStorage.getItem(storageKey)).toBe(frozen);
+      expect(oldAccepted).not.toHaveBeenCalled();
+      expect(newAccepted).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("具体说明")).toHaveValue("新的表达");
+      await act(async () => {
+        settleNew(jsonResponse(accepted, 202));
+      });
+      await waitFor(() =>
+        expect(newAccepted).toHaveBeenCalledWith(OPERATION_ID),
+      );
+      expect(sessionStorage.getItem(storageKey)).toBeNull();
+    },
+  );
+
   it("shows only structured projection and submits a formal boundary expression", async () => {
     const requests: RequestInit[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {

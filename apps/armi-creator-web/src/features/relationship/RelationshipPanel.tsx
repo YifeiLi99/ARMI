@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   useInfiniteQuery,
@@ -89,6 +89,7 @@ export function RelationshipPanel({
   const [action, setAction] = useState<BoundaryAction>("restrict");
   const [summary, setSummary] = useState("");
   const [submittedMessage, setSubmittedMessage] = useState<string | null>(null);
+  const mounted = useRef(false);
   const storageKey = `armi:${environmentId}:relationship-boundary:${creatorPartyId}`;
   const [submission, setSubmission] = useState<FrozenBoundarySubmission | null>(
     () => {
@@ -99,6 +100,13 @@ export function RelationshipPanel({
   const [submissionState, setSubmissionState] = useState<SubmissionState>(
     submission === null ? "idle" : "unconfirmed",
   );
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const currentKey = [
     "relationship-current",
@@ -141,6 +149,8 @@ export function RelationshipPanel({
         frozen.request,
       ),
     onSuccess: async (operation) => {
+      // A replaced panel may already have stored a different frozen expression.
+      if (!mounted.current) return;
       clearSessionValue(storageKey);
       setSubmission(null);
       setSubmissionState("accepted");
@@ -155,6 +165,7 @@ export function RelationshipPanel({
       });
     },
     onError: (error) => {
+      if (!mounted.current) return;
       if (
         error instanceof ApiFailure &&
         error.status >= 400 &&
