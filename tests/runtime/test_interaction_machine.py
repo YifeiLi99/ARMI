@@ -247,6 +247,89 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing_artifact",
+        "null_artifact",
+        "bad_metadata",
+        "bad_base64",
+        "bad_content_type",
+        "bad_media_type",
+        "wrong_encoding",
+    ],
+)
+async def test_cli_artifact_download_rejects_malformed_response_without_publishing(
+    tmp_path: Path, monkeypatch, capsys, fault: str
+) -> None:
+    _, binding, _ = machine(tmp_path)
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    content = b"verified content"
+    metadata: dict[str, object] = {
+        "offset": 0,
+        "byte_count": len(content),
+        "total_bytes": len(content),
+        "digest": Digest.from_bytes(content).value,
+        "next_offset": None,
+    }
+    artifact: dict[str, object] = {
+        "media_type": "text/plain",
+        "encoding": "base64",
+        "content": base64.b64encode(content).decode("ascii"),
+    }
+    payload: dict[str, object] = {
+        "environment_id": str(binding.environment_id),
+        "status": "succeeded",
+        "result": metadata,
+        "artifact": artifact,
+    }
+    if fault == "missing_artifact":
+        del payload["artifact"]
+    elif fault == "null_artifact":
+        payload["artifact"] = None
+    elif fault == "bad_metadata":
+        del metadata["offset"]
+    elif fault == "bad_base64":
+        artifact["content"] = "*invalid*"
+    elif fault == "bad_content_type":
+        artifact["content"] = 42
+    elif fault == "bad_media_type":
+        artifact["media_type"] = None
+    else:
+        artifact["encoding"] = "hex"
+    client = InteractionClient(
+        binding,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json=payload)
+        ),
+    )
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    output = tmp_path / "artifact.patch"
+    exit_code = await asyncio.to_thread(
+        cli.main,
+        [
+            "--config",
+            str(config),
+            "artifact",
+            "read",
+            "--effect-id",
+            str(uuid7()),
+            "--artifact-kind",
+            "final_result",
+            "--output",
+            str(output),
+        ],
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code != 0
+    assert result["transport_status"] == 503
+    assert result["error_code"] == "INTERACTION-RESPONSE-CONTRACT"
+    assert not output.exists()
+    assert not tuple(tmp_path.glob("*.part"))
+
+
+@pytest.mark.asyncio
 async def test_artifact_download_rejects_changed_content_without_publishing(
     tmp_path: Path,
 ) -> None:

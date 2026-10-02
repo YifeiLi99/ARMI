@@ -218,14 +218,29 @@ class InteractionClient:
                     )
                     if result["transport_status"] >= 400:
                         return result
-                    metadata = ArtifactChunk.model_validate(result["result"])
-                    artifact = result["artifact"]
-                    content = base64.b64decode(artifact["content"], validate=True)
-                    identity = (
-                        metadata.total_bytes,
-                        metadata.digest,
-                        artifact["media_type"],
-                    )
+                    try:
+                        metadata = ArtifactChunk.model_validate(result["result"])
+                        artifact_value: object = result["artifact"]
+                        if not isinstance(artifact_value, dict):
+                            raise ValueError("INTERACTION-RESPONSE-CONTRACT")
+                        artifact = cast(dict[str, object], artifact_value)
+                        media_type = artifact.get("media_type")
+                        encoded_content = artifact["content"]
+                        if (
+                            artifact.get("encoding") != "base64"
+                            or not isinstance(media_type, str)
+                            or not media_type
+                            or not isinstance(encoded_content, str)
+                        ):
+                            raise ValueError("INTERACTION-RESPONSE-CONTRACT")
+                        content = base64.b64decode(encoded_content, validate=True)
+                        identity = (
+                            metadata.total_bytes,
+                            metadata.digest,
+                            media_type,
+                        )
+                    except KeyError, TypeError, ValueError:
+                        raise ValueError("INTERACTION-RESPONSE-CONTRACT") from None
                     if (
                         metadata.offset != offset
                         or metadata.byte_count != len(content)
