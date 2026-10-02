@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import psutil
 from armi_local_control.process_identity import ManagedProcessIdentity
 from armi_local_control.runtime_errors import RuntimeViolation
-from armi_local_control.runtime_process import RuntimeProcessManager
+from armi_local_control.runtime_process import RuntimeProcessManager, _pid_is_alive
 
 
 class RuntimeProcessManagerTests(unittest.TestCase):
@@ -491,6 +491,91 @@ class RuntimeProcessManagerTests(unittest.TestCase):
 
             self.assertEqual(calls, ["drain", "stop"])
             self.assertEqual(result["status"], "stopped")
+
+    def test_process_query_observes_real_child_exit(self) -> None:
+        child = subprocess.Popen(
+            (sys.executable, "-c", "import time; time.sleep(30)"),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        try:
+            self.assertTrue(_pid_is_alive(child.pid))
+            child.terminate()
+            child.wait(timeout=5)
+            self.assertFalse(_pid_is_alive(child.pid))
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+
+    def test_posix_process_query_distinguishes_absence_from_denied_access(self) -> None:
+        with (
+            patch("armi_local_control.runtime_process.os.name", "posix"),
+            patch("armi_local_control.runtime_process.os.kill") as query,
+        ):
+            query.side_effect = ProcessLookupError
+            self.assertFalse(_pid_is_alive(1234))
+            query.side_effect = PermissionError
+            with self.assertRaises(RuntimeViolation) as raised:
+                _pid_is_alive(1234)
+            self.assertEqual(raised.exception.code, "CLI-RUNTIME-PROCESS-INSPECTION")
+
+    @unittest.skipUnless(os.name == "nt", "Windows process query contract")
+    def test_stop_preserves_control_files_when_process_query_fails(self) -> None:
+        for failure in ("open_process", "exit_code"):
+            with (
+                self.subTest(failure=failure),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                manager = RuntimeProcessManager(root, "environment-1")
+                state = root / "run/runtime-process.json"
+                state.parent.mkdir(parents=True)
+                state.write_text("{}", encoding="utf-8")
+                child = subprocess.Popen(
+                    (sys.executable, "-c", "import time; time.sleep(30)"),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                kernel32 = Mock()
+                kernel32.OpenProcess.return_value = (
+                    0 if failure == "open_process" else 1
+                )
+                kernel32.GetExitCodeProcess.return_value = 0
+                try:
+                    with (
+                        patch.object(
+                            RuntimeProcessManager,
+                            "status",
+                            return_value={"status": "running", "pid": child.pid},
+                        ),
+                        patch.object(RuntimeProcessManager, "_send_control"),
+                        patch(
+                            "armi_local_control.runtime_process.ctypes.WinDLL",
+                            return_value=kernel32,
+                        ),
+                        patch(
+                            "armi_local_control.runtime_process.ctypes.get_last_error",
+                            return_value=5,
+                        ),
+                        self.assertRaises(RuntimeViolation) as raised,
+                    ):
+                        manager.stop()
+                    self.assertEqual(
+                        raised.exception.code, "CLI-RUNTIME-PROCESS-INSPECTION"
+                    )
+                    self.assertIsNone(child.poll())
+                    self.assertEqual(state.read_text(encoding="utf-8"), "{}")
+                    if failure == "exit_code":
+                        kernel32.CloseHandle.assert_called_once_with(1)
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait(timeout=5)
 
     def test_creator_input_uses_formal_control_command_and_stable_key(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

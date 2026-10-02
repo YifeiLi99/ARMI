@@ -121,8 +121,13 @@ def _pid_is_alive(pid: int) -> bool:
     if os.name != "nt":
         try:
             os.kill(pid, 0)
-        except OSError:
+        except ProcessLookupError:
             return False
+        except OSError as exc:
+            raise RuntimeViolation(
+                "CLI-RUNTIME-PROCESS-INSPECTION",
+                "Runtime process exit could not be confirmed",
+            ) from exc
         return True
     from ctypes import wintypes
 
@@ -138,11 +143,20 @@ def _pid_is_alive(pid: int) -> bool:
     kernel32.CloseHandle.restype = wintypes.BOOL
     handle = kernel32.OpenProcess(0x1000, False, pid)
     if not handle:
-        return False
+        # ERROR_INVALID_PARAMETER means the requested PID no longer exists.
+        if ctypes.get_last_error() == 87:
+            return False
+        raise RuntimeViolation(
+            "CLI-RUNTIME-PROCESS-INSPECTION",
+            "Runtime process exit could not be confirmed",
+        )
     try:
         exit_code = wintypes.DWORD()
         if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-            return False
+            raise RuntimeViolation(
+                "CLI-RUNTIME-PROCESS-INSPECTION",
+                "Runtime process exit could not be confirmed",
+            )
         return exit_code.value == _STILL_ACTIVE
     finally:
         kernel32.CloseHandle(handle)
