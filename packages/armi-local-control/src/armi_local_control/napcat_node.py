@@ -383,13 +383,16 @@ class NapCatNode:
                 return {"status": "stopped"}
             state = identity.inspect()
             if state == ManagedProcessState.MATCHES:
-                process = psutil.Process(identity.pid)
-                children = process.children(recursive=True)
-                process.terminate()
-                for child in children:
+                processes: list[psutil.Process] = []
+                with suppress(psutil.NoSuchProcess):
+                    process = psutil.Process(identity.pid)
+                    processes.append(process)
+                    processes.extend(process.children(recursive=True))
+                # Parent exit must not prevent stopping already discovered children.
+                for process in processes:
                     with suppress(psutil.NoSuchProcess):
-                        child.terminate()
-                _, alive = psutil.wait_procs([process, *children], timeout=10)
+                        process.terminate()
+                _, alive = psutil.wait_procs(processes, timeout=10)
                 if alive:
                     raise _fail("STOP-UNCONFIRMED")
             elif state != ManagedProcessState.ABSENT:
