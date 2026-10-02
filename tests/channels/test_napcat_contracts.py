@@ -179,6 +179,49 @@ class NapCatContractTests(unittest.TestCase):
                 self.assertEqual(health.state, state)
                 self.assertIn(reason, health.reason_codes)
 
+    def test_json_parser_limits_use_existing_failure_contracts(self) -> None:
+        async def exercise(body: bytes, operation: str) -> None:
+            calls: list[str] = []
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                calls.append(request.url.path)
+                return httpx.Response(200, content=body)
+
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000", access_token="test", client=client
+                )
+                if operation == "health":
+                    health = await gateway.inspect_health(expected_account_id=10001)
+                    self.assertEqual(health.state, "misconfigured")
+                    self.assertEqual(
+                        health.reason_codes, ("NAPCAT-HEALTH-RESPONSE-INVALID",)
+                    )
+                elif operation == "groups":
+                    with self.assertRaisesRegex(
+                        NapCatViolation, "NAPCAT-ACTION-RESPONSE-INVALID"
+                    ):
+                        await gateway.list_groups()
+                else:
+                    with self.assertRaisesRegex(
+                        NapCatAmbiguousDelivery, "NAPCAT-DELIVERY-AMBIGUOUS"
+                    ):
+                        await gateway.send_private_text(
+                            user_id=30003, text="local test", echo="effect:attempt"
+                        )
+            self.assertEqual(len(calls), 1)
+
+        for label, body in (
+            ("nesting", b'{"data":' + b"[" * 12000 + b"0" + b"]" * 12000 + b"}"),
+            ("integer", b'{"data":' + b"1" * 5000 + b"}"),
+        ):
+            for operation in ("health", "groups", "send"):
+                with self.subTest(failure=label, operation=operation):
+                    asyncio.run(exercise(body, operation))
+
     def test_parses_group_message_and_mentions(self) -> None:
         parsed = parse_onebot_message(
             json.dumps(

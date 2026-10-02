@@ -57,6 +57,44 @@ class _Gateway:
 
 
 class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
+    async def test_json_parser_limits_reject_before_ingress(self) -> None:
+        secret = b"local-test-secret"
+        port = _InputPort()
+        config = QQAdapterConfig(10001, 90009, {20002: "朋友群"}, frozenset())
+        app = create_qq_event_app(
+            config=config,
+            ingress=QQIngressAdapter(
+                config=config, input_port=port, gateway=_Gateway()
+            ),
+            signing_secret=secret,
+            request_body_max_bytes=65536,
+        )
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1"
+        ) as client:
+            for label, body in (
+                (
+                    "nesting",
+                    b'{"data":' + b"[" * 12000 + b"0" + b"]" * 12000 + b"}",
+                ),
+                ("integer", b'{"data":' + b"1" * 5000 + b"}"),
+            ):
+                with self.subTest(failure=label):
+                    signature = (
+                        "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
+                    )
+                    response = await client.post(
+                        "/",
+                        content=body,
+                        headers={
+                            "content-type": "application/json",
+                            "x-signature": signature,
+                        },
+                    )
+                    self.assertEqual(response.status_code, 400)
+        self.assertEqual(port.accepted, [])
+
     async def test_accepts_friend_and_acknowledges_temporary_private(self) -> None:
         secret = b"local-test-secret"
         port = _InputPort()

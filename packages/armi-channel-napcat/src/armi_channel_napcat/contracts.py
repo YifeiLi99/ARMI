@@ -113,7 +113,7 @@ def parse_onebot_message(
         raise NapCatViolation("NAPCAT-FRAME-INVALID")
     try:
         document = json.loads(value)
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except UnicodeDecodeError, ValueError, RecursionError:
         raise NapCatViolation("NAPCAT-FRAME-INVALID") from None
     return parse_onebot_document(document)
 

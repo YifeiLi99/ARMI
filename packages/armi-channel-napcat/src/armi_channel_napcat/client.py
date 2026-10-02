@@ -344,7 +344,7 @@ class NapCatHttpClient(NapCatGateway):
             raise NapCatViolation("NAPCAT-ACTION-UNAVAILABLE")
         try:
             document: object = json.loads(body)
-        except UnicodeDecodeError, ValueError:
+        except UnicodeDecodeError, ValueError, RecursionError:
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
         if not isinstance(document, dict):
             raise NapCatViolation("NAPCAT-ACTION-REJECTED")
@@ -371,7 +371,7 @@ class NapCatHttpClient(NapCatGateway):
             raise NapCatViolation("NAPCAT-HEALTH-UNAVAILABLE")
         try:
             document: object = json.loads(body)
-        except UnicodeDecodeError, ValueError:
+        except UnicodeDecodeError, ValueError, RecursionError:
             raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID") from None
         if not isinstance(document, dict):
             raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID")
@@ -405,7 +405,7 @@ class NapCatHttpClient(NapCatGateway):
             raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS")
         try:
             document = json.loads(body)
-        except UnicodeDecodeError, ValueError:
+        except UnicodeDecodeError, ValueError, RecursionError:
             raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS") from None
         if isinstance(document, dict):
             document["echo"] = echo
