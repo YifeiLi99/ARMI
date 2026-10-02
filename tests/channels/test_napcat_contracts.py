@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import json
 import unittest
 
@@ -86,6 +87,28 @@ class NapCatContractTests(unittest.TestCase):
         self.assertTrue(health.account_matches)
         self.assertEqual(health.reason_codes, ())
         self.assertNotIn("nickname", repr(health))
+
+    def test_health_accepts_gzip_responses_with_encoded_content_length(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            data = (
+                {"online": True, "good": True}
+                if request.url.path == "/get_status"
+                else {"user_id": 10001}
+            )
+            body = json.dumps({"status": "ok", "retcode": 0, "data": data}).encode()
+            encoded = gzip.compress(body)
+            return httpx.Response(
+                200,
+                content=encoded,
+                headers={
+                    "content-encoding": "gzip",
+                    "content-length": str(len(encoded)),
+                },
+            )
+
+        health = self._health(httpx.MockTransport(handler))
+        self.assertEqual(health.state, "ready")
+        self.assertEqual(health.reason_codes, ())
 
     def test_health_distinguishes_login_required_unhealthy_and_wrong_account(
         self,
@@ -455,11 +478,13 @@ class NapCatContractTests(unittest.TestCase):
         asyncio.run(exercise())
 
     def test_oversized_send_response_is_ambiguous_after_dispatch(self) -> None:
-        async def exercise() -> None:
+        async def exercise(content: bytes, headers: dict[str, str]) -> None:
             async with httpx.AsyncClient(
                 base_url="http://127.0.0.1:3000",
                 transport=httpx.MockTransport(
-                    lambda _request: httpx.Response(200, content=b"x" * 65_537)
+                    lambda _request: httpx.Response(
+                        200, content=content, headers=headers
+                    )
                 ),
             ) as client:
                 gateway = NapCatHttpClient(
@@ -472,7 +497,13 @@ class NapCatContractTests(unittest.TestCase):
                         user_id=30003, text="hello", echo="effect:attempt"
                     )
 
-        asyncio.run(exercise())
+        oversized = b"x" * 65_537
+        for content, headers in (
+            (oversized, {}),
+            (gzip.compress(oversized), {"content-encoding": "gzip"}),
+        ):
+            with self.subTest(headers=headers):
+                asyncio.run(exercise(content, headers))
 
 
 if __name__ == "__main__":

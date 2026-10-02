@@ -447,7 +447,13 @@ class NapCatHttpClient(NapCatGateway):
                         raise NapCatViolation("NAPCAT-ACTION-RESPONSE-TOO-LARGE")
                     if chunk:
                         chunks.append(chunk)
-                if declared is not None and total != int(declared):
+                # Content-Length measures encoded bytes; aiter_bytes decodes them.
+                encoding = response.headers.get("content-encoding", "identity")
+                if (
+                    declared is not None
+                    and encoding.strip().lower() in {"", "identity"}
+                    and total != int(declared)
+                ):
                     raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
                 return response.status_code, b"".join(chunks)
 
