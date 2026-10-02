@@ -873,7 +873,7 @@ describe("Creator local connection shell", () => {
     await user.click(screen.getByRole("button", { name: "委托 Codex" }));
     expect(
       await screen.findByText(
-        "Codex 委托请求已由 Runtime 耐久接纳；若 ARMI 形成正式委托，你仍须在权限区批准。",
+        "Codex 请求已发送，ARMI 会根据任务和当前设置决定是否委托。",
       ),
     ).toBeInTheDocument();
     expect(keys).toHaveLength(2);

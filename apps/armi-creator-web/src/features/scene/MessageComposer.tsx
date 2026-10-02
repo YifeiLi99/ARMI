@@ -202,7 +202,7 @@ export function MessageComposer({
         {state.kind === "accepted" ? (
           <p className="composer-status" role="status">
             {state.mode === "codex"
-              ? "Codex 委托请求已由 Runtime 耐久接纳；若 ARMI 形成正式委托，你仍须在权限区批准。"
+              ? "Codex 请求已发送，ARMI 会根据任务和当前设置决定是否委托。"
               : "消息已发送"}
           </p>
         ) : null}
