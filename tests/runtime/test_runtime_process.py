@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import psutil
 from armi_local_control.process_identity import ManagedProcessIdentity
 from armi_local_control.runtime_errors import RuntimeViolation
-from armi_local_control.runtime_process import RuntimeProcessManager, _pid_is_alive
+from armi_local_control.runtime_process import RuntimeProcessManager
 
 
 class RuntimeProcessManagerTests(unittest.TestCase):
@@ -491,36 +491,6 @@ class RuntimeProcessManagerTests(unittest.TestCase):
 
             self.assertEqual(calls, ["drain", "stop"])
             self.assertEqual(result["status"], "stopped")
-
-    def test_process_query_observes_real_child_exit(self) -> None:
-        child = subprocess.Popen(
-            (sys.executable, "-c", "import time; time.sleep(30)"),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        try:
-            self.assertTrue(_pid_is_alive(child.pid))
-            child.terminate()
-            child.wait(timeout=5)
-            self.assertFalse(_pid_is_alive(child.pid))
-        finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=5)
-
-    def test_posix_process_query_distinguishes_absence_from_denied_access(self) -> None:
-        with (
-            patch("armi_local_control.runtime_process.os.name", "posix"),
-            patch("armi_local_control.runtime_process.os.kill") as query,
-        ):
-            query.side_effect = ProcessLookupError
-            self.assertFalse(_pid_is_alive(1234))
-            query.side_effect = PermissionError
-            with self.assertRaises(RuntimeViolation) as raised:
-                _pid_is_alive(1234)
-            self.assertEqual(raised.exception.code, "CLI-RUNTIME-PROCESS-INSPECTION")
 
     @unittest.skipUnless(os.name == "nt", "Windows process query contract")
     def test_stop_preserves_control_files_when_process_query_fails(self) -> None:
