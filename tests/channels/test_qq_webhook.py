@@ -133,6 +133,14 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
             bad = await client.post(
                 "/", content=body, headers={"content-type": "application/json"}
             )
+            non_ascii = await client.post(
+                "/",
+                content=body,
+                headers=[
+                    (b"content-type", b"application/json"),
+                    (b"x-signature", b"sha1=\xe9"),
+                ],
+            )
             signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
             wrong = await client.post(
                 "/",
@@ -143,7 +151,11 @@ class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
                     "x-self-id": "2",
                 },
             )
-        self.assertEqual((bad.status_code, wrong.status_code), (401, 403))
+        self.assertEqual(
+            (bad.status_code, non_ascii.status_code, wrong.status_code),
+            (401, 401, 403),
+        )
+        self.assertEqual(port.accepted, [])
 
 
 if __name__ == "__main__":

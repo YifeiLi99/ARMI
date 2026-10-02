@@ -51,7 +51,7 @@ def create_qq_event_app(
         expected = (
             "sha1=" + hmac.new(signing_secret, bytes(body), hashlib.sha1).hexdigest()
         )
-        if not hmac.compare_digest(signature, expected):
+        if not signature.isascii() or not hmac.compare_digest(signature, expected):
             return Response(status_code=401)
         try:
             event = parse_onebot_message(bytes(body))
