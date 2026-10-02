@@ -37,7 +37,11 @@ export function saveStoredSession(session: StoredBrowserSession): void {
 }
 
 export function clearStoredSession(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Cache cleanup must not mask a connection failure when storage is blocked.
+  }
 }
 
 export function loadSessionValue(key: string): unknown {

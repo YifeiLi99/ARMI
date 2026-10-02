@@ -289,6 +289,32 @@ afterEach(() => {
 });
 
 describe("Creator local connection shell", () => {
+  it("shows a retry state when browser storage is blocked", async () => {
+    const blocked = () => {
+      throw new DOMException("Storage is blocked", "SecurityError");
+    };
+    vi.stubGlobal("sessionStorage", {
+      getItem: blocked,
+      setItem: blocked,
+      removeItem: blocked,
+      clear: vi.fn(),
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(jsonResponse(sessionResponse(true)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CreatorShell />);
+
+    expect(
+      await screen.findByText("当前无法连接本机 Runtime，请稍后重试。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "重新连接" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("shows a retry state instead of a login form when Runtime is unavailable", async () => {
     vi.stubGlobal(
       "fetch",
