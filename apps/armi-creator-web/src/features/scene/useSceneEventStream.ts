@@ -290,7 +290,19 @@ export function useSceneEventStream({
               error.status === undefined ||
               error.status < 500)
           ) {
-            await fullRefetch();
+            try {
+              await fullRefetch();
+            } catch (refreshError) {
+              if (
+                refreshError instanceof ApiFailure &&
+                refreshError.status === 401
+              ) {
+                controller.abort();
+                onUnauthorizedRef.current();
+                return;
+              }
+              // Failed projection reads remain visible; polling can recover them.
+            }
             setState("disconnected");
             return;
           }

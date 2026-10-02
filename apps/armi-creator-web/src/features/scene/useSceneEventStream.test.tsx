@@ -3,6 +3,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { CreatorProjectionEvent } from "../../api/eventStream";
+import { ApiFailure } from "../../api/client";
 import { EventStreamFailure } from "../../api/eventStream";
 import { useSceneEventStream } from "./useSceneEventStream";
 
@@ -79,6 +80,75 @@ it("hands 401 to the authentication owner without reconnecting", async () => {
 
   await waitFor(() => expect(onUnauthorized).toHaveBeenCalledOnce());
   expect(consumeMock).toHaveBeenCalledTimes(1);
+});
+
+it("keeps polling when the first refresh after a stream failure also fails", async () => {
+  vi.useFakeTimers();
+  consumeMock.mockRejectedValue(new EventStreamFailure("content-type"));
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  let attempts = 0;
+  const observer = new QueryObserver(client, {
+    queryKey: ["activities", "creator"],
+    queryFn: async () => {
+      attempts += 1;
+      if (attempts === 2) {
+        throw new TypeError("network unavailable during fallback refresh");
+      }
+      return { items: [attempts] };
+    },
+  });
+  const unsubscribe = observer.subscribe(NOOP);
+  try {
+    await act(async () => Promise.resolve());
+    expect(attempts).toBe(1);
+    render(<StreamHarness client={client} />);
+    await act(async () => Promise.resolve());
+
+    expect(attempts).toBe(2);
+    expect(screen.getByTestId("stream-state").getAttribute("data-state")).toBe(
+      "disconnected",
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(attempts).toBe(3);
+    expect(client.getQueryData(["activities", "creator"])).toEqual({
+      items: [3],
+    });
+    expect(consumeMock).toHaveBeenCalledTimes(1);
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
+});
+
+it("hands a 401 during the fallback refresh to the authentication owner", async () => {
+  consumeMock.mockRejectedValue(new EventStreamFailure("content-type"));
+  const onUnauthorized = vi.fn();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  let attempts = 0;
+  const observer = new QueryObserver(client, {
+    queryKey: ["activities", "creator"],
+    queryFn: async () => {
+      attempts += 1;
+      if (attempts > 1) {
+        throw new ApiFailure(401, "CREATOR-SESSION-EXPIRED");
+      }
+      return { items: [] };
+    },
+  });
+  const unsubscribe = observer.subscribe(NOOP);
+  try {
+    await waitFor(() => expect(attempts).toBe(1));
+    render(<StreamHarness client={client} onUnauthorized={onUnauthorized} />);
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledOnce());
+    expect(consumeMock).toHaveBeenCalledTimes(1);
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
 });
 
 it("does not restart an active stream when the owner callback identity changes", async () => {
