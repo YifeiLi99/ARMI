@@ -326,6 +326,7 @@ def create_runtime_app(
         browser_sessions=browser_sessions,
         creator_events=creator_events,
         system=system,
+        request_body_max_bytes=request_body_max_bytes,
     )
     life_use_cases = register_subject_life_routes(
         app=app,

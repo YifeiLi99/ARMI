@@ -2004,6 +2004,28 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(self.creator_input.commands, [])
         self.assertEqual(self.creator_codex_task.commands, [])
 
+    def test_chunked_system_requests_obey_the_configured_body_limit(self) -> None:
+        with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
+            token = self._connect_browser(client)
+            for path, content in (
+                ("/v1/vision/observe", b'{"source_kind":"camera"}'),
+                (
+                    "/v1/diagnostics/client",
+                    b'{"events":[{"event":"request_failed","message":"test"}]}',
+                ),
+            ):
+                with self.subTest(path=path):
+                    response = client.post(
+                        path,
+                        headers={
+                            **self._browser_headers(token),
+                            "Content-Type": "application/json",
+                        },
+                        content=iter((content, b" " * 1100)),
+                    )
+                    self.assertNotIn("content-length", response.request.headers)
+                    self.assertEqual(response.status_code, 413)
+
     def test_creator_codex_task_is_explicit_authenticated_intake(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             session = client.post(

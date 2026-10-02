@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Literal
 
@@ -11,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from armi_runtime.application.creator_system import CreatorSystem
 from armi_runtime.application.interaction import InteractionResult
 
+from .bounded_http import BoundedBodyViolation, read_bounded_body
 from .creator_http import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
@@ -104,6 +106,7 @@ def register_system_routes(
     browser_sessions: BrowserSessionStore | None,
     creator_events: CreatorEventBroker | None,
     system: CreatorSystem,
+    request_body_max_bytes: int,
 ) -> None:
 
     @app.post(
@@ -116,15 +119,22 @@ def register_system_routes(
         denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
-        body = bytearray()
-        async for chunk in request.stream():
-            body.extend(chunk)
-            if len(body) > 65536:
+        try:
+            body = await read_bounded_body(
+                request,
+                maximum_bytes=min(request_body_max_bytes, 65536),
+                timeout_seconds=float(
+                    request.scope.get("armi.body_timeout_seconds", 10)
+                ),
+            )
+        except BoundedBodyViolation as error:
+            if error.status_code == 413:
                 return JSONResponse(
                     status_code=413, content={"error_code": "DIAGNOSTICS-BATCH-SIZE"}
                 )
+            raise
         try:
-            batch = ClientDiagnosticBatch.model_validate_json(bytes(body))
+            batch = ClientDiagnosticBatch.model_validate_json(body)
         except ValidationError:
             return JSONResponse(
                 status_code=422, content={"error_code": "DIAGNOSTICS-CLIENT-INPUT"}
@@ -366,8 +376,13 @@ def register_system_routes(
         denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
+        content = await read_bounded_body(
+            request,
+            maximum_bytes=request_body_max_bytes,
+            timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+        )
         try:
-            body = LiveVisionObservationRequest.model_validate(await request.json())
+            body = LiveVisionObservationRequest.model_validate(json.loads(content))
         except ValueError, RecursionError:
             return JSONResponse(
                 status_code=400, content=_rejected("INPUT_VISION_REQUEST")
