@@ -155,46 +155,46 @@ export async function* parseCreatorEventStream(
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let buffered = "";
   let pending: PendingEvent = {};
-  try {
-    for await (const chunk of chunks) {
-      buffered += decoder.decode(chunk, { stream: true });
-      while (true) {
-        const newline = buffered.indexOf("\n");
-        if (newline < 0) {
-          break;
-        }
-        let line = buffered.slice(0, newline);
-        buffered = buffered.slice(newline + 1);
-        if (line.endsWith("\r")) {
-          line = line.slice(0, -1);
-        } else if (line.includes("\r")) {
-          throw new EventStreamFailure("syntax");
-        }
-        if (line.length > MAX_EVENT_BYTES) {
-          throw new EventStreamFailure("syntax");
-        }
-        if (line === "") {
-          const event = finishEvent(pending);
-          pending = {};
-          if (event !== undefined) {
-            yield event;
-          }
-        } else {
-          acceptField(pending, line);
-        }
+  function decode(chunk?: Uint8Array): string {
+    try {
+      return decoder.decode(chunk, { stream: chunk !== undefined });
+    } catch {
+      throw new EventStreamFailure("decode");
+    }
+  }
+  for await (const chunk of chunks) {
+    buffered += decode(chunk);
+    while (true) {
+      const newline = buffered.indexOf("\n");
+      if (newline < 0) {
+        break;
       }
-      // Network chunks may contain many valid frames; bound only the unfinished line.
-      if (buffered.length > MAX_EVENT_BYTES * 2) {
+      let line = buffered.slice(0, newline);
+      buffered = buffered.slice(newline + 1);
+      if (line.endsWith("\r")) {
+        line = line.slice(0, -1);
+      } else if (line.includes("\r")) {
         throw new EventStreamFailure("syntax");
       }
+      if (line.length > MAX_EVENT_BYTES) {
+        throw new EventStreamFailure("syntax");
+      }
+      if (line === "") {
+        const event = finishEvent(pending);
+        pending = {};
+        if (event !== undefined) {
+          yield event;
+        }
+      } else {
+        acceptField(pending, line);
+      }
     }
-    buffered += decoder.decode();
-  } catch (error) {
-    if (error instanceof EventStreamFailure) {
-      throw error;
+    // Network chunks may contain many valid frames; bound only the unfinished line.
+    if (buffered.length > MAX_EVENT_BYTES * 2) {
+      throw new EventStreamFailure("syntax");
     }
-    throw new EventStreamFailure("decode");
   }
+  buffered += decode();
 }
 
 async function* responseChunks(

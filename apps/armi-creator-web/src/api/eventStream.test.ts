@@ -208,6 +208,40 @@ describe("authenticated Creator event stream parser", () => {
     await expect(read([new Uint8Array([0xc3, 0x28])])).rejects.toMatchObject({
       kind: "decode",
     });
+    await expect(read([new Uint8Array([0xc3])])).rejects.toMatchObject({
+      kind: "decode",
+    });
+  });
+
+  it("preserves a response read failure so the stream owner can reconnect", async () => {
+    const networkError = new TypeError(
+      "connection lost while reading the response",
+    );
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(networkError);
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    await expect(
+      consumeCreatorEventStream(
+        "test-token",
+        "default",
+        undefined,
+        new AbortController().signal,
+        () => {},
+        async () => {},
+      ),
+    ).rejects.toBe(networkError);
+    expect(body.locked).toBe(false);
   });
 
   it("classifies duplicate, forward, and inconsistent event IDs", () => {

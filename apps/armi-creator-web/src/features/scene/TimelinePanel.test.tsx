@@ -49,6 +49,7 @@ function showTimeline() {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -270,6 +271,49 @@ it("does not restart a rejected stream while its fallback refresh reloads the ti
   expect(timelineReads).toBe(2);
   expect(streamReads).toBe(1);
   expect(screen.getByText("定时刷新")).toBeInTheDocument();
+});
+
+it("reconnects after the established stream loses its network response", async () => {
+  let streamReads = 0;
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.startsWith("/v1/scenes/default/timeline?")) {
+        return jsonResponse({
+          projection_kind: "scene-timeline",
+          scene_key: "default",
+          items: [],
+          next_cursor: null,
+        });
+      }
+      if (url === "/v1/scenes/default/events") {
+        streamReads += 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(value) {
+              controller = value;
+            },
+          }),
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }),
+  );
+  showTimeline();
+  await screen.findByText("实时");
+  vi.useFakeTimers();
+  await act(async () => {
+    controller.error(new TypeError("network response interrupted"));
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(streamReads).toBe(1);
+
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(streamReads).toBe(2);
+  expect(screen.getByText("实时")).toBeInTheDocument();
 });
 
 it("waits for a successful initial timeline read before starting its stream", async () => {
