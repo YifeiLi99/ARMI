@@ -15,16 +15,19 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from collections.abc import AsyncIterator
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, LiteralString, cast
+from unittest.mock import patch
 from uuid import UUID, uuid7
 
+import armi_artifact_store.content_store as content_store
 import psycopg
 import pytest
 import rfc8785
@@ -106,6 +109,7 @@ from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactViolation,
     AuditQuery,
@@ -135,6 +139,7 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeFence,
     RuntimeInstanceId,
+    StagedArtifact,
     WorkAttemptId,
     WorkDraft,
     WorkId,
@@ -7103,6 +7108,162 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=wrong_locale.environment_id,
             )
         self.assertEqual(raised.exception.code, "DB-DATABASE-IDENTITY")
+
+    @pytest.mark.test_group("artifacts")
+    def test_cancelled_artifact_publication_waits_for_file_work_before_unlock(
+        self,
+    ) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+
+        async def exercise(root: Path) -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=1,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            storage = _publishing_artifact_store(root, factory)
+            policy = ArtifactPolicy(
+                media_type="application/octet-stream",
+                logical_kind="test.payload",
+                producer_kind="integration-test",
+                producer_trace_id=TraceId("1" + ("0" * 31)),
+                privacy_scope=ArtifactPrivacyScope.PRIVATE,
+            )
+            original_enter = content_store._DigestFileLock.__enter__
+            original_publish = ContentAddressedArtifactStore._publish_unlocked_sync
+            await factory.open()
+            try:
+                for phase in ("lock", "file"):
+                    with self.subTest(phase=phase):
+                        started = threading.Event()
+                        release = threading.Event()
+                        finished = threading.Event()
+                        locks: list[content_store._DigestFileLock] = []
+                        staged = await storage.stage(
+                            _artifact_chunks(b"cancel"), policy
+                        )
+                        task: asyncio.Task[ArtifactPublication] | None = None
+
+                        def enter(
+                            lock: content_store._DigestFileLock,
+                            phase: str = phase,
+                            started: threading.Event = started,
+                            release: threading.Event = release,
+                            finished: threading.Event = finished,
+                            locks: list[content_store._DigestFileLock] = locks,
+                        ) -> None:
+                            if phase == "lock":
+                                started.set()
+                                release.wait(timeout=3)
+                            original_enter(lock)
+                            locks.append(lock)
+                            if phase == "lock":
+                                finished.set()
+
+                        def publish(
+                            store: ContentAddressedArtifactStore,
+                            source: Path,
+                            target: Path,
+                            declaration: StagedArtifact,
+                            phase: str = phase,
+                            started: threading.Event = started,
+                            release: threading.Event = release,
+                            finished: threading.Event = finished,
+                        ) -> None:
+                            original_publish(store, source, target, declaration)
+                            if phase == "file":
+                                started.set()
+                                release.wait(timeout=3)
+                                finished.set()
+
+                        try:
+                            with (
+                                patch.object(
+                                    content_store._DigestFileLock, "__enter__", enter
+                                ),
+                                patch.object(
+                                    ContentAddressedArtifactStore,
+                                    "_publish_unlocked_sync",
+                                    publish,
+                                ),
+                            ):
+                                task = asyncio.create_task(storage.publish(staged))
+                                self.assertTrue(
+                                    await asyncio.to_thread(started.wait, 2)
+                                )
+                                task.cancel()
+                                done, _pending = await asyncio.wait({task}, timeout=0.1)
+                                self.assertFalse(
+                                    done,
+                                    "file work must finish before cancellation returns",
+                                )
+                                if phase == "file":
+                                    with (
+                                        locks[0]._path.open("a+b") as probe,
+                                        self.assertRaises(OSError),
+                                    ):
+                                        probe.seek(0)
+                                        content_store.msvcrt.locking(
+                                            probe.fileno(),
+                                            content_store.msvcrt.LK_NBLCK,
+                                            1,
+                                        )
+                                release.set()
+                                with self.assertRaises(asyncio.CancelledError):
+                                    await task
+                                self.assertTrue(
+                                    await asyncio.to_thread(finished.wait, 2)
+                                )
+                                self.assertEqual(len(locks), 1)
+                                self.assertIsNone(locks[0]._file)
+                                with locks[0]._path.open("a+b") as probe:
+                                    probe.seek(0)
+                                    content_store.msvcrt.locking(
+                                        probe.fileno(), content_store.msvcrt.LK_NBLCK, 1
+                                    )
+                                    content_store.msvcrt.locking(
+                                        probe.fileno(), content_store.msvcrt.LK_UNLCK, 1
+                                    )
+                        finally:
+                            release.set()
+                            if task is not None:
+                                with suppress(asyncio.CancelledError):
+                                    await task
+                            await asyncio.to_thread(finished.wait, 2)
+                            for lock in locks:
+                                lock.__exit__(None, None, None)
+                            await storage.discard(staged)
+                async with factory.unit_of_work(read_only=True) as unit:
+                    rows = await (
+                        await unit.transaction.execute(
+                            "SELECT status FROM armi.artifact_publications"
+                        )
+                    ).fetchall()
+                self.assertEqual(rows, [("reserved",)])
+                replacement = await storage.stage(_artifact_chunks(b"cancel"), policy)
+                result = await storage.publish(replacement)
+                self.assertTrue(
+                    await storage.publication_object_exists(
+                        result.content_digest, result.byte_size
+                    )
+                )
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            asyncio.run(
+                exercise(Path(temporary).resolve() / "artifacts"),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
 
     @pytest.mark.test_group("artifacts")
     def test_artifact_registration_reuse_verified_read_and_role_grants(self) -> None:

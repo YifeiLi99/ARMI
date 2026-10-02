@@ -302,17 +302,22 @@ class ContentAddressedArtifactStore:
         publication: ArtifactPublication | None = None
         file_published = False
         digest_lock = self._digest_lock(digest_hex)
+        locking = asyncio.create_task(asyncio.to_thread(digest_lock.__enter__))
+        publishing: asyncio.Task[None] | None = None
         try:
-            await asyncio.to_thread(digest_lock.__enter__)
+            await asyncio.shield(locking)
             async with self._publication_uow_factory.unit_of_work() as unit:
                 publication = await self._publication_catalog.reserve_publication(
                     unit,
                     staged,
                     orphan_grace_seconds=self._orphan_grace_seconds,
                 )
-            await asyncio.to_thread(
-                self._publish_unlocked_sync, stage_path, target, staged
+            publishing = asyncio.create_task(
+                asyncio.to_thread(
+                    self._publish_unlocked_sync, stage_path, target, staged
+                )
             )
+            await asyncio.shield(publishing)
             file_published = True
             async with self._publication_uow_factory.unit_of_work() as unit:
                 await self._publication_catalog.mark_publication_published(
@@ -336,7 +341,15 @@ class ContentAddressedArtifactStore:
             self._staged.pop(staged.stage_id, None)
             raise ArtifactViolation("ART-PUBLISH-IO") from None
         finally:
-            await asyncio.to_thread(digest_lock.__exit__, None, None, None)
+            try:
+                # Cancellation cannot stop these threads; finish them before unlocking.
+                with suppress(ArtifactViolation):
+                    await locking
+                if publishing is not None:
+                    with suppress(ArtifactViolation, OSError):
+                        await publishing
+            finally:
+                await asyncio.to_thread(digest_lock.__exit__, None, None, None)
         self._staged.pop(staged.stage_id, None)
         return publication
 
