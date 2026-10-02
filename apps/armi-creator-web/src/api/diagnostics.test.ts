@@ -23,7 +23,7 @@ it("retains technical events offline and drains only after acknowledgement", asy
   send.mockResolvedValue({ ok: true });
   await flushDiagnostics();
   expect(send).toHaveBeenCalledTimes(2);
-  expect(send.mock.calls[1][1]).toEqual(send.mock.calls[0][1]);
+  expect(send.mock.calls[1]![1]).toEqual(send.mock.calls[0]![1]);
   await flushDiagnostics();
   expect(send).toHaveBeenCalledTimes(2);
 });
@@ -38,7 +38,8 @@ it("reports bounded-buffer overflow and refused submissions", async () => {
   await flushDiagnostics();
   send.mockResolvedValue({ ok: true });
   await flushDiagnostics();
-  expect(send.mock.calls[1][1]).toEqual([
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(send.mock.calls[1]![1]).toEqual([
     expect.objectContaining({
       event: "buffer_status",
       dropped: 1,

@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal, Self
 from uuid import UUID, uuid7
+from weakref import WeakValueDictionary
 
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.runtime_process import LocalProcessLock
@@ -203,7 +204,8 @@ class MediaUploads:
         self.environment_id = environment_id
         self.subject_id = subject_id
         self.publish = publish
-        self._locks: dict[UUID, asyncio.Lock] = {}
+        # Active calls retain their shared lock; finished upload IDs need no lock cache.
+        self._locks: WeakValueDictionary[UUID, asyncio.Lock] = WeakValueDictionary()
 
     def _path(self, upload_id: UUID, suffix: str) -> Path:
         if upload_id.version != 7:

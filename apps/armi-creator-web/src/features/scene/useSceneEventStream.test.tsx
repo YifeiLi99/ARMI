@@ -40,6 +40,7 @@ afterEach(() => {
   cleanup();
   consumeMock.mockReset();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 it.each([
@@ -136,6 +137,23 @@ it.each([
     expect(consumeMock).toHaveBeenCalledTimes(2);
   },
 );
+
+it("releases the abort listener after each reconnect delay", async () => {
+  vi.useFakeTimers();
+  const add = vi.spyOn(AbortSignal.prototype, "addEventListener");
+  const remove = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+  consumeMock.mockRejectedValue(new EventStreamFailure("http", 503));
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(<StreamHarness client={client} />);
+  await act(async () => Promise.resolve());
+  const listener = add.mock.calls.find(([kind]) => kind === "abort")?.[1];
+  expect(listener).toBeDefined();
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(consumeMock).toHaveBeenCalledTimes(2);
+  expect(remove).toHaveBeenCalledWith("abort", listener);
+});
 
 it("removes an opened material body before refetching summaries on invalidation", async () => {
   consumeMock.mockImplementation(

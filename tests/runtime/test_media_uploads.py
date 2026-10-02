@@ -1,6 +1,8 @@
 """Durable upload transport behavior, independent from provider effects."""
 
+import asyncio
 import hashlib
+import weakref
 from pathlib import Path
 from uuid import uuid7
 
@@ -57,6 +59,63 @@ async def test_resume_repeated_chunks_and_complete(tmp_path: Path):
     assert await uploads.complete(record.upload_id, creator, delegate) == completed
     assert len(publications) == 1
     assert not list((tmp_path / "uploads").glob("*.part"))
+
+
+@pytest.mark.parametrize("finish", ["complete", "cancel"])
+async def test_finished_uploads_release_in_memory_locks(tmp_path, monkeypatch, finish):
+    locks = []
+    original_lock = asyncio.Lock
+
+    def track_lock():
+        lock = original_lock()
+        locks.append(weakref.ref(lock))
+        return lock
+
+    monkeypatch.setattr(asyncio, "Lock", track_lock)
+
+    async def publish(record, path):
+        return record.upload_id
+
+    uploads = MediaUploads(tmp_path, uuid7(), uuid7(), publish)
+    creator, delegate = uuid7(), uuid7()
+    for index in range(5):
+        record = await uploads.begin(creator, delegate, str(index), declaration(b"abc"))
+        if finish == "complete":
+            await uploads.append(record.upload_id, creator, delegate, 0, b"abc")
+            await uploads.complete(record.upload_id, creator, delegate)
+        else:
+            await uploads.cancel(record.upload_id, creator, delegate)
+    assert len(locks) == 5
+    assert all(lock() is None for lock in locks)
+
+
+async def test_concurrent_completion_publishes_once(tmp_path):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    publications = 0
+
+    async def publish(record, path):
+        nonlocal publications
+        publications += 1
+        started.set()
+        await release.wait()
+        return record.upload_id
+
+    uploads = MediaUploads(tmp_path, uuid7(), uuid7(), publish)
+    creator, delegate = uuid7(), uuid7()
+    record = await uploads.begin(creator, delegate, "concurrent", declaration(b"abc"))
+    await uploads.append(record.upload_id, creator, delegate, 0, b"abc")
+    first = asyncio.create_task(uploads.complete(record.upload_id, creator, delegate))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    second = asyncio.create_task(uploads.complete(record.upload_id, creator, delegate))
+    await asyncio.sleep(0)
+    release.set()
+    first_result, second_result = await asyncio.wait_for(
+        asyncio.gather(first, second), timeout=2
+    )
+    assert first_result == second_result
+    assert first_result.state == "completed"
+    assert publications == 1
 
 
 async def test_scope_conflict_cancel_and_digest(tmp_path: Path):
