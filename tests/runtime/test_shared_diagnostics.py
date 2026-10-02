@@ -273,6 +273,110 @@ def test_retention_during_query_reports_gap_and_advances(
     assert not page["coverage"]["evidence_complete"]
 
 
+@pytest.mark.parametrize("operation", ["query", "summary", "read"])
+@pytest.mark.parametrize("removed_before_metadata", [True, False])
+def test_retention_during_segment_enumeration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    removed_before_metadata: bool,
+) -> None:
+    first = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="first")
+    first.write("retained.event")
+    first.close()
+    second = DiagnosticLog(
+        data_root=tmp_path, environment_id="env", instance_id="second"
+    )
+    second.write("removed.event")
+    second.close()
+    reader = DiagnosticQuery((tmp_path / "logs",), environment_id="env")
+    reference = next(
+        str(item["log_ref"])
+        for item in reader.query()["items"]
+        if item["event"] == "removed.event"
+    )
+    removed = second.path
+    assert removed is not None
+    original = Path.lstat
+
+    def removed_around_metadata(path: Path, *args, **kwargs):
+        if path == removed and removed_before_metadata:
+            path.unlink(missing_ok=True)
+        info = original(path, *args, **kwargs)
+        if path == removed and not removed_before_metadata:
+            path.unlink(missing_ok=True)
+        return info
+
+    monkeypatch.setattr(Path, "lstat", removed_around_metadata)
+    if operation == "read":
+        assert reader.read(reference) == {
+            "status": "unavailable",
+            "reason": "segment_not_retained",
+        }
+    else:
+        if operation == "query":
+            page = reader.query()
+            assert [item["event"] for item in page["items"]] == ["retained.event"]
+            coverage = page["coverage"]
+        else:
+            summary = reader.summary()
+            assert summary["levels"] == {"info": 1}
+            coverage = cast(dict[str, object], summary["coverage"])
+        assert coverage["missing_segments"] == [f"0:{removed.name}"]
+        assert not coverage["evidence_complete"]
+    assert not removed.exists()
+
+
+def test_incremental_query_reports_retention_when_new_segments_arrive(
+    tmp_path: Path,
+) -> None:
+    first = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="first")
+    first.write("removed.event")
+    first.close()
+    reader = DiagnosticQuery((tmp_path / "logs",), environment_id="env")
+    cursor = reader.follow(filters={}, cursor=None)["cursor"]
+    assert cursor is not None
+    removed = first.path
+    assert removed is not None
+    removed.unlink()
+    second = DiagnosticLog(
+        data_root=tmp_path, environment_id="env", instance_id="second"
+    )
+    second.write("new.event")
+    second.close()
+
+    page = reader.follow(filters={}, cursor=cursor)
+    assert [item["event"] for item in page["items"]] == ["new.event"]
+    assert page["complete"]
+    assert page["coverage"]["missing_segments"] == [f"0:{removed.name}"]
+    assert not page["coverage"]["evidence_complete"]
+
+
+def test_retention_during_latest_runtime_summary_reports_missing_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")
+    sink.write("removed.event")
+    sink.close()
+    removed = sink.path
+    assert removed is not None
+    original = Path.open
+
+    def removed_before_open(path: Path, *args, **kwargs):
+        if path == removed:
+            path.unlink(missing_ok=True)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", removed_before_open)
+    summary = DiagnosticQuery((tmp_path / "logs",), environment_id="env").summary()
+    assert summary["levels"] == {}
+    assert summary["complete"]
+    coverage = cast(dict[str, object], summary["coverage"])
+    assert coverage["missing_segments"] == [f"0:{removed.name}"]
+    assert coverage["runtime_boundary_unavailable"]
+    assert not coverage["evidence_complete"]
+
+
 @pytest.mark.parametrize("removed_before_read", [True, False])
 def test_retention_during_detail_read_preserves_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, removed_before_read: bool

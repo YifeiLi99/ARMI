@@ -6,8 +6,10 @@ import base64
 import hashlib
 import json
 import os
+import stat
 import time
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict, cast
@@ -15,6 +17,13 @@ from uuid import uuid4
 
 SCAN_BYTES = 64 * 1024 * 1024
 RESPONSE_BYTES = 128 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class _Segment:
+    path: Path
+    size: int
+    modified_at: float
 
 
 class _Snapshot(TypedDict):
@@ -175,8 +184,9 @@ class DiagnosticQuery:
             and key.split(":", 1)[0] in self._bootstrap_indices
         )
 
-    def _files(self) -> dict[str, Path]:
-        found: dict[str, Path] = {}
+    def _files(self) -> tuple[dict[str, _Segment], set[str]]:
+        found: dict[str, _Segment] = {}
+        missing: set[str] = set()
         for index, root in enumerate(self.roots):
             if (
                 not root.is_dir()
@@ -185,16 +195,22 @@ class DiagnosticQuery:
             ):
                 continue
             for path in root.glob("*.jsonl"):
-                info = path.lstat()
+                key = f"{index}:{path.name}"
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    missing.add(key)
+                    continue
                 if (
-                    not path.is_file()
-                    or path.is_symlink()
+                    not stat.S_ISREG(info.st_mode)
                     or info.st_nlink != 1
                     or getattr(info, "st_file_attributes", 0) & 0x400
                 ):
                     continue
-                found[f"{index}:{path.name}"] = path
-        return found
+                # Freeze metadata once; retention can remove a segment before the
+                # caller sorts it or opens it, and appends must not move its bound.
+                found[key] = _Segment(path, info.st_size, info.st_mtime)
+        return found, missing
 
     @staticmethod
     def _matches(record: dict[str, object], filters: dict[str, object]) -> bool:
@@ -278,14 +294,14 @@ class DiagnosticQuery:
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        files = self._files()
+        files, gaps = self._files()
         if cursor is None:
             state: _Snapshot = {
                 "query": digest,
                 "files": [
-                    (key, path.stat().st_size)
-                    for key, path in sorted(
-                        files.items(), key=lambda item: item[1].stat().st_mtime
+                    (key, segment.size)
+                    for key, segment in sorted(
+                        files.items(), key=lambda item: item[1].modified_at
                     )
                 ],
                 "index": 0,
@@ -295,10 +311,11 @@ class DiagnosticQuery:
         else:
             state = _snapshot(self._cursor_decode(cursor), digest)
             if incremental and state["index"] >= len(state["files"]):
+                gaps.update(state["positions"].keys() - files.keys())
                 changed = [
-                    (key, path.stat().st_size)
-                    for key, path in files.items()
-                    if path.stat().st_size > state["positions"].get(key, 0)
+                    (key, segment.size)
+                    for key, segment in files.items()
+                    if segment.size > state["positions"].get(key, 0)
                 ]
                 if not changed:
                     return {
@@ -306,11 +323,7 @@ class DiagnosticQuery:
                         "cursor": cursor,
                         "complete": True,
                         "bytes_examined": 0,
-                        "coverage": {
-                            "missing_segments": [
-                                key for key in state["positions"] if key not in files
-                            ]
-                        },
+                        "coverage": {"missing_segments": sorted(gaps)},
                     }
                 state["files"] = changed
                 state["index"] = 0
@@ -318,7 +331,6 @@ class DiagnosticQuery:
         items: list[dict[str, object]] = []
         scanned = self._cursor_read_bytes
         response_bytes = 0
-        gaps: list[str] = []
         damaged = 0
         incomplete_lines = 0
         indexed_segments_skipped = 0
@@ -328,9 +340,9 @@ class DiagnosticQuery:
         sink_modes: set[str] = set()
         while state["index"] < len(state["files"]):
             key, upper = state["files"][state["index"]]
-            path = files.get(key)
-            if path is None:
-                gaps.append(key)
+            segment = files.get(key)
+            if segment is None:
+                gaps.add(key)
                 state["positions"][key] = upper
                 state["index"] += 1
                 state["offset"] = (
@@ -339,6 +351,7 @@ class DiagnosticQuery:
                     else 0
                 )
                 continue
+            path = segment.path
             # Closed segment summaries are disposable indexes. Validate their byte
             # boundary before using them to exclude irrelevant runs/time ranges.
             summary_path = path.with_suffix(".summary.json")
@@ -521,7 +534,7 @@ class DiagnosticQuery:
             "complete": complete,
             "bytes_examined": scanned,
             "coverage": {
-                "missing_segments": gaps,
+                "missing_segments": sorted(gaps),
                 "invalid_records": damaged,
                 "incomplete_lines": incomplete_lines,
                 "indexed_segments_skipped": indexed_segments_skipped,
@@ -540,11 +553,12 @@ class DiagnosticQuery:
         offset, key = ref.get("offset"), ref.get("file")
         if type(offset) is not int or offset < 0 or not isinstance(key, str):
             raise ValueError("DIAGNOSTICS-REFERENCE-INVALID")
-        path = self._files().get(key)
-        if path is None:
+        files, _missing = self._files()
+        segment = files.get(key)
+        if segment is None:
             return {"status": "unavailable", "reason": "segment_not_retained"}
         try:
-            opened = path.open("rb")
+            opened = segment.path.open("rb")
         except FileNotFoundError:
             return {"status": "unavailable", "reason": "segment_not_retained"}
         neighbors: list[dict[str, object]] = []
@@ -631,6 +645,7 @@ class DiagnosticQuery:
         requested = filters or {}
         selection = dict(requested)
         boundary_missing = False
+        missing: set[str] = set()
         metadata_bytes = 0
         storage: list[dict[str, object]] = []
         for index, root in enumerate(self.roots):
@@ -686,15 +701,22 @@ class DiagnosticQuery:
             key in selection for key in ("start", "end", "run_id")
         ):
             boundary_missing = True
-            for key, path in sorted(
-                self._files().items(),
-                key=lambda item: item[1].stat().st_mtime,
+            files, gaps = self._files()
+            missing.update(gaps)
+            for key, segment in sorted(
+                files.items(),
+                key=lambda item: item[1].modified_at,
                 reverse=True,
             ):
+                path = segment.path
                 if not path.name.startswith(("runtime-", "startup-")):
                     continue
-                with path.open("rb") as stream:
-                    line = stream.readline(65536 - metadata_bytes)
+                try:
+                    with path.open("rb") as stream:
+                        line = stream.readline(65536 - metadata_bytes)
+                except FileNotFoundError:
+                    missing.add(key)
+                    continue
                 metadata_bytes += len(line)
                 try:
                     record = _object(json.loads(line))
@@ -718,7 +740,6 @@ class DiagnosticQuery:
         first_at: str | None = None
         last_at: str | None = None
         sink_modes: set[str] = set()
-        missing: set[str] = set()
         while True:
             page = self.query(
                 filters=selection,
