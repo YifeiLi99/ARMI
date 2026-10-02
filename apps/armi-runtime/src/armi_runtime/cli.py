@@ -6,9 +6,11 @@ import argparse
 import asyncio
 import base64
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
+from uuid import uuid7
 
 import httpx
 from armi_local_control.binding import load_client_binding
@@ -149,8 +151,18 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
     output = getattr(args, "output", None)
     if output is not None and "artifact" in outcome:
         content = base64.b64decode(outcome["artifact"]["content"], validate=True)
-        with output.open("xb") as stream:
-            stream.write(content)
+        if output.exists():
+            raise FileExistsError(output)
+        temporary = output.with_name(f".{output.name}.{uuid7()}.part")
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            # Publish only the complete preview and never replace an existing file.
+            os.link(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
         outcome["artifact"] = {
             "path": str(output.resolve()),
             "size_bytes": len(content),

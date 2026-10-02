@@ -330,6 +330,85 @@ async def test_cli_artifact_download_rejects_malformed_response_without_publishi
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fail_write", [False, True])
+async def test_cli_preview_output_is_complete_or_absent(
+    tmp_path: Path, monkeypatch, capsys, fail_write: bool
+) -> None:
+    _, binding, _ = machine(tmp_path)
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    content = b"preview image bytes"
+    client = InteractionClient(
+        binding,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "environment_id": str(binding.environment_id),
+                    "status": "succeeded",
+                    "result": {},
+                    "artifact": {
+                        "encoding": "base64",
+                        "media_type": "image/jpeg",
+                        "content": base64.b64encode(content).decode("ascii"),
+                    },
+                },
+            )
+        ),
+    )
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    original_open = Path.open
+
+    class PartialWrite:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_arguments):
+            self.stream.close()
+
+        def write(self, data):
+            self.stream.write(data[:3])
+            raise OSError("fixture disk full")
+
+    def open_output(path, mode="r", *args, **kwargs):
+        stream = original_open(path, mode, *args, **kwargs)
+        return PartialWrite(stream) if fail_write and mode == "xb" else stream
+
+    monkeypatch.setattr(Path, "open", open_output)
+    output = tmp_path / "preview.jpg"
+    arguments = [
+        "--config",
+        str(config),
+        "vision",
+        "preview",
+        "--source-kind",
+        "camera",
+        "--output",
+        str(output),
+    ]
+    exit_code = await asyncio.to_thread(cli.main, arguments)
+    result = json.loads(capsys.readouterr().out)
+    if fail_write:
+        assert exit_code != 0
+        assert result["error_code"] == "INTERACTION-LOCAL-IO"
+        assert not output.exists()
+    else:
+        assert exit_code == 0
+        assert output.read_bytes() == content
+        assert result["artifact"]["size_bytes"] == len(content)
+        assert await asyncio.to_thread(cli.main, arguments) != 0
+        assert (
+            json.loads(capsys.readouterr().out)["error_code"]
+            == "INTERACTION-OUTPUT-EXISTS"
+        )
+        assert output.read_bytes() == content
+    assert not tuple(tmp_path.glob("*.part"))
+
+
+@pytest.mark.asyncio
 async def test_artifact_download_rejects_changed_content_without_publishing(
     tmp_path: Path,
 ) -> None:
