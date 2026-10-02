@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
@@ -19,6 +20,7 @@ import armi_artifact_store.content_store as content_store
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
     UnregisteredArtifactDisposition,
+    VerifiedFileStream,
 )
 from armi_kernel.application import (
     ArtifactId,
@@ -253,6 +255,41 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
         for operation in ("read", "exists"):
             with self.subTest(operation=operation):
                 await exercise(operation)
+
+    async def test_cancelled_close_finishes_when_file_worker_is_busy(self) -> None:
+        self.root.mkdir(parents=True)
+        path = self.root / "close-test.bin"
+        path.write_bytes(b"close-test")
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        release = threading.Event()
+
+        def busy_worker() -> None:
+            loop.call_soon_threadsafe(started.set)
+            release.wait(timeout=3)
+
+        with ThreadPoolExecutor(max_workers=1) as executor, path.open("rb") as handle:
+            loop.set_default_executor(executor)
+            stream = VerifiedFileStream(handle)
+            blocker = loop.run_in_executor(None, busy_worker)
+            try:
+                await asyncio.wait_for(started.wait(), timeout=2)
+                closing = asyncio.create_task(stream.close())
+                await asyncio.sleep(0)
+                closing.cancel()
+                await asyncio.sleep(0)
+                closing.cancel()
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await closing
+                await blocker
+                self.assertTrue(handle.closed)
+                await stream.close()
+                with self.assertRaisesRegex(ArtifactViolation, "ART-STATE"):
+                    await stream.read()
+            finally:
+                release.set()
+                await blocker
 
     async def test_sync_read_and_unregistered_settlement_share_verifier(self) -> None:
         content = b"shared-owner"

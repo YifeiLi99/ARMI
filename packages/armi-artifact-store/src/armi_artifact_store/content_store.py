@@ -181,7 +181,16 @@ class VerifiedFileStream:
         if self._file is not None:
             file_value = self._file
             self._file = None
-            await asyncio.to_thread(file_value.close)
+            closing = asyncio.create_task(asyncio.to_thread(file_value.close))
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                # A queued close must keep ownership even if its caller is cancelled.
+                while not closing.done():
+                    with suppress(asyncio.CancelledError):
+                        await asyncio.shield(closing)
+                closing.result()
+                raise
 
     async def __aenter__(self) -> Self:
         if self._file is None:
