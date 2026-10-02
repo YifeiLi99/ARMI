@@ -85,9 +85,12 @@ class AdminCredentialPort(CredentialPort):
             value = self._read_file(locator.target)
         else:
             raise AdminSecretError("ADMIN-SECRET-SCHEME")
-        if not value or len(value) > _MAX_SECRET_BYTES or b"\x00" in value:
+        if len(value) > _MAX_SECRET_BYTES or b"\x00" in value:
             raise AdminSecretError("ADMIN-SECRET-VALUE")
-        return _SecretHandle(value.rstrip(b"\r\n"))
+        value = value.rstrip(b"\r\n")
+        if not value:
+            raise AdminSecretError("ADMIN-SECRET-VALUE")
+        return _SecretHandle(value)
 
     def _read_file(self, target: str) -> bytes:
         try:
