@@ -365,21 +365,25 @@ class LiveVoiceService:
                 )
             snapshot = await self._journal.recent_turn()
         except LiveVoiceViolation as error:
-            completion.set_exception(error)
+            # Stop can cancel the turn waiter before independent playback settles.
+            if not completion.done():
+                completion.set_exception(error)
             raise
         except Exception as error:
             violation = LiveVoiceViolation(
                 "VOICE-PLAYBACK-RESULT-UNKNOWN",
                 "voice playback result could not be recorded",
             )
-            completion.set_exception(violation)
+            if not completion.done():
+                completion.set_exception(violation)
             raise violation from error
         frames = (
             0
             if snapshot is None or snapshot.turn_id != turn_id
             else snapshot.frames_written
         )
-        completion.set_result((AttemptOutcome.COMPLETED, spoken, False))
+        if not completion.done():
+            completion.set_result((AttemptOutcome.COMPLETED, spoken, False))
         return frames
 
     async def complete_silently(self, *, turn_id: UUID) -> None:

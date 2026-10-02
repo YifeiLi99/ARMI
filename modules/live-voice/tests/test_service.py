@@ -424,3 +424,74 @@ async def test_failure_after_full_playback_is_unknown_and_never_safe_to_replay()
     assert error.value.code == "VOICE-PLAYBACK-RESULT-UNKNOWN"
     assert "played" in log
     await service.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "late_result", ("playback_failure", "journal_failure", "success")
+)
+async def test_stopping_does_not_replace_a_late_playback_result_with_future_error(
+    late_result: str,
+) -> None:
+    log: list[str] = []
+    inputs = FakeInputs()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class DelayedAudio(FakeAudio):
+        async def play(
+            self, frames: AsyncIterator[bytes], *, on_frame_written=None
+        ) -> int:
+            if late_result == "playback_failure":
+                entered.set()
+                await release.wait()
+                raise RuntimeError("speaker closed during playback")
+            return await super().play(frames, on_frame_written=on_frame_written)
+
+    class DelayedJournal(FakeJournal):
+        async def recent_turn(self):
+            entered.set()
+            await release.wait()
+            if late_result == "journal_failure":
+                raise RuntimeError("playback status read failed after stop")
+            return await super().recent_turn()
+
+    journal = DelayedJournal()
+    service = LiveVoiceService(
+        audio=DelayedAudio(log),
+        asr=FakeAsr(),
+        model=FakeModelCompatibility(log),
+        tts=FakeTts(log),
+        inputs=inputs,
+        expression=FakeExpression(log),
+        journal=journal,
+        binding=_binding(),
+        prices=PriceCatalog(()),
+    )
+    await service.start()
+    await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
+    assert journal.turn_id is not None
+    playback = asyncio.create_task(
+        service.play_effect(turn_id=journal.turn_id, text="现在是下午三点。")
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        await service.stop()
+        assert service.status() is LiveVoiceSessionState.IDLE
+        release.set()
+        if late_result == "success":
+            assert await asyncio.wait_for(playback, timeout=1) == 1
+        else:
+            with pytest.raises(LiveVoiceViolation) as error:
+                await asyncio.wait_for(playback, timeout=1)
+            assert error.value.code == (
+                "VOICE-PLAYBACK-NOT-DELIVERED"
+                if late_result == "playback_failure"
+                else "VOICE-PLAYBACK-RESULT-UNKNOWN"
+            )
+        assert service.status() is LiveVoiceSessionState.IDLE
+    finally:
+        release.set()
+        playback.cancel()
+        await asyncio.gather(playback, return_exceptions=True)
+        await service.stop()
