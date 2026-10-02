@@ -64,6 +64,7 @@ function safeMessage(error: unknown): string {
 
 export function SessionPanel() {
   const queryClient = useQueryClient();
+  const authenticatedToken = useRef<string | null>(null);
   const streamAbort = useRef<(() => void) | null>(null);
   const effectTrigger = useRef<HTMLButtonElement>(null);
   const [selectedOperation, setSelectedOperation] = useState<string | null>(
@@ -94,8 +95,12 @@ export function SessionPanel() {
     stored: StoredBrowserSession,
     signal?: AbortSignal,
   ) {
+    const sessionToken = authenticatedToken.current;
+    const isCurrent = () =>
+      authenticatedToken.current === sessionToken && !signal?.aborted;
     try {
       const session = await getCurrentBrowserSession(stored.token, signal);
+      if (!isCurrent()) return;
       if (session.environment_id !== stored.environmentId) {
         abortStream();
         clearStoredSession();
@@ -107,13 +112,15 @@ export function SessionPanel() {
         return;
       }
       const runtime = await getRuntimeStatus(stored.token, signal);
+      if (!isCurrent()) return;
+      authenticatedToken.current = stored.token;
       setSelectedScene(
         (current) =>
           current ?? { key: session.default_scene_key, status: "open" },
       );
       setView({ kind: "authenticated", stored, session, runtime });
     } catch (error) {
-      if (signal?.aborted) {
+      if (!isCurrent()) {
         return;
       }
       if (error instanceof ApiFailure && error.status === 401) {
@@ -140,13 +147,18 @@ export function SessionPanel() {
     } else {
       void loadAuthenticated(stored, controller.signal);
     }
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      authenticatedToken.current = null;
+    };
   }, []);
 
   async function connect(signal?: AbortSignal) {
+    authenticatedToken.current = null;
     setView({ kind: "loading", message: "正在连接本机 Runtime" });
     try {
       const established = await createBrowserSession(signal);
+      if (signal?.aborted) return;
       const stored = {
         token: established.browser_session_token,
         expiresAt: established.expires_at,
@@ -168,6 +180,14 @@ export function SessionPanel() {
   }
 
   function unauthorized() {
+    if (
+      view.kind !== "authenticated" ||
+      authenticatedToken.current !== view.stored.token
+    ) {
+      return;
+    }
+    // A late rejection only invalidates the session that made that request.
+    authenticatedToken.current = null;
     abortStream();
     clearStoredSession();
     queryClient.clear();
@@ -210,7 +230,7 @@ export function SessionPanel() {
   }
 
   return (
-    <div className="authenticated-view">
+    <div className="authenticated-view" key={view.stored.token}>
       <WorkspaceNavigation
         activePage={activePage}
         collapsed={sidebarCollapsed}

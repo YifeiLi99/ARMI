@@ -504,6 +504,120 @@ describe("Creator local connection shell", () => {
     expect(sessionStorage.getItem("armi.browser-session")).toBeNull();
   });
 
+  it.each(["mutation_401", "refresh_401", "refresh_200"])(
+    "keeps a new connection after a late %s",
+    async (late) => {
+      const nextToken = `browser-v1.${"b".repeat(43)}`;
+      let expireStream!: (value: Response) => void;
+      let rejectPrompt!: (value: Response) => void;
+      const stream = new Promise<Response>((resolve) => {
+        expireStream = resolve;
+      });
+      const prompt = new Promise<Response>((resolve) => {
+        rejectPrompt = resolve;
+      });
+      let establishments = 0;
+      let runtimeReads = 0;
+      const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/browser-sessions" && init?.method === "POST") {
+          establishments += 1;
+          return jsonResponse({
+            ...sessionResponse(true),
+            browser_session_token: establishments === 1 ? TOKEN : nextToken,
+          });
+        }
+        if (url === "/v1/browser-sessions/current") {
+          return jsonResponse(sessionResponse(false));
+        }
+        if (url === "/v1/runtime/status") {
+          runtimeReads += 1;
+          if (
+            late !== "mutation_401" &&
+            runtimeReads > 1 &&
+            new Headers(init?.headers).get("Authorization") ===
+              `Bearer ${TOKEN}`
+          ) {
+            return prompt;
+          }
+          return jsonResponse(runtimeStatusResponse());
+        }
+        if (url.startsWith("/v1/scenes/default/timeline")) {
+          return jsonResponse({
+            projection_kind: "scene-timeline",
+            scene_key: "default",
+            items: [],
+          });
+        }
+        if (url === "/v1/scenes/default/events") {
+          return new Headers(init?.headers).get("Authorization") ===
+            `Bearer ${TOKEN}`
+            ? stream
+            : streamResponse();
+        }
+        if (url === "/v1/prompts/creator-guidance" && init?.method === "PUT") {
+          return prompt;
+        }
+        if (url === "/v1/maintenance/status") {
+          return jsonResponse(maintenanceStatusResponse());
+        }
+        if (url.startsWith("/v1/activities?")) {
+          return jsonResponse(activityPageResponse());
+        }
+        if (url === "/v1/subject/summary") {
+          return jsonResponse(subjectSummaryResponse());
+        }
+        return (
+          optionalLifeProjectionResponse(url) ??
+          new Response(null, { status: 503 })
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      render(<CreatorShell />);
+      await screen.findByRole("button", { name: "提交输入" });
+      const oldEditor = await screen.findByLabelText("Creator Prompt 内容");
+      if (late === "mutation_401") {
+        await user.click(screen.getByRole("button", { name: "认知指导" }));
+        await user.type(oldEditor, "新指导");
+        await user.click(screen.getByRole("button", { name: "创建并生效" }));
+        expect(
+          screen.getByRole("button", { name: "创建并生效" }),
+        ).toBeDisabled();
+      } else {
+        await user.click(screen.getByRole("button", { name: "运行与维护" }));
+        await user.click(screen.getByRole("button", { name: "重新检测" }));
+        await waitFor(() => expect(runtimeReads).toBe(2));
+      }
+      await act(async () => {
+        expireStream(new Response(null, { status: 401 }));
+      });
+      await waitFor(() => {
+        expect(sessionStorage.getItem("armi.browser-session")).toContain(
+          nextToken,
+        );
+        expect(screen.getByLabelText("Creator Prompt 内容")).not.toBeDisabled();
+        expect(screen.getByLabelText("Creator Prompt 内容")).toHaveValue("");
+        expect(oldEditor).not.toBeInTheDocument();
+      });
+      await act(async () => {
+        rejectPrompt(
+          late === "refresh_200"
+            ? jsonResponse({
+                ...runtimeStatusResponse(),
+                runtime_state: "draining",
+              })
+            : new Response(null, { status: 401 }),
+        );
+      });
+      expect(establishments).toBe(2);
+      expect(sessionStorage.getItem("armi.browser-session")).toContain(
+        nextToken,
+      );
+      expect(screen.queryByText("draining")).not.toBeInTheDocument();
+    },
+  );
+
   it("uses an invalidation only to refetch the authoritative timeline", async () => {
     const eventId = `sse-v1.${"e".repeat(22)}.1`;
     const event = JSON.stringify({
