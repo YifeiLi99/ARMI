@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import json
 import os
 import sys
@@ -18,7 +17,11 @@ from jsonschema.exceptions import ValidationError as SchemaValidationError
 from pydantic import ValidationError
 
 from .application.interaction_catalog import interaction_routes
-from .interaction_client import InteractionClient, interaction_failure
+from .interaction_client import (
+    InteractionClient,
+    decode_response_artifact,
+    interaction_failure,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -150,7 +153,7 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         outcome = await client.wait(outcome["result"]["result_ref"])
     output = getattr(args, "output", None)
     if output is not None and "artifact" in outcome:
-        content = base64.b64decode(outcome["artifact"]["content"], validate=True)
+        content, media_type = decode_response_artifact(outcome["artifact"])
         if output.exists():
             raise FileExistsError(output)
         temporary = output.with_name(f".{output.name}.{uuid7()}.part")
@@ -166,7 +169,7 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         outcome["artifact"] = {
             "path": str(output.resolve()),
             "size_bytes": len(content),
-            "media_type": outcome["artifact"]["media_type"],
+            "media_type": media_type,
         }
     return outcome
 

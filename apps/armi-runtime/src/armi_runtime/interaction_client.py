@@ -51,6 +51,26 @@ def _response_float(value: str) -> float:
     return result
 
 
+def decode_response_artifact(value: object) -> tuple[bytes, str]:
+    """Validate the binary wire contract before publishing any local output."""
+    try:
+        if not isinstance(value, dict):
+            raise ValueError("INTERACTION-RESPONSE-CONTRACT")
+        artifact = cast(dict[str, object], value)
+        media_type = artifact.get("media_type")
+        encoded_content = artifact.get("content")
+        if (
+            artifact.get("encoding") != "base64"
+            or not isinstance(media_type, str)
+            or not media_type
+            or not isinstance(encoded_content, str)
+        ):
+            raise ValueError("INTERACTION-RESPONSE-CONTRACT")
+        return base64.b64decode(encoded_content, validate=True), media_type
+    except TypeError, ValueError:
+        raise ValueError("INTERACTION-RESPONSE-CONTRACT") from None
+
+
 def interaction_failure(error: Exception) -> dict[str, Any]:
     """One redacted error contract for both machine transports."""
     if isinstance(error, httpx.HTTPError):
@@ -220,20 +240,9 @@ class InteractionClient:
                         return result
                     try:
                         metadata = ArtifactChunk.model_validate(result["result"])
-                        artifact_value: object = result["artifact"]
-                        if not isinstance(artifact_value, dict):
-                            raise ValueError("INTERACTION-RESPONSE-CONTRACT")
-                        artifact = cast(dict[str, object], artifact_value)
-                        media_type = artifact.get("media_type")
-                        encoded_content = artifact["content"]
-                        if (
-                            artifact.get("encoding") != "base64"
-                            or not isinstance(media_type, str)
-                            or not media_type
-                            or not isinstance(encoded_content, str)
-                        ):
-                            raise ValueError("INTERACTION-RESPONSE-CONTRACT")
-                        content = base64.b64decode(encoded_content, validate=True)
+                        content, media_type = decode_response_artifact(
+                            result["artifact"]
+                        )
                         identity = (
                             metadata.total_bytes,
                             metadata.digest,
@@ -323,4 +332,4 @@ class InteractionClient:
             await asyncio.sleep(min(0.25, max(0, deadline - time.monotonic())))
 
 
-__all__ = ("InteractionClient", "interaction_failure")
+__all__ = ("InteractionClient", "decode_response_artifact", "interaction_failure")

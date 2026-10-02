@@ -330,6 +330,79 @@ async def test_cli_artifact_download_rejects_malformed_response_without_publishi
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "null_artifact",
+        "missing_content",
+        "missing_media_type",
+        "bad_base64",
+        "bad_content_type",
+        "bad_media_type",
+        "wrong_encoding",
+    ],
+)
+async def test_cli_preview_rejects_malformed_response_without_publishing(
+    tmp_path: Path, monkeypatch, capsys, fault: str
+) -> None:
+    _, binding, _ = machine(tmp_path)
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    artifact: dict[str, object] = {
+        "encoding": "base64",
+        "media_type": "image/jpeg",
+        "content": base64.b64encode(b"preview image bytes").decode("ascii"),
+    }
+    payload: dict[str, object] = {
+        "environment_id": str(binding.environment_id),
+        "status": "succeeded",
+        "result": {},
+        "artifact": artifact,
+    }
+    if fault == "null_artifact":
+        payload["artifact"] = None
+    elif fault == "missing_content":
+        del artifact["content"]
+    elif fault == "missing_media_type":
+        del artifact["media_type"]
+    elif fault == "bad_base64":
+        artifact["content"] = "*invalid*"
+    elif fault == "bad_content_type":
+        artifact["content"] = 42
+    elif fault == "bad_media_type":
+        artifact["media_type"] = None
+    else:
+        artifact["encoding"] = "hex"
+    client = InteractionClient(
+        binding,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json=payload)
+        ),
+    )
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    output = tmp_path / "preview.jpg"
+    exit_code = await asyncio.to_thread(
+        cli.main,
+        [
+            "--config",
+            str(config),
+            "vision",
+            "preview",
+            "--source-kind",
+            "camera",
+            "--output",
+            str(output),
+        ],
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code != 0
+    assert result["transport_status"] == 503
+    assert result["error_code"] == "INTERACTION-RESPONSE-CONTRACT"
+    assert not output.exists()
+    assert not tuple(tmp_path.glob("*.part"))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("fail_write", [False, True])
 async def test_cli_preview_output_is_complete_or_absent(
     tmp_path: Path, monkeypatch, capsys, fail_write: bool
