@@ -124,10 +124,17 @@ class LiveVoiceService:
         assert self._session_id is not None
         try:
             await self._journal.open_session(session_id=self._session_id)
-            await asyncio.gather(
-                self._prepare_model(),
-                self._tts.prepare(),
+            preparations = (
+                asyncio.create_task(self._prepare_model()),
+                asyncio.create_task(self._tts.prepare()),
             )
+            try:
+                await asyncio.gather(*preparations)
+            finally:
+                # A failed startup must not leave the other preparation running.
+                for preparation in preparations:
+                    preparation.cancel()
+                await asyncio.gather(*preparations, return_exceptions=True)
             await self._transition(
                 LiveVoiceSessionState.LISTENING,
             )
@@ -143,7 +150,6 @@ class LiveVoiceService:
                 await self._journal.close_session(
                     session_id=self._session_id, error_code=error.code
                 )
-            self._ready.set()
         except Exception:
             self._last_error = "VOICE-RUNTIME-FAILED"
             self._machine.transition(LiveVoiceSessionState.UNAVAILABLE)
@@ -152,6 +158,7 @@ class LiveVoiceService:
                     session_id=self._session_id,
                     error_code="VOICE-RUNTIME-FAILED",
                 )
+        finally:
             self._ready.set()
 
     async def _one_turn(self) -> None:

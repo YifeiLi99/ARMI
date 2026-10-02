@@ -12,6 +12,7 @@ from armi_live_voice.api import (
     AcceptedVoiceInput,
     AudioDevice,
     LiveVoiceBinding,
+    LiveVoiceSessionState,
     LiveVoiceViolation,
     PlaybackExtent,
     RecognitionEvent,
@@ -164,6 +165,102 @@ def _binding() -> LiveVoiceBinding:
         VoiceProviderBinding(VoiceProviderService.LLM, "ark", "model", "model"),
         VoiceProviderBinding(VoiceProviderService.TTS, "volcengine", "tts", "voice"),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_component", ("model", "tts"))
+async def test_failed_start_cancels_the_other_preparation(
+    failed_component: str,
+) -> None:
+    log: list[str] = []
+    started = {name: asyncio.Event() for name in ("model", "tts")}
+    finished = {name: asyncio.Event() for name in ("model", "tts")}
+    release = asyncio.Event()
+
+    async def prepare(name: str, other: str) -> None:
+        started[name].set()
+        try:
+            if name == failed_component:
+                await started[other].wait()
+                raise LiveVoiceViolation("VOICE-PREPARE-FAILED", "local test failure")
+            await release.wait()
+        finally:
+            finished[name].set()
+
+    class Model(FakeModelCompatibility):
+        async def prepare(self) -> None:
+            await prepare("model", "tts")
+
+    class Tts(FakeTts):
+        async def prepare(self) -> None:
+            await prepare("tts", "model")
+
+    service = LiveVoiceService(
+        audio=FakeAudio(log),
+        asr=FakeAsr(),
+        model=Model(log),
+        tts=Tts(log),
+        inputs=FakeInputs(),
+        expression=FakeExpression(log),
+        journal=FakeJournal(),
+        binding=_binding(),
+        prices=PriceCatalog(()),
+    )
+    try:
+        await asyncio.wait_for(service.start(), timeout=1)
+        assert service.status() is LiveVoiceSessionState.UNAVAILABLE
+        assert service.last_error == "VOICE-PREPARE-FAILED"
+        assert all(event.is_set() for event in finished.values())
+    finally:
+        release.set()
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_during_preparation_releases_the_start_caller() -> None:
+    log: list[str] = []
+    started = {name: asyncio.Event() for name in ("model", "tts")}
+    finished = {name: asyncio.Event() for name in ("model", "tts")}
+
+    async def prepare(name: str) -> None:
+        started[name].set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            finished[name].set()
+
+    class Model(FakeModelCompatibility):
+        async def prepare(self) -> None:
+            await prepare("model")
+
+    class Tts(FakeTts):
+        async def prepare(self) -> None:
+            await prepare("tts")
+
+    service = LiveVoiceService(
+        audio=FakeAudio(log),
+        asr=FakeAsr(),
+        model=Model(log),
+        tts=Tts(log),
+        inputs=FakeInputs(),
+        expression=FakeExpression(log),
+        journal=FakeJournal(),
+        binding=_binding(),
+        prices=PriceCatalog(()),
+    )
+    starting = asyncio.create_task(service.start())
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(event.wait() for event in started.values())), timeout=1
+        )
+        await service.stop()
+        await asyncio.wait_for(starting, timeout=0.1)
+        assert service.status() is LiveVoiceSessionState.IDLE
+        assert all(event.is_set() for event in finished.values())
+    finally:
+        starting.cancel()
+        await asyncio.gather(starting, return_exceptions=True)
+        await service.stop()
 
 
 @pytest.mark.asyncio
