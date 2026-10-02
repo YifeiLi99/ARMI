@@ -144,8 +144,8 @@ it("distinguishes denied access from an empty result", async () => {
   ).not.toBeInTheDocument();
 });
 
-it.each([401, 403, 503])(
-  "handles a %s response when opening call details after the list loads",
+it.each([200, 401, 403, 503])(
+  "handles a %s response when opening and refreshing call details",
   async (status) => {
     const call: UsageCall = {
       attempt_id: "attempt-1",
@@ -183,6 +183,7 @@ it.each([401, 403, 503])(
         },
       },
     };
+    let updated = false;
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>(async (input) => {
@@ -205,8 +206,19 @@ it.each([401, 403, 503])(
           });
         if (url.pathname === "/v1/usage/calls")
           return response({ total: 1, items: [call] });
-        if (url.pathname === "/v1/usage/calls/call-1")
-          return response({ detail: "unavailable" }, status);
+        if (url.pathname === "/v1/usage/calls/call-1") {
+          if (updated)
+            return response({
+              ...call,
+              receipt: {
+                ...call.receipt,
+                provider_request_id: "provider-request-1",
+              },
+            });
+          return status === 200
+            ? response(call)
+            : response({ detail: "unavailable" }, status);
+        }
         throw new Error(`Unexpected request: ${url.pathname}`);
       }),
     );
@@ -216,9 +228,20 @@ it.each([401, 403, 503])(
     const detail = await screen.findByRole("button", { name: "调用详情" });
     expect(onUnauthorized).not.toHaveBeenCalled();
     await user.click(detail);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      status === 503 ? "用量查询失败" : "没有权限读取用量记录",
-    );
+    if (status === 200)
+      expect(await screen.findByText("尚未结算")).toBeInTheDocument();
+    else
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        status === 503 ? "用量查询失败" : "没有权限读取用量记录",
+      );
     expect(onUnauthorized).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+    if (status === 200 || status === 503) {
+      updated = true;
+      await user.click(screen.getByRole("button", { name: "刷新" }));
+      expect(await screen.findByText("provider-request-1")).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(detail).toHaveAttribute("aria-expanded", "true");
+      expect(onUnauthorized).not.toHaveBeenCalled();
+    }
   },
 );

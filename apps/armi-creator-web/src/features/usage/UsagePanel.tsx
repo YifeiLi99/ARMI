@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ApiFailure,
   getUsageSummary,
@@ -213,6 +213,7 @@ export function UsagePanel({
   onUnauthorized: () => void;
   onOperation: (id: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const initial = usageRange("month");
   const [range, setRange] = useState(initial);
   const [extra, setExtra] = useState<Record<string, string>>({});
@@ -308,6 +309,11 @@ export function UsagePanel({
           onClick={() => {
             void summary.refetch();
             void calls.refetch();
+            if (selected !== null)
+              void queryClient.invalidateQueries({
+                queryKey: ["usage-call", selected],
+                exact: true,
+              });
           }}
         >
           刷新
