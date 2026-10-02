@@ -1573,6 +1573,33 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(unrelated.status_code, 400)
 
+    def test_oversized_decimal_page_limit_is_rejected_without_server_error(
+        self,
+    ) -> None:
+        with TestClient(
+            self._app(),
+            base_url=f"http://{AUTHORITY}",
+            raise_server_exceptions=False,
+        ) as client:
+            established = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                content=b"",
+            )
+            token = established.json()["browser_session_token"]
+            for path in (
+                "/v1/scenes/default/timeline",
+                "/v1/other-human-records",
+                "/v1/activities",
+            ):
+                with self.subTest(path=path):
+                    response = client.get(
+                        path,
+                        params={"limit": "9" * 5000},
+                        headers=self._browser_headers(token),
+                    )
+                    self.assertEqual(response.status_code, 400)
+
     def test_creator_can_create_select_close_and_reopen_named_scene(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             session = client.post(

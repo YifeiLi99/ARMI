@@ -85,7 +85,10 @@ def _life_query_parameters(
     limit_text = values.get("limit", "50")
     if not limit_text.isascii() or not limit_text.isdecimal():
         raise ContractViolation("CON-PAGE", "page limit is invalid")
-    limit = int(limit_text)
+    try:
+        limit = int(limit_text)
+    except ValueError:
+        raise ContractViolation("CON-PAGE", "page limit is invalid") from None
     if not 1 <= limit <= 100:
         raise ContractViolation("CON-PAGE", "page limit is invalid")
     query_text = values.get("q")

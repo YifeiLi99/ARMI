@@ -74,7 +74,7 @@ def create_record_use_cases(
                 if "cursor" in values
                 else None,
             )
-        except ContractViolation, SceneQueryViolation:
+        except ContractViolation, SceneQueryViolation, ValueError:
             code = "INPUT_CURSOR_INVALID" if "cursor" in values else "INPUT_PAGE_LIMIT"
             return creator_result(status_code=400, content=_rejected(code))
         try:
