@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO, Final, Protocol, Self
+from typing import BinaryIO, Final, Protocol, Self, cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -122,9 +122,11 @@ class _DigestFileLock(AbstractContextManager[None]):
         if self._file is None:
             return False
         try:
-            self._file.seek(0)
-            msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
-            self._file.close()
+            try:
+                self._file.seek(0)
+                msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+            finally:
+                self._file.close()
         except OSError:
             raise ArtifactViolation("ART-LOCK-IO") from None
         finally:
@@ -244,8 +246,9 @@ class ContentAddressedArtifactStore:
         digest = hashlib.sha256()
         byte_size = 0
         file_value: BinaryIO | None = None
+        opening = asyncio.create_task(asyncio.to_thread(stage_path.open, "xb"))
         try:
-            file_value = await asyncio.to_thread(stage_path.open, "xb")
+            file_value = cast(BinaryIO, await asyncio.shield(opening))
             async for chunk in source:
                 if type(chunk) is not bytes or not chunk:
                     raise ArtifactViolation("ART-SOURCE")
@@ -261,6 +264,10 @@ class ContentAddressedArtifactStore:
             await asyncio.to_thread(file_value.close)
             file_value = None
         except BaseException as error:
+            if file_value is None:
+                # Cancelling the waiter does not stop the file-opening thread.
+                with suppress(OSError):
+                    file_value = await opening
             if file_value is not None:
                 with suppress(OSError):
                     await asyncio.to_thread(file_value.close)

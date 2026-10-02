@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import tempfile
+import threading
 import unittest
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import BinaryIO
+from unittest.mock import patch
 from uuid import uuid7
 
+import armi_artifact_store.content_store as content_store
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
     UnregisteredArtifactDisposition,
@@ -123,6 +128,63 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
                 await self.store.stage(source, _policy())
         staging = self.root / "staging"
         self.assertEqual(list(staging.iterdir()), [])
+
+    async def test_cancelled_stage_closes_a_file_whose_open_is_still_pending(
+        self,
+    ) -> None:
+        opened = threading.Event()
+        release = threading.Event()
+        returned = threading.Event()
+        handles: list[BinaryIO] = []
+        original_open = Path.open
+
+        def delayed_open(path: Path, *args, **kwargs):
+            handle = original_open(path, *args, **kwargs)
+            if path.parent == self.root / "staging" and args == ("xb",):
+                handles.append(handle)
+                opened.set()
+                release.wait(timeout=3)
+                returned.set()
+            return handle
+
+        try:
+            with patch.object(Path, "open", delayed_open):
+                task = asyncio.create_task(
+                    self.store.stage(_chunks(b"body"), _policy())
+                )
+                self.assertTrue(await asyncio.to_thread(opened.wait, 2))
+                task.cancel()
+                await asyncio.sleep(0)
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertTrue(await asyncio.to_thread(returned.wait, 2))
+            self.assertTrue(all(handle.closed for handle in handles))
+            self.assertEqual(list((self.root / "staging").iterdir()), [])
+        finally:
+            release.set()
+            for handle in handles:
+                handle.close()
+
+    async def test_failed_unlock_still_closes_the_lock_file(self) -> None:
+        await self.store.prepare()
+        lock = content_store._DigestFileLock(self.root / "locks" / "unlock-test.lock")
+        lock.__enter__()
+        handle = lock._file
+        assert handle is not None
+        try:
+            with (
+                patch.object(
+                    content_store.msvcrt,
+                    "locking",
+                    side_effect=OSError("unlock failed"),
+                ),
+                self.assertRaisesRegex(ArtifactViolation, "ART-LOCK-IO"),
+            ):
+                lock.__exit__(None, None, None)
+            self.assertTrue(handle.closed)
+        finally:
+            handle.close()
 
     async def test_sync_read_and_unregistered_settlement_share_verifier(self) -> None:
         content = b"shared-owner"
