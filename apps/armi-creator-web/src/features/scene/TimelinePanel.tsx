@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 
 import {
   ApiFailure,
@@ -46,6 +47,11 @@ export function TimelinePanel({
       getSceneTimeline(token, sceneKey, 50, pageParam, signal),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
   });
+  const [streamQueryKey, setStreamQueryKey] = useState<QueryKey | null>(null);
+
+  useEffect(() => {
+    if (timeline.isSuccess) setStreamQueryKey(queryKey);
+  }, [timeline.isSuccess, queryKey]);
 
   useEffect(() => {
     if (timeline.error instanceof ApiFailure && timeline.error.status === 401) {
@@ -53,7 +59,8 @@ export function TimelinePanel({
     }
   }, [onUnauthorized, timeline.error]);
   const liveUpdate = useSceneEventStream({
-    enabled: timeline.isSuccess,
+    // Start after the first successful read and stay alive across reloads.
+    enabled: streamQueryKey === queryKey,
     token,
     sceneKey,
     queryClient,
@@ -117,7 +124,9 @@ export function TimelinePanel({
             ? "实时"
             : liveUpdate === "degraded"
               ? "同步重试中"
-              : "连接中"}
+              : liveUpdate === "disconnected"
+                ? "定时刷新"
+                : "连接中"}
         </p>
         <button
           type="button"

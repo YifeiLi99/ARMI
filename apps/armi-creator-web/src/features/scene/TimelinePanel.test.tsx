@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -163,4 +163,63 @@ it("refreshes a reply after effect invalidation when its first read failed", asy
   });
   expect(await screen.findByText("已核验的文字回复")).toBeInTheDocument();
   expect(effectReads).toBe(2);
+});
+
+it("does not restart a rejected stream while its fallback refresh reloads the timeline", async () => {
+  const page = {
+    projection_kind: "scene-timeline",
+    scene_key: "default",
+    items: [],
+    next_cursor: null,
+  };
+  let timelineReads = 0;
+  let streamReads = 0;
+  let finishRefresh!: (response: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.startsWith("/v1/scenes/default/timeline?")) {
+        timelineReads += 1;
+        if (timelineReads === 2) {
+          return new Promise<Response>((resolve) => {
+            finishRefresh = resolve;
+          });
+        }
+        return jsonResponse(page);
+      }
+      if (url === "/v1/scenes/default/events") {
+        streamReads += 1;
+        return streamReads === 1
+          ? jsonResponse({ error: "unsupported stream" })
+          : new Response(new ReadableStream<Uint8Array>(), {
+              headers: { "Content-Type": "text/event-stream" },
+            });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }),
+  );
+  showTimeline();
+  await screen.findByText("正在读取对话…");
+  // Wait for the fallback GET, so its pending state has reached the real panel.
+  await waitFor(() => expect(timelineReads).toBe(2));
+  await act(async () => finishRefresh(jsonResponse(page)));
+  await screen.findByText("开始和 ARMI 对话");
+
+  expect(timelineReads).toBe(2);
+  expect(streamReads).toBe(1);
+  expect(screen.getByText("定时刷新")).toBeInTheDocument();
+});
+
+it("waits for a successful initial timeline read before starting its stream", async () => {
+  const fetchMock = vi.fn<typeof fetch>(async () =>
+    jsonResponse({ status: "unavailable" }, 503),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  showTimeline();
+  await screen.findByText("当前无法读取对话。");
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(String(fetchMock.mock.calls[0]![0])).toMatch(
+    /^\/v1\/scenes\/default\/timeline\?/,
+  );
 });
