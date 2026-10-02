@@ -259,6 +259,28 @@ class NapCatContractTests(unittest.TestCase):
         assert isinstance(parsed, NapCatActionResponse)
         self.assertTrue(parsed.succeeded)
 
+    def test_malformed_action_fields_raise_the_channel_violation(self) -> None:
+        for field, value in (
+            ("status", []),
+            ("status", {}),
+            ("message_id", 0),
+            ("message_id", []),
+            ("message_id", {}),
+        ):
+            document = {
+                "status": value if field == "status" else "ok",
+                "retcode": 0,
+                "data": {"message_id": value if field == "message_id" else 88},
+                "echo": "e1",
+            }
+            with (
+                self.subTest(field=field, value=value),
+                self.assertRaisesRegex(
+                    NapCatViolation, "NAPCAT-ACTION-RESPONSE-INVALID"
+                ),
+            ):
+                parse_onebot_message(json.dumps(document))
+
     def test_parses_friend_private_and_ignores_group_temporary_private(self) -> None:
         base = {
             "time": 1_800_000_000,
@@ -373,6 +395,33 @@ class NapCatContractTests(unittest.TestCase):
                     )
 
         asyncio.run(exercise())
+
+    def test_invalid_http_send_receipt_raises_channel_violation(self) -> None:
+        async def exercise(document: dict[str, object]) -> None:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(
+                    lambda _request: httpx.Response(200, json=document)
+                ),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-" + "token",
+                    client=client,
+                )
+                with self.assertRaisesRegex(
+                    NapCatViolation, "NAPCAT-ACTION-RESPONSE-INVALID"
+                ):
+                    await gateway.send_private_text(
+                        user_id=30003, text="local test", echo="effect:attempt"
+                    )
+
+        for document in (
+            {"status": [], "retcode": 0, "data": {"message_id": 88}},
+            {"status": "ok", "retcode": 0, "data": {"message_id": 0}},
+        ):
+            with self.subTest(document=document):
+                asyncio.run(exercise(document))
 
     def test_protocol_and_decoding_failures_use_existing_failure_contracts(
         self,

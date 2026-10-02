@@ -296,7 +296,8 @@ def _parse_action_response(document: dict[str, Any]) -> NapCatActionResponse:
     echo = document.get("echo")
     data = document.get("data")
     if (
-        status not in {"ok", "failed"}
+        type(status) is not str
+        or status not in {"ok", "failed"}
         or type(retcode) is not int
         or type(echo) is not str
         or not echo
@@ -305,7 +306,10 @@ def _parse_action_response(document: dict[str, Any]) -> NapCatActionResponse:
         raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
     typed_data = cast(dict[str, object], data) if isinstance(data, dict) else None
     raw_message_id = typed_data.get("message_id") if typed_data is not None else None
-    message_id = None if raw_message_id is None else _external_ref(raw_message_id)
+    try:
+        message_id = None if raw_message_id is None else _external_ref(raw_message_id)
+    except ValueError:
+        raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
     return NapCatActionResponse(status, retcode, message_id, echo)
 
 
