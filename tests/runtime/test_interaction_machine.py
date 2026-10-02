@@ -24,6 +24,7 @@ from armi_interaction.api import (
 )
 from armi_kernel.contracts import Digest
 from armi_local_control.binding import InteractionClientBinding
+from armi_local_control.runtime_process import LocalProcessLock
 from armi_runtime import cli
 from armi_runtime.application.creator_contract import Readiness
 from armi_runtime.application.creator_media import CreatorMedia
@@ -160,6 +161,59 @@ def machine(
         creator_media=media,
     )
     return app, binding, secret
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation", ["upload_begin", "upload_append", "upload_cancel"]
+)
+async def test_upload_lock_contention_returns_unavailable_and_allows_retry(
+    tmp_path: Path, operation: str
+) -> None:
+    inputs = AsyncMock()
+    app, binding, _ = machine(tmp_path, writable=True, media_inputs=inputs)
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    arguments = {
+        "file_name": "attachment.txt",
+        "media_type": "text/plain",
+        "byte_size": 3,
+        "content_digest": "sha256:" + hashlib.sha256(b"abc").hexdigest(),
+        "idempotency_key": "contended-upload",
+    }
+    original = None
+    lock_path = tmp_path / "uploads" / "intake.lock"
+    if operation != "upload_begin":
+        begun = await client.invoke("upload_begin", arguments)
+        assert begun["transport_status"] == 200
+        original = begun["result"]
+        arguments = {"upload_id": original["upload_id"]}
+        lock_path = tmp_path / "uploads" / f"{original['upload_id']}.lock"
+        if operation == "upload_append":
+            arguments.update(offset=0, content=base64.b64encode(b"abc").decode())
+
+    with LocalProcessLock(lock_path):
+        outcome = await client.invoke(operation, arguments)
+        assert outcome["transport_status"] == 503
+        assert outcome["status"] == "unavailable"
+        assert outcome["result"] == {"error_code": "UPLOAD-UNAVAILABLE"}
+        if original is None:
+            assert not list((tmp_path / "uploads").glob("*.json"))
+        else:
+            current = await client.invoke(
+                "upload_get", {"upload_id": original["upload_id"]}
+            )
+            assert current["result"] == original
+
+    retried = await client.invoke(operation, arguments)
+    assert retried["transport_status"] == 200
+    assert retried["status"] == "returned"
+    assert retried["result"]["state"] == (
+        "cancelled" if operation == "upload_cancel" else "receiving"
+    )
+    assert retried["result"]["received_bytes"] == (
+        3 if operation == "upload_append" else 0
+    )
+    assert inputs.accept_media.call_count == 0
 
 
 @pytest.mark.asyncio

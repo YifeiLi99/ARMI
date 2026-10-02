@@ -12,6 +12,7 @@ from typing import Literal, Self
 from uuid import UUID, uuid7
 from weakref import WeakValueDictionary
 
+from armi_local_control import RuntimeViolation
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.runtime_process import LocalProcessLock
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -182,7 +183,7 @@ async def invoke_upload(
         return InteractionResult("rejected", {"error_code": str(error)}, 409)
     except ValidationError, ValueError:
         return InteractionResult("rejected", {"error_code": "UPLOAD-ARGUMENTS"}, 400)
-    except ArtifactViolation, RuntimeTransactionFailure, OSError:
+    except ArtifactViolation, RuntimeTransactionFailure, RuntimeViolation, OSError:
         return InteractionResult(
             "unavailable", {"error_code": "UPLOAD-UNAVAILABLE"}, 503
         )
