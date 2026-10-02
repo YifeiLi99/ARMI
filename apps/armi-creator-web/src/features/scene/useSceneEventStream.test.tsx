@@ -82,45 +82,48 @@ it("hands 401 to the authentication owner without reconnecting", async () => {
   expect(consumeMock).toHaveBeenCalledTimes(1);
 });
 
-it("keeps polling when the first refresh after a stream failure also fails", async () => {
-  vi.useFakeTimers();
-  consumeMock.mockRejectedValue(new EventStreamFailure("content-type"));
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  let attempts = 0;
-  const observer = new QueryObserver(client, {
-    queryKey: ["activities", "creator"],
-    queryFn: async () => {
-      attempts += 1;
-      if (attempts === 2) {
-        throw new TypeError("network unavailable during fallback refresh");
-      }
-      return { items: [attempts] };
-    },
-  });
-  const unsubscribe = observer.subscribe(NOOP);
-  try {
-    await act(async () => Promise.resolve());
-    expect(attempts).toBe(1);
-    render(<StreamHarness client={client} />);
-    await act(async () => Promise.resolve());
-
-    expect(attempts).toBe(2);
-    expect(screen.getByTestId("stream-state").getAttribute("data-state")).toBe(
-      "disconnected",
-    );
-    await act(async () => vi.advanceTimersByTimeAsync(10_000));
-    expect(attempts).toBe(3);
-    expect(client.getQueryData(["activities", "creator"])).toEqual({
-      items: [3],
+it.each(["activities", "data-rights-orders"])(
+  "keeps polling %s when the first refresh after a stream failure also fails",
+  async (prefix) => {
+    vi.useFakeTimers();
+    consumeMock.mockRejectedValue(new EventStreamFailure("content-type"));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
     });
-    expect(consumeMock).toHaveBeenCalledTimes(1);
-  } finally {
-    unsubscribe();
-    client.clear();
-  }
-});
+    let attempts = 0;
+    const observer = new QueryObserver(client, {
+      queryKey: [prefix, "creator"],
+      queryFn: async () => {
+        attempts += 1;
+        if (attempts === 2) {
+          throw new TypeError("network unavailable during fallback refresh");
+        }
+        return { items: [attempts] };
+      },
+    });
+    const unsubscribe = observer.subscribe(NOOP);
+    try {
+      await act(async () => Promise.resolve());
+      expect(attempts).toBe(1);
+      render(<StreamHarness client={client} />);
+      await act(async () => Promise.resolve());
+
+      expect(attempts).toBe(2);
+      expect(
+        screen.getByTestId("stream-state").getAttribute("data-state"),
+      ).toBe("disconnected");
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(attempts).toBe(3);
+      expect(client.getQueryData([prefix, "creator"])).toEqual({
+        items: [3],
+      });
+      expect(consumeMock).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
+  },
+);
 
 it("hands a 401 during the fallback refresh to the authentication owner", async () => {
   consumeMock.mockRejectedValue(new EventStreamFailure("content-type"));

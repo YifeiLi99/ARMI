@@ -353,6 +353,7 @@ export function useSceneEventStream({
             "other-human-record-parties",
             "other-human-record-scenes",
             "other-human-record-timeline",
+            "data-rights-orders",
           ].includes(String(query.queryKey[0])),
       });
     }, POLLING_MILLISECONDS);
