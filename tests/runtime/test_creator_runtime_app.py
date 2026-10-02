@@ -2152,6 +2152,33 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(stale.json()["error"]["code"], "CONFLICT_EVENT_GAP")
         self.assertEqual(invisible.status_code, 404)
 
+    def test_event_stream_rejects_oversized_resume_sequence_as_a_gap(self) -> None:
+        with TestClient(
+            self._app(),
+            base_url=f"http://{AUTHORITY}",
+            raise_server_exceptions=False,
+        ) as client:
+            session = client.post(
+                "/v1/browser-sessions",
+                headers=self._browser_headers(),
+                content=b"",
+            )
+            token = session.json()["browser_session_token"]
+            for epoch in (self.events.epoch, "A" * 22):
+                with self.subTest(epoch=epoch):
+                    response = client.get(
+                        "/v1/scenes/default/events",
+                        headers={
+                            **self._browser_headers(token),
+                            "Accept": "text/event-stream",
+                            "Last-Event-ID": f"sse-v1.{epoch}.{'9' * 5000}",
+                        },
+                    )
+                    self.assertEqual(response.status_code, 409)
+                    self.assertEqual(
+                        response.json()["error"]["code"], "CONFLICT_EVENT_GAP"
+                    )
+
     def test_host_fetch_origin_preflight_and_creator_route_matrix(self) -> None:
         ignored_body = {"ignored": "value"}
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

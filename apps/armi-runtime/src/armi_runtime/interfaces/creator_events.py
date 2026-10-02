@@ -248,13 +248,21 @@ class CreatorEventBroker:
                 status_code=400,
             )
         epoch, sequence_text = match.groups()
-        sequence = int(sequence_text)
-        if epoch != self._epoch or sequence > self._sequence:
+        current_sequence_text = str(self._sequence)
+        if (
+            epoch != self._epoch
+            or len(sequence_text) > len(current_sequence_text)
+            or (
+                len(sequence_text) == len(current_sequence_text)
+                and sequence_text > current_sequence_text
+            )
+        ):
             self._diagnostic("creator.event_stream.gap")
             raise CreatorEventBrokerViolation(
                 "CONFLICT_EVENT_GAP",
                 status_code=409,
             )
+        sequence = int(sequence_text)
         earliest = self._replay[0].sequence if self._replay else self._sequence + 1
         if sequence < earliest - 1:
             self._diagnostic("creator.event_stream.gap")
