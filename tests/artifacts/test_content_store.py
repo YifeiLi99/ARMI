@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid7
 
 import armi_artifact_store.content_store as content_store
@@ -340,6 +340,132 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 release.set()
                 await blocker
+
+    async def test_cancelled_publication_finishes_queued_unlock(self) -> None:
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        settling = asyncio.Event()
+        release = threading.Event()
+        blocker: asyncio.Future[None] | None = None
+        handles: list[BinaryIO] = []
+        original_open = Path.open
+        catalog = MagicMock()
+        store = ContentAddressedArtifactStore(
+            self.root,
+            max_object_bytes=16,
+            publication_catalog=catalog,
+            publication_uow_factory=MagicMock(),
+        )
+        staged = await store.stage(_chunks(b"published"), _policy())
+        publication = ArtifactPublication(
+            staged.stage_id,
+            uuid7(),
+            1,
+            staged.content_digest,
+            staged.byte_size,
+            staged.policy,
+        )
+
+        def busy_worker() -> None:
+            loop.call_soon_threadsafe(started.set)
+            release.wait(timeout=3)
+
+        def track_open(path: Path, *args, **kwargs):
+            handle = original_open(path, *args, **kwargs)
+            if path.parent == self.root / "locks" and args == ("a+b",):
+                handles.append(handle)
+            return handle
+
+        async def settle(*_args) -> None:
+            nonlocal blocker
+            blocker = loop.run_in_executor(None, busy_worker)
+            await started.wait()
+            settling.set()
+
+        catalog.reserve_publication = AsyncMock(return_value=publication)
+        catalog.mark_publication_published = AsyncMock(side_effect=settle)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            loop.set_default_executor(executor)
+            try:
+                with patch.object(Path, "open", track_open):
+                    task = asyncio.create_task(store.publish(staged))
+                    await asyncio.wait_for(settling.wait(), timeout=2)
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    task.cancel()
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                if blocker is not None:
+                    await blocker
+                self.assertEqual(len(handles), 1)
+                self.assertTrue(handles[0].closed)
+                self.assertTrue(
+                    await store.publication_object_exists(
+                        staged.content_digest, staged.byte_size
+                    )
+                )
+            finally:
+                release.set()
+                if blocker is not None:
+                    await blocker
+                for handle in handles:
+                    handle.close()
+
+    async def test_cancelled_publication_releases_pending_lock(self) -> None:
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        release = threading.Event()
+        returned = threading.Event()
+        handles: list[BinaryIO] = []
+        factory = MagicMock()
+        store = ContentAddressedArtifactStore(
+            self.root,
+            max_object_bytes=16,
+            publication_catalog=MagicMock(),
+            publication_uow_factory=factory,
+        )
+        staged = await store.stage(_chunks(b"not-published"), _policy())
+        lock = store._digest_lock(staged.content_digest.value.removeprefix("sha256:"))
+        original_enter = content_store._DigestFileLock.__enter__
+
+        def delayed_enter(current) -> None:
+            loop.call_soon_threadsafe(started.set)
+            release.wait(timeout=3)
+            try:
+                original_enter(current)
+                handles.append(current._file)
+            finally:
+                returned.set()
+
+        with (
+            ThreadPoolExecutor(max_workers=2) as executor,
+            patch.object(
+                ContentAddressedArtifactStore, "_digest_lock", return_value=lock
+            ),
+            patch.object(content_store._DigestFileLock, "__enter__", delayed_enter),
+        ):
+            loop.set_default_executor(executor)
+            task = asyncio.create_task(store.publish(staged))
+            try:
+                await asyncio.wait_for(started.wait(), timeout=2)
+                task.cancel()
+                await asyncio.sleep(0)
+                task.cancel()
+                await asyncio.sleep(0)
+                await asyncio.to_thread(lambda: None)
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertTrue(await asyncio.to_thread(returned.wait, 2))
+                self.assertEqual(len(handles), 1)
+                self.assertTrue(handles[0].closed)
+                self.assertEqual(factory.unit_of_work.call_count, 0)
+            finally:
+                release.set()
+                await asyncio.gather(task, return_exceptions=True)
+                await asyncio.to_thread(returned.wait, 2)
+                lock.__exit__(None, None, None)
 
     async def test_sync_read_and_unregistered_settlement_share_verifier(self) -> None:
         content = b"shared-owner"

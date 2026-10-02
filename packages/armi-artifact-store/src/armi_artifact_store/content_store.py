@@ -372,15 +372,27 @@ class ContentAddressedArtifactStore:
             self._staged.pop(staged.stage_id, None)
             raise ArtifactViolation("ART-PUBLISH-IO") from None
         finally:
+
+            async def release_after_io() -> None:
+                try:
+                    # File threads must finish before their lock can be released.
+                    with suppress(ArtifactViolation):
+                        await locking
+                    if publishing is not None:
+                        with suppress(ArtifactViolation, OSError):
+                            await publishing
+                finally:
+                    await asyncio.to_thread(digest_lock.__exit__, None, None, None)
+
+            releasing = asyncio.create_task(release_after_io())
             try:
-                # Cancellation cannot stop these threads; finish them before unlocking.
-                with suppress(ArtifactViolation):
-                    await locking
-                if publishing is not None:
-                    with suppress(ArtifactViolation, OSError):
-                        await publishing
-            finally:
-                await asyncio.to_thread(digest_lock.__exit__, None, None, None)
+                await asyncio.shield(releasing)
+            except asyncio.CancelledError:
+                while not releasing.done():
+                    with suppress(asyncio.CancelledError):
+                        await asyncio.shield(releasing)
+                releasing.result()
+                raise
         self._staged.pop(staged.stage_id, None)
         return publication
 
