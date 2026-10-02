@@ -49,7 +49,6 @@ export function QQChannelHealthCard({
   });
   const control = useMutation({
     mutationFn: (enabled: boolean) => setQQChannelEnabled(token, enabled),
-    onSuccess: (value) => queryClient.setQueryData(queryKey, value),
   });
 
   useEffect(() => {
@@ -91,7 +90,11 @@ export function QQChannelHealthCard({
             checked={health.data?.enabled ?? false}
             disabled={!health.data?.configured}
             pending={control.isPending}
-            onChange={(enabled) => control.mutate(enabled)}
+            onChange={(enabled) =>
+              control.mutate(enabled, {
+                onSuccess: (value) => queryClient.setQueryData(queryKey, value),
+              })
+            }
           />
         </div>
       </div>

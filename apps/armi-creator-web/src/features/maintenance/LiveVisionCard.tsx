@@ -81,8 +81,6 @@ function VisionSourcePanel({
   const control = useMutation({
     mutationFn: (action: "start" | "stop") =>
       controlLiveVision(token, source, action),
-    onSuccess: (value) =>
-      queryClient.setQueryData(["live-vision-status"], value),
   });
   const manual = useMutation({
     mutationFn: () => observeLiveVision(token, source, createCreatorInputKey()),
@@ -154,7 +152,12 @@ function VisionSourcePanel({
             checked={active}
             disabled={!status.enabled}
             pending={control.isPending}
-            onChange={(running) => control.mutate(running ? "start" : "stop")}
+            onChange={(running) =>
+              control.mutate(running ? "start" : "stop", {
+                onSuccess: (value) =>
+                  queryClient.setQueryData(["live-vision-status"], value),
+              })
+            }
           />
         </div>
       </div>

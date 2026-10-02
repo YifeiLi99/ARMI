@@ -41,7 +41,6 @@ export function LiveVoiceCard({ token, onUnauthorized }: LiveVoiceCardProps) {
   });
   const control = useMutation({
     mutationFn: (running: boolean) => setLiveVoiceRunning(token, running),
-    onSuccess: (value) => queryClient.setQueryData(queryKey, value),
   });
 
   useEffect(() => {
@@ -78,7 +77,12 @@ export function LiveVoiceCard({ token, onUnauthorized }: LiveVoiceCardProps) {
             checked={active}
             disabled={!status.data?.enabled || (!active && !canStart)}
             pending={control.isPending}
-            onChange={(running) => control.mutate(running)}
+            onChange={(running) =>
+              control.mutate(running, {
+                // Only the card that submitted the control may update its view.
+                onSuccess: (value) => queryClient.setQueryData(queryKey, value),
+              })
+            }
           />
         </div>
       </div>
