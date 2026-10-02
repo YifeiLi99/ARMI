@@ -82,6 +82,36 @@ def test_http_evidence_survives_logging_and_query(tmp_path: Path, status: int) -
     assert detail["next_operations"][0]["arguments"] == {"episode_id": "episode"}
 
 
+@pytest.mark.parametrize("authority", ["127.0.0.1:6198", "[::1]:6198"])
+def test_http_evidence_preserves_endpoint_without_url_secrets(
+    tmp_path: Path, authority: str
+) -> None:
+    sink = DiagnosticLog(data_root=tmp_path, environment_id="env", instance_id="run")
+    request = httpx.Request(
+        "POST",
+        httpx.URL(
+            f"http://{authority}/api",
+            userinfo=b"fixture-user:fixture-password",
+            query=b"token=fixture-token",
+            fragment="private",
+        ),
+    )
+    error = httpx.ConnectError("connection refused", request=request)
+    sink.write("transport.failed", error=error)
+    sink.close()
+    reader = DiagnosticQuery((tmp_path / "logs",), environment_id="env")
+    page = reader.query()
+    detail = json.loads(json.dumps(reader.read(str(page["items"][0]["log_ref"]))))
+    assert (
+        detail["record"]["exception"]["chain"][0]["target"] == f"http://{authority}/api"
+    )
+    serialized = json.dumps(detail)
+    assert not any(
+        secret in serialized
+        for secret in ("fixture-user", "fixture-password", "fixture-token", "#private")
+    )
+
+
 def test_snapshot_survives_append_and_rotation(tmp_path: Path) -> None:
     sink = DiagnosticLog(
         data_root=tmp_path,

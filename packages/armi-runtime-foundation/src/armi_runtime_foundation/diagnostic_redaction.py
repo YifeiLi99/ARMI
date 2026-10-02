@@ -34,7 +34,11 @@ def safe_text(value: str, limit: int = 16384) -> str:
     def clean_url(match: re.Match[str]) -> str:
         try:
             url = urlsplit(match.group())
-            return urlunsplit((url.scheme, url.hostname or "", url.path, "", ""))
+            hostname = url.hostname or ""
+            authority = f"[{hostname}]" if ":" in hostname else hostname
+            if url.port is not None:
+                authority += f":{url.port}"
+            return urlunsplit((url.scheme, authority, url.path, "", ""))
         except ValueError:
             return "[INVALID-URL]"
 

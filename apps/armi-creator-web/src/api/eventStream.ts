@@ -158,9 +158,6 @@ export async function* parseCreatorEventStream(
   try {
     for await (const chunk of chunks) {
       buffered += decoder.decode(chunk, { stream: true });
-      if (buffered.length > MAX_EVENT_BYTES * 2) {
-        throw new EventStreamFailure("syntax");
-      }
       while (true) {
         const newline = buffered.indexOf("\n");
         if (newline < 0) {
@@ -186,6 +183,10 @@ export async function* parseCreatorEventStream(
           acceptField(pending, line);
         }
       }
+      // Network chunks may contain many valid frames; bound only the unfinished line.
+      if (buffered.length > MAX_EVENT_BYTES * 2) {
+        throw new EventStreamFailure("syntax");
+      }
     }
     buffered += decoder.decode();
   } catch (error) {
@@ -201,7 +202,7 @@ async function* responseChunks(
   signal: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
   const reader = body.getReader();
-  const abort = () => void reader.cancel();
+  const abort = () => void reader.cancel().catch(() => {});
   signal.addEventListener("abort", abort, { once: true });
   try {
     while (!signal.aborted) {
@@ -240,20 +241,25 @@ export async function consumeCreatorEventStream(
       signal,
     },
   );
-  if (!response.ok) {
-    throw new EventStreamFailure("http", response.status);
-  }
-  if (
-    response.body === null ||
-    !response.headers.get("content-type")?.startsWith("text/event-stream")
-  ) {
-    throw new EventStreamFailure("content-type");
-  }
-  onConnected();
-  for await (const event of parseCreatorEventStream(
-    responseChunks(response.body, signal),
-  )) {
-    await onEvent(event);
+  try {
+    if (!response.ok) {
+      throw new EventStreamFailure("http", response.status);
+    }
+    if (
+      response.body === null ||
+      !response.headers.get("content-type")?.startsWith("text/event-stream")
+    ) {
+      throw new EventStreamFailure("content-type");
+    }
+    onConnected();
+    for await (const event of parseCreatorEventStream(
+      responseChunks(response.body, signal),
+    )) {
+      await onEvent(event);
+    }
+  } finally {
+    // Releasing the reader's lock alone leaves an unfinished HTTP stream open.
+    await response.body?.cancel().catch(() => {});
   }
 }
 

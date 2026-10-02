@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   compareEventIds,
+  consumeCreatorEventStream,
   EventStreamFailure,
   parseCreatorEventStream,
 } from "./eventStream";
@@ -31,6 +32,10 @@ async function read(values: Uint8Array[]): Promise<string[]> {
   }
   return found;
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("authenticated Creator event stream parser", () => {
   it.each([
@@ -123,6 +128,71 @@ describe("authenticated Creator event stream parser", () => {
       EVENT_ID,
     ]);
   });
+
+  it("accepts many complete events coalesced into one network chunk", async () => {
+    const ids = Array.from(
+      { length: 40 },
+      (_, index) => `sse-v1.${EPOCH}.${index + 1}`,
+    );
+    const frames = ids.map((id) => FRAME.replaceAll(EVENT_ID, id)).join("");
+    const encoded = new TextEncoder().encode(frames);
+    expect(encoded.byteLength).toBeGreaterThan(8192);
+    await expect(read([encoded])).resolves.toEqual(ids);
+  });
+
+  it("still rejects oversized complete and unterminated lines", async () => {
+    await expect(
+      read([new TextEncoder().encode(":" + "x".repeat(8192) + "\n\n")]),
+    ).rejects.toMatchObject({ kind: "syntax" });
+    await expect(
+      read([
+        new TextEncoder().encode("x".repeat(4096)),
+        new TextEncoder().encode("x".repeat(4097)),
+      ]),
+    ).rejects.toMatchObject({ kind: "syntax" });
+  });
+
+  it.each(["parser", "handler"])(
+    "cancels the response body when the %s fails",
+    async (failure) => {
+      const cancel = vi.fn();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              failure === "parser" ? "future: value\n\n" : FRAME,
+            ),
+          );
+        },
+        cancel,
+      });
+      const fetch = vi.fn();
+      fetch.mockResolvedValue(
+        new Response(body, {
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const handlerError = new Error("refresh failed");
+      const consume = consumeCreatorEventStream(
+        "test-token",
+        "default",
+        undefined,
+        new AbortController().signal,
+        () => {},
+        async () => {
+          throw handlerError;
+        },
+      );
+      if (failure === "parser") {
+        await expect(consume).rejects.toMatchObject({ kind: "syntax" });
+      } else {
+        await expect(consume).rejects.toBe(handlerError);
+      }
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+    },
+  );
 
   it("rejects duplicate fields, unknown fields, mismatches, and invalid UTF-8", async () => {
     const invalid = [
