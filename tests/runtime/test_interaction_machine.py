@@ -9,6 +9,7 @@ import io
 import json
 from pathlib import Path
 from typing import Never
+from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import httpx
@@ -25,7 +26,9 @@ from armi_kernel.contracts import Digest
 from armi_local_control.binding import InteractionClientBinding
 from armi_runtime import cli
 from armi_runtime.application.creator_contract import Readiness
+from armi_runtime.application.creator_media import CreatorMedia
 from armi_runtime.application.interaction_catalog import interaction_routes
+from armi_runtime.application.media_uploads import MediaUploads, UploadRecord
 from armi_runtime.interaction_client import InteractionClient
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import create_runtime_app
@@ -87,6 +90,7 @@ def machine(
     writable: bool = False,
     effect_ledger=None,
     browser: bool = False,
+    media_inputs=None,
 ):
     environment_id, creator_id, delegate_id = uuid7(), uuid7(), uuid7()
     secrets = tmp_path / "secrets"
@@ -120,6 +124,17 @@ def machine(
             "endpoint": "http://127.0.0.1:6198",
         }
     )
+    uploads = None
+    media = None
+    if media_inputs is not None:
+
+        async def unused_publication(_record: UploadRecord, _path: Path) -> Never:
+            raise AssertionError("This test must not publish an incomplete upload")
+
+        uploads = MediaUploads(
+            tmp_path / "uploads", environment_id, uuid7(), unused_publication
+        )
+        media = CreatorMedia(uploads, media_inputs)
     app = create_runtime_app(
         readiness=lambda: Readiness.READY,
         runtime_status=unused_provider,
@@ -141,8 +156,60 @@ def machine(
         machine_creator_party_id=creator_id,
         creator_input=creator_input,
         effect_ledger=effect_ledger,
+        media_uploads=uploads,
+        creator_media=media,
     )
     return app, binding, secret
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upload_state", ["missing", "receiving", "cancelled"])
+async def test_attachment_upload_failures_return_rejected_outcomes(
+    tmp_path: Path, upload_state: str
+) -> None:
+    inputs = AsyncMock()
+    app, binding, _ = machine(tmp_path, writable=True, media_inputs=inputs)
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    upload_id = str(uuid7())
+    if upload_state != "missing":
+        begun = await client.invoke(
+            "upload_begin",
+            {
+                "file_name": "attachment.txt",
+                "media_type": "text/plain",
+                "byte_size": 3,
+                "content_digest": "sha256:" + hashlib.sha256(b"abc").hexdigest(),
+                "idempotency_key": "attachment-upload",
+            },
+        )
+        assert begun["transport_status"] == 200
+        upload_id = begun["result"]["upload_id"]
+        if upload_state == "cancelled":
+            cancelled = await client.invoke("upload_cancel", {"upload_id": upload_id})
+            assert cancelled["result"]["state"] == "cancelled"
+
+    arguments = {
+        "scene_key": "default",
+        "message": "read this attachment",
+        "idempotency_key": "attachment-message",
+        "attachments": [upload_id],
+    }
+    response = await client.invoke("message_send", arguments)
+    assert response["transport_status"] == 409
+    assert response["status"] == "rejected"
+    assert response["result"]["status"] == "rejected"
+    assert response["result"]["error"]["category"] == "input"
+    assert response["result"]["error"]["code"] == (
+        "INPUT_UPLOAD_NOT_FOUND"
+        if upload_state == "missing"
+        else "INPUT_UPLOAD_NOT_COMPLETE"
+    )
+    result = await InteractionTools(lambda: client).call_tool("message_send", arguments)
+    assert result.is_error
+    assert result.structured_content is not None
+    assert result.structured_content["transport_status"] == 409
+    assert result.structured_content["result"]["error"] == response["result"]["error"]
+    inputs.accept_media.assert_not_awaited()
 
 
 @pytest.mark.asyncio

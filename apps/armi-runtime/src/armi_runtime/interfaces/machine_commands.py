@@ -163,7 +163,7 @@ async def invoke_command(
     except UnicodeDecodeError:
         status, content = 503, _unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE")
     except UploadViolation as error:
-        status, content = 409, _rejected(str(error))
+        status, content = 409, _rejected("INPUT_" + str(error).replace("-", "_"))
     except CreatorInputViolation as error:
         status, content = _input_failure(error)
     except ContractViolation:
