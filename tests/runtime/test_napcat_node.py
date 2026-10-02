@@ -130,3 +130,36 @@ def test_account_discovery_authenticates_and_requires_online_login(
     with patch.object(node_module.httpx, "Client", return_value=client):
         assert node.login_account() == expected
     assert ("/api/QQLogin/GetQQLoginInfo" in paths) is online
+
+
+@pytest.mark.parametrize("body", [b"[]", b"not json"])
+@pytest.mark.parametrize(
+    "route", ["auth/login", "QQLogin/CheckLoginStatus", "QQLogin/GetQQLoginInfo"]
+)
+def test_account_discovery_reports_invalid_webui_responses(tmp_path, route, body):
+    node = NapCatNode(tmp_path)
+    config = node.root / "config"
+    config.mkdir(parents=True)
+    (config / "webui.json").write_text(
+        json.dumps({"host": "127.0.0.1", "port": 3001, "token": "local-test-token"})
+    )
+
+    def respond(request):
+        if request.url.path == f"/api/{route}":
+            return httpx.Response(200, content=body)
+        data = {
+            "/api/auth/login": {"Credential": "test-session"},
+            "/api/QQLogin/CheckLoginStatus": {"isLogin": True},
+            "/api/QQLogin/GetQQLoginInfo": {"online": True, "uin": "12345"},
+        }[request.url.path]
+        return httpx.Response(200, json={"code": 0, "data": data})
+
+    client = httpx.Client(
+        base_url="http://127.0.0.1:3001/api/", transport=httpx.MockTransport(respond)
+    )
+    with (
+        patch.object(node_module.httpx, "Client", return_value=client),
+        pytest.raises(RuntimeViolation, match="NAPCAT-LOGIN-RESPONSE"),
+    ):
+        node.login_account()
+    assert client.is_closed

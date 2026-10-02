@@ -14,7 +14,7 @@ import time
 import zipfile
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -146,12 +146,18 @@ class NapCatNode:
                 def post(route: str, payload: dict[str, str]) -> dict[str, Any]:
                     response = client.post(route, json=payload)
                     response.raise_for_status()
-                    value = response.json()
-                    if value.get("code") != 0 or not isinstance(
-                        value.get("data"), dict
+                    try:
+                        value = response.json()
+                    except ValueError:
+                        raise _fail("LOGIN-RESPONSE") from None
+                    if not isinstance(value, dict):
+                        raise _fail("LOGIN-RESPONSE")
+                    document = cast(dict[str, Any], value)
+                    if document.get("code") != 0 or not isinstance(
+                        document.get("data"), dict
                     ):
                         raise _fail("LOGIN-RESPONSE")
-                    return value["data"]
+                    return document["data"]
 
                 auth = post(
                     "auth/login",
