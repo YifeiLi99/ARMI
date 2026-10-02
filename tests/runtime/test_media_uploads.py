@@ -199,6 +199,42 @@ async def test_publication_reply_loss_resumes_with_same_owner_identity(tmp_path)
     assert published == {record.upload_id}
 
 
+async def test_completed_upload_retry_cleans_transport_file_without_republishing(
+    tmp_path, monkeypatch
+):
+    publications = []
+
+    async def publish(record, path):
+        publications.append(record.upload_id)
+        return record.upload_id
+
+    environment, subject, creator, delegate = (uuid7() for _ in range(4))
+    uploads = MediaUploads(tmp_path, environment, subject, publish)
+    record = await uploads.begin(creator, delegate, "cleanup", declaration(b"abc"))
+    await uploads.append(record.upload_id, creator, delegate, 0, b"abc")
+    transport_file = tmp_path / f"{record.upload_id}.part"
+    original_unlink = Path.unlink
+
+    def temporarily_locked(path, *args, **kwargs):
+        if path == transport_file:
+            raise PermissionError("transport file is temporarily in use")
+        return original_unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", temporarily_locked)
+        with pytest.raises(PermissionError):
+            await uploads.complete(record.upload_id, creator, delegate)
+    assert transport_file.read_bytes() == b"abc"
+    assert (await uploads.get(record.upload_id, creator, delegate)).state == "completed"
+
+    uploads = MediaUploads(tmp_path, environment, subject, publish)
+    assert (
+        await uploads.complete(record.upload_id, creator, delegate)
+    ).state == "completed"
+    assert publications == [record.upload_id]
+    assert not transport_file.exists()
+
+
 @pytest.mark.parametrize("failure", ["failed", "unknown"])
 async def test_media_operation_exposes_work_failure_without_waiting_forever(failure):
     from unittest.mock import AsyncMock

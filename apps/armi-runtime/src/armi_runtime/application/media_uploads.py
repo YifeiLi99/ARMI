@@ -385,6 +385,10 @@ class MediaUploads:
                 self._prepare_publication, upload_id, creator, delegate
             )
             if record.state == "completed":
+                # Publication may have settled before interrupted transport cleanup.
+                await asyncio.to_thread(
+                    self._path(upload_id, ".part").unlink, missing_ok=True
+                )
                 return record
             artifact_id = await self.publish(record, self._path(upload_id, ".part"))
             record.artifact_id = artifact_id
