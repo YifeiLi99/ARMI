@@ -90,6 +90,7 @@ class RuntimeAdminControlServer:
     __slots__ = (
         "_advance_test_time",
         "_armed_faults",
+        "_closing",
         "_data_deletion",
         "_descriptor",
         "_environment_id",
@@ -101,6 +102,7 @@ class RuntimeAdminControlServer:
         "_on_status",
         "_on_stop",
         "_other_human",
+        "_receiving",
         "_run_root",
         "_server",
         "_test_controls_enabled",
@@ -145,6 +147,8 @@ class RuntimeAdminControlServer:
         self._voice = on_voice
         self._vision = on_vision
         self._server: asyncio.AbstractServer | None = None
+        self._closing = False
+        self._receiving: set[asyncio.StreamWriter] = set()
         self._token = ""
         self._armed_faults: dict[str, datetime] = {}
         self._test_controls_enabled = test_controls_enabled
@@ -182,6 +186,7 @@ class RuntimeAdminControlServer:
         digest = f"sha256:{hashlib.sha256(self._token.encode('ascii')).hexdigest()}"
         if digest != manifest["token_digest"]:
             raise RuntimeAdminControlError("ADMIN-CONTROL-TOKEN")
+        self._closing = False
         self._server = await asyncio.start_server(
             self._handle, "127.0.0.1", 0, limit=_MAX_REQUEST
         )
@@ -203,8 +208,12 @@ class RuntimeAdminControlServer:
         )
 
     async def close(self) -> None:
+        self._closing = True
         if self._server is not None:
             self._server.close()
+            # Incomplete frames cannot hold shutdown open; dispatched calls finish.
+            for writer in tuple(self._receiving):
+                writer.close()
             await self._server.wait_closed()
             self._server = None
         self._descriptor.unlink(missing_ok=True)
@@ -217,12 +226,18 @@ class RuntimeAdminControlServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         request: dict[str, Any] = {}
+        self._receiving.add(writer)
         try:
+            if self._closing:
+                return
             try:
                 size = struct.unpack(">I", await reader.readexactly(4))[0]
                 if size < 2 or size > _MAX_REQUEST:
                     raise RuntimeAdminControlError("ADMIN-CONTROL-REQUEST-SIZE")
                 request = _strict_json(await reader.readexactly(size))
+                if self._closing:
+                    return
+                self._receiving.discard(writer)
                 response = await self._dispatch(request)
             except RuntimeAdminControlError as error:
                 response = {
@@ -255,6 +270,8 @@ class RuntimeAdminControlServer:
                     "status": "rejected",
                     "error_code": "ADMIN-CONTROL-PROTOCOL",
                 }
+            if writer.is_closing():
+                return
             encoded = json.dumps(
                 response, ensure_ascii=False, separators=(",", ":"), sort_keys=True
             ).encode("utf-8")
@@ -262,6 +279,7 @@ class RuntimeAdminControlServer:
                 writer.write(struct.pack(">I", len(encoded)) + encoded)
                 await writer.drain()
         finally:
+            self._receiving.discard(writer)
             writer.close()
             with suppress(ConnectionError):
                 await writer.wait_closed()

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
 
+import pytest
 from armi_admin.application import (
     AdminConfig,
     AdminControlPlane,
@@ -31,6 +32,204 @@ from armi_runtime.composition.admin_control import (
 ENVIRONMENT_ID = "018f3f4a-7b8c-7def-8abc-1234567890ab"
 DIGEST = "sha256:" + "1" * 64
 SOURCE_ROOT = admin_program_identity()["source_root"]
+
+
+def _control_manifest(tmp_path: Path) -> str:
+    token = "a" * 43
+    digest = f"sha256:{hashlib.sha256(token.encode()).hexdigest()}"
+    (tmp_path / "runtime-control.token").write_text(token, encoding="utf-8")
+    (tmp_path / "runtime-control.manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_kind": "armi.runtime-admin-control",
+                "environment_id": ENVIRONMENT_ID,
+                "incarnation": 3,
+                "descriptor": "runtime-control.json",
+                "token": "runtime-control.token",
+                "token_digest": digest,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return token
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("partial", "delayed"),
+    [
+        (b"", False),
+        (b"\x00\x00", False),
+        (struct.pack(">I", 100) + b"{", False),
+        (b"", True),
+        (None, False),
+    ],
+    ids=[
+        "idle",
+        "partial_header",
+        "partial_body",
+        "accepted_before_close",
+        "received_before_close",
+    ],
+)
+async def test_control_shutdown_closes_requests_that_have_not_started(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    partial: bytes | None,
+    delayed: bool,
+) -> None:
+    token = _control_manifest(tmp_path)
+    entered = asyncio.Event()
+    finished = asyncio.Event()
+    resume_handler = asyncio.Event()
+    body_received = asyncio.Event()
+    failures: list[Exception] = []
+    handle = RuntimeAdminControlServer._handle
+
+    async def observe_connection(
+        self: RuntimeAdminControlServer,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        entered.set()
+        try:
+            if delayed:
+                await resume_handler.wait()
+            if partial is None:
+                read = reader.readexactly
+
+                async def hold_body(size: int) -> bytes:
+                    data = await read(size)
+                    if size != 4:
+                        body_received.set()
+                        await resume_handler.wait()
+                    return data
+
+                monkeypatch.setattr(reader, "readexactly", hold_body)
+            await handle(self, reader, writer)
+        except Exception as error:
+            failures.append(error)
+            raise
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(RuntimeAdminControlServer, "_handle", observe_connection)
+    status = Mock(return_value={"runtime_state": "ready"})
+    server = RuntimeAdminControlServer(
+        run_root=tmp_path,
+        environment_id=ENVIRONMENT_ID,
+        incarnation=3,
+        instance_id="0198f3f4-7b8c-7def-8abc-1234567890ab",
+        on_status=status,
+        on_drain=lambda: None,
+        on_stop=lambda: None,
+        on_input=None,
+    )
+    await server.start()
+    descriptor = json.loads((tmp_path / "runtime-control.json").read_bytes())
+    reader, writer = await asyncio.open_connection("127.0.0.1", descriptor["port"])
+    try:
+        if partial is None:
+            request = json.dumps(
+                {
+                    "schema_kind": "armi.runtime-admin-control",
+                    "request_id": "late-request",
+                    "environment_id": ENVIRONMENT_ID,
+                    "incarnation": 3,
+                    "instance_id": descriptor["instance_id"],
+                    "token": token,
+                    "command": "status",
+                    "arguments": {},
+                }
+            ).encode()
+            writer.write(struct.pack(">I", len(request)) + request)
+        else:
+            writer.write(partial)
+        await writer.drain()
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        if partial is None:
+            await asyncio.wait_for(body_received.wait(), timeout=2)
+        closing = asyncio.create_task(server.close())
+        await asyncio.sleep(0)
+        resume_handler.set()
+        await asyncio.wait_for(closing, timeout=2)
+        assert await asyncio.wait_for(reader.read(), timeout=2) == b""
+        await asyncio.wait_for(finished.wait(), timeout=2)
+        assert not failures
+        status.assert_not_called()
+        for name in (
+            "runtime-control.json",
+            "runtime-control.token",
+            "runtime-control.manifest.json",
+        ):
+            assert not (tmp_path / name).exists()
+    finally:
+        resume_handler.set()
+        writer.close()
+        await writer.wait_closed()
+        await asyncio.wait_for(server.close(), timeout=2)
+
+
+@pytest.mark.asyncio
+async def test_control_shutdown_preserves_an_already_dispatched_request(
+    tmp_path: Path,
+) -> None:
+    token = _control_manifest(tmp_path)
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def voice(action: str) -> dict[str, object]:
+        entered.set()
+        await finish.wait()
+        return {"action": action, "state": "idle"}
+
+    server = RuntimeAdminControlServer(
+        run_root=tmp_path,
+        environment_id=ENVIRONMENT_ID,
+        incarnation=3,
+        instance_id="0198f3f4-7b8c-7def-8abc-1234567890ab",
+        on_status=lambda: {},
+        on_drain=lambda: None,
+        on_stop=lambda: None,
+        on_input=None,
+        on_voice=voice,
+    )
+    await server.start()
+    descriptor = json.loads((tmp_path / "runtime-control.json").read_bytes())
+    reader, writer = await asyncio.open_connection("127.0.0.1", descriptor["port"])
+    request = json.dumps(
+        {
+            "schema_kind": "armi.runtime-admin-control",
+            "request_id": "shutdown-status",
+            "environment_id": ENVIRONMENT_ID,
+            "incarnation": 3,
+            "instance_id": descriptor["instance_id"],
+            "token": token,
+            "command": "voice",
+            "arguments": {"action": "status"},
+        }
+    ).encode()
+    try:
+        writer.write(struct.pack(">I", len(request)) + request)
+        await writer.drain()
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        closing = asyncio.create_task(server.close())
+        await asyncio.sleep(0)
+        assert not closing.done()
+        finish.set()
+        size = struct.unpack(">I", await asyncio.wait_for(reader.readexactly(4), 2))[0]
+        response = json.loads(await asyncio.wait_for(reader.readexactly(size), 2))
+        assert response == {
+            "request_id": "shutdown-status",
+            "status": "succeeded",
+            "result": {"action": "status", "state": "idle"},
+        }
+        await asyncio.wait_for(closing, timeout=2)
+    finally:
+        finish.set()
+        writer.close()
+        await writer.wait_closed()
+        await asyncio.wait_for(server.close(), timeout=2)
 
 
 def _config(root: Path) -> AdminConfig:
