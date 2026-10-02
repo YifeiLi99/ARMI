@@ -309,6 +309,49 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                 (root / "run" / "admin-control" / "runtime-control.token").exists()
             )
 
+    def test_control_token_preparation_failure_leaves_stopped_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            original_replace = Path.replace
+
+            def fail_token_replace(path: Path, target: Path) -> Path:
+                if target.name == "runtime-control.token":
+                    raise OSError("fixture disk full")
+                return original_replace(path, target)
+
+            with (
+                patch.object(Path, "replace", fail_token_replace),
+                patch("armi_local_control.runtime_process.subprocess.Popen") as popen,
+                self.assertRaises(OSError),
+            ):
+                manager.start()
+
+            popen.assert_not_called()
+            self.assertEqual(manager.status(), {"status": "stopped", "pid": None})
+            self.assertEqual(tuple((root / "run" / "admin-control").iterdir()), ())
+
+    def test_missing_background_python_leaves_stopped_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            with (
+                patch(
+                    "armi_local_control.runtime_process._background_python",
+                    side_effect=RuntimeViolation(
+                        "CLI-RUNTIME-START-FAILED", "fixture runtime unavailable"
+                    ),
+                ),
+                patch("armi_local_control.runtime_process.subprocess.Popen") as popen,
+                self.assertRaises(RuntimeViolation) as raised,
+            ):
+                manager.start()
+
+            self.assertEqual(raised.exception.code, "CLI-RUNTIME-START-FAILED")
+            popen.assert_not_called()
+            self.assertEqual(manager.status(), {"status": "stopped", "pid": None})
+            self.assertEqual(tuple((root / "run" / "admin-control").iterdir()), ())
+
     def test_start_timeout_terminates_child_and_cleans_control_material(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

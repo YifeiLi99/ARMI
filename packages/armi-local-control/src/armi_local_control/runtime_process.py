@@ -284,24 +284,29 @@ class RuntimeProcessManager:
                 base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode("ascii")
             )
             token_digest = f"sha256:{hashlib.sha256(token.encode('ascii')).hexdigest()}"
-            self._atomic_json(
-                self._control_root / "runtime-control.manifest.json",
-                {
-                    "schema_kind": _CONTROL_SCHEMA,
-                    "environment_id": self._environment_id,
-                    "incarnation": self._incarnation,
-                    "descriptor": "runtime-control.json",
-                    "token": "runtime-control.token",
-                    "token_digest": token_digest,
-                },
-            )
-            self._atomic_text(
-                self._control_root / "runtime-control.token",
-                token,
-                mode=0o600,
-            )
+            try:
+                background_python = _background_python()
+                self._atomic_json(
+                    self._control_root / "runtime-control.manifest.json",
+                    {
+                        "schema_kind": _CONTROL_SCHEMA,
+                        "environment_id": self._environment_id,
+                        "incarnation": self._incarnation,
+                        "descriptor": "runtime-control.json",
+                        "token": "runtime-control.token",
+                        "token_digest": token_digest,
+                    },
+                )
+                self._atomic_text(
+                    self._control_root / "runtime-control.token",
+                    token,
+                    mode=0o600,
+                )
+            except BaseException:
+                self._clear_stale_files()
+                raise
             command = (
-                _background_python(),
+                background_python,
                 "-B",
                 "-m",
                 "armi_runtime.runtime_entrypoint",
@@ -846,10 +851,13 @@ class RuntimeProcessManager:
     def _atomic_text(path: Path, value: str, *, mode: int = 0o600) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        temporary.write_text(value, encoding="utf-8", newline="\n")
-        temporary.chmod(mode)
-        temporary.replace(path)
-        path.chmod(mode)
+        try:
+            temporary.write_text(value, encoding="utf-8", newline="\n")
+            temporary.chmod(mode)
+            temporary.replace(path)
+            path.chmod(mode)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 class LocalProcessLock:
