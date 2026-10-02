@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import {
@@ -40,6 +40,12 @@ export function SceneSelector({
     enabled: managing,
     retry: false,
   });
+
+  useEffect(() => {
+    if (scenes.error instanceof ApiFailure && scenes.error.status === 401) {
+      onUnauthorized();
+    }
+  }, [scenes.error, onUnauthorized]);
 
   function handleFailure(error: unknown): void {
     if (error instanceof ApiFailure && error.status === 401) {

@@ -101,3 +101,36 @@ it("loads, selects, reopens and creates stable Creator scenes", async () => {
     expect(selected).toHaveBeenLastCalledWith("ideas", "open"),
   );
 });
+
+it.each([401, 503])("handles a %s when reading scenes", async (status) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async () =>
+      Response.json(
+        { status: "rejected", error: { code: "CREATOR-READ-FAILED" } },
+        { status },
+      ),
+    ),
+  );
+  const onUnauthorized = vi.fn();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const user = userEvent.setup();
+  render(
+    <QueryClientProvider client={queryClient}>
+      <SceneSelector
+        token="token"
+        environmentId={SCENE_ID}
+        creatorPartyId={SCENE_ID}
+        selectedSceneKey="default"
+        onSelected={vi.fn()}
+        onUnauthorized={onUnauthorized}
+      />
+    </QueryClientProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "管理场合" }));
+  await screen.findByText("当前无法读取 Creator 场合。");
+  expect(onUnauthorized).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+});

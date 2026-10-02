@@ -16,6 +16,35 @@ afterEach(() => {
 });
 
 describe("Creator data rights panel", () => {
+  it.each([401, 503])("handles a %s when reading orders", async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        Response.json(
+          { status: "rejected", error: { code: "CREATOR-READ-FAILED" } },
+          { status },
+        ),
+      ),
+    );
+    const onUnauthorized = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DataRightsPanel
+          token={TOKEN}
+          environmentId={ORDER_ID}
+          creatorPartyId={ORDER_ID}
+          onUnauthorized={onUnauthorized}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("当前无法读取数据权利结果。");
+    expect(onUnauthorized).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+  });
+
   it("requires deletion confirmation and shows partial settlement without bodies", async () => {
     let deleted = false;
     const body = "这段已打开的正文应在删除生效后消失。";

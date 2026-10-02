@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -41,6 +41,13 @@ export function DataRightsPanel({
     queryFn: ({ signal }) => getDataRightsOrders(token, signal),
     retry: false,
   });
+
+  useEffect(() => {
+    if (orders.error instanceof ApiFailure && orders.error.status === 401) {
+      onUnauthorized();
+    }
+  }, [orders.error, onUnauthorized]);
+
   const request = useMutation({
     mutationFn: async (orderKind: OrderKind) => {
       if (requestIdentity.current?.kind !== orderKind) {
