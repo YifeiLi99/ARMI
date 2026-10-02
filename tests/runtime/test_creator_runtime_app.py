@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid7
 
 from armi_activity.api import (
@@ -1117,7 +1118,14 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.qq_enabled = action == "start"
         return await self._qq_health()
 
-    def _app(self, *, sessions: bool = True, request_body_max_bytes: int = 1024):
+    def _app(
+        self,
+        *,
+        sessions: bool = True,
+        request_body_max_bytes: int = 1024,
+        usage_query=None,
+        autonomy_query=None,
+    ):
         async def started() -> None:
             self.lifecycle.start()
             self.lifecycle.complete_startup(("TEST_BLOCKER",))
@@ -1154,6 +1162,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_prompt=self.creator_prompt,
             creator_export=self.creator_export,
             data_rights=self.data_rights,
+            usage_query=usage_query,
+            autonomy_query=autonomy_query,
         )
 
     @staticmethod
@@ -1176,6 +1186,72 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         return str(response.json()["browser_session_token"])
+
+    def test_usage_filters_and_autonomy_pagination_pass_http_boundary(self) -> None:
+        summary = {
+            "currency": "CNY",
+            "price_label": "official_list_price_estimate",
+            "timezone": "Asia/Shanghai",
+            "coverage": "isolated-test",
+            "totals": {
+                "billable_calls": 0,
+                "auxiliary_requests": 0,
+                "known_microyuan": None,
+                "incomplete_calls": 0,
+                "usage_unconfirmed_calls": 0,
+                "unpriced_calls": 0,
+            },
+            "units": {},
+            "daily": [],
+            "groups": [],
+        }
+        calls = {"total": 0, "items": []}
+        history = {"total": 0, "items": [], "limit": 25, "offset": 25}
+        usage = AsyncMock()
+        usage.query.side_effect = lambda request: (
+            summary if request.mode == "summary" else calls
+        )
+        autonomy = AsyncMock()
+        autonomy.query.return_value = history
+        filters = {
+            "start": "2026-09-01T00:00:00+08:00",
+            "end": "2026-10-01T00:00:00+08:00",
+            "model": "model-a",
+            "cost_status": "unpriced",
+        }
+        requests = (
+            ("/v1/usage/summary", filters, summary),
+            ("/v1/usage/calls", {**filters, "limit": 25, "offset": 25}, calls),
+            ("/v1/autonomy/history", {"limit": 25, "offset": 25}, history),
+        )
+        with TestClient(
+            self._app(usage_query=usage, autonomy_query=autonomy),
+            base_url=f"http://{AUTHORITY}",
+        ) as client:
+            token = self._connect_browser(client)
+            for path, parameters, expected in requests:
+                with self.subTest(path=path):
+                    response = client.get(
+                        path, headers=self._browser_headers(token), params=parameters
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json(), expected)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+
+            for path, parameters, _expected in requests:
+                with self.subTest(unauthorized=path):
+                    response = client.get(
+                        path, headers=self._browser_headers(), params=parameters
+                    )
+                    self.assertEqual(response.status_code, 401)
+
+        self.assertEqual(usage.query.await_count, 2)
+        summary_request, list_request = (
+            call.args[0] for call in usage.query.await_args_list
+        )
+        self.assertEqual(summary_request.filters, list_request.filters)
+        self.assertEqual((list_request.limit, list_request.offset), (25, 25))
+        autonomy.query.assert_awaited_once_with("history", 25, 25)
 
     def test_client_diagnostics_are_authenticated_and_cannot_supply_server_identity(
         self,

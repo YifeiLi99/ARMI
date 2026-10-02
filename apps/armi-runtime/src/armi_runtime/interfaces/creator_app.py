@@ -235,6 +235,9 @@ def create_runtime_app(
                 "/v1/memories",
                 "/v1/other-human-records",
                 "/v1/activities",
+                "/v1/usage/summary",
+                "/v1/usage/calls",
+                "/v1/autonomy/history",
             }
             or re.fullmatch(
                 r"/v1/(?:memories/[^/]{1,64}/timeline|activities/[^/]{1,64}/timeline|relationships/[^/]{1,64}/timeline|maintenance/[^/]{1,64}/timeline|other-human-records/[^/]{1,64}/scenes(?:/[^/]{1,64}/timeline)?)",
