@@ -9,7 +9,7 @@ import msvcrt
 import os
 import re
 import stat
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -150,6 +150,20 @@ class _ByHandleFileInformation(ctypes.Structure):
         ("file_index_high", ctypes.c_uint32),
         ("file_index_low", ctypes.c_uint32),
     )
+
+
+async def _open_file_in_thread(open_file: Callable[[], BinaryIO]) -> BinaryIO:
+    opening = asyncio.create_task(asyncio.to_thread(open_file))
+    try:
+        return await asyncio.shield(opening)
+    except asyncio.CancelledError:
+        # The thread still owns the pending handle; reclaim it before cancelling.
+        with suppress(ArtifactViolation, OSError):
+            while not opening.done():
+                with suppress(asyncio.CancelledError):
+                    await asyncio.shield(opening)
+            opening.result().close()
+        raise
 
 
 class VerifiedFileStream:
@@ -403,18 +417,19 @@ class ContentAddressedArtifactStore:
                 raise ArtifactViolation("ART-STAGING-IO") from None
 
     async def open_verified(self, ref: ArtifactRef) -> VerifiedFileStream:
-        file_value = await asyncio.to_thread(self._open_registered_sync, ref)
+        file_value = await _open_file_in_thread(lambda: self._open_registered_sync(ref))
         return VerifiedFileStream(file_value)
 
     async def publication_object_exists(self, digest: Digest, byte_size: int) -> bool:
         digest_hex = digest.value.removeprefix("sha256:")
         try:
-            file_value = await asyncio.to_thread(
-                self._open_verified_sync,
-                self._object_path(digest_hex),
-                digest,
-                byte_size,
-                self._objects,
+            file_value = await _open_file_in_thread(
+                lambda: self._open_verified_sync(
+                    self._object_path(digest_hex),
+                    digest,
+                    byte_size,
+                    self._objects,
+                )
             )
         except FileNotFoundError:
             return False

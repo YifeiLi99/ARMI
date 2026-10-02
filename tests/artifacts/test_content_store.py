@@ -87,7 +87,17 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_stage_publish_verified_read_and_exact_reuse(self) -> None:
         content = b"immutable"
         first = await self.store.stage(_chunks(b"immu", b"table"), _policy())
+        self.assertFalse(
+            await self.store.publication_object_exists(
+                first.content_digest, first.byte_size
+            )
+        )
         published = await self._publish(first)
+        self.assertTrue(
+            await self.store.publication_object_exists(
+                first.content_digest, first.byte_size
+            )
+        )
         second = await self.store.stage(_chunks(content), _policy())
         reused = await self._publish(second)
 
@@ -185,6 +195,64 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(handle.closed)
         finally:
             handle.close()
+
+    async def test_cancelled_verified_open_closes_pending_file(self) -> None:
+        content = b"cancel-read"
+        staged = await self.store.stage(_chunks(content), _policy())
+        await self._publish(staged)
+        ref = _reference(content)
+        original_open = ContentAddressedArtifactStore._open_verified_sync
+
+        async def exercise(operation: str) -> None:
+            opened = threading.Event()
+            release = threading.Event()
+            returned = threading.Event()
+            handles: list[BinaryIO] = []
+            paths: list[Path] = []
+
+            def delayed_open(store, path, *args):
+                handle = original_open(store, path, *args)
+                handles.append(handle)
+                paths.append(path)
+                opened.set()
+                release.wait(timeout=3)
+                returned.set()
+                return handle
+
+            try:
+                with patch.object(
+                    ContentAddressedArtifactStore, "_open_verified_sync", delayed_open
+                ):
+                    task = asyncio.create_task(
+                        self.store.open_verified(ref)
+                        if operation == "read"
+                        else self.store.publication_object_exists(
+                            ref.content_digest, ref.byte_size
+                        )
+                    )
+                    self.assertTrue(await asyncio.to_thread(opened.wait, 2))
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(task.done())
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(task.done())
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                    self.assertTrue(await asyncio.to_thread(returned.wait, 2))
+                self.assertTrue(all(handle.closed for handle in handles))
+                moved = paths[0].with_suffix(".check")
+                paths[0].rename(moved)
+                moved.rename(paths[0])
+            finally:
+                release.set()
+                for handle in handles:
+                    handle.close()
+
+        for operation in ("read", "exists"):
+            with self.subTest(operation=operation):
+                await exercise(operation)
 
     async def test_sync_read_and_unregistered_settlement_share_verifier(self) -> None:
         content = b"shared-owner"
