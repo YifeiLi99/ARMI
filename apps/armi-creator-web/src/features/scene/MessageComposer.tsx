@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, CompositionEvent } from "react";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
@@ -50,6 +50,14 @@ export function MessageComposer({
   const [message, setMessage] = useState("");
   const [state, setState] = useState<SubmissionState>({ kind: "idle" });
   const composing = useRef(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   async function send(mode: SubmissionMode, key?: string): Promise<void> {
     if (!sceneOpen) {
@@ -71,6 +79,8 @@ export function MessageComposer({
         mode === "codex"
           ? await acceptCreatorCodexTask(token, sceneKey, intentKey, message)
           : await acceptCreatorMessage(token, sceneKey, intentKey, message);
+      // A late response belongs to the composer that submitted it.
+      if (!mounted.current) return;
       const operationRef = accepted.result_ref;
       setMessage("");
       setState({ kind: "accepted", operationRef, mode });
@@ -80,6 +90,7 @@ export function MessageComposer({
         exact: true,
       });
     } catch (error) {
+      if (!mounted.current) return;
       if (error instanceof ApiFailure && error.status === 401) {
         onUnauthorized();
         return;
