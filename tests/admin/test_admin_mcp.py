@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from typing import cast
 from unittest.mock import Mock, patch
 from uuid import uuid7
 
+import pytest
 from armi_admin.application import (
     AdminConfig,
     AdminControlPlane,
@@ -110,6 +112,70 @@ def _service() -> AdminToolService:
         observation=observation,
         pool=cast(AdminRoleBoundPool, object()),
     )
+
+
+def test_failed_admin_binding_releases_diagnostics_before_rebinding(tmp_path: Path):
+    first_config = _config().model_copy(update={"environment_root": tmp_path / "first"})
+    recovered_config = _config().model_copy(
+        update={
+            "environment_id": str(uuid7()),
+            "environment_root": tmp_path / "recovered",
+        }
+    )
+    path = tmp_path / "admin.yaml"
+    first_diagnostic, recovered_diagnostic = Mock(), Mock()
+    cleanup_order = []
+    first_diagnostic.close.side_effect = lambda: cleanup_order.append("closed")
+    service = Mock(spec=AdminToolService)
+    service.config = recovered_config
+    pool = Mock(spec=AdminRoleBoundPool)
+    composition = AdminComposition(service, pool)
+    session = AdminSession(path)
+    initialization_error = OSError("fixture initialization failure")
+    with (
+        patch(
+            "armi_admin.machine.load_admin_config",
+            side_effect=[(first_config, path), (recovered_config, path)],
+        ),
+        patch(
+            "armi_admin.machine.bootstrap_diagnostics",
+            side_effect=[first_diagnostic, recovered_diagnostic],
+        ) as diagnostics,
+        patch(
+            "armi_admin.machine.bootstrap_admin",
+            side_effect=[initialization_error, composition],
+        ),
+        patch(
+            "armi_admin.machine.record_diagnostic",
+            side_effect=lambda *_arguments, **_kwargs: cleanup_order.append("recorded"),
+        ) as failure_record,
+    ):
+        try:
+            with pytest.raises(OSError, match="fixture initialization failure"):
+                session.environment()
+            first_diagnostic.close.assert_called_once_with()
+            assert cleanup_order == ["recorded", "closed"]
+            failure_record.assert_called_once_with(
+                "admin.binding.failed",
+                component="admin",
+                level=logging.ERROR,
+                error=initialization_error,
+            )
+
+            assert session.environment() == (
+                recovered_config.environment_id,
+                recovered_config.environment_root,
+            )
+            assert diagnostics.call_count == 2
+            assert (
+                diagnostics.call_args.kwargs["environment_id"]
+                == recovered_config.environment_id
+            )
+        finally:
+            session.close()
+    first_diagnostic.close.assert_called_once_with()
+    recovered_diagnostic.close.assert_called_once_with()
+    pool.close.assert_called_once_with()
 
 
 def test_private_snapshot_requires_separate_scope_before_owner_read() -> None:

@@ -72,16 +72,28 @@ class AdminSession:
                 ),
             )
         if self._composition is None:
-            credentials = AdminCredentialPort(
-                locator=config.locator,
-                migrator_locator=config.migrator_locator,
-                preview_locator=config.preview_locator,
-                authorization_locator=config.authorization_signing_key_locator,
-                config_root=path.parent,
-            )
-            self._composition = bootstrap_admin(
-                config, credentials, local_owner=self.local_owner
-            )
+            try:
+                credentials = AdminCredentialPort(
+                    locator=config.locator,
+                    migrator_locator=config.migrator_locator,
+                    preview_locator=config.preview_locator,
+                    authorization_locator=config.authorization_signing_key_locator,
+                    config_root=path.parent,
+                )
+                self._composition = bootstrap_admin(
+                    config, credentials, local_owner=self.local_owner
+                )
+            except BaseException as error:
+                try:
+                    record_diagnostic(
+                        "admin.binding.failed",
+                        component="admin",
+                        level=logging.ERROR,
+                        error=error,
+                    )
+                finally:
+                    self.close()
+                raise
             self._configuration = signature
         return self._composition
 
