@@ -5,15 +5,21 @@ from __future__ import annotations
 import asyncio
 import unittest
 from datetime import UTC, datetime
+from uuid import uuid7
 
 from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorResourceKind,
 )
 from armi_kernel.contracts import Instant
+from armi_runtime.interfaces.browser_sessions import (
+    BrowserSessionStore,
+    BrowserSessionViolation,
+)
 from armi_runtime.interfaces.creator_events import (
     CreatorEventBroker,
     CreatorEventBrokerViolation,
+    stream_creator_events,
 )
 
 
@@ -106,6 +112,34 @@ class CreatorEventBrokerTests(unittest.IsolatedAsyncioTestCase):
         subscription = await broker.subscribe(None)
         self.assertEqual(subscription.replay, ())
         await subscription.close()
+
+    async def test_expired_session_closes_subscription_before_stream_starts(
+        self,
+    ) -> None:
+        clock = [0.0]
+        sessions = BrowserSessionStore(
+            environment_id=uuid7(),
+            creator_party_id=uuid7(),
+            session_ttl_seconds=1,
+            monotonic=lambda: clock[0],
+        )
+        token = sessions.establish().token
+        sessions.verify(token)
+        broker = CreatorEventBroker(epoch=b"\x06" * 16)
+        subscription = await broker.subscribe(None)
+        clock[0] = 1.0
+        stream = stream_creator_events(
+            subscription,
+            sessions=sessions,
+            token=token,
+            diagnostic=lambda _event: None,
+        )
+
+        with self.assertRaises(BrowserSessionViolation):
+            await anext(stream)
+
+        await broker.notify(invalidation())
+        self.assertIsNone(await asyncio.wait_for(subscription.receive(), timeout=0.1))
 
 
 if __name__ == "__main__":

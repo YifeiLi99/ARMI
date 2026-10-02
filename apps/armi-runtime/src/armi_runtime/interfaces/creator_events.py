@@ -290,8 +290,8 @@ async def stream_creator_events(
     token: str,
     diagnostic: DiagnosticEvent,
 ) -> AsyncIterator[bytes]:
-    lease = sessions.lease(token)
     try:
+        lease = sessions.lease(token)
         for replayed in subscription.replay:
             sessions.validate_lease(lease)
             yield replayed.frame
