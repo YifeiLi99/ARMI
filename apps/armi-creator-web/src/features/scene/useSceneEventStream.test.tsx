@@ -331,3 +331,61 @@ it("keeps an event pending until every active projection refresh succeeds", asyn
   );
   unsubscribe();
 });
+
+it("clears observed bodies when a data-rights event withdraws their visibility", async () => {
+  const confirmed = vi.fn();
+  consumeMock.mockImplementation(
+    async (
+      _token: string,
+      _sceneKey: string,
+      _lastEventId: string | undefined,
+      signal: AbortSignal,
+      onConnected: () => void,
+      onEvent: (event: CreatorProjectionEvent) => Promise<void>,
+    ) => {
+      onConnected();
+      await onEvent({
+        event_id: `sse-v1.${"d".repeat(22)}.1`,
+        event_kind: "data.rights.invalidated",
+        resource_kind: "data_rights",
+        resource_ref: MATERIAL_ID,
+        projection_kind: "data-rights-order-collection",
+        occurred_at: "2026-08-08T05:00:00.000000Z",
+      });
+      confirmed();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    },
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  let attempts = 0;
+  const observer = new QueryObserver(client, {
+    queryKey: ["life-material", MATERIAL_ID],
+    queryFn: async () => {
+      attempts += 1;
+      if (attempts > 1) {
+        throw new ApiFailure(404, "SCOPE_LIFE_MATERIAL_NOT_VISIBLE");
+      }
+      return { body: "withdrawn body" };
+    },
+  });
+  const unsubscribe = observer.subscribe(NOOP);
+  try {
+    await waitFor(() =>
+      expect(observer.getCurrentResult().data?.body).toBe("withdrawn body"),
+    );
+    render(<StreamHarness client={client} />);
+    await waitFor(() => expect(confirmed).toHaveBeenCalledOnce());
+    expect(observer.getCurrentResult().data).toBeUndefined();
+    expect(observer.getCurrentResult().error).toBeInstanceOf(ApiFailure);
+    expect(screen.getByTestId("stream-state").getAttribute("data-state")).toBe(
+      "connected",
+    );
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
+});

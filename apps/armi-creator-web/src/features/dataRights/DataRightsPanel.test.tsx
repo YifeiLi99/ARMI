@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DataRightsPanel } from "./DataRightsPanel";
+import { MaterialPanel } from "../material/MaterialPanel";
 
 const TOKEN = `browser-v1.${"a".repeat(43)}`;
 const ORDER_ID = "0198a000-0000-7000-8000-000000000001";
@@ -16,11 +17,62 @@ afterEach(() => {
 
 describe("Creator data rights panel", () => {
   it("requires deletion confirmation and shows partial settlement without bodies", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+    let deleted = false;
+    const body = "这段已打开的正文应在删除生效后消失。";
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/life-records?limit=20&kind=material") {
+        return new Response(
+          JSON.stringify({
+            projection_kind: "life-record-query",
+            retrieval_kind: "creator_view",
+            next_cursor: null,
+            items: deleted
+              ? []
+              : [
+                  {
+                    record_ref: ORDER_ID,
+                    record_kind: "material",
+                    summary: "待删除资料",
+                    source_kind: "life_material_current",
+                    occurred_at: "2026-08-08T05:00:00.000000Z",
+                    naturally_recallable: null,
+                    retrieval_kind: "creator_view",
+                  },
+                ],
+          }),
+        );
+      }
+      if (url === `/v1/materials/${ORDER_ID}`) {
+        return deleted
+          ? new Response(
+              JSON.stringify({
+                status: "rejected",
+                error: { code: "SCOPE_LIFE_MATERIAL_NOT_VISIBLE" },
+              }),
+              { status: 404 },
+            )
+          : new Response(
+              JSON.stringify({
+                projection_kind: "creator-life-material",
+                material_id: ORDER_ID,
+                material_kind: "diary",
+                revision_no: 1,
+                title: "待删除资料",
+                body,
+                metadata: {},
+                material_status: "active",
+                privacy_status: "creator_visible",
+                created_at: "2026-08-08T05:00:00.000000Z",
+                updated_at: "2026-08-08T05:00:00.000000Z",
+              }),
+            );
+      }
       if (init?.method === "POST") {
         expect(JSON.parse(String(init.body))).toEqual({
           order_kind: "delete_related",
         });
+        deleted = true;
         return new Response(
           JSON.stringify({
             projection_kind: "data-rights-order-summary",
@@ -84,6 +136,12 @@ describe("Creator data rights panel", () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={queryClient}>
+        <MaterialPanel
+          token={TOKEN}
+          environmentId={ORDER_ID}
+          creatorPartyId={ORDER_ID}
+          onUnauthorized={vi.fn()}
+        />
         <DataRightsPanel
           token={TOKEN}
           environmentId={ORDER_ID}
@@ -94,6 +152,8 @@ describe("Creator data rights panel", () => {
     );
 
     await screen.findByText("保留理由：objective_history");
+    await user.click(await screen.findByRole("button", { name: "查看正文" }));
+    await screen.findByText(body);
     await user.selectOptions(screen.getByLabelText("命令"), "delete_related");
     expect(
       screen.getByRole("button", { name: "执行删除相关本地数据" }),
@@ -102,7 +162,13 @@ describe("Creator data rights panel", () => {
     await user.click(
       screen.getByRole("button", { name: "执行删除相关本地数据" }),
     );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await screen.findByText("删除命令已立即生效", { exact: false });
+    await waitFor(() =>
+      expect(screen.queryByText(body)).not.toBeInTheDocument(),
+    );
+    expect(
+      queryClient.getQueryData(["life-material", ORDER_ID, ORDER_ID, ORDER_ID]),
+    ).toBeUndefined();
     expect(screen.queryByText(/message body/i)).not.toBeInTheDocument();
   });
 });

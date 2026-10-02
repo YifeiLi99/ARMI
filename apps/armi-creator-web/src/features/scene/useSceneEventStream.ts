@@ -180,7 +180,8 @@ export function useSceneEventStream({
         return;
       }
       if (resourceKind === "data_rights") {
-        queryClient.removeQueries({
+        // Hidden/deleted projections may now return 404; their old data is cleared.
+        await queryClient.resetQueries({
           predicate: (query) => query.queryKey[0] !== "data-rights-orders",
         });
         await queryClient.resetQueries(

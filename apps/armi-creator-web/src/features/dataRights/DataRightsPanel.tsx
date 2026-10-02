@@ -57,7 +57,10 @@ export function DataRightsPanel({
     },
     onSuccess: async (result) => {
       if (result.order_kind === "delete_related") {
-        queryClient.removeQueries();
+        // Reset also clears the data held by mounted query observers.
+        await queryClient.resetQueries({
+          predicate: (query) => query.queryKey[0] !== "data-rights-orders",
+        });
       }
       await queryClient.resetQueries({ queryKey, exact: true });
       setConfirmed(false);
