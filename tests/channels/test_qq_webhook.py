@@ -57,6 +57,54 @@ class _Gateway:
 
 
 class QQWebhookTests(unittest.IsolatedAsyncioTestCase):
+    async def test_oversized_decimal_fields_reject_before_ingress(self) -> None:
+        secret = b"local-test-secret"
+        port = _InputPort()
+        config = QQAdapterConfig(10001, 90009, {20002: "朋友群"}, frozenset())
+        app = create_qq_event_app(
+            config=config,
+            ingress=QQIngressAdapter(
+                config=config, input_port=port, gateway=_Gateway()
+            ),
+            signing_secret=secret,
+            request_body_max_bytes=65536,
+        )
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1"
+        ) as client:
+            for kind, data in (
+                ("at", {"qq": "1" * 5000}),
+                ("image", {"file": "image-reference", "file_size": "1" * 5000}),
+            ):
+                with self.subTest(kind=kind):
+                    body = json.dumps(
+                        {
+                            "time": 1_800_000_000,
+                            "self_id": 10001,
+                            "post_type": "message",
+                            "message_type": "group",
+                            "message_id": 345,
+                            "group_id": 20002,
+                            "user_id": 30003,
+                            "message": [{"type": kind, "data": data}],
+                            "sender": {"nickname": "小明"},
+                        }
+                    ).encode()
+                    signature = (
+                        "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
+                    )
+                    response = await client.post(
+                        "/",
+                        content=body,
+                        headers={
+                            "content-type": "application/json",
+                            "x-signature": signature,
+                        },
+                    )
+                    self.assertEqual(response.status_code, 400)
+        self.assertEqual(port.accepted, [])
+
     async def test_json_parser_limits_reject_before_ingress(self) -> None:
         secret = b"local-test-secret"
         port = _InputPort()

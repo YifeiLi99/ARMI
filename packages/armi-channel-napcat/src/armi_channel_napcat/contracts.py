@@ -74,7 +74,10 @@ class NapCatGroupMessageEvent:
                 continue
             value = segment.data.get("qq")
             if value is not None and value.isdecimal():
-                values.add(int(value))
+                try:
+                    values.add(int(value))
+                except ValueError:
+                    raise NapCatViolation("NAPCAT-GROUP-EVENT-INVALID") from None
         return frozenset(values)
 
     def render_text(self) -> str | None:

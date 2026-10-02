@@ -202,13 +202,16 @@ class NapCatHttpClient(NapCatGateway):
                 (error.code,),
             )
         raw_account_id = login.get("user_id")
-        account_id = (
-            raw_account_id
-            if type(raw_account_id) is int
-            else int(raw_account_id)
-            if type(raw_account_id) is str and raw_account_id.isdecimal()
-            else None
-        )
+        try:
+            account_id = (
+                raw_account_id
+                if type(raw_account_id) is int
+                else int(raw_account_id)
+                if type(raw_account_id) is str and raw_account_id.isdecimal()
+                else None
+            )
+        except ValueError:
+            account_id = None
         if account_id is None or account_id <= 0:
             return NapCatHealthSnapshot(
                 "misconfigured",
@@ -262,7 +265,10 @@ class NapCatHttpClient(NapCatGateway):
         if type(raw_user_id) is int and raw_user_id > 0:
             return raw_user_id
         if type(raw_user_id) is str and raw_user_id.isdecimal():
-            return int(raw_user_id)
+            try:
+                return int(raw_user_id)
+            except ValueError:
+                raise NapCatViolation("NAPCAT-MESSAGE-LOOKUP-INVALID") from None
         return None
 
     async def fetch_media(

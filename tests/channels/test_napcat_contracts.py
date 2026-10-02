@@ -110,6 +110,49 @@ class NapCatContractTests(unittest.TestCase):
         self.assertEqual(health.state, "ready")
         self.assertEqual(health.reason_codes, ())
 
+    def test_oversized_decimal_account_id_is_an_invalid_health_response(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            data = (
+                {"online": True, "good": True}
+                if request.url.path == "/get_status"
+                else {"user_id": "1" * 5000}
+            )
+            return httpx.Response(
+                200, json={"status": "ok", "retcode": 0, "data": data}
+            )
+
+        health = self._health(httpx.MockTransport(handler))
+        self.assertEqual(health.state, "misconfigured")
+        self.assertTrue(health.api_reachable)
+        self.assertTrue(health.account_online)
+        self.assertIsNone(health.account_matches)
+        self.assertEqual(health.reason_codes, ("NAPCAT-HEALTH-RESPONSE-INVALID",))
+
+    def test_oversized_decimal_sender_id_uses_the_lookup_failure_contract(self) -> None:
+        async def exercise() -> None:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(
+                    lambda _request: httpx.Response(
+                        200,
+                        json={
+                            "status": "ok",
+                            "retcode": 0,
+                            "data": {"sender": {"user_id": "1" * 5000}},
+                        },
+                    )
+                ),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000", access_token="test", client=client
+                )
+                with self.assertRaisesRegex(
+                    NapCatViolation, "NAPCAT-MESSAGE-LOOKUP-INVALID"
+                ):
+                    await gateway.get_message_sender(message_id="123")
+
+        asyncio.run(exercise())
+
     def test_health_distinguishes_login_required_unhealthy_and_wrong_account(
         self,
     ) -> None:

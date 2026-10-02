@@ -486,7 +486,10 @@ def _message_parts(
                 "file": ExternalMessagePartKind.FILE,
             }[kind]
             raw_size = data.get("file_size")
-            byte_size = int(raw_size) if raw_size and raw_size.isdecimal() else None
+            try:
+                byte_size = int(raw_size) if raw_size and raw_size.isdecimal() else None
+            except ValueError:
+                raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-PART") from None
             visual_role = None
             source_kind = None
             source_summary = None

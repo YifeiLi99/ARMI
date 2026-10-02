@@ -55,11 +55,10 @@ def create_qq_event_app(
             return Response(status_code=401)
         try:
             event = parse_onebot_message(bytes(body))
-        except NapCatViolation:
-            return Response(status_code=400)
-        try:
             if isinstance(event, (NapCatGroupMessageEvent, NapCatPrivateMessageEvent)):
                 await ingress.accept_event(event)
+        except NapCatViolation:
+            return Response(status_code=400)
         except ExternalMessageViolation as error:
             if error.code.startswith("CON-"):
                 return Response(status_code=400)
