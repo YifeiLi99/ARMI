@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import {
@@ -33,6 +33,7 @@ export function SceneSelector({
   const [managing, setManaging] = useState(false);
   const [newSceneKey, setNewSceneKey] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const mounted = useRef(false);
   const queryKey = ["creator-scenes", environmentId, creatorPartyId] as const;
   const scenes = useQuery({
     queryKey,
@@ -42,12 +43,20 @@ export function SceneSelector({
   });
 
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (scenes.error instanceof ApiFailure && scenes.error.status === 401) {
       onUnauthorized();
     }
   }, [scenes.error, onUnauthorized]);
 
   function handleFailure(error: unknown): void {
+    if (!mounted.current) return;
     if (error instanceof ApiFailure && error.status === 401) {
       onUnauthorized();
       return;
@@ -62,9 +71,12 @@ export function SceneSelector({
   const createScene = useMutation({
     mutationFn: (sceneKey: string) => createCreatorScene(token, sceneKey),
     onSuccess: async (scene) => {
+      if (!mounted.current) return;
       setNewSceneKey("");
       setMessage("新场合已建立。");
       await queryClient.invalidateQueries({ queryKey, exact: true });
+      // Reconnecting may replace this selector while projections refresh.
+      if (!mounted.current) return;
       onSelected(scene.scene_key, scene.status);
     },
     onError: handleFailure,
@@ -73,8 +85,10 @@ export function SceneSelector({
     mutationFn: ({ scene, open }: { scene: CreatorScene; open: boolean }) =>
       setCreatorSceneOpen(token, scene.scene_key, open),
     onSuccess: async (scene) => {
+      if (!mounted.current) return;
       setMessage(scene.status === "open" ? "场合已重新打开。" : "场合已关闭。");
       await queryClient.invalidateQueries({ queryKey, exact: true });
+      if (!mounted.current) return;
       onSelected(scene.scene_key, scene.status);
     },
     onError: handleFailure,
