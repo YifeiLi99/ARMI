@@ -146,6 +146,30 @@ def machine(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["含中文的键", "key with spaces", "key/with/slash"])
+async def test_mcp_upload_import_rejects_owner_invalid_key_before_file_access(
+    tmp_path: Path, key: str
+) -> None:
+    _, binding, _ = machine(tmp_path)
+    client = InteractionClient(binding)
+    tools = InteractionTools(lambda: client)
+    outcome = await tools.call_tool(
+        "upload_import",
+        {"file": str(tmp_path / "missing.txt"), "idempotency_key": key},
+    )
+    assert outcome.is_error
+    assert outcome.structured_content is not None
+    assert outcome.structured_content["transport_status"] == 400
+    assert outcome.structured_content["error_code"] == "INTERACTION-INPUT"
+
+    catalog = {tool.name: tool for tool in await tools.list_tools()}
+    assert (
+        catalog["upload_import"].input_schema["properties"]["idempotency_key"]
+        == (catalog["upload_begin"].input_schema["properties"]["idempotency_key"])
+    )
+
+
+@pytest.mark.asyncio
 async def test_vision_observation_arguments_reach_shared_application(
     tmp_path: Path, monkeypatch
 ) -> None:

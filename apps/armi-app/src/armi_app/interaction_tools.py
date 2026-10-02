@@ -39,6 +39,9 @@ class InteractionTools:
             )
             for route in interaction_routes()
         ]
+        upload_begin_schema = next(
+            tool.input_schema for tool in tools if tool.name == "upload_begin"
+        )
         tools.append(
             Tool(
                 name="capabilities",
@@ -79,11 +82,9 @@ class InteractionTools:
                     "properties": {
                         "file": {"type": "string", "minLength": 1},
                         "media_type": {"type": "string"},
-                        "idempotency_key": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 128,
-                        },
+                        "idempotency_key": upload_begin_schema["properties"][
+                            "idempotency_key"
+                        ],
                     },
                     "required": ["file", "idempotency_key"],
                     "additionalProperties": False,
