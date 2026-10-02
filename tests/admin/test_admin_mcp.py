@@ -40,6 +40,7 @@ from armi_admin.application.contracts import (
 )
 from armi_admin.application.invocations import InvocationEvidence, InvocationReferences
 from armi_admin.application.service import AdminToolService
+from armi_admin.cli import main as admin_cli_main
 from armi_admin.composition import AdminComposition
 from armi_admin.machine import AdminSession
 from armi_admin.persistence import (
@@ -309,6 +310,77 @@ def test_usage_cli_exposes_purpose_filter() -> None:
         check=True,
     )
     assert "--purpose" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "raw_json",
+    ["[]", '""', '[["component", "postgresql"]]', "null", "true", "1"],
+)
+def test_admin_cli_rejects_non_object_json_before_binding(tmp_path, capsys, raw_json):
+    with (
+        patch(
+            "armi_admin.cli.load_admin_config",
+            return_value=(_config(), tmp_path / "admin.yaml"),
+        ) as load,
+        patch(
+            "armi_admin.cli.bootstrap_admin",
+            side_effect=AssertionError("invalid input must not reach Admin execution"),
+        ) as bootstrap,
+    ):
+        exit_code = admin_cli_main(["start", "--json", raw_json])
+
+    assert exit_code == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "rejected",
+        "error_code": "ADMIN-INPUT",
+    }
+    assert load.call_count == 0
+    bootstrap.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "component"),
+    [
+        ([], "environment"),
+        (["--json", "{}"], "environment"),
+        (["--json", '{"component":"postgresql"}'], "postgresql"),
+    ],
+)
+def test_admin_cli_preserves_object_and_default_arguments(
+    tmp_path, capsys, arguments, component
+):
+    operation = next(
+        item for item in ADMIN_OPERATIONS if item.name == "environment_start"
+    )
+    service = Mock(spec=AdminToolService)
+    service.lifecycle.return_value = operation.result(
+        operation_id=str(uuid7()),
+        status="rejected",
+        error_code="TEST-NO-EXECUTION",
+        started_at="2026-10-02T00:00:00Z",
+        ended_at="2026-10-02T00:00:00Z",
+    )
+    composition = Mock(spec=AdminComposition)
+    composition.service = service
+    with (
+        patch(
+            "armi_admin.cli.load_admin_config",
+            return_value=(_config(), tmp_path / "admin.yaml"),
+        ),
+        patch("armi_admin.cli.bootstrap_admin", return_value=composition),
+    ):
+        exit_code = admin_cli_main(
+            ["start", "--idempotency-key", "cli-contract", *arguments]
+        )
+
+    assert exit_code == 3
+    assert json.loads(capsys.readouterr().out)["error_code"] == "TEST-NO-EXECUTION"
+    service.lifecycle.assert_called_once()
+    action, request = service.lifecycle.call_args.args
+    assert action == "start"
+    assert request.component == component
+    assert request.idempotency_key == "cli-contract"
+    composition.close.assert_called_once_with()
 
 
 def _server(service: AdminToolService) -> ARMIMCPServer:

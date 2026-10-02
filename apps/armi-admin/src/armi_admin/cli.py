@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid7
 
 from pydantic import ValidationError
@@ -113,6 +113,9 @@ def _run(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    json_arguments: object = args.json
+    if not isinstance(json_arguments, dict):
+        raise ValueError("ADMIN-INPUT")
     environment = dict(os.environ)
     if args.config is not None:
         environment["ARMI_ADMIN_CONFIG"] = str(args.config.resolve())
@@ -128,7 +131,7 @@ def _run(argv: list[str] | None = None) -> int:
     selected = next(
         item for item in ADMIN_OPERATIONS if item.name == args.operation_name
     )
-    arguments: dict[str, Any] = dict(args.json)
+    arguments = dict(cast(dict[str, Any], json_arguments))
     for field in args.argument_fields:
         if hasattr(args, "input_" + field):
             if field in arguments:
