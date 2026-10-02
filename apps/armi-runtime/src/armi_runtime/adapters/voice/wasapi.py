@@ -98,8 +98,8 @@ class WasapiRawAudio:
             callback=callback,
         )
         self._capture_stream = stream
-        stream.start()
         try:
+            stream.start()
             while not stop.is_set():
                 item = await queue.get()
                 if isinstance(item, Exception):
@@ -126,9 +126,9 @@ class WasapiRawAudio:
             dtype="int16",
         )
         self._playback_stream = stream
-        stream.start()
         frames_written = 0
         try:
+            stream.start()
             async for frame in frames:
                 if frame:
                     await asyncio.to_thread(stream.write, frame)
