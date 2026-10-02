@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -41,6 +42,13 @@ _STOP_STAGES = frozenset(
         "candidate_rejected",
     }
 )
+
+
+def _response_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError("INTERACTION-RESPONSE-CONTRACT")
+    return result
 
 
 def interaction_failure(error: Exception) -> dict[str, Any]:
@@ -176,8 +184,10 @@ class InteractionClient:
                 if len(data) > 32 * 1024 * 1024:
                     raise ValueError("INTERACTION-RESPONSE-SIZE")
             try:
-                result = json.loads(data)
-            except UnicodeDecodeError:
+                result = json.loads(
+                    data, parse_float=_response_float, parse_constant=_response_float
+                )
+            except ValueError, RecursionError:
                 raise ValueError("INTERACTION-RESPONSE-CONTRACT") from None
         if not isinstance(result, dict):
             raise ValueError("INTERACTION-RESPONSE-CONTRACT")

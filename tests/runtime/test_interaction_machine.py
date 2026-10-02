@@ -478,7 +478,21 @@ async def test_cli_and_mcp_send_same_bound_creator_command(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["connection", "invalid_response", "invalid_utf8"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "connection",
+        "invalid_response",
+        "invalid_utf8",
+        "deep_response",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "1e999",
+        "-1e999",
+        "oversized_integer",
+    ],
+)
 async def test_cli_and_mcp_return_identical_transport_failures(
     tmp_path: Path, monkeypatch, capsys, failure: str
 ) -> None:
@@ -491,6 +505,27 @@ async def test_cli_and_mcp_return_identical_transport_failures(
             raise httpx.ConnectError("fixture transport unavailable", request=request)
         if failure == "invalid_utf8":
             return httpx.Response(200, content=b"\xff")
+        if failure == "deep_response":
+            return httpx.Response(200, content=b"[" * 50000 + b"0" + b"]" * 50000)
+        if failure in {
+            "NaN",
+            "Infinity",
+            "-Infinity",
+            "1e999",
+            "-1e999",
+            "oversized_integer",
+        }:
+            number = "1" * 5000 if failure == "oversized_integer" else failure
+            return httpx.Response(
+                200,
+                content=(
+                    '{"environment_id":"'
+                    + str(binding.environment_id)
+                    + '","result":{"value":'
+                    + number
+                    + "}}"
+                ).encode("ascii"),
+            )
         return httpx.Response(200, content=b"not a JSON response")
 
     client = InteractionClient(binding, transport=httpx.MockTransport(respond))
@@ -509,6 +544,37 @@ async def test_cli_and_mcp_return_identical_transport_failures(
         if failure == "connection"
         else "INTERACTION-RESPONSE-CONTRACT"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("number", [1.25, 1e308])
+async def test_cli_and_mcp_preserve_finite_response_numbers(
+    tmp_path: Path, monkeypatch, capsys, number: float
+) -> None:
+    _, binding, _ = machine(tmp_path)
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    client = InteractionClient(
+        binding,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "environment_id": str(binding.environment_id),
+                    "result": {"value": number},
+                },
+            )
+        ),
+    )
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    exit_code = await asyncio.to_thread(
+        cli.main, ["--config", str(config), "health", "live"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    called = await InteractionTools(lambda: client).call_tool("health_live", {})
+    assert exit_code == 0 and not called.is_error
+    assert called.structured_content == result
+    assert result["result"]["value"] == number
 
 
 @pytest.mark.asyncio
