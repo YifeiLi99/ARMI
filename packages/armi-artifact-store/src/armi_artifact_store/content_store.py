@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO, Final, Protocol, Self, cast
+from typing import BinaryIO, Final, Protocol, Self
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -269,9 +269,8 @@ class ContentAddressedArtifactStore:
         digest = hashlib.sha256()
         byte_size = 0
         file_value: BinaryIO | None = None
-        opening = asyncio.create_task(asyncio.to_thread(stage_path.open, "xb"))
         try:
-            file_value = cast(BinaryIO, await asyncio.shield(opening))
+            file_value = await _open_file_in_thread(lambda: stage_path.open("xb"))
             async for chunk in source:
                 if type(chunk) is not bytes or not chunk:
                     raise ArtifactViolation("ART-SOURCE")
@@ -287,15 +286,24 @@ class ContentAddressedArtifactStore:
             await asyncio.to_thread(file_value.close)
             file_value = None
         except BaseException as error:
-            if file_value is None:
-                # Cancelling the waiter does not stop the file-opening thread.
+
+            def discard_stage() -> None:
+                if file_value is not None:
+                    with suppress(OSError):
+                        file_value.close()
                 with suppress(OSError):
-                    file_value = await opening
-            if file_value is not None:
-                with suppress(OSError):
-                    await asyncio.to_thread(file_value.close)
-            with suppress(OSError):
-                await asyncio.to_thread(stage_path.unlink, missing_ok=True)
+                    stage_path.unlink(missing_ok=True)
+
+            # Cleanup owns both the handle and path until the worker finishes.
+            cleaning = asyncio.create_task(asyncio.to_thread(discard_stage))
+            try:
+                await asyncio.shield(cleaning)
+            except asyncio.CancelledError:
+                while not cleaning.done():
+                    with suppress(asyncio.CancelledError):
+                        await asyncio.shield(cleaning)
+                cleaning.result()
+                raise
             if isinstance(error, asyncio.CancelledError):
                 raise
             if isinstance(error, ArtifactViolation):

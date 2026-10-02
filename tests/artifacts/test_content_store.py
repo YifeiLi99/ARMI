@@ -167,6 +167,8 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(await asyncio.to_thread(opened.wait, 2))
                 task.cancel()
                 await asyncio.sleep(0)
+                task.cancel()
+                await asyncio.sleep(0)
                 release.set()
                 with self.assertRaises(asyncio.CancelledError):
                     await task
@@ -197,6 +199,54 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(handle.closed)
         finally:
             handle.close()
+
+    async def test_cancelled_stage_failure_finishes_queued_cleanup(self) -> None:
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        cleaning = asyncio.Event()
+        release = threading.Event()
+        handles: list[BinaryIO] = []
+        original_open = Path.open
+        blocker: asyncio.Future[None] | None = None
+
+        def busy_worker() -> None:
+            loop.call_soon_threadsafe(started.set)
+            release.wait(timeout=3)
+
+        def track_open(path: Path, *args, **kwargs):
+            handle = original_open(path, *args, **kwargs)
+            if path.parent == self.root / "staging" and args == ("xb",):
+                handles.append(handle)
+            return handle
+
+        async def invalid_source() -> AsyncIterator[bytes]:
+            nonlocal blocker
+            blocker = loop.run_in_executor(None, busy_worker)
+            await started.wait()
+            cleaning.set()
+            yield b""
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            loop.set_default_executor(executor)
+            try:
+                with patch.object(Path, "open", track_open):
+                    task = asyncio.create_task(
+                        self.store.stage(invalid_source(), _policy())
+                    )
+                    await asyncio.wait_for(cleaning.wait(), timeout=2)
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                self.assertTrue(all(handle.closed for handle in handles))
+                self.assertEqual(list((self.root / "staging").iterdir()), [])
+            finally:
+                release.set()
+                if blocker is not None:
+                    await blocker
+                for handle in handles:
+                    handle.close()
 
     async def test_cancelled_verified_open_closes_pending_file(self) -> None:
         content = b"cancel-read"
