@@ -177,7 +177,7 @@ function ChatTimelineItem({
   onEffectSelected: (effectRef: string) => void;
 }) {
   const response = useQuery({
-    queryKey: ["effect", item.effect_ref],
+    queryKey: ["creator-effect", item.effect_ref],
     queryFn: ({ signal }) => getEffectDetail(token, item.effect_ref!, signal),
     enabled:
       ["creator_response", "party_response"].includes(item.source_kind) &&
@@ -196,8 +196,11 @@ function ChatTimelineItem({
   const body = creatorInput
     ? (item.message ?? "消息正文不可用")
     : creatorResponse
-      ? (response.data?.response_text ??
-        (response.isPending ? "正在组织回复…" : "回复暂时不可见"))
+      ? (item.message ??
+        response.data?.response_text ??
+        (item.effect_ref && response.isPending
+          ? "正在组织回复…"
+          : "回复暂时不可见"))
       : item.source_kind;
 
   return (
