@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid7
 
 import httpx
@@ -54,6 +54,7 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument(
             "--json",
             type=json.loads,
+            default=argparse.SUPPRESS,
             help="Complete structured arguments; do not combine with individual arguments.",
         )
         properties = dict(op.input_schema)["properties"]
@@ -127,10 +128,13 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         for name in route.operation.input_schema["properties"]
         if hasattr(args, name)
     }
-    if args.json is not None:
+    if hasattr(args, "json"):
+        json_arguments: object = args.json
+        if not isinstance(json_arguments, dict):
+            raise ValueError("INTERACTION-ARGUMENTS")
         if arguments or getattr(args, "message_file", None) is not None:
             raise ValueError("INTERACTION-ARGUMENT-SOURCES")
-        arguments = args.json
+        arguments = cast(dict[str, Any], json_arguments)
     message_file = getattr(args, "message_file", None)
     if message_file is not None:
         if "message" in arguments:

@@ -819,8 +819,9 @@ async def test_cli_and_mcp_return_identical_transport_failures(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("number", [1.25, 1e308])
+@pytest.mark.parametrize("json_arguments", [False, True])
 async def test_cli_and_mcp_preserve_finite_response_numbers(
-    tmp_path: Path, monkeypatch, capsys, number: float
+    tmp_path: Path, monkeypatch, capsys, number: float, json_arguments: bool
 ) -> None:
     _, binding, _ = machine(tmp_path)
     config = tmp_path / "client.yaml"
@@ -839,13 +840,44 @@ async def test_cli_and_mcp_preserve_finite_response_numbers(
     )
     monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
     exit_code = await asyncio.to_thread(
-        cli.main, ["--config", str(config), "health", "live"]
+        cli.main,
+        ["--config", str(config), "health", "live"]
+        + (["--json", "{}"] if json_arguments else []),
     )
     result = json.loads(capsys.readouterr().out)
     called = await InteractionTools(lambda: client).call_tool("health_live", {})
     assert exit_code == 0 and not called.is_error
     assert called.structured_content == result
     assert result["result"]["value"] == number
+
+
+@pytest.mark.parametrize("raw_json", ["[]", "1", "true", '"private-value"', "null"])
+@pytest.mark.parametrize("download", [False, True])
+def test_cli_rejects_non_object_json_arguments(
+    tmp_path: Path, monkeypatch, capsys, raw_json: str, download: bool
+) -> None:
+    app, binding, _ = machine(tmp_path)
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    output = tmp_path / "artifact.txt"
+    command = (
+        ["artifact", "read", "--output", str(output)]
+        if download
+        else ["health", "live"]
+    )
+
+    exit_code = cli.main(["--config", str(config), *command, "--json", raw_json])
+
+    assert exit_code == 2
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "rejected",
+        "error_code": "INTERACTION-ARGUMENTS",
+        "transport_status": 400,
+    }
+    assert not output.exists()
+    assert not list(tmp_path.glob("*.part"))
 
 
 @pytest.mark.asyncio
