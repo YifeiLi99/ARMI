@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import subprocess
@@ -585,6 +586,25 @@ class AdminToolServiceTests(unittest.TestCase):
 
 
 class AdminProtocolTests(unittest.TestCase):
+    def test_over_nested_diagnostics_cursor_is_rejected(self) -> None:
+        cursor = base64.urlsafe_b64encode(b"[" * 12000 + b"0" + b"]" * 12000)
+        encoded = cursor.rstrip(b"=").decode("ascii")
+        self.assertLess(len(encoded), 32768)
+
+        async def exercise() -> None:
+            server = _server(_service())
+            for cursor in (encoded, "invalid-base64"):
+                with self.subTest(cursor_length=len(cursor)):
+                    response = await server.call_tool(
+                        "admin_diagnostics_query", {"cursor": cursor}
+                    )
+                    content = response.structured_content
+                    assert content is not None
+                    assert content["status"] == "rejected"
+                    assert content["error_code"] == "DIAGNOSTICS-CURSOR-INVALID"
+
+        asyncio.run(exercise())
+
     def test_early_launcher_logs_are_queryable_through_bound_mcp(self) -> None:
         from armi_runtime_foundation import DiagnosticLog
 

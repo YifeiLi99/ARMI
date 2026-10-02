@@ -1099,6 +1099,18 @@ class AdminToolService:
                 "conflict" if exc.code == "CLI-RUNTIME-CONTROL-BUSY" else "failed",
                 exc.code,
             )
+        except ValueError as exc:
+            if (
+                name
+                in {
+                    "diagnostics_query",
+                    "diagnostics_summary",
+                    "diagnostics_read",
+                }
+                and str(exc) == "DIAGNOSTICS-CURSOR-INVALID"
+            ):
+                return self._tool_failure(started, "rejected", str(exc))
+            return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
         except Exception:
             return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
 

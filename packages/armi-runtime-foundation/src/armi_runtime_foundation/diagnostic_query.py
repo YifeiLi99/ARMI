@@ -88,7 +88,7 @@ def _encode(value: object) -> str:
 def _decode(value: str) -> object:
     try:
         return json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
-    except (ValueError, UnicodeError) as error:
+    except (ValueError, UnicodeError, RecursionError) as error:
         raise ValueError("DIAGNOSTICS-CURSOR-INVALID") from error
 
 
