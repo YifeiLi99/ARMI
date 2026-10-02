@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,92 @@ def test_enabled_service_fails_clearly_when_not_installed(tmp_path: Path) -> Non
 
     with pytest.raises(RuntimeViolation, match="SEMANTIC-RECALL-INSTALL"):
         manager.start()
+
+
+@pytest.mark.parametrize(
+    "failure", ("state_write", "identity_unavailable", "early_exit")
+)
+def test_start_failure_before_health_check_reaps_the_spawned_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    import armi_local_control.windows_package as windows_package
+
+    root = _environment_root(tmp_path)
+    manager = SemanticRecallProcessManager(root, enabled=True)
+    children: list[subprocess.Popen[bytes]] = []
+
+    def spawn(_command: object, **_options: object) -> subprocess.Popen[bytes]:
+        child = subprocess.Popen(
+            (sys.executable, "-c", "import time; time.sleep(60)"),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        children.append(child)
+        if failure == "early_exit":
+            child.terminate()
+            child.wait(timeout=5)
+        return child
+
+    monkeypatch.setattr(windows_package, "spawn_owned", spawn)
+    monkeypatch.setattr(
+        semantic_recall_process, "_protect_secret_file", lambda _path: None
+    )
+    error_type: type[BaseException]
+    if failure == "state_write":
+
+        def fail_write(_path: Path, _value: object) -> None:
+            assert children[0].poll() is None
+            raise PermissionError("state write denied")
+
+        monkeypatch.setattr(semantic_recall_process, "_atomic_json", fail_write)
+        error_type = PermissionError
+    elif failure == "identity_unavailable":
+
+        def fail_capture(_cls: object, pid: int, **_options: object) -> None:
+            assert children[0].poll() is None
+            raise psutil.AccessDenied(pid)
+
+        monkeypatch.setattr(
+            ManagedProcessIdentity, "capture", classmethod(fail_capture)
+        )
+        error_type = psutil.AccessDenied
+    else:
+        error_type = psutil.NoSuchProcess
+    try:
+        with pytest.raises(error_type):
+            manager._start_service(
+                {"llama_server": sys.executable, "model_path": str(root / "model")}, 28
+            )
+        assert len(children) == 1
+        assert children[0].poll() is not None, "failed startup left a live process"
+        assert not (manager._run_root / "api-key").exists()
+        assert not (manager._run_root / "service.json").exists()
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+
+
+def test_failed_atomic_state_publication_preserves_target_and_removes_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "service.json"
+    target.write_text("previous-state", encoding="utf-8")
+    original_replace = Path.replace
+
+    def fail_replace(source: Path, destination: str | Path) -> Path:
+        if destination == target:
+            raise PermissionError("state publication denied")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(PermissionError, match="state publication denied"):
+        semantic_recall_process._atomic_json(target, {"status": "running"})
+    assert target.read_text(encoding="utf-8") == "previous-state"
+    assert tuple(tmp_path.iterdir()) == (target,)
 
 
 def test_install_requires_explicit_official_download_approval(tmp_path: Path) -> None:

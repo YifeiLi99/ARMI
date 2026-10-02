@@ -142,15 +142,18 @@ def _sha256(path: Path) -> str:
 def _atomic_json(path: Path, value: object, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    temporary.chmod(mode)
-    temporary.replace(path)
-    path.chmod(mode)
+    try:
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        temporary.chmod(mode)
+        temporary.replace(path)
+        path.chmod(mode)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _read_json(path: Path, code: str) -> dict[str, Any]:
@@ -467,21 +470,33 @@ class SemanticRecallProcessManager:
             ) from exc
         finally:
             log_handle.close()
-        _atomic_json(
-            self._run_root / "service.json",
-            {
-                "schema_kind": _SCHEMA,
-                "pid": process.pid,
-                "process_identity": ManagedProcessIdentity.capture(
-                    process.pid,
-                    environment_identity=self._environment_identity(),
-                    incarnation=1,
-                ).to_wire(),
-                "port": port,
-                "model_id": EMBEDDING_MODEL_ID,
-                "gpu_layers": layers,
-            },
-        )
+        try:
+            _atomic_json(
+                self._run_root / "service.json",
+                {
+                    "schema_kind": _SCHEMA,
+                    "pid": process.pid,
+                    "process_identity": ManagedProcessIdentity.capture(
+                        process.pid,
+                        environment_identity=self._environment_identity(),
+                        incarnation=1,
+                    ).to_wire(),
+                    "port": port,
+                    "model_id": EMBEDDING_MODEL_ID,
+                    "gpu_layers": layers,
+                },
+            )
+        except BaseException:
+            # Until registration succeeds, only this Popen handle can reap the child.
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=10)
+            self._clear_run_files()
+            raise
         deadline = time.monotonic() + _START_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if process.poll() is not None:
