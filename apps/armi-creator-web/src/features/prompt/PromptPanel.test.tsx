@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ const CREATOR_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6efb";
 const DOCUMENT_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6efc";
 const FIRST_REVISION = "018f47a6-7b2d-7c35-8b18-684e38ab6efd";
 const SECOND_REVISION = "018f47a6-7b2d-7c35-8b18-684e38ab6efe";
+const THIRD_REVISION = "018f47a6-7b2d-7c35-8b18-684e38ab6eff";
 
 function jsonResponse(value: object, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -38,10 +39,11 @@ function promptResponse(
   };
 }
 
-function renderPanel() {
-  const queryClient = new QueryClient({
+function renderPanel(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <PromptPanel
@@ -60,6 +62,99 @@ afterEach(() => {
 });
 
 describe("Creator Prompt panel", () => {
+  it.each(["revision", "deactivation"])(
+    "keeps a newer projection after an unmounted %s succeeds",
+    async (operation) => {
+      let settle!: (value: Response) => void;
+      const response = new Promise<Response>((resolve) => {
+        settle = resolve;
+      });
+      let reads = 0;
+      const latest = promptResponse({
+        current_revision_id: THIRD_REVISION,
+        previous_revision_id: SECOND_REVISION,
+        revision_no: 3,
+        revision_kind: "revised",
+        content: "最新指导",
+        activated_at: "2026-08-06T10:02:00.000000Z",
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (_input, init) => {
+          if (init?.method === "PUT" || init?.method === "POST") {
+            return response;
+          }
+          reads += 1;
+          return jsonResponse(
+            reads === 1
+              ? promptResponse({
+                  current_revision_id: FIRST_REVISION,
+                  revision_no: 1,
+                  revision_kind: "created",
+                  content: "旧指导",
+                  activated_at: "2026-08-06T10:00:00.000000Z",
+                })
+              : latest,
+          );
+        }),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      });
+      const user = userEvent.setup();
+      const oldPanel = renderPanel(queryClient);
+      const editor = await screen.findByLabelText("Creator Prompt 内容");
+      if (operation === "revision") {
+        await user.clear(editor);
+        await user.type(editor, "本次指导");
+        await user.click(screen.getByRole("button", { name: "提交新修订" }));
+      } else {
+        await user.click(screen.getByRole("button", { name: "停用" }));
+      }
+      const mutation = queryClient.getMutationCache().getAll()[0];
+      expect(mutation?.state.status).toBe("pending");
+      oldPanel.unmount();
+      queryClient.clear();
+      renderPanel(queryClient);
+      await waitFor(() =>
+        expect(screen.getByLabelText("Creator Prompt 内容")).toHaveValue(
+          "最新指导",
+        ),
+      );
+      await act(async () => {
+        settle(
+          jsonResponse(
+            promptResponse({
+              status: operation === "revision" ? "active" : "inactive",
+              current_revision_id: SECOND_REVISION,
+              previous_revision_id: FIRST_REVISION,
+              revision_no: 2,
+              revision_kind:
+                operation === "revision" ? "revised" : "deactivated",
+              content: operation === "revision" ? "本次指导" : "旧指导",
+              activated_at: "2026-08-06T10:01:00.000000Z",
+            }),
+          ),
+        );
+      });
+      await waitFor(() => expect(mutation?.state.status).toBe("success"));
+      expect(
+        queryClient.getQueryData([
+          "creator-prompt",
+          ENVIRONMENT_ID,
+          CREATOR_ID,
+        ]),
+      ).toEqual(latest);
+      expect(screen.getByLabelText("Creator Prompt 内容")).toHaveValue(
+        "最新指导",
+      );
+      expect(screen.getByText("生效中")).toBeInTheDocument();
+    },
+  );
+
   it("creates and then deactivates immutable revisions with current CAS", async () => {
     const bodies: unknown[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {

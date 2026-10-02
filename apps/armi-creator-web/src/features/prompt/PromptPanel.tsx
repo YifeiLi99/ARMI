@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -29,6 +29,14 @@ export function PromptPanel({
   });
   const [content, setContent] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (prompt.data !== undefined) {
@@ -50,10 +58,13 @@ export function PromptPanel({
         content,
       ),
     onSuccess: (value) => {
+      // An old session's mutation must not overwrite a newer projection.
+      if (!mounted.current) return;
       queryClient.setQueryData(queryKey, value);
       setMessage("Creator Prompt 新修订已生效，只影响后续认知。");
     },
     onError: (error) => {
+      if (!mounted.current) return;
       if (error instanceof ApiFailure && error.status === 401) {
         onUnauthorized();
         return;
@@ -75,10 +86,12 @@ export function PromptPanel({
       return deactivateCreatorPrompt(token, revisionId);
     },
     onSuccess: (value) => {
+      if (!mounted.current) return;
       queryClient.setQueryData(queryKey, value);
       setMessage("Creator Prompt 已停用；历史认知仍保留原 revision 引用。");
     },
     onError: (error) => {
+      if (!mounted.current) return;
       if (error instanceof ApiFailure && error.status === 401) {
         onUnauthorized();
         return;
