@@ -301,7 +301,11 @@ async def stream_creator_events(
     try:
         lease = sessions.lease(token)
         for replayed in subscription.replay:
-            sessions.validate_lease(lease)
+            try:
+                sessions.validate_lease(lease)
+            except BrowserSessionViolation:
+                diagnostic("creator.event_stream.session_expired")
+                return
             yield replayed.frame
         while True:
             remaining = sessions.lease_remaining_seconds(lease)

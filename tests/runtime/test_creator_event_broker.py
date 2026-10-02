@@ -141,6 +141,43 @@ class CreatorEventBrokerTests(unittest.IsolatedAsyncioTestCase):
         await broker.notify(invalidation())
         self.assertIsNone(await asyncio.wait_for(subscription.receive(), timeout=0.1))
 
+    async def test_session_invalidated_during_replay_closes_stream(self) -> None:
+        for failure in ("expired", "revoked"):
+            with self.subTest(failure=failure):
+                clock = [0.0]
+                sessions = BrowserSessionStore(
+                    environment_id=uuid7(),
+                    creator_party_id=uuid7(),
+                    session_ttl_seconds=1,
+                    monotonic=lambda clock=clock: clock[0],
+                )
+                token = sessions.establish().token
+                broker = CreatorEventBroker(epoch=b"\x07" * 16)
+                for _index in range(3):
+                    await broker.notify(invalidation())
+                subscription = await broker.subscribe(f"sse-v1.{broker.epoch}.1")
+                diagnostics = []
+                stream = stream_creator_events(
+                    subscription,
+                    sessions=sessions,
+                    token=token,
+                    diagnostic=diagnostics.append,
+                )
+                self.assertEqual(await anext(stream), subscription.replay[0].frame)
+
+                if failure == "expired":
+                    clock[0] = 1.0
+                else:
+                    sessions.revoke_all()
+                with self.assertRaises(StopAsyncIteration):
+                    await anext(stream)
+
+                self.assertEqual(diagnostics, ["creator.event_stream.session_expired"])
+                await broker.notify(invalidation())
+                self.assertIsNone(
+                    await asyncio.wait_for(subscription.receive(), timeout=0.1)
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
