@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 from pathlib import Path
 from uuid import UUID
 
@@ -41,16 +42,17 @@ def compose_media_uploads(
                 while content := await asyncio.to_thread(stream.read, 128 * 1024):
                     yield content
 
-        staged = await storage.stage(
-            chunks(),
-            ArtifactPolicy(
-                media_type=record.declaration.media_type,
-                logical_kind="creator.input.media",
-                producer_kind="creator.delegate",
-                producer_trace_id=TraceId(record.upload_id.hex),
-                privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
-            ),
-        )
+        async with aclosing(chunks()) as source:
+            staged = await storage.stage(
+                source,
+                ArtifactPolicy(
+                    media_type=record.declaration.media_type,
+                    logical_kind="creator.input.media",
+                    producer_kind="creator.delegate",
+                    producer_trace_id=TraceId(record.upload_id.hex),
+                    privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
+                ),
+            )
         if (
             staged.content_digest.value != record.declaration.content_digest
             or staged.byte_size != record.declaration.byte_size

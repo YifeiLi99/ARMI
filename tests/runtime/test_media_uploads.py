@@ -4,14 +4,19 @@ import asyncio
 import hashlib
 import weakref
 from pathlib import Path
+from unittest.mock import Mock
 from uuid import uuid7
 
 import pytest
+from armi_local_control.binding import AuthenticatedDelegate
+from armi_runtime.application.interaction import InteractionInvocation
 from armi_runtime.application.media_uploads import (
     MediaUploads,
     UploadDeclaration,
     UploadViolation,
+    invoke_upload,
 )
+from armi_runtime.composition.media_uploads import compose_media_uploads
 
 pytestmark = pytest.mark.asyncio
 
@@ -59,6 +64,56 @@ async def test_resume_repeated_chunks_and_complete(tmp_path: Path):
     assert await uploads.complete(record.upload_id, creator, delegate) == completed
     assert len(publications) == 1
     assert not list((tmp_path / "uploads").glob("*.part"))
+
+
+async def test_failed_artifact_staging_closes_upload_file(tmp_path, monkeypatch):
+    environment, subject, creator, delegate = (uuid7() for _ in range(4))
+    factory, catalog = Mock(), Mock()
+    uploads = compose_media_uploads(tmp_path, environment, subject, factory, catalog)
+    record = await uploads.begin(
+        creator, delegate, "staging-failure", declaration(b"abc")
+    )
+    await uploads.append(record.upload_id, creator, delegate, 0, b"abc")
+    transport_file = uploads.root / f"{record.upload_id}.part"
+    original_open = Path.open
+    handles = []
+
+    def open_file(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        if path == transport_file and args == ("rb",):
+            handles.append(handle)
+        if path.parent == tmp_path / "artifacts" / "staging" and args == ("xb",):
+            stream = Mock(wraps=handle)
+            stream.write.side_effect = OSError("staging write failed")
+            return stream
+        return handle
+
+    monkeypatch.setattr(Path, "open", open_file)
+    try:
+        result = await invoke_upload(
+            uploads,
+            InteractionInvocation(
+                "upload_complete",
+                {"upload_id": str(record.upload_id)},
+                AuthenticatedDelegate(
+                    environment_id=environment,
+                    creator_party_id=creator,
+                    delegate_id=delegate,
+                    scopes=("interaction.write",),
+                ),
+            ),
+        )
+        assert result.status_code == 503
+        assert result.payload == {"error_code": "UPLOAD-UNAVAILABLE"}
+        assert len(handles) == 2
+        transport_file.unlink()
+        assert all(handle.closed for handle in handles)
+        factory.unit_of_work.assert_not_called()
+        catalog.reserve_publication.assert_not_called()
+        catalog.register.assert_not_called()
+    finally:
+        for handle in handles:
+            handle.close()
 
 
 @pytest.mark.parametrize("finish", ["complete", "cancel"])
