@@ -122,7 +122,10 @@ class ConfigurationAsset(EnvironmentConfiguration):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "configuration.yaml"
-            raw = json.dumps(values, ensure_ascii=False).encode("utf-8")
+            try:
+                raw = json.dumps(values, ensure_ascii=False).encode("utf-8")
+            except TypeError:
+                raise ValueError("ADMIN-CONFIG-INVALID") from None
             path.write_bytes(raw)
             match self.target:
                 case "model-bindings":

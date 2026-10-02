@@ -1,10 +1,12 @@
 import json
 import os
+from datetime import date
 from pathlib import Path
 from typing import cast
 from uuid import uuid7
 
 import pytest
+import yaml
 from armi_kernel import load_yaml_file
 from armi_local_control import ConfigurationViolation
 from armi_local_control.configuration import load_effective_config
@@ -155,6 +157,41 @@ def test_invalid_model_configuration_can_be_repaired(tmp_path: Path) -> None:
     assert "invalid-private-value" not in json.dumps(broken)
     config.apply({"voice_binding": {"timeout_seconds": 20}}, broken["version"])
     assert config.read()["values"]["voice_binding"]["timeout_seconds"] == 20
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [date(2026, 10, 2), b"invalid-private-value", {"invalid-private-value"}],
+    ids=["yaml_date", "yaml_binary", "yaml_set"],
+)
+def test_non_json_yaml_values_can_be_diagnosed_and_repaired(
+    tmp_path: Path, invalid_value: object
+) -> None:
+    config = ConfigurationAsset(
+        ConfigurationInvocation(
+            environment_root=tmp_path,
+            environment_id=uuid7(),
+            target="model-bindings",
+            action="read",
+        )
+    )
+    values = config.read()["values"]
+    values["voice_binding"]["timeout_seconds"] = invalid_value
+    config.path.parent.mkdir(parents=True)
+    config.path.write_text(yaml.safe_dump(values), encoding="utf-8")
+    before = config.path.read_bytes()
+
+    broken = config.read()
+
+    assert broken["configuration_state"] == "invalid"
+    assert broken["error_code"] == "ADMIN-CONFIG-INVALID"
+    assert broken["values"] is None
+    assert "invalid-private-value" not in json.dumps(broken)
+    assert config.path.read_bytes() == before
+    config.apply({"voice_binding": {"timeout_seconds": 20}}, broken["version"])
+    repaired = config.read()
+    assert repaired["configuration_state"] == "configured"
+    assert repaired["values"]["voice_binding"]["timeout_seconds"] == 20
 
 
 @pytest.mark.parametrize(
