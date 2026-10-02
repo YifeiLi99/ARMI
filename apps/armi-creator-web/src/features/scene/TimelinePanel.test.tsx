@@ -165,6 +165,67 @@ it("refreshes a reply after effect invalidation when its first read failed", asy
   expect(effectReads).toBe(2);
 });
 
+it("keeps the shared notification stream alive after another scene changes", async () => {
+  let timelineReads = 0;
+  const frames = ["night-talk", "default"]
+    .map((sceneKey, index) => {
+      const eventId = `sse-v1.${"c".repeat(22)}.${index + 1}`;
+      return `id: ${eventId}\nevent: scene.timeline.invalidated\ndata: ${JSON.stringify(
+        {
+          event_id: eventId,
+          event_kind: "scene.timeline.invalidated",
+          resource_kind: "scene_timeline",
+          resource_ref: sceneKey,
+          projection_kind: "scene-timeline",
+          occurred_at: OCCURRED_AT,
+        },
+      )}\n\n`;
+    })
+    .join("");
+  const fetchMock = vi.fn<typeof fetch>(async (input) => {
+    const url = String(input);
+    if (url.startsWith("/v1/scenes/default/timeline?")) {
+      timelineReads += 1;
+      return jsonResponse(
+        timelineReads === 1
+          ? {
+              projection_kind: "scene-timeline",
+              scene_key: "default",
+              items: [],
+              next_cursor: null,
+            }
+          : timeline({
+              timeline_item_id: ITEM_ID,
+              source_kind: "creator_response",
+              source_ref: EFFECT_ID,
+              status: "completed",
+              occurred_at: OCCURRED_AT,
+              modality: "live_voice",
+              message: "当前场合的新回复",
+            }),
+      );
+    }
+    if (url === "/v1/scenes/default/events") {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(frames));
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  showTimeline();
+
+  expect(await screen.findByText("当前场合的新回复")).toBeInTheDocument();
+  expect(screen.getByText("实时")).toBeInTheDocument();
+  expect(timelineReads).toBe(2);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
 it("does not restart a rejected stream while its fallback refresh reloads the timeline", async () => {
   const page = {
     projection_kind: "scene-timeline",

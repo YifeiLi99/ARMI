@@ -96,7 +96,8 @@ export function useSceneEventStream({
     ): Promise<void> {
       if (resourceKind === "scene_timeline") {
         if (resourceRef !== sceneKey) {
-          throw new EventStreamFailure("event");
+          // The Runtime broker also publishes changes to other scenes.
+          return;
         }
         await queryClient.resetQueries(
           { queryKey, exact: true },
