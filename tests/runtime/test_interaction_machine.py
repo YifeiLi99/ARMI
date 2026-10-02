@@ -478,7 +478,7 @@ async def test_cli_and_mcp_send_same_bound_creator_command(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["connection", "invalid_response"])
+@pytest.mark.parametrize("failure", ["connection", "invalid_response", "invalid_utf8"])
 async def test_cli_and_mcp_return_identical_transport_failures(
     tmp_path: Path, monkeypatch, capsys, failure: str
 ) -> None:
@@ -489,6 +489,8 @@ async def test_cli_and_mcp_return_identical_transport_failures(
     def respond(request: httpx.Request) -> httpx.Response:
         if failure == "connection":
             raise httpx.ConnectError("fixture transport unavailable", request=request)
+        if failure == "invalid_utf8":
+            return httpx.Response(200, content=b"\xff")
         return httpx.Response(200, content=b"not a JSON response")
 
     client = InteractionClient(binding, transport=httpx.MockTransport(respond))
@@ -501,6 +503,12 @@ async def test_cli_and_mcp_return_identical_transport_failures(
     assert exit_code != 0 and called.is_error
     assert called.structured_content == result
     assert result["status"] == "unavailable"
+    assert result["transport_status"] == 503
+    assert result["error_code"] == (
+        "INTERACTION-TRANSPORT-UNAVAILABLE"
+        if failure == "connection"
+        else "INTERACTION-RESPONSE-CONTRACT"
+    )
 
 
 @pytest.mark.asyncio

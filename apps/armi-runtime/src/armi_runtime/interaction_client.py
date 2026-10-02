@@ -175,7 +175,10 @@ class InteractionClient:
                 data.extend(chunk)
                 if len(data) > 32 * 1024 * 1024:
                     raise ValueError("INTERACTION-RESPONSE-SIZE")
-            result = json.loads(data)
+            try:
+                result = json.loads(data)
+            except UnicodeDecodeError:
+                raise ValueError("INTERACTION-RESPONSE-CONTRACT") from None
         if not isinstance(result, dict):
             raise ValueError("INTERACTION-RESPONSE-CONTRACT")
         result = cast(dict[str, Any], result)
